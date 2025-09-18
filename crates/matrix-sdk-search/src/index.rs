@@ -12,17 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, fmt, fs, path::Path, sync::Arc};
+use std::{collections::HashSet, fmt};
 
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
 };
 use tantivy::{
-    Index, IndexReader, TantivyDocument,
-    collector::TopDocs,
-    directory::{MmapDirectory, error::OpenDirectoryError},
-    query::QueryParser,
-    schema::Value,
+    Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
+    query::QueryParser, schema::Value,
 };
 use tracing::{debug, error, warn};
 
@@ -70,70 +67,16 @@ impl fmt::Debug for RoomIndex {
 }
 
 impl RoomIndex {
-    fn new_with(
-        index: Index,
-        schema: RoomMessageSchema,
-        room_id: &RoomId,
-    ) -> Result<RoomIndex, IndexError> {
+    pub(crate) fn new_with(index: Index, schema: RoomMessageSchema, room_id: &RoomId) -> RoomIndex {
         let query_parser = QueryParser::for_index(&index, schema.default_search_fields());
-        Ok(Self {
+        Self {
             index,
             schema,
             query_parser,
             room_id: room_id.to_owned(),
             uncommitted_adds: HashSet::new(),
             uncommitted_removes: HashSet::new(),
-        })
-    }
-
-    /// Create new [`RoomIndex`] which stores the index in path/room_id
-    pub fn new(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let path = path.join(room_id.as_str());
-        let schema = RoomMessageSchema::new();
-        fs::create_dir_all(path.clone())?;
-        let index = Index::create_in_dir(path, schema.as_tantivy_schema())?;
-        RoomIndex::new_with(index, schema, room_id)
-    }
-
-    /// Create new [`RoomIndex`] which stores the index in memory.
-    /// Intended for testing.
-    pub fn new_in_memory(room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let schema = RoomMessageSchema::new();
-        let index = Index::create_in_ram(schema.as_tantivy_schema());
-        RoomIndex::new_with(index, schema, room_id)
-    }
-
-    /// Open index at path/room_id if it exists else
-    /// create new [`RoomIndex`] which stores the index in path/room_id
-    pub fn open_or_create(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let path = path.join(room_id.as_str());
-        let mmap_dir = match MmapDirectory::open(path) {
-            Ok(dir) => Ok(dir),
-            Err(err) => match err {
-                OpenDirectoryError::DoesNotExist(path) => {
-                    fs::create_dir_all(path.clone()).map_err(|err| {
-                        OpenDirectoryError::IoError {
-                            io_error: Arc::new(err),
-                            directory_path: path.to_path_buf(),
-                        }
-                    })?;
-                    MmapDirectory::open(path)
-                }
-                _ => Err(err),
-            },
-        }?;
-        let schema = RoomMessageSchema::new();
-        let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
-        RoomIndex::new_with(index, schema, room_id)
-    }
-
-    /// Open index at path/room_id. Fails if it doesn't exist.
-    pub fn open(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let path = path.join(room_id.as_str());
-        let index_path = MmapDirectory::open(path)?;
-        let index = Index::open(index_path)?;
-        let schema: RoomMessageSchema = index.schema().try_into()?;
-        RoomIndex::new_with(index, schema, room_id)
+        }
     }
 
     /// Get a [`SearchIndexWriter`] for this index.
@@ -393,6 +336,7 @@ mod tests {
     };
 
     use crate::{
+        builder::RoomIndexBuilder,
         error::IndexError,
         index::{RoomIndex, RoomIndexOperation},
     };
@@ -432,18 +376,9 @@ mod tests {
     }
 
     #[test]
-    fn test_make_index_in_memory() {
-        let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndex::new_in_memory(room_id);
-
-        index.expect("failed to make index in ram: {index:?}");
-    }
-
-    #[test]
     fn test_add_event() {
         let room_id = room_id!("!room_id:localhost");
-        let mut index =
-            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event = EventFactory::new()
             .text_msg("event message")
@@ -458,8 +393,7 @@ mod tests {
     #[test]
     fn test_search_populated_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index =
-            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id_1 = event_id!("$event_id_1:localhost");
         let event_id_2 = event_id!("$event_id_2:localhost");
@@ -500,8 +434,7 @@ mod tests {
     #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let index =
-            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
@@ -513,8 +446,7 @@ mod tests {
     #[test]
     fn test_index_contains_false() {
         let room_id = room_id!("!room_id:localhost");
-        let index =
-            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
 
@@ -524,7 +456,7 @@ mod tests {
     #[test]
     fn test_index_contains_true() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndex::new_in_memory(room_id)?;
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
         let event = EventFactory::new()
@@ -544,7 +476,7 @@ mod tests {
     #[test]
     fn test_index_add_idempotency() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndex::new_in_memory(room_id)?;
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
         let event = EventFactory::new()
@@ -573,7 +505,7 @@ mod tests {
     #[test]
     fn test_remove_event() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndex::new_in_memory(room_id)?;
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
         let user_id = user_id!("@user_id:localhost");
@@ -596,7 +528,7 @@ mod tests {
     #[test]
     fn test_edit_removes_old_and_adds_new_event() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndex::new_in_memory(room_id)?;
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let old_event_id = event_id!("$old_event_id:localhost");
         let user_id = user_id!("@user_id:localhost");
