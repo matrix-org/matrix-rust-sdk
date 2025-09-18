@@ -212,7 +212,7 @@ impl SlidingSyncResponseProcessor {
 
         handle_receipts_extension(&self.client, response, &mut sync_response).await?;
 
-        update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await?;
+        update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await;
 
         self.response = Some(sync_response);
 
@@ -256,7 +256,7 @@ async fn update_in_memory_caches(
     client: &Client,
     previously_joined_rooms: &BTreeSet<OwnedRoomId>,
     response: &SyncResponse,
-) -> Result<()> {
+) {
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
 
     // If the push rules have changed, update the cached notification mode for *all*
@@ -308,8 +308,6 @@ async fn update_in_memory_caches(
             }
         }
     }
-
-    Ok(())
 }
 
 /// Update the receipts extension and compute the read receipt accordingly.
