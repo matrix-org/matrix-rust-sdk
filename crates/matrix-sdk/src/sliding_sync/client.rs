@@ -532,6 +532,53 @@ mod tests {
             Some(RoomNotificationMode::MentionsAndKeywordsOnly),
         );
 
+        // Mock a sync response.
+        // Even if the room doesn't appear in the response, its notification mode will
+        // be updated immediately if a new `m.push_rules` is received.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                extensions: assign!(http::response::Extensions::default(), {
+                    account_data: assign!(http::response::AccountData::default(), {
+                        global: vec![
+                            Raw::from_json_string(
+                                json!({
+                                    "type": "m.push_rules",
+                                    "content": {
+                                        "global": {
+                                            "room": [
+                                                {
+                                                    "actions": ["notify"],
+                                                    "rule_id": room_id,
+                                                    "default": false,
+                                                    "enabled": true,
+                                                },
+                                            ],
+                                        },
+                                    },
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        ]
+                    })
+                })
+            });
+
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
+        }
+
+        // The room notification mode has been updated again!
+        assert_eq!(
+            room.cached_user_defined_notification_mode(),
+            Some(RoomNotificationMode::AllMessages),
+        );
+
         Ok(())
     }
 
