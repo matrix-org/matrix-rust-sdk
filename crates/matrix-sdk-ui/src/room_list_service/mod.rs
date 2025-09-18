@@ -180,7 +180,11 @@ impl RoomListService {
         }
 
         if share_pos {
-            // We don't deal with encryption device messages here so this is safe
+            // The e2ee extensions aren't enabled in this sliding sync instance, and this is
+            // the only one that could be used from a different process. So it's
+            // fine to enable position sharing (i.e. reloading it from disk),
+            // since it's always exclusively owned by the current process.
+            debug!("Enabling `share_pos` for the room list sliding sync");
             builder = builder.share_pos();
         }
 
