@@ -95,14 +95,14 @@ use wiremock::{
     matchers::{header, method, path},
 };
 
-use super::Room;
+use super::RoomListItem;
 
 /// A trait “alias” that represents a _filter_.
 ///
 /// A filter is simply a function that receives a `&Room` and returns a `bool`.
-pub trait Filter: Fn(&Room) -> bool {}
+pub trait Filter: Fn(&RoomListItem) -> bool {}
 
-impl<F> Filter for F where F: Fn(&Room) -> bool {}
+impl<F> Filter for F where F: Fn(&RoomListItem) -> bool {}
 
 /// Type alias for a boxed filter function.
 #[cfg(not(target_family = "wasm"))]
@@ -122,7 +122,7 @@ pub(super) async fn new_rooms<const N: usize>(
     room_ids: [&RoomId; N],
     client: &Client,
     server: &MockServer,
-) -> [Room; N] {
+) -> [RoomListItem; N] {
     let mut response_builder = SyncResponseBuilder::default();
 
     for room_id in room_ids {

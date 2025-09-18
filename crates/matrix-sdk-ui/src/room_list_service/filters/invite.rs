@@ -14,11 +14,11 @@
 
 use matrix_sdk_base::RoomState;
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-fn matches<F>(state: F, room: &Room) -> bool
+fn matches<F>(state: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> RoomState,
+    F: Fn(&RoomListItem) -> RoomState,
 {
     state(room) == RoomState::Invited
 }
@@ -26,7 +26,7 @@ where
 /// Create a new filter that will filter out rooms that are not invites (see
 /// [`matrix_sdk_base::RoomState::Invited`]).
 pub fn new_filter() -> impl Filter {
-    let state = |room: &Room| room.cached_state;
+    let state = |room: &RoomListItem| room.cached_state;
 
     move |room| -> bool { matches(state, room) }
 }

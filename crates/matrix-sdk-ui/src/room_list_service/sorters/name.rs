@@ -14,22 +14,25 @@
 
 use std::cmp::Ordering;
 
-use super::{Room, Sorter};
+use super::{RoomListItem, Sorter};
 
-fn cmp<'a, 'b, F>(names: F, left: &'a Room, right: &'b Room) -> Ordering
+fn cmp<'a, 'b, F>(names: F, left: &'a RoomListItem, right: &'b RoomListItem) -> Ordering
 where
-    F: Fn(&'a Room, &'b Room) -> (Option<&'a str>, Option<&'b str>),
+    F: Fn(&'a RoomListItem, &'b RoomListItem) -> (Option<&'a str>, Option<&'b str>),
 {
     let (left_name, right_name) = names(left, right);
 
     left_name.cmp(&right_name)
 }
 
-/// Create a new sorter that will sort two [`Room`] by name, i.e. by
+/// Create a new sorter that will sort two [`RoomListItem`] by name, i.e. by
 /// comparing their display names. A lexicographically ordering is applied, i.e.
 /// "a" < "b".
 pub fn new_sorter() -> impl Sorter {
-    fn names<'a, 'b>(left: &'a Room, right: &'b Room) -> (Option<&'a str>, Option<&'b str>) {
+    fn names<'a, 'b>(
+        left: &'a RoomListItem,
+        right: &'b RoomListItem,
+    ) -> (Option<&'a str>, Option<&'b str>) {
         (left.cached_display_name.as_deref(), right.cached_display_name.as_deref())
     }
 

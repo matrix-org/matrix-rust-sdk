@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-fn matches<F>(is_low_priority: F, room: &Room) -> bool
+fn matches<F>(is_low_priority: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> bool,
+    F: Fn(&RoomListItem) -> bool,
 {
     is_low_priority(room)
 }
@@ -24,7 +24,7 @@ where
 /// Create a new filter that will filter out rooms that are not marked as
 /// low priority (see [`matrix_sdk_base::Room::is_low_priority`]).
 pub fn new_filter() -> impl Filter {
-    let is_low_priority = |room: &Room| room.is_low_priority();
+    let is_low_priority = |room: &RoomListItem| room.is_low_priority();
 
     move |room| -> bool { matches(is_low_priority, room) }
 }

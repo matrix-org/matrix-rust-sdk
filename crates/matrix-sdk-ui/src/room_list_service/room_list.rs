@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{Stream, StreamExt as _, pin_mut, stream};
 use matrix_sdk::{
-    Client, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
+    Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     executor::{JoinHandle, spawn},
 };
 use matrix_sdk_base::RoomInfoNotableUpdate;
@@ -121,10 +121,7 @@ impl RoomList {
     }
 
     /// Get a stream of rooms.
-    fn entries(
-        &self,
-    ) -> (Vector<matrix_sdk::Room>, impl Stream<Item = Vec<VectorDiff<matrix_sdk::Room>>> + '_)
-    {
+    fn entries(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
         self.client.rooms_stream()
     }
 
@@ -142,7 +139,8 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-    ) -> (impl Stream<Item = Vec<VectorDiff<Room>>> + '_, RoomListDynamicEntriesController) {
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListItem>>> + '_, RoomListDynamicEntriesController)
+    {
         let room_info_notable_update_receiver = self.client.room_info_notable_update_receiver();
         let list = self.sliding_sync_list.clone();
 
@@ -163,7 +161,7 @@ impl RoomList {
                 let filter_fn = filter_fn_cell.take().await;
 
                 let (raw_values, raw_stream) = self.entries();
-                let values = raw_values.into_iter().map(Into::into).collect::<Vector<Room>>();
+                let values = raw_values.into_iter().map(Into::into).collect::<Vector<RoomListItem>>();
 
                 // Combine normal stream events with other updates from rooms
                 let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
@@ -200,10 +198,10 @@ impl RoomList {
 /// knows where all rooms are. When the receiver is triggered, a Set operation
 /// for the room position is inserted to the stream.
 fn merge_stream_and_receiver(
-    mut current_values: Vector<Room>,
-    raw_stream: impl Stream<Item = Vec<VectorDiff<matrix_sdk::Room>>>,
+    mut current_values: Vector<RoomListItem>,
+    raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
-) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
+) -> impl Stream<Item = Vec<VectorDiff<RoomListItem>>> {
     stream! {
         pin_mut!(raw_stream);
 
@@ -214,7 +212,7 @@ fn merge_stream_and_receiver(
 
                 diffs = raw_stream.next() => {
                     if let Some(diffs) = diffs {
-                        let diffs = diffs.into_iter().map(|diff| diff.map(Room::from)).collect::<Vec<_>>();
+                        let diffs = diffs.into_iter().map(|diff| diff.map(RoomListItem::from)).collect::<Vec<_>>();
 
                         for diff in &diffs {
                             diff.clone().map(|room| {
@@ -362,44 +360,44 @@ impl RoomListDynamicEntriesController {
     }
 }
 
-/// A `Room` facade type that derefs to [`matrix_sdk::Room`] and that caches
-/// data from [`RoomInfo`].
+/// A facade type that derefs to [`Room`] and that caches data from
+/// [`RoomInfo`].
 ///
 /// Why caching data? [`RoomInfo`] is behind a lock. Every time a filter or a
-/// sorter calls a method on [`matrix_sdk::Room`], it's likely to hit the lock
-/// in front of [`RoomInfo`]. It creates a big contention. By caching the data,
-/// it avoids hitting the lock, improving the performance greatly.
+/// sorter calls a method on [`Room`], it's likely to hit the lock in front of
+/// [`RoomInfo`]. It creates a big contention. By caching the data, it avoids
+/// hitting the lock, improving the performance greatly.
 ///
 /// Data are refreshed in `merge_stream_and_receiver` (private function).
 ///
 /// [`RoomInfo`]: matrix_sdk::RoomInfo
 #[derive(Clone, Debug)]
-pub struct Room {
+pub struct RoomListItem {
     /// The inner room.
-    inner: matrix_sdk::Room,
+    inner: Room,
 
-    /// Cache of `matrix_sdk::Room::new_latest_event_timestamp`.
+    /// Cache of `Room::new_latest_event_timestamp`.
     pub(super) cached_latest_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
-    /// Cache of `matrix_sdk::Room::new_latest_event_is_local`.
+    /// Cache of `Room::new_latest_event_is_local`.
     pub(super) cached_latest_event_is_local: bool,
 
-    /// Cache of `matrix_sdk::Room::recency_stamp`.
+    /// Cache of `Room::recency_stamp`.
     pub(super) cached_recency_stamp: Option<RoomRecencyStamp>,
 
-    /// Cache of `matrix_sdk::Room::cached_display_name`, already as a string.
+    /// Cache of `Room::cached_display_name`, already as a string.
     pub(super) cached_display_name: Option<String>,
 
-    /// Cache of `matrix_sdk::Room::is_space`.
+    /// Cache of `Room::is_space`.
     pub(super) cached_is_space: bool,
 
-    // Cache of `matrix_sdk::Room::state`.
+    // Cache of `Room::state`.
     pub(super) cached_state: RoomState,
 }
 
-impl Room {
+impl RoomListItem {
     /// Deconstruct to the inner room value.
-    pub fn into_inner(self) -> matrix_sdk::Room {
+    pub fn into_inner(self) -> Room {
         self.inner
     }
 
@@ -414,8 +412,8 @@ impl Room {
     }
 }
 
-impl From<matrix_sdk::Room> for Room {
-    fn from(inner: matrix_sdk::Room) -> Self {
+impl From<Room> for RoomListItem {
+    fn from(inner: Room) -> Self {
         let cached_latest_event_timestamp = inner.new_latest_event_timestamp();
         let cached_latest_event_is_local = inner.new_latest_event_is_local();
         let cached_recency_stamp = inner.recency_stamp();
@@ -435,8 +433,8 @@ impl From<matrix_sdk::Room> for Room {
     }
 }
 
-impl Deref for Room {
-    type Target = matrix_sdk::Room;
+impl Deref for RoomListItem {
+    type Target = Room;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

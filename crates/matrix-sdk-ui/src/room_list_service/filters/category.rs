@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
 /// An enum to represent whether a room is about “people” (strictly 2 users) or
 /// “group” (1 or more than 2 users).
@@ -34,9 +34,9 @@ type DirectTargetsLength = usize;
 
 /// _Direct targets_ mean the number of users in a direct room, except us.
 /// So if it returns 1, it means there are 2 users in the direct room.
-fn matches<F>(number_of_direct_targets: F, room: &Room, expected_kind: RoomCategory) -> bool
+fn matches<F>(number_of_direct_targets: F, room: &RoomListItem, expected_kind: RoomCategory) -> bool
 where
-    F: Fn(&Room) -> Option<DirectTargetsLength>,
+    F: Fn(&RoomListItem) -> Option<DirectTargetsLength>,
 {
     let kind = match number_of_direct_targets(room) {
         // If 1, we are sure it's a direct room between two users. It's the strict
@@ -59,7 +59,7 @@ where
 /// `expected_category`. The category is defined by [`RoomCategory`], see this
 /// type to learn more.
 pub fn new_filter(expected_category: RoomCategory) -> impl Filter {
-    let number_of_direct_targets = move |room: &Room| Some(room.direct_targets_length());
+    let number_of_direct_targets = move |room: &RoomListItem| Some(room.direct_targets_length());
 
     move |room| -> bool { matches(number_of_direct_targets, room, expected_category) }
 }
@@ -79,7 +79,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let number_of_direct_targets = |_room: &Room| Some(42);
+        let number_of_direct_targets = |_room: &RoomListItem| Some(42);
 
         // Expect `People`.
         {
@@ -101,7 +101,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let number_of_direct_targets = |_room: &Room| Some(1);
+        let number_of_direct_targets = |_room: &RoomListItem| Some(1);
 
         // Expect `People`.
         {
@@ -123,7 +123,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let number_of_direct_targets = |_room: &Room| None;
+        let number_of_direct_targets = |_room: &RoomListItem| None;
 
         assert!(matches(number_of_direct_targets, &room, RoomCategory::Group).not());
     }

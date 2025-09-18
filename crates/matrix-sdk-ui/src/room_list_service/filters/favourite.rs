@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-fn matches<F>(is_favourite: F, room: &Room) -> bool
+fn matches<F>(is_favourite: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> bool,
+    F: Fn(&RoomListItem) -> bool,
 {
     is_favourite(room)
 }
@@ -24,7 +24,7 @@ where
 /// Create a new filter that will filter out rooms that are not marked as
 /// favourite (see [`matrix_sdk_base::Room::is_favourite`]).
 pub fn new_filter() -> impl Filter {
-    |room| -> bool { matches(|room: &Room| room.is_favourite(), room) }
+    |room| -> bool { matches(|room: &RoomListItem| room.is_favourite(), room) }
 }
 
 #[cfg(test)]
@@ -42,7 +42,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        assert!(matches(|_: &Room| true, &room));
+        assert!(matches(|_: &RoomListItem| true, &room));
     }
 
     #[async_test]
@@ -50,6 +50,6 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        assert!(matches(|_: &Room| false, &room).not());
+        assert!(matches(|_: &RoomListItem| false, &room).not());
     }
 }

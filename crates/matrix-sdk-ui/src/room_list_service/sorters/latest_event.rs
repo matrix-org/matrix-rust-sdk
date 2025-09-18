@@ -14,11 +14,11 @@
 
 use std::cmp::Ordering;
 
-use super::{Room, Sorter};
+use super::{RoomListItem, Sorter};
 
-fn cmp<F>(are_latest_events_locals: F, left: &Room, right: &Room) -> Ordering
+fn cmp<F>(are_latest_events_locals: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
-    F: Fn(&Room, &Room) -> (bool, bool),
+    F: Fn(&RoomListItem, &RoomListItem) -> (bool, bool),
 {
     // We want local latest event to come first. When there is a remote latest event
     // or no latest event, we don't want to sort them.
@@ -46,8 +46,8 @@ where
     }
 }
 
-/// Create a new sorter that will sort two [`Room`] by their latest events'
-/// state: latest events representing a local event
+/// Create a new sorter that will sort two [`RoomListItem`] by their latest
+/// events' state: latest events representing a local event
 /// ([`LatestEventValue::LocalIsSending`] or
 /// [`LatestEventValue::LocalCannotBeSent`]) come first, and latest event
 /// representing a remote event ([`LatestEventValue::Remote`]) come last.
@@ -56,7 +56,7 @@ where
 /// [`LatestEventValue::LocalCannotBeSent`]: matrix_sdk_base::latest_event::LatestEventValue::LocalCannotBeSent
 /// [`LatestEventValue::Remote`]: matrix_sdk_base::latest_event::LatestEventValue::Remote
 pub fn new_sorter() -> impl Sorter {
-    let latest_events = |left: &Room, right: &Room| {
+    let latest_events = |left: &RoomListItem, right: &RoomListItem| {
         // Be careful. This method is called **a lot** in the context of a sorter. Using
         // `Room::new_latest_event` would be dramatic as it returns a clone of the
         // `LatestEventValue`. It's better to use the more specific method
