@@ -996,7 +996,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`, and count the number of chunks.
-                let (chunk_identifier_generator, number_of_chunks) = txn
+                let (observed_max_identifier, number_of_chunks) = txn
                     .prepare(
                         "SELECT MAX(id), COUNT(*) FROM linked_chunks WHERE linked_chunk_id = ?"
                     )?
@@ -1014,10 +1014,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                         }
                     )?;
 
-                let chunk_identifier_generator = match chunk_identifier_generator {
-                    Some(last_chunk_identifier) => {
+                let chunk_identifier_generator = match observed_max_identifier {
+                    Some(max_observed_identifier) => {
                         ChunkIdentifierGenerator::new_from_previous_chunk_identifier(
-                            ChunkIdentifier::new(last_chunk_identifier)
+                            ChunkIdentifier::new(max_observed_identifier)
                         )
                     },
                     None => ChunkIdentifierGenerator::new_from_scratch(),
