@@ -873,7 +873,9 @@ async fn configure_client(cli: Cli) -> Result<Client> {
         })
         .with_enable_share_history_on_invite(true)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
-        .search_index_store(SearchIndexStoreKind::Directory(session_path.join("indexData")));
+        .search_index_store(SearchIndexStoreKind::UnencryptedDirectory(
+            session_path.join("indexData"),
+        ));
 
     if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();

@@ -21,6 +21,7 @@ use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_search::{
+    builder::RoomIndexBuilder,
     error::IndexError,
     index::{RoomIndex, RoomIndexOperation},
 };
@@ -43,8 +44,8 @@ use crate::event_cache::RoomEventCache;
 /// Type of location to store [`RoomIndex`]
 #[derive(Clone, Debug)]
 pub enum SearchIndexStoreKind {
-    /// Store in file system folder
-    Directory(PathBuf),
+    /// Store unencrypted in file system folder
+    UnencryptedDirectory(PathBuf),
     /// Store in memory
     InMemory,
 }
@@ -90,8 +91,10 @@ pub struct SearchIndexGuard<'a> {
 impl SearchIndexGuard<'_> {
     fn create_index(&self, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let index = match self.search_index_store_kind {
-            SearchIndexStoreKind::Directory(path) => RoomIndex::open_or_create(path, room_id)?,
-            SearchIndexStoreKind::InMemory => RoomIndex::new_in_memory(room_id)?,
+            SearchIndexStoreKind::UnencryptedDirectory(path) => {
+                RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
+            }
+            SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build()?,
         };
         Ok(index)
     }
