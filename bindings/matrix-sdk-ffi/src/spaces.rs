@@ -227,6 +227,11 @@ pub struct SpaceRoom {
     /// Whether guest users may join the room and participate in it.
     pub guest_can_join: bool,
 
+    /// Whether this room is a direct room.
+    ///
+    /// Only set if the room is known to the client otherwise we
+    /// assume DMs shouldn't be exposed publicly in spaces.
+    pub is_direct: Option<bool>,
     /// The number of children room this has, if a space.
     pub children_count: u64,
     /// Whether this room is joined, left etc.
@@ -250,6 +255,7 @@ impl From<UISpaceRoom> for SpaceRoom {
             join_rule: room.join_rule.map(Into::into),
             world_readable: room.world_readable,
             guest_can_join: room.guest_can_join,
+            is_direct: room.is_direct,
             children_count: room.children_count,
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
