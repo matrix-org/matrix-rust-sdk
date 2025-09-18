@@ -10,7 +10,7 @@ use matrix_sdk_base::event_cache::{
     store::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, IntoEventCacheStore, MemoryStore},
 };
 use matrix_sdk_test::{ALICE, event_factory::EventFactory};
-use ruma::{EventId, room_id};
+use ruma::{EventId, RoomId, room_id};
 use tempfile::tempdir;
 use tokio::runtime::Builder;
 
@@ -265,10 +265,113 @@ fn reading(c: &mut Criterion) {
     group.finish()
 }
 
+fn load_last_chunk(c: &mut Criterion) {
+    // Create a new asynchronous runtime.
+    let runtime = Builder::new_multi_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("Failed to create an asynchronous runtime");
+
+    const NUM_ROOMS: u64 = 1000;
+
+    let event_factory = EventFactory::new().sender(&ALICE);
+
+    let mut group = c.benchmark_group("Loading the last chunk of a linked chunk");
+    group.sample_size(10);
+
+    for &num_events in NUMBER_OF_EVENTS {
+        let sqlite_temp_dir = tempdir().unwrap();
+
+        // Declare new stores for this set of events.
+        let stores: [(&str, Arc<DynEventCacheStore>); 1] = [
+            //("memory store", MemoryStore::default().into_event_cache_store()),
+            (
+                "sqlite store",
+                runtime.block_on(async {
+                    SqliteEventCacheStore::open(sqlite_temp_dir.path().join("bench"), None)
+                        .await
+                        .unwrap()
+                        .into_event_cache_store()
+                }),
+            ),
+        ];
+
+        for (store_name, store) in stores {
+            for room_index in 0..NUM_ROOMS {
+                let room_id = RoomId::parse(format!("!room{room_index}:bar.baz")).unwrap();
+
+                // Store some events and gap chunks in the store.
+                let mut events = (0..num_events)
+                    .map(|nth| {
+                        event_factory
+                            .text_msg("foo")
+                            .room(&room_id)
+                            .event_id(
+                                &EventId::parse(format!("$room{room_index}_ev{nth}")).unwrap(),
+                            )
+                            .into_event()
+                    })
+                    .peekable();
+
+                let mut lc =
+                    LinkedChunk::<DEFAULT_CHUNK_CAPACITY, Event, Gap>::new_with_update_history();
+                let mut num_gaps = 0;
+
+                while events.peek().is_some() {
+                    let events_chunk = events.by_ref().take(80).collect::<Vec<_>>();
+                    if events_chunk.is_empty() {
+                        break;
+                    }
+                    lc.push_items_back(events_chunk);
+                    lc.push_gap_back(Gap { prev_token: format!("gap{num_gaps}") });
+                    num_gaps += 1;
+                }
+
+                // Now persist the updates to recreate this full linked chunk.
+                let updates = lc.updates().unwrap().take();
+                let linked_chunk_id = LinkedChunkId::Room(&room_id);
+                runtime
+                    .block_on(store.handle_linked_chunk_updates(linked_chunk_id, updates))
+                    .unwrap();
+            }
+
+            // Operate on a room around the beginning.
+            let room_id = room_id!("!room42:bar.baz");
+            let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+            // Define the throughput.
+            group.throughput(Throughput::Elements(num_events));
+
+            // Bench loading of the last chunk.
+            group.bench_function(
+                BenchmarkId::new(format!("Loading last chunk[{store_name}]"), num_events),
+                |bencher| {
+                    // Bench the routine.
+                    bencher.to_async(&runtime).iter(|| async {
+                        // Load the last chunk first,
+                        let (last_chunk, _chunk_id_gen) =
+                            store.load_last_chunk(linked_chunk_id).await.unwrap();
+
+                        assert!(last_chunk.is_some());
+                    })
+                },
+            );
+
+            {
+                let _guard = runtime.enter();
+                drop(store);
+            }
+        }
+    }
+
+    group.finish()
+}
+
 criterion_group! {
     name = event_cache;
     config = Criterion::default();
-    targets = writing, reading,
+    targets = writing, reading, load_last_chunk,
 }
 
 criterion_main!(event_cache);
