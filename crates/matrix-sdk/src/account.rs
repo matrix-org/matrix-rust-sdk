@@ -1178,7 +1178,8 @@ impl Account {
     /// `io.element.recent_emoji` content to the global account data.
     ///
     /// Before updating the data, it'll fetch it from the homeserver, to make
-    /// sure the updated values are always used.
+    /// sure the updated values are always used. However, note this could still
+    /// result in a race condition if it's used concurrently.
     #[cfg(feature = "experimental-element-recent-emojis")]
     pub async fn add_recent_emoji(&self, emoji: &str) -> Result<()> {
         let Some(user_id) = self.client.user_id() else {
@@ -1188,6 +1189,11 @@ impl Account {
 
         let index = recent_emojis.iter().position(|(unicode, _)| unicode == emoji);
 
+        // Truncate to the max allowed size, which will remove any emojis that
+        // haven't been used in a very long time. This will also ease the pressure on
+        // `remove` and `insert` shifting lots of elements in the list
+        recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
+
         // Remove the emoji from the list if it was present and get it's `count` value
         let count = if let Some(index) = index { recent_emojis.remove(index).1 } else { uint!(0) };
 
@@ -1195,8 +1201,8 @@ impl Account {
         // considered the most recently used emoji
         recent_emojis.insert(0, (emoji.to_owned(), count + uint!(1)));
 
-        // Then truncate to the max allowed size, which will remove any emojis that
-        // haven't been used in a very long time
+        // If the item was a new one, the list will now be `MAX_RECENT_EMOJI_COUNT` + 1,
+        // so truncate it again (this is a no-op if it already has the right size)
         recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
         let request = UpdateGlobalAccountDataRequest::new(
