@@ -19,6 +19,7 @@ jobs:
           - linked_chunk
           - store_bench
           - timeline
+          - room_list
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
