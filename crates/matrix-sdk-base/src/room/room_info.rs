@@ -510,7 +510,7 @@ pub struct RoomInfo {
     /// A timestamp remembering when we observed the user accepting an invite on
     /// this current device.
     ///
-    /// This is useful to remember if the user accepted this a join on this
+    /// This is useful to remember if the user accepted this join on this
     /// specific client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) invite_acceptance_details: Option<InviteAcceptanceDetails>,
