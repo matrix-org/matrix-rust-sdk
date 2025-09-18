@@ -41,11 +41,15 @@ use tracing::{debug, warn};
 
 use crate::event_cache::RoomEventCache;
 
+type Password = String;
+
 /// Type of location to store [`RoomIndex`]
 #[derive(Clone, Debug)]
 pub enum SearchIndexStoreKind {
     /// Store unencrypted in file system folder
     UnencryptedDirectory(PathBuf),
+    /// Store encrypted in file system folder
+    EncryptedDirectory(PathBuf, Password),
     /// Store in memory
     InMemory,
 }
@@ -94,7 +98,12 @@ impl SearchIndexGuard<'_> {
             SearchIndexStoreKind::UnencryptedDirectory(path) => {
                 RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
             }
-            SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build()?,
+            SearchIndexStoreKind::EncryptedDirectory(path, password) => {
+                RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id)
+                    .encrypted(password)
+                    .build()?
+            }
+            SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build(),
         };
         Ok(index)
     }
