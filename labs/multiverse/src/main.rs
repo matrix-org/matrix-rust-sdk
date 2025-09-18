@@ -77,6 +77,13 @@ struct Cli {
     /// Set the proxy that should be used for the connection.
     #[clap(short, long, env = "PROXY")]
     proxy: Option<Url>,
+
+    /// Whether to *not* reload the `pos`ition sliding sync token from disk at
+    /// start or not, for the room list sliding sync.
+    ///
+    /// Set to false by default (i.e. reload the position from disk).
+    #[clap(short, long, default_value_t = false)]
+    dont_share_pos: bool,
 }
 
 #[derive(Default)]
@@ -119,6 +126,7 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
+    let share_pos = !cli.dont_share_pos;
     let client = configure_client(cli).await?;
 
     let event_cache = client.event_cache();
@@ -126,7 +134,7 @@ async fn main() -> Result<()> {
 
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
-    let mut app = App::new(client).await?;
+    let mut app = App::new(client, share_pos).await?;
 
     app.run(terminal).await
 }
@@ -178,8 +186,9 @@ struct App {
 impl App {
     const TICK_RATE: Duration = Duration::from_millis(250);
 
-    async fn new(client: Client) -> Result<Self> {
-        let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
+    async fn new(client: Client, share_pos: bool) -> Result<Self> {
+        let sync_service =
+            Arc::new(SyncService::builder(client.clone()).with_share_pos(share_pos).build().await?);
 
         let rooms = Rooms::default();
         let room_infos = RoomInfos::default();
@@ -585,7 +594,7 @@ impl App {
 ///
 /// Will log in or reuse a previous session.
 async fn configure_client(cli: Cli) -> Result<Client> {
-    let Cli { server_name, session_path, proxy } = cli;
+    let Cli { server_name, session_path, proxy, dont_share_pos: _ } = cli;
 
     let mut client_builder = Client::builder()
         .store_config(
