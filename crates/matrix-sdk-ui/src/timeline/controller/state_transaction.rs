@@ -23,7 +23,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     super::{
@@ -589,6 +589,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
+        let event_clone = event.clone();
+
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
@@ -651,7 +653,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             .map(|utd_info| (utd_info, self.meta.unable_to_decrypt_hook.as_ref())),
                         in_reply_to,
                         thread_root,
-                        thread_summary,
+                        thread_summary.clone(),
                     )
                     .await,
                     should_add,
@@ -687,7 +689,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
 
             let ctx = TimelineEventContext {
-                sender,
+                sender: sender.clone(),
                 sender_profile,
                 timestamp,
                 read_receipts: if settings.track_read_receipts && should_add {
@@ -703,8 +705,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 flow: Flow::Remote {
                     event_id: event_id.clone(),
                     raw_event: raw,
-                    encryption_info,
-                    txn_id,
+                    encryption_info: encryption_info.clone(),
+                    txn_id: txn_id.clone(),
                     position,
                 },
                 should_add_new_items: should_add,
@@ -730,9 +732,132 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 self.items.remove(timeline_item_index);
                 item_removed = true;
             }
+        } else {
+            // Just in case the message key arrived while we were adding this event to the
+            // timeline, attempt to redecrypt it immediately.
+            let redecrypted = self.reattempt_decrypt_if_utd(event_clone, room_data_provider).await;
+            if let Some(redecrypted) = redecrypted {
+                self.add_or_update_remote_event(
+                    EventMeta::new(event_id.clone(), should_add),
+                    Some(&sender),
+                    Some(timestamp),
+                    position,
+                    room_data_provider,
+                    settings,
+                )
+                .await;
+
+                let bundled_edit_encryption_info =
+                    redecrypted.kind.unsigned_encryption_map().and_then(|map| {
+                        map.get(&UnsignedEventLocation::RelationsReplace)?
+                            .encryption_info()
+                            .cloned()
+                    });
+
+                let (raw, utd_info) = match redecrypted.kind.clone() {
+                    TimelineEventKind::UnableToDecrypt { utd_info, event: redecrypted } => {
+                        (redecrypted.clone(), Some(utd_info))
+                    }
+                    _ => (redecrypted.kind.clone().into_raw(), None),
+                };
+
+                let event = redecrypted.raw().deserialize().unwrap();
+
+                let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+                let (in_reply_to, thread_root) = self.meta.process_event_relations(
+                    &event,
+                    &raw,
+                    bundled_edit_encryption_info,
+                    &self.items,
+                    matches!(self.focus, TimelineFocusKind::Thread { .. }),
+                );
+
+                let should_add = self.should_add_event_item(
+                    room_data_provider,
+                    settings,
+                    &event,
+                    thread_root.as_deref(),
+                    position,
+                );
+                let timeline_action = TimelineAction::from_event(
+                    event,
+                    &raw,
+                    room_data_provider,
+                    utd_info,
+                    &self.meta,
+                    in_reply_to,
+                    thread_root,
+                    thread_summary,
+                )
+                .await;
+
+                let timeline_action = timeline_action.unwrap();
+
+                let ctx = TimelineEventContext {
+                    sender: sender.clone(),
+                    sender_profile,
+                    timestamp,
+                    read_receipts: if settings.track_read_receipts && should_add {
+                        self.meta.read_receipts.compute_event_receipts(
+                            &event_id,
+                            &mut self.items,
+                            matches!(position, TimelineItemPosition::End { .. }),
+                        )
+                    } else {
+                        Default::default()
+                    },
+                    is_highlighted,
+                    flow: Flow::Remote {
+                        event_id: event_id.clone(),
+                        raw_event: raw,
+                        encryption_info,
+                        txn_id,
+                        position,
+                    },
+                    should_add_new_items: should_add,
+                };
+
+                TimelineEventHandler::new(self, ctx)
+                    .handle_event(date_divider_adjuster, timeline_action)
+                    .await;
+            }
         }
 
         item_removed
+    }
+
+    /// If the supplied [`TimelineEvent`] is a UTD (unable to decrypt), attempt
+    /// to redecrypt it, and return the decrypted event if we succeed.
+    /// Otherwise, return None.
+    async fn reattempt_decrypt_if_utd(
+        &self,
+        event: TimelineEvent,
+        room_data_provider: &P,
+    ) -> Option<TimelineEvent> {
+        if let TimelineEventKind::UnableToDecrypt { event: utd, .. } = &event.kind {
+            // This is a UTD - attempt to decrypt it.
+            let push_ctx = room_data_provider.push_context().await;
+            let push_ctx = push_ctx.as_ref();
+            match room_data_provider.decrypt_event_impl(utd, push_ctx).await {
+                Ok(decrypted_event) => {
+                    // The decryption process did not error, but may have returned us a UTD if we
+                    // failed to decrypt. Only return `Some` if we actually decrypted the event.
+                    match &decrypted_event.kind {
+                        TimelineEventKind::Decrypted(_) => Some(decrypted_event),
+                        TimelineEventKind::UnableToDecrypt { .. } => None,
+                        TimelineEventKind::PlainText { .. } => None,
+                    }
+                }
+                Err(e) => {
+                    // If, for some reason, we hit an error while trying to decrypt, just log it
+                    error!("Error while decrypting event: {e}");
+                    None
+                }
+            }
+        } else {
+            // This event is not a UTD
+            None
+        }
     }
 
     /// Remove one timeline item by its `event_index`.
