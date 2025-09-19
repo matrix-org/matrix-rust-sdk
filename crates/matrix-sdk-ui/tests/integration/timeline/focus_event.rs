@@ -423,7 +423,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 }
 
 #[async_test]
-async fn test_focused_timeline_handles_thereaded_event() {
+async fn test_focused_timeline_handles_threaded_event() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -432,19 +432,24 @@ async fn test_focused_timeline_handles_thereaded_event() {
     let prev_thread_event_id = event_id!("$prev:example.org");
     let root_thread_id = event_id!("$root-id:example.org");
 
-    let f = EventFactory::new().room(room_id);
-    let threaded_event = f
-        .text_msg("Hey")
-        .sender(user_id)
-        .in_thread(root_thread_id, prev_thread_event_id)
-        .into_event();
+    let f = EventFactory::new().room(room_id).sender(user_id);
+    let threaded_event =
+        f.text_msg("Hey").in_thread(root_thread_id, prev_thread_event_id).into_event();
     let threaded_event_id = threaded_event.event_id().unwrap().clone();
 
     // Mock the initial /context request to check if the event is in a thread
+    let events_before = vec![
+        f.text_msg("Unrelated before 1").into_event(),
+        f.text_msg("Unrelated before 2").into_event(),
+    ];
+    let events_after = vec![
+        f.text_msg("Unrelated after 1").into_event(),
+        f.text_msg("Unrelated after 2").into_event(),
+    ];
     server
         .mock_room_event_context()
         .room(room_id)
-        .ok(threaded_event, "prev_token_1", "next_token_1", Vec::new())
+        .ok(threaded_event, events_before, events_after, "prev_token_1", "next_token_1", Vec::new())
         .mock_once()
         .mount()
         .await;
@@ -506,9 +511,8 @@ async fn test_focused_timeline_handles_thereaded_event() {
     server
         .mock_room_relations()
         .ok(RoomRelationsResponseTemplate {
-            chunk: vec![
-                f.text_msg("Root").sender(user_id).event_id(root_thread_id).into_raw_timeline(),
-            ],
+            // No items returned as the thread root is not part of the /relations response
+            chunk: vec![],
             prev_batch: Some("prev_token_1".to_owned()),
             next_batch: None,
             recursion_depth: None,
