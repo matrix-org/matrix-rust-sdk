@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// A module for building a [`RoomIndex`]
+pub mod builder;
+
 use std::{collections::HashSet, fmt};
 
 use ruma::{
@@ -336,9 +339,8 @@ mod tests {
     };
 
     use crate::{
-        builder::RoomIndexBuilder,
         error::IndexError,
-        index::{RoomIndex, RoomIndexOperation},
+        index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
     };
 
     /// Helper function to add a regular message to the index
