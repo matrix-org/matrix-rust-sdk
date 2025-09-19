@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
+  an error that occurred when importing a secret from secret storage.
+  ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
 - `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
   the encryption state for up to 3 seconds, rather than checking once after a single sync has
   completed.
