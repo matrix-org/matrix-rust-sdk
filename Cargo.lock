@@ -1741,9 +1741,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43e8e9d31591be508826b875d8fe6056aebcaec3281ac0e45434ff303686c566"
+checksum = "4790c03df183c2b46665c1a58118c04fd3e3976ec2fe16a0aa00e00c9eea7754"
 dependencies = [
  "futures-core",
  "imbl",
@@ -1753,9 +1753,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bda2d08a8fa99050bdb84d077193a371e9abd29696921971aa26ae076adb6023"
+checksum = "809fa2e8e59c25a41f5b2440aa937f1e84df6ae48b707e65f69ce259b1c44bda"
 dependencies = [
  "arrayvec",
  "eyeball-im",
@@ -2598,9 +2598,9 @@ dependencies = [
 
 [[package]]
 name = "imbl"
-version = "5.0.0"
+version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4308a675e4cfc1920f36a8f4d8fb62d5533b7da106844bd1ec51c6f1fa94a0c"
+checksum = "0fade8ae6828627ad1fa094a891eccfb25150b383047190a3648d66d06186501"
 dependencies = [
  "archery",
  "bitmaps",
