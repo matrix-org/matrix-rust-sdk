@@ -2701,6 +2701,8 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
     pub fn ok(
         self,
         event: TimelineEvent,
+        events_before: Vec<TimelineEvent>,
+        events_after: Vec<TimelineEvent>,
         start: impl Into<String>,
         end: impl Into<String>,
         state_events: Vec<Raw<AnyStateEvent>>,
@@ -2722,9 +2724,11 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
             .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/context/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event": event.into_raw().json(),
+                "events_before": events_before.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
+                "events_after": events_after.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
                 "end": end.into(),
                 "start": start.into(),
-                "state": state_events
+                "state": state_events,
             })));
         MatrixMock { server: self.server, mock }
     }

@@ -507,11 +507,34 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !start_from_result.events.is_empty();
                 let events = start_from_result.events;
 
-                self.replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Pagination,
-                )
-                .await;
+                match paginator.get() {
+                    Some(AnyPaginator::Unthreaded { .. }) => {
+                        self.replace_with_initial_remote_events(
+                            events.into_iter(),
+                            RemoteEventOrigin::Pagination,
+                        )
+                        .await;
+                    }
+                    Some(AnyPaginator::Threaded(threaded_events_loader)) => {
+                        let events_in_thread = events
+                            .into_iter()
+                            .filter(|event| {
+                                if let Some(thread_root) = extract_thread_root(event.raw()) {
+                                    thread_root == threaded_events_loader.thread_root_event_id()
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect::<Vec<TimelineEvent>>();
+
+                        self.replace_with_initial_remote_events(
+                            events_in_thread.into_iter(),
+                            RemoteEventOrigin::Pagination,
+                        )
+                        .await;
+                    }
+                    None => unreachable!(),
+                }
 
                 Ok(has_events)
             }
