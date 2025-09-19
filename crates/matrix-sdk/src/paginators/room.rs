@@ -48,12 +48,12 @@ pub enum PaginatorState {
 }
 
 /// Paginations tokens used for backward and forward pagination.
-#[derive(Debug)]
-pub(crate) struct PaginationTokens {
+#[derive(Debug, Clone)]
+pub struct PaginationTokens {
     /// Pagination token used for backward pagination.
-    pub(crate) previous: PaginationToken,
+    pub previous: PaginationToken,
     /// Pagination token used for forward pagination.
-    pub(crate) next: PaginationToken,
+    pub next: PaginationToken,
 }
 
 /// A stateful object to reach to an event, and then paginate backward and
@@ -340,14 +340,9 @@ impl<PR: PaginableRoom> Paginator<PR> {
         Ok(PaginationResult { events: response.chunk, hit_end_of_timeline })
     }
 
-    /// Returns the current `prev_token` used for pagination.
-    pub fn prev_token(&self) -> PaginationToken {
-        self.tokens.lock().unwrap().previous.clone()
-    }
-
-    /// Returns the current `next_token` used for pagination.
-    pub fn next_token(&self) -> PaginationToken {
-        self.tokens.lock().unwrap().next.clone()
+    /// Returns the current pagination tokens.
+    pub fn tokens(&self) -> PaginationTokens {
+        self.tokens.lock().unwrap().clone()
     }
 }
 

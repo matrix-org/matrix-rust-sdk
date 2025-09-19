@@ -19,7 +19,7 @@
 use std::{fmt::Formatter, future::Future, sync::Mutex};
 
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, OwnedEventId, UInt};
+use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
 use crate::{
     paginators::{PaginationResult, PaginationToken, PaginationTokens, PaginatorError},
@@ -63,9 +63,9 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
     room: P,
 
     /// The thread root event ID (the event that started the thread).
-    pub root_event_id: OwnedEventId,
+    root_event_id: OwnedEventId,
 
-    /// The current pagination token, which is used to keep track of the
+    /// The current pagination tokens, which are used to keep track of the
     /// pagination state.
     tokens: Mutex<PaginationTokens>,
 }
@@ -191,6 +191,11 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
         }
 
         Ok(PaginationResult { events: result.chunk, hit_end_of_timeline })
+    }
+
+    /// Returns the root [`EventId`] for the thread.
+    pub fn thread_root_event_id(&self) -> &EventId {
+        &self.root_event_id
     }
 }
 
