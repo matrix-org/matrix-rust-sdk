@@ -28,10 +28,11 @@ use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
+use zeroize::Zeroize;
 
 use crate::{
     error::{Error, Result},
-    OpenStoreError, RuntimeConfig,
+    OpenStoreError, RuntimeConfig, Secret,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -457,22 +458,34 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        passphrase: &str,
+        mut secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            StoreCipher::import(passphrase, &encrypted)?
+            match secret {
+                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
+                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
+            }
         } else {
             let cipher = StoreCipher::new()?;
-            #[cfg(not(test))]
-            let export = cipher.export(passphrase);
-            #[cfg(test)]
-            let export = cipher._insecure_export_fast_for_testing(passphrase);
+            let export = match secret {
+                Secret::PassPhrase(ref passphrase) => {
+                    #[cfg(not(test))]
+                    {
+                        cipher.export(passphrase)
+                    }
+                    #[cfg(test)]
+                    {
+                        cipher._insecure_export_fast_for_testing(passphrase)
+                    }
+                }
+                Secret::Key(ref key) => cipher.export_with_key(key),
+            };
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher
         };
-
+        secret.zeroize();
         Ok(cipher)
     }
 }

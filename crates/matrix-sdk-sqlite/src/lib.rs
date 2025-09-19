@@ -33,6 +33,7 @@ use std::{
 };
 
 use deadpool_sqlite::PoolConfig;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
@@ -47,13 +48,22 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
+/// A enum used to store the secret that gives access to a store
+#[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
+pub enum Secret {
+    // Cryptographic key used to open the store
+    Key(Box<[u8; 32]>),
+    // Passphrase used to open the store
+    PassPhrase(Zeroizing<String>),
+}
+
 /// A configuration structure used for opening a store.
 #[derive(Clone)]
 pub struct SqliteStoreConfig {
     /// Path to the database, without the file name.
     path: PathBuf,
-    /// Passphrase to open the store, if any.
-    passphrase: Option<String>,
+    /// Secret to open the store, if any
+    secret: Option<Secret>,
     /// The pool configuration for [`deadpool_sqlite`].
     pool_config: PoolConfig,
     /// The runtime configuration to apply when opening an SQLite connection.
@@ -86,9 +96,9 @@ impl SqliteStoreConfig {
     {
         Self {
             path: path.as_ref().to_path_buf(),
-            passphrase: None,
             pool_config: PoolConfig::new(max(POOL_MINIMUM_SIZE, num_cpus::get_physical() * 4)),
             runtime_config: RuntimeConfig::default(),
+            secret: None,
         }
     }
 
@@ -125,7 +135,14 @@ impl SqliteStoreConfig {
 
     /// Define the passphrase if the store is encoded.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.passphrase = passphrase.map(|passphrase| passphrase.to_owned());
+        self.secret =
+            passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
+        self
+    }
+
+    /// Define the key if the store is encoded.
+    pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
+        self.secret = key.map(|key| Secret::Key(Box::new(*key)));
         self
     }
 
@@ -229,7 +246,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::{SqliteStoreConfig, POOL_MINIMUM_SIZE};
+    use super::{Secret, SqliteStoreConfig, POOL_MINIMUM_SIZE};
 
     #[test]
     fn test_new() {
@@ -252,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_config() {
+    fn test_store_config_when_passphrase() {
         let store_config = SqliteStoreConfig::new(Path::new("foo"))
             .passphrase(Some("bar"))
             .pool_max_size(42)
@@ -261,7 +278,33 @@ mod tests {
             .journal_size_limit(44);
 
         assert_eq!(store_config.path, PathBuf::from("foo"));
-        assert_eq!(store_config.passphrase, Some("bar".to_owned()));
+        assert_eq!(store_config.secret, Some(Secret::PassPhrase("bar".to_owned().into())));
+        assert_eq!(store_config.pool_config.max_size, 42);
+        assert!(store_config.runtime_config.optimize.not());
+        assert_eq!(store_config.runtime_config.cache_size, 43);
+        assert_eq!(store_config.runtime_config.journal_size_limit, 44);
+    }
+
+    #[test]
+    fn test_store_config_when_key() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo"))
+            .key(Some(&[
+                143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
+                107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
+            ]))
+            .pool_max_size(42)
+            .optimize(false)
+            .cache_size(43)
+            .journal_size_limit(44);
+
+        assert_eq!(store_config.path, PathBuf::from("foo"));
+        assert_eq!(
+            store_config.secret,
+            Some(Secret::Key(Box::new([
+                143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
+                107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
+            ])))
+        );
         assert_eq!(store_config.pool_config.max_size, 42);
         assert!(store_config.runtime_config.optimize.not());
         assert_eq!(store_config.runtime_config.cache_size, 43);
