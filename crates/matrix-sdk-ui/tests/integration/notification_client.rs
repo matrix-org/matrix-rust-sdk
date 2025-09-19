@@ -73,7 +73,7 @@ async fn test_notification_client_with_context() {
     // The notification client retrieves the event via `/rooms/*/context/`.
     server
         .mock_room_event_context()
-        .ok(event, "", "", vec![sender_member_event.cast_unchecked()])
+        .ok(event, Vec::new(), Vec::new(), "", "", vec![sender_member_event.cast_unchecked()])
         .mock_once()
         .mount()
         .await;
@@ -158,7 +158,7 @@ async fn test_subscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
             .mock_once()
             .mount()
             .await;
@@ -182,7 +182,7 @@ async fn test_subscribed_threads_get_notifications() {
     server
         .mock_room_event_context()
         .match_event_id()
-        .ok(event.clone(), "", "", vec![sender_member_event])
+        .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event])
         .mock_once()
         .mount()
         .await;
@@ -254,7 +254,7 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
             .mock_once()
             .mount()
             .await;
@@ -281,7 +281,7 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
             .mock_once()
             .mount()
             .await;
@@ -307,7 +307,7 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), "", "", vec![sender_member_event])
+            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event])
             .mock_once()
             .mount()
             .await;
@@ -1138,7 +1138,7 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
     // Mock the /context response
     server
         .mock_room_event_context()
-        .ok(event, "start", "end", Vec::new())
+        .ok(event, Vec::new(), Vec::new(), "start", "end", Vec::new())
         .mock_once()
         .mount()
         .await;

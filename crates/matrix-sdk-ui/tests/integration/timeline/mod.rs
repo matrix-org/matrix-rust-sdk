@@ -102,7 +102,11 @@ async fn test_timeline_is_threaded() {
             .room(room_id)
             .sender(&ALICE)
             .into_event();
-        server.mock_room_event_context().ok(event, "", "", Vec::new()).mount().await;
+        server
+            .mock_room_event_context()
+            .ok(event, Vec::new(), Vec::new(), "", "", Vec::new())
+            .mount()
+            .await;
 
         // An event-focused timeline isn't threaded.
         let timeline = TimelineBuilder::new(&room)
