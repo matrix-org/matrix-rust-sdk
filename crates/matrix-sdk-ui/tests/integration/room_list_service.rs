@@ -1735,7 +1735,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
-        insert [ 0 ] [ "!r0:bar.org" ];
+        push front [ "!r0:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1906,7 +1906,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
-        insert [ 0 ] [ "!r0:bar.org" ];
+        push front [ "!r0:bar.org" ];
         end;
     };
 
@@ -1940,7 +1940,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 4 ];
-        insert [ 0 ] [ "!r2:bar.org" ];
+        push front [ "!r2:bar.org" ];
         end;
     };
 
@@ -2006,7 +2006,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 5 ];
-        insert [ 0 ] [ "!r3:bar.org" ];
+        push front [ "!r3:bar.org" ];
         end;
     };
 

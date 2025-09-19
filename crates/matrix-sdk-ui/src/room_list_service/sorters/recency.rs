@@ -20,27 +20,6 @@ fn cmp<F>(ranks: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
     F: Fn(&RoomListItem, &RoomListItem) -> (Option<Rank>, Option<Rank>),
 {
-    if left.room_id() == right.room_id() {
-        // `left` and `right` are the same room. We are comparing the same
-        // `LatestEvent`!
-        //
-        // The way our `Room` types are implemented makes it so they are sharing the
-        // same data, because they are all built from the same store. They can be seen
-        // as shallow clones of each others. In practice it's really great: a `Room` can
-        // never be outdated. However, for the case of sorting rooms, it breaks the
-        // search algorithm. `left` and `right` will have the exact same recency
-        // stamp, so `left` and `right` will always be `Ordering::Equal`. This is
-        // wrong: if `left` is compared with `right` and if they are both the same room,
-        // it means that one of them (either `left`, or `right`, it's not important) has
-        // received an update. The room position is very likely to change. But if they
-        // compare to `Equal`, the position may not change. It actually depends of the
-        // search algorithm used by [`eyeball_im_util::SortBy`].
-        //
-        // Since this room received an update, it is more recent than the previous one
-        // we matched against, so return `Ordering::Greater`.
-        return Ordering::Greater;
-    }
-
     match ranks(left, right) {
         (Some(left_rank), Some(right_rank)) => left_rank.cmp(&right_rank).reverse(),
 
