@@ -16,12 +16,12 @@ use std::cmp::Ordering;
 
 use super::{RoomListItem, Sorter};
 
-fn cmp<F>(ranks: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
+fn cmp<F>(timestamps: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
     F: Fn(&RoomListItem, &RoomListItem) -> (Option<Rank>, Option<Rank>),
 {
-    match ranks(left, right) {
-        (Some(left_rank), Some(right_rank)) => left_rank.cmp(&right_rank).reverse(),
+    match timestamps(left, right) {
+        (Some(left), Some(right)) => left.cmp(&right).reverse(),
 
         (Some(_), None) => Ordering::Less,
 
@@ -51,48 +51,23 @@ pub fn new_sorter() -> impl Sorter {
 /// stamp of the room). This type hides `u64` for the sake of semantics.
 type Rank = u64;
 
-/// Extract the recency _rank_ from either the [`RoomInfo::new_latest_event`] or
-/// from [`RoomInfo::recency_stamp`].
-///
-/// We must be very careful to return data of the same nature: either a
-/// _rank_ from the [`LatestEventValue`]'s timestamp, or from the
-/// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
-/// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
-/// a timestamp.
+/// Extract the recency _rank_ from the [`RoomInfo::recency_stamp`].
+// TODO @hywan: We must update this method to handle the latest event's
+// timestamp instead of the recency stamp.
 fn extract_rank(left: &RoomListItem, right: &RoomListItem) -> (Option<Rank>, Option<Rank>) {
-    // Be careful. This method is called **a lot** in the context of a sorter. Using
-    // `Room::new_latest_event` would be dramatic as it returns a clone of the
-    // `LatestEventValue`. It's better to use the more specific method
-    // `Room::new_latest_event_timestamp`, where the value is cached in this
-    // module's `Room` type.
-    match (left.cached_latest_event_timestamp, right.cached_latest_event_timestamp) {
-        // One of the two rooms has no latest event timestamp. Let's fallback to
-        // the recency stamp from the `RoomInfo` for both room.
-        (None, _) | (_, None) => {
-            (left.cached_recency_stamp.map(Into::into), right.cached_recency_stamp.map(Into::into))
-        }
-
-        // Both rooms have a timestamp. We can use them as a rank.
-        (Some(left), Some(right)) => (Some(left.get().into()), Some(right.get().into())),
-    }
+    (left.cached_recency_stamp.map(Into::into), right.cached_recency_stamp.map(Into::into))
 }
 
 #[cfg(test)]
 mod tests {
     use matrix_sdk::{
         RoomRecencyStamp,
-        latest_events::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue},
-        store::SerializableEventContent,
+        latest_events::{LatestEventValue, RemoteLatestEventValue},
         test_utils::logged_in_client_with_server,
     };
     use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        MilliSecondsSinceUnixEpoch,
-        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
-        serde::Raw,
-    };
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
     use serde_json::json;
 
     use super::{super::super::filters::new_rooms, *};
@@ -118,6 +93,8 @@ mod tests {
         ))
     }
 
+    // TODO @hywan: restore this once `extract_rank` works on latest event's value
+    /*
     fn local_is_sending(origin_server_ts: u32) -> LatestEventValue {
         LatestEventValue::LocalIsSending(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
@@ -143,6 +120,7 @@ mod tests {
             ),
         })
     }
+    */
 
     fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
         let mut room_info = room.clone_info();
@@ -159,7 +137,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_extract_recency_stamp_with_none() {
+    async fn test_extract_rank_with_none() {
         let (client, server) = logged_in_client_with_server().await;
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -192,8 +170,10 @@ mod tests {
         }
     }
 
+    // TODO @hywan: restore this once `extract_rank` works on latest event's value
+    /*
     #[async_test]
-    async fn test_extract_recency_stamp_with_remote_or_local() {
+    async fn test_extract_rank_with_remote_or_local() {
         let (client, server) = logged_in_client_with_server().await;
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -215,9 +195,10 @@ mod tests {
             }
         }
     }
+    */
 
     #[async_test]
-    async fn test_with_two_recency_stamps() {
+    async fn test_with_two_ranks() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -244,7 +225,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_with_one_recency_stamp() {
+    async fn test_with_one_rank() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -261,7 +242,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_with_zero_recency_stamp() {
+    async fn test_with_zero_rank() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
