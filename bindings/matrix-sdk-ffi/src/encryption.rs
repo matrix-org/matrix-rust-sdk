@@ -95,8 +95,8 @@ impl From<matrix_sdk::encryption::recovery::RecoveryError> for RecoveryError {
             recovery::RecoveryError::BackupExistsOnServer => Self::BackupExistsOnServer,
             recovery::RecoveryError::Sdk(e) => Self::Client { source: ClientError::from(e) },
             recovery::RecoveryError::SecretStorage(
-                matrix_sdk::encryption::secret_storage::SecretStorageError::ImportError(e),
-            ) => Self::Import { error_message: e.to_string() },
+                matrix_sdk::encryption::secret_storage::SecretStorageError::ImportError { .. },
+            ) => Self::Import { error_message: value.to_string() },
             recovery::RecoveryError::SecretStorage(e) => {
                 Self::SecretStorage { error_message: e.to_string() }
             }

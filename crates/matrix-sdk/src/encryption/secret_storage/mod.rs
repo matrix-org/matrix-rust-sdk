@@ -68,6 +68,7 @@ use matrix_sdk_base::crypto::{
 };
 use ruma::{
     events::{
+        secret::request::SecretName,
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
@@ -101,10 +102,17 @@ pub enum ImportError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
-    /// A secret could not be imported from the secret store into the local
-    /// store.
+    /// The key that we tried to import was invalid.
     #[error(transparent)]
-    SecretImportError(#[from] SecretImportError),
+    Key(vodozemac::KeyError),
+
+    /// The public key of the imported private key doesn't match the public
+    /// key that was uploaded to the server.
+    #[error(
+        "The public key of the imported private key doesn't match the public\
+            key that was uploaded to the server"
+    )]
+    MismatchedPublicKeys,
 
     /// Error describing a decryption failure of a secret.
     #[error(transparent)]
@@ -142,8 +150,14 @@ pub enum SecretStorageError {
     },
 
     /// An error when importing from the secret store into the local store.
-    #[error(transparent)]
-    ImportError(#[from] ImportError),
+    #[error("Error while importing {name}: {error}")]
+    ImportError {
+        /// The name of the secret that was being imported when the error
+        /// occurred.
+        name: SecretName,
+        /// The error that occurred.
+        error: ImportError,
+    },
 
     /// A general storage error.
     #[error(transparent)]
@@ -157,6 +171,33 @@ pub enum SecretStorageError {
     /// Error describing a decryption failure of a secret.
     #[error(transparent)]
     Decryption(#[from] DecryptionError),
+}
+
+impl SecretStorageError {
+    /// Create a `SecretStorageError::ImportError` from a secret name and any
+    /// error that can be converted directly into an `ImportError`
+    fn into_import_error(secret_name: SecretName, error: impl Into<ImportError>) -> Self {
+        SecretStorageError::ImportError { name: secret_name, error: error.into() }
+    }
+
+    /// Create a `SecretStorageError` from a `SecretImportError`
+    ///
+    /// `SecretImportError::Key` and `SecretImportError::MismatchedPublicKeys`
+    /// become `SecretStorageError::ImportError`s, whereas
+    /// `SecretImportError::Store` becomes `SecretStorageError::Storage` since
+    /// the error is with the crypto storage rather than in importing the
+    /// secret.
+    fn from_secret_import_error(error: SecretImportError) -> Self {
+        match error {
+            SecretImportError::Key { name, error } => {
+                SecretStorageError::ImportError { name, error: ImportError::Key(error) }
+            }
+            SecretImportError::MismatchedPublicKeys { name } => {
+                SecretStorageError::ImportError { name, error: ImportError::MismatchedPublicKeys }
+            }
+            SecretImportError::Store(error) => SecretStorageError::Storage(error),
+        }
+    }
 }
 
 /// Error type describing decryption failures of the secret-storage system.

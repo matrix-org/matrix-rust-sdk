@@ -738,6 +738,7 @@ impl IdentityResetHandle {
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
+    use ruma::events::secret::request::SecretName;
     use serde_json::json;
 
     use super::Recovery;
@@ -784,7 +785,13 @@ pub(crate) mod tests {
         let ret =
             recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
 
-        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
     }
 
     #[async_test]
@@ -831,7 +838,13 @@ pub(crate) mod tests {
         let ret =
             recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
 
-        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
     }
 
     #[async_test]
@@ -886,6 +899,12 @@ pub(crate) mod tests {
         let ret =
             recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
 
-        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
     }
 }
