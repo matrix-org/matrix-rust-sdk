@@ -21,9 +21,8 @@ use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_search::{
-    builder::RoomIndexBuilder,
     error::IndexError,
-    index::{RoomIndex, RoomIndexOperation},
+    index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
 };
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId,

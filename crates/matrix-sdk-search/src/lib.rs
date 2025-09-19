@@ -10,8 +10,6 @@ mod encrypted;
 mod schema;
 mod writer;
 
-/// A module for building the search index.
-pub mod builder;
 /// A module for errors relating to the search crate.
 pub mod error;
 /// A module for the search index.
