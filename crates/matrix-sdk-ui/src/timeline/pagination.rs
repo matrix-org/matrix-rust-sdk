@@ -20,6 +20,7 @@ use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
 use tracing::{instrument, warn};
 
 use super::Error;
+use crate::timeline::{PaginationError::NotSupported, controller::TimelineFocusKind};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -27,30 +28,36 @@ impl super::Timeline {
     /// Returns whether we hit the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
     pub async fn paginate_backwards(&self, mut num_events: u16) -> Result<bool, Error> {
-        if self.controller.is_live() {
-            match self.controller.live_lazy_paginate_backwards(num_events).await {
-                Some(needed_num_events) => {
-                    num_events = needed_num_events.try_into().expect(
-                        "failed to cast `needed_num_events` (`usize`) into `num_events` (`usize`)",
-                    );
+        match self.controller.focus() {
+            TimelineFocusKind::Live { .. } => {
+                match self.controller.live_lazy_paginate_backwards(num_events).await {
+                    Some(needed_num_events) => {
+                        num_events = needed_num_events.try_into().expect(
+                            "failed to cast `needed_num_events` (`usize`) into `num_events` (`usize`)",
+                        );
+                    }
+                    None => {
+                        // We could adjust the skip count to a lower value, while passing the
+                        // requested number of events. We *may* have reached
+                        // the start of the timeline, but since
+                        // we're fulfilling the caller's request, assume it's not the case and
+                        // return false here. A subsequent call will go to
+                        // the `Some()` arm of this match, and cause a call
+                        // to the event cache's pagination.
+                        return Ok(false);
+                    }
                 }
-                None => {
-                    // We could adjust the skip count to a lower value, while passing the requested
-                    // number of events. We *may* have reached the start of the timeline, but since
-                    // we're fulfilling the caller's request, assume it's not the case and return
-                    // false here. A subsequent call will go to the `Some()` arm of this match, and
-                    // cause a call to the event cache's pagination.
-                    return Ok(false);
-                }
-            }
 
-            Ok(self.live_paginate_backwards(num_events).await?)
-        } else if let Some(thread_root) = self.controller.thread_root() {
-            // Note: in the future (when the event cache implements persistent storage for
-            // threads), we might need to load the related events too here.
-            Ok(self.event_cache.paginate_thread_backwards(thread_root, num_events).await?)
-        } else {
-            Ok(self.controller.focused_paginate_backwards(num_events).await?)
+                Ok(self.live_paginate_backwards(num_events).await?)
+            }
+            TimelineFocusKind::Event { .. } => {
+                Ok(self.controller.focused_paginate_backwards(num_events).await?)
+            }
+            TimelineFocusKind::Thread { root_event_id } => Ok(self
+                .event_cache
+                .paginate_thread_backwards(root_event_id.to_owned(), num_events)
+                .await?),
+            TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
         }
     }
 
