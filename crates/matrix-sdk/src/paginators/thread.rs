@@ -72,17 +72,8 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
 
 impl<P: PaginableThread> ThreadedEventsLoader<P> {
     /// Create a new [`ThreadedEventsLoader`], given a room implementation.
-    pub fn new(
-        room: P,
-        root_event_id: OwnedEventId,
-        prev_token: PaginationToken,
-        next_token: PaginationToken,
-    ) -> Self {
-        Self {
-            room,
-            root_event_id,
-            tokens: Mutex::new(PaginationTokens { previous: prev_token, next: next_token }),
-        }
+    pub fn new(room: P, root_event_id: OwnedEventId, tokens: PaginationTokens) -> Self {
+        Self { room, root_event_id, tokens: Mutex::new(tokens) }
     }
 
     /// Run a single pagination backwards, returning the next set of events and
