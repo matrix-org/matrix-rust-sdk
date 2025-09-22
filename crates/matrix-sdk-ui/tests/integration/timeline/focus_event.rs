@@ -492,7 +492,7 @@ async fn test_focused_timeline_handles_threaded_event() {
                     .in_thread(root_thread_id, prev_thread_event_id)
                     .into_raw_timeline(),
             ],
-            prev_batch: None,
+            prev_batch: Some("prev_token_1".to_owned()),
             next_batch: Some("prev_token_2".to_owned()),
             recursion_depth: None,
         })
@@ -524,7 +524,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         .ok(RoomRelationsResponseTemplate {
             // No items returned as the thread root is not part of the /relations response
             chunk: vec![],
-            prev_batch: Some("prev_token_1".to_owned()),
+            prev_batch: Some("prev_token_2".to_owned()),
             next_batch: None,
             recursion_depth: None,
         })
@@ -559,6 +559,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     // Then we paginate forwards
     server
         .mock_room_relations()
+        .match_from("next_token_1")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Next1")
@@ -566,8 +567,8 @@ async fn test_focused_timeline_handles_threaded_event() {
                     .in_thread(root_thread_id, prev_thread_event_id)
                     .into_raw_timeline(),
             ],
-            prev_batch: None,
-            next_batch: Some("next_token_1".to_owned()),
+            prev_batch: Some("next_token_1".to_owned()),
+            next_batch: Some("next_token_2".to_owned()),
             recursion_depth: None,
         })
         .mock_once()
@@ -586,7 +587,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     // And we do it again until we can't
     server
         .mock_room_relations()
-        .match_from("next_token_1")
+        .match_from("next_token_2")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Next2")
@@ -595,7 +596,7 @@ async fn test_focused_timeline_handles_threaded_event() {
                     .in_thread(root_thread_id, prev_thread_event_id)
                     .into_raw_timeline(),
             ],
-            prev_batch: Some("next_token_1".to_owned()),
+            prev_batch: Some("next_token_2".to_owned()),
             next_batch: None,
             recursion_depth: None,
         })
