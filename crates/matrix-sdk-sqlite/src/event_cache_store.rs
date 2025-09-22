@@ -1332,7 +1332,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let Some(event_id) = event.event_id() else {
-            error!(%room_id, "Trying to save an event with no ID");
+            error!("Trying to save an event with no ID");
             return Ok(());
         };
 
