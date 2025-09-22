@@ -116,10 +116,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_event();
-    timeline
-        .controller
-        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
-        .await;
+    timeline.controller.replace_with_initial_remote_events([ev], RemoteEventOrigin::Sync).await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
@@ -489,10 +486,7 @@ async fn test_replace_with_initial_events_when_batched() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_event();
-    timeline
-        .controller
-        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
-        .await;
+    timeline.controller.replace_with_initial_remote_events([ev], RemoteEventOrigin::Sync).await;
 
     // Assert there are more than a single Clear diff in the next batch:
     // Clear + PushBack (event) + PushFront (date divider)

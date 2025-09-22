@@ -376,11 +376,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let has_events = !events.is_empty();
 
-                self.replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Cache,
-                )
-                .await;
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 match room_event_cache.pagination().status().get() {
                     RoomPaginationStatus::Idle { hit_timeline_start } => {
@@ -411,7 +407,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !start_from_result.events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    start_from_result.events.into_iter(),
+                    start_from_result.events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -435,11 +431,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     }
                 }
 
-                self.replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Cache,
-                )
-                .await;
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 // Now that we've inserted the thread events, add the aggregations too.
                 if !related_events.is_empty() {
@@ -469,7 +461,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !loaded_events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    loaded_events.into_iter(),
+                    loaded_events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -846,7 +838,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         events: Events,
         origin: RemoteEventOrigin,
     ) where
-        Events: IntoIterator + ExactSizeIterator,
+        Events: IntoIterator,
         <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         let mut state = self.state.write().await;
@@ -864,7 +856,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // Previously we just had to check the new one wasn't empty because
         // we did a clear operation before so the current one would always be empty, but
         // now we may want to replace a populated timeline with an empty one.
-        if !state.items.is_empty() || events.len() > 0 {
+        let mut events = events.into_iter().peekable();
+        if !state.items.is_empty() || events.peek().is_some() {
             state
                 .replace_with_remote_events(
                     events,

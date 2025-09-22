@@ -55,10 +55,7 @@ pub(in crate::timeline) async fn pinned_events_task<S>(
             Ok(Some(events)) => {
                 trace!("successfully reloaded pinned events");
                 timeline_controller
-                    .replace_with_initial_remote_events(
-                        events.into_iter(),
-                        RemoteEventOrigin::Pagination,
-                    )
+                    .replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
                     .await;
             }
 
@@ -99,10 +96,7 @@ pub(in crate::timeline) async fn thread_updates_task(
                 let (initial_events, _) = room_event_cache.subscribe_to_thread(root.clone()).await;
 
                 timeline_controller
-                    .replace_with_initial_remote_events(
-                        initial_events.into_iter(),
-                        RemoteEventOrigin::Cache,
-                    )
+                    .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
                     .await;
 
                 continue;
@@ -154,10 +148,7 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 let initial_events = room_event_cache.events().await;
 
                 timeline_controller
-                    .replace_with_initial_remote_events(
-                        initial_events.into_iter(),
-                        RemoteEventOrigin::Cache,
-                    )
+                    .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
                     .await;
 
                 continue;
