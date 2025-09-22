@@ -287,6 +287,15 @@ impl Encryption {
         Ok(self.inner.recovery().is_last_device().await?)
     }
 
+    /// Does the user has other devices that the current device can verify
+    /// against.
+    ///
+    /// The device must be signed by the user's cross-signing key, must have an
+    /// identity, and must not be a dehydrated device.
+    pub async fn has_devices_to_verify_against(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.has_devices_to_verify_against().await?)
+    }
+
     pub async fn wait_for_backup_upload_steady_state(
         &self,
         progress_listener: Option<Box<dyn BackupSteadyStateListener>>,
