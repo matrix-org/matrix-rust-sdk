@@ -2470,7 +2470,7 @@ mod tests {
                 .mount_as_scoped(&server)
                 .await;
 
-            assert!(client.encryption().has_devices_to_verify_against().await.unwrap() == false);
+            assert!(!client.encryption().has_devices_to_verify_against().await.unwrap());
         }
 
         // We have a cross-signed device, so we can verify against it
@@ -2641,7 +2641,7 @@ mod tests {
             let (request_id, request) = olm_machine.query_keys_for_users([user_id]);
             client.keys_query(&request_id, request.device_keys).await.unwrap();
 
-            assert!(client.encryption().has_devices_to_verify_against().await.unwrap() == false);
+            assert!(!client.encryption().has_devices_to_verify_against().await.unwrap());
         }
     }
 }
