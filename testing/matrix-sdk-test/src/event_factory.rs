@@ -25,9 +25,9 @@ use matrix_sdk_common::deserialized_responses::{
     TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
-    TransactionId, UInt, UserId, VoipVersionId,
+    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
+    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyStateEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
@@ -60,7 +60,9 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             canonical_alias::RoomCanonicalAliasEventContent,
             create::{PreviousRoom, RoomCreateEventContent},
-            encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
@@ -869,6 +871,29 @@ impl EventFactory {
     /// Create a new plain emote `m.room.message`.
     pub fn emote(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
         self.event(RoomMessageEventContent::emote_plain(content.into()))
+    }
+
+    /// Create a new `m.room.encrypted` event using the `m.megolm.v1.aes-sha2`
+    /// algorithm.
+    pub fn encrypted(
+        &self,
+        ciphertext: impl Into<String>,
+        sender_key: impl Into<String>,
+        device_id: impl Into<OwnedDeviceId>,
+        session_id: impl Into<String>,
+    ) -> EventBuilder<RoomEncryptedEventContent> {
+        self.event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: ciphertext.into(),
+                    sender_key: sender_key.into(),
+                    device_id: device_id.into(),
+                    session_id: session_id.into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
     }
 
     /// Create a new `m.room.member` event for the given member.
