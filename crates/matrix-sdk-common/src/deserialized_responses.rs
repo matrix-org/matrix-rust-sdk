@@ -949,6 +949,14 @@ impl TimelineEventKind {
             TimelineEventKind::PlainText { .. } => None,
         }
     }
+
+    /// Get the event type of this event.
+    ///
+    /// Returns `None` if there isn't an event type or if the event failed to be
+    /// deserialized.
+    pub fn event_type(&self) -> Option<String> {
+        self.raw().get_field("type").ok().flatten()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
