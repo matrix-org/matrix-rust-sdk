@@ -53,6 +53,7 @@ use crate::{
 mod keys {
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
+    pub const EVENTS: &str = "events";
 }
 
 /// The database name.
@@ -63,7 +64,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 11;
+const DATABASE_VERSION: u8 = 12;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -472,6 +473,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 12 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/012_store_event_type.sql"
+            ))?;
+            txn.set_db_version(12)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -632,7 +643,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // deduplicated and moved to another position; or because it was inserted
                         // outside the context of a linked chunk (e.g. pinned event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -641,20 +652,28 @@ impl EventCacheStore for SqliteEventCacheStore {
                                 return None;
                             };
 
-                            Some((event_id.to_string(), event))
+                            let Some(event_type) = event.kind.event_type() else {
+                                error!(%event_id, "Trying to save an event with no event type");
+                                return None;
+                            };
+
+                            Some((event_id.to_string(), event_type, event))
                         };
 
                         let room_id = linked_chunk_id.room_id();
                         let hashed_room_id = this.encode_key(keys::LINKED_CHUNKS, room_id);
 
-                        for (i, (event_id, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
+                        for (i, (event_id, event_type, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
                             // Insert the location information into the database.
                             let index = at.index() + i;
                             chunk_statement.execute((chunk_id, &hashed_linked_chunk_id, &event_id, index))?;
 
+                            let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
+                            let event_type = this.encode_key(keys::EVENTS, event_type);
+
                             // Now, insert the event content into the database.
                             let encoded_event = this.encode_event(&event)?;
-                            content_statement.execute((&hashed_room_id, event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                            content_statement.execute((&hashed_room_id, event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
                         }
                     }
 
@@ -671,6 +690,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
+                        let Some(event_type) = event.kind.event_type() else {
+                            error!(%event_id, "Trying to save an event with no event type");
+                            continue;
+                        };
+
+                        let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
+                        let event_type = this.encode_key(keys::EVENTS, event_type);
+
                         // Replace the event's content. Really we'd like to update, but in case the
                         // event id changed, we are a bit lenient here and will allow an insertion
                         // of the new event.
@@ -678,8 +705,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let room_id = linked_chunk_id.room_id();
                         let hashed_room_id = this.encode_key(keys::LINKED_CHUNKS, room_id);
                         txn.execute(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
-                        , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (&hashed_room_id, &event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
 
                         // Replace the event id in the linked chunk, in case it changed.
                         txn.execute(
@@ -1336,6 +1363,14 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
+        let Some(event_type) = event.kind.event_type() else {
+            error!(%event_id, "Trying to save an event with no event type");
+            return Ok(());
+        };
+
+        let event_type = self.encode_key(keys::EVENTS, event_type);
+        let session_id = event.kind.session_id().map(|s| self.encode_key(keys::EVENTS, s));
+
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_string();
         let encoded_event = self.encode_event(&event)?;
@@ -1344,8 +1379,8 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
-                    , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (&hashed_room_id, &event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
 
                 Ok(())
             })
