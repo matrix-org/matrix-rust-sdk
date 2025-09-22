@@ -16,7 +16,7 @@
 
 use std::time::Duration;
 
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -30,7 +30,9 @@ use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     mocks::mock_encryption_state,
 };
-use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
+use matrix_sdk_ui::timeline::{
+    TimelineBuilder, TimelineFocus, TimelineItemKind, VirtualTimelineItem,
+};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
@@ -482,6 +484,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     // We paginate back once
     server
         .mock_room_relations()
+        .match_from("prev_token_1")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Prev")
@@ -489,8 +492,8 @@ async fn test_focused_timeline_handles_threaded_event() {
                     .in_thread(root_thread_id, prev_thread_event_id)
                     .into_raw_timeline(),
             ],
-            prev_batch: Some("prev_token_2".to_owned()),
-            next_batch: Some("next_token_1".to_owned()),
+            prev_batch: None,
+            next_batch: Some("prev_token_2".to_owned()),
             recursion_depth: None,
         })
         .mock_once()
@@ -502,14 +505,22 @@ async fn test_focused_timeline_handles_threaded_event() {
     assert!(!start_of_timeline);
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
-    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
+    assert_eq!(timeline_updates.len(), 3);
+    // The new item loaded is added at the start
+    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Prev");
+    // So is the new date divider
+    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[1]);
+    assert_matches!(item.kind(), TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
+    // The previous date divider is removed
+    assert_let!(VectorDiff::Remove { index } = &timeline_updates[2]);
+    assert_eq!(*index, 2);
 
     // We paginate back until the start of the timeline, which will trigger an
     // /event request for the initial item
     server
         .mock_room_relations()
+        .match_from("prev_token_2")
         .ok(RoomRelationsResponseTemplate {
             // No items returned as the thread root is not part of the /relations response
             chunk: vec![],
@@ -534,10 +545,16 @@ async fn test_focused_timeline_handles_threaded_event() {
     assert!(start_of_timeline);
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
-    // The root thread event is added right after the date divider item
-    assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
+    assert_eq!(timeline_updates.len(), 3);
+    // Same as before, the previous event is added at the front
+    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Root");
+    // Then the new date divider
+    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[1]);
+    assert_matches!(item.kind(), TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
+    // And the old date divider is removed
+    assert_let!(VectorDiff::Remove { index } = &timeline_updates[2]);
+    assert_eq!(*index, 2);
 
     // Then we paginate forwards
     server
@@ -549,7 +566,7 @@ async fn test_focused_timeline_handles_threaded_event() {
                     .in_thread(root_thread_id, prev_thread_event_id)
                     .into_raw_timeline(),
             ],
-            prev_batch: Some("prev_token_2".to_owned()),
+            prev_batch: None,
             next_batch: Some("next_token_1".to_owned()),
             recursion_depth: None,
         })
@@ -569,6 +586,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     // And we do it again until we can't
     server
         .mock_room_relations()
+        .match_from("next_token_1")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Next2")

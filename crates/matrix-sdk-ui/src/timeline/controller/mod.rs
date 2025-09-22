@@ -1779,6 +1779,13 @@ impl TimelineController {
     }
 }
 
+impl<P: RoomDataProvider> TimelineController<P> {
+    /// Returns the timeline focus of the [`TimelineController`].
+    pub(super) fn focus(&self) -> &TimelineFocusKind<P> {
+        &self.focus
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn fetch_replied_to_event<P: RoomDataProvider>(
     mut state_guard: RwLockWriteGuard<'_, TimelineState<P>>,
