@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use anyhow::{bail, Context};
 use matrix_sdk::IdParseError;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
@@ -42,7 +40,7 @@ impl TimelineEvent {
     }
 
     pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
-        let event_type = match self.0.deref() {
+        let event_type = match &*self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {
                 TimelineEventType::MessageLike { content: event.clone().try_into()? }
             }
@@ -53,8 +51,10 @@ impl TimelineEvent {
         Ok(event_type)
     }
 
+    /// Returns the thread root event id for the event, if it's part of a
+    /// thread.
     pub fn thread_root_event_id(&self) -> Option<String> {
-        match self.0.deref() {
+        match &*self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {
                 match event.original_content().and_then(|content| content.relation()) {
                     Some(encrypted::Relation::Thread(thread)) => Some(thread.event_id.to_string()),
