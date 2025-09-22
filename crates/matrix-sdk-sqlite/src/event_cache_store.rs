@@ -34,7 +34,9 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
 };
-use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
+use rusqlite::{
+    params, params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior,
+};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -1329,19 +1331,47 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error> {
+    async fn get_room_events(
+        &self,
+        room_id: &RoomId,
+        event_type: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<Vec<Event>, Self::Error> {
         let _timer = timer!("method");
 
         let this = self.clone();
 
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_event_type = event_type.map(|e| self.encode_key(keys::EVENTS, e));
+        let hashed_session_id = session_id.map(|s| self.encode_key(keys::EVENTS, s));
 
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let mut statement = txn.prepare("SELECT content FROM events WHERE room_id = ?")?;
-                let maybe_events =
-                    statement.query_map((hashed_room_id,), |row| row.get::<_, Vec<u8>>(0))?;
+                // I'm not sure why clippy claims that the clones aren't required. The compiler
+                // tells us that the lifetimes aren't long enough if we remove them. Doesn't matter
+                // much so let's silence things.
+                #[allow(clippy::redundant_clone)]
+                let (query, keys) = match (hashed_event_type, hashed_session_id) {
+                    (None, None) => {
+                        ("SELECT content FROM events WHERE room_id = ?", params![hashed_room_id])
+                    }
+                    (None, Some(session_id)) => (
+                        "SELECT content FROM events WHERE room_id = ?1 AND session_id = ?2",
+                        params![hashed_room_id, session_id.to_owned()],
+                    ),
+                    (Some(event_type), None) => (
+                        "SELECT content FROM events WHERE room_id = ? AND event_type = ?",
+                        params![hashed_room_id, event_type.to_owned()]
+                    ),
+                    (Some(event_type), Some(session_id)) => (
+                        "SELECT content FROM events WHERE room_id = ?1 AND event_type = ?2 AND session_id = ?3",
+                        params![hashed_room_id, event_type.to_owned(), session_id.to_owned()],
+                    ),
+                };
+
+                let mut statement = txn.prepare(query)?;
+                let maybe_events = statement.query_map(keys, |row| row.get::<_, Vec<u8>>(0))?;
 
                 let mut events = Vec::new();
                 for ev in maybe_events {
