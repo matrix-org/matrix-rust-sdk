@@ -408,6 +408,11 @@ impl EventCache {
         info!("Auto-shrink linked chunk task has been closed, exiting");
     }
 
+    /// Check whether [`EventCache::subscribe`] has been called.
+    pub fn has_subscribed(&self) -> bool {
+        self.inner.drop_handles.get().is_some()
+    }
+
     /// Return a room-specific view over the [`EventCache`].
     pub(crate) async fn for_room(
         &self,
