@@ -20,9 +20,10 @@ use std::fmt;
 #[cfg(feature = "sso-login")]
 use std::future::Future;
 
-use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
 use ruma::{
     api::{
+        OutgoingRequest, SendAccessToken,
         client::{
             account::register,
             session::{
@@ -30,7 +31,6 @@ use ruma::{
             },
             uiaa::UserIdentifier,
         },
-        OutgoingRequest, SendAccessToken,
     },
     serde::JsonObject,
 };
@@ -40,10 +40,10 @@ use tracing::{debug, error, info, instrument};
 use url::Url;
 
 use crate::{
+    Client, Error, RefreshTokenError, Result,
     authentication::AuthData,
     client::SessionChange,
     error::{HttpError, HttpResult},
-    Client, Error, RefreshTokenError, Result,
 };
 
 mod login_builder;
@@ -536,10 +536,9 @@ impl MatrixAuth {
 
                 if let Some(save_session_callback) =
                     self.client.inner.auth_ctx.save_session_callback.get()
+                    && let Err(err) = save_session_callback(self.client.clone())
                 {
-                    if let Err(err) = save_session_callback(self.client.clone()) {
-                        error!("when saving session after refresh: {err}");
-                    }
+                    error!("when saving session after refresh: {err}");
                 }
 
                 _ = self
@@ -572,10 +571,10 @@ impl MatrixAuth {
     ///
     /// ```no_run
     /// use matrix_sdk::{
+    ///     Client,
     ///     ruma::api::client::{
     ///         account::register::v3::Request as RegistrationRequest, uiaa,
     ///     },
-    ///     Client,
     /// };
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -662,9 +661,9 @@ impl MatrixAuth {
     ///
     /// ```no_run
     /// use matrix_sdk::{
+    ///     Client, SessionMeta, SessionTokens,
     ///     authentication::matrix::MatrixSession,
     ///     ruma::{device_id, user_id},
-    ///     Client, SessionMeta, SessionTokens,
     /// };
     /// # use url::Url;
     /// # async {
@@ -691,7 +690,7 @@ impl MatrixAuth {
     /// [`LoginBuilder::send()`] method returns:
     ///
     /// ```no_run
-    /// use matrix_sdk::{store::RoomLoadSettings, Client};
+    /// use matrix_sdk::{Client, store::RoomLoadSettings};
     /// use url::Url;
     /// # async {
     ///
@@ -815,7 +814,7 @@ impl MatrixAuth {
 ///
 /// ```
 /// use matrix_sdk::{
-///     authentication::matrix::MatrixSession, SessionMeta, SessionTokens,
+///     SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
 /// };
 /// use ruma::{device_id, user_id};
 ///

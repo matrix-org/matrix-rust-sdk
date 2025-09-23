@@ -4,8 +4,8 @@ use matrix_sdk_base::store::RoomLoadSettings;
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::v1::Prompt, device_id,
-    owned_device_id, user_id, DeviceId, ServerName,
+    DeviceId, ServerName, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
+    device_id, owned_device_id, user_id,
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
@@ -15,19 +15,19 @@ use super::{
     OAuthError, RedirectUriQueryParseError, UrlOrQuery,
 };
 use crate::{
+    Client, Error, SessionChange,
     authentication::oauth::{
-        error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
         AuthorizationValidationData, ClientRegistrationData, OAuthAuthorizationCodeError,
+        error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
     },
     test_utils::{
         client::{
-            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+            MockClientBuilder, mock_prev_session_tokens_with_refresh,
+            mock_session_tokens_with_refresh,
             oauth::{mock_client_id, mock_client_metadata, mock_redirect_uri, mock_session},
-            MockClientBuilder,
         },
         mocks::MatrixMockServer,
     },
-    Client, Error, SessionChange,
 };
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oauth/callback";

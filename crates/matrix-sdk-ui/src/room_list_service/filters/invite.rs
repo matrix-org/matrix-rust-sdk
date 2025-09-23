@@ -14,30 +14,21 @@
 
 use matrix_sdk_base::RoomState;
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-struct InviteRoomMatcher<F>
+fn matches<F>(state: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> RoomState,
+    F: Fn(&RoomListItem) -> RoomState,
 {
-    state: F,
-}
-
-impl<F> InviteRoomMatcher<F>
-where
-    F: Fn(&Room) -> RoomState,
-{
-    fn matches(&self, room: &Room) -> bool {
-        (self.state)(room) == RoomState::Invited
-    }
+    state(room) == RoomState::Invited
 }
 
 /// Create a new filter that will filter out rooms that are not invites (see
 /// [`matrix_sdk_base::RoomState::Invited`]).
 pub fn new_filter() -> impl Filter {
-    let matcher = InviteRoomMatcher { state: move |room| room.state() };
+    let state = |room: &RoomListItem| room.cached_state;
 
-    move |room| -> bool { matcher.matches(room) }
+    move |room| -> bool { matches(state, room) }
 }
 
 #[cfg(test)]
@@ -55,15 +46,12 @@ mod tests {
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         // When a room has been left, it doesn't match.
-        let matcher = InviteRoomMatcher { state: |_| RoomState::Left };
-        assert!(!matcher.matches(&room));
+        assert!(!matches(|_| RoomState::Left, &room));
 
         // When a room has been joined, it doesn't match.
-        let matcher = InviteRoomMatcher { state: |_| RoomState::Joined };
-        assert!(!matcher.matches(&room));
+        assert!(!matches(|_| RoomState::Joined, &room));
 
         // When a room is an invite, it does match (unless it's empty).
-        let matcher = InviteRoomMatcher { state: |_| RoomState::Invited };
-        assert!(matcher.matches(&room));
+        assert!(matches(|_| RoomState::Invited, &room));
     }
 }

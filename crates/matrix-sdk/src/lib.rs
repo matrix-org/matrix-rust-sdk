@@ -23,12 +23,11 @@ pub use bytes;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
-    deserialized_responses,
-    store::{self, DynStateStore, MemoryStore, StateStoreExt},
     ComposerDraft, ComposerDraftType, EncryptionState, PredecessorRoom, QueueWedgeError,
     Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
-    RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
-    StateStore, StoreError, SuccessorRoom, ThreadingSupport,
+    RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
+    StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
+    store::{self, DynStateStore, MemoryStore, StateStoreExt},
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
@@ -68,10 +67,10 @@ pub mod widget;
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
 #[cfg(feature = "experimental-search")]
-pub use client::search::SearchIndexStoreKind;
+pub mod search_index;
 pub use client::{
-    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo,
-    SessionChange,
+    Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange,
+    sanitize_server_name,
 };
 pub use error::{
     Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
@@ -82,7 +81,8 @@ pub use http_client::TransmissionProgress;
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::{
-    SqliteEventCacheStore, SqliteStateStore, SqliteStoreConfig, STATE_STORE_DATABASE_NAME,
+    STATE_STORE_DATABASE_NAME, SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore,
+    SqliteStoreConfig,
 };
 pub use media::Media;
 pub use pusher::Pusher;

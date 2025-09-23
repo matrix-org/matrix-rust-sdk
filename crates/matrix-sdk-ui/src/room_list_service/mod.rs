@@ -67,12 +67,14 @@ use matrix_sdk::{
 };
 pub use room_list::*;
 use ruma::{
-    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
+    OwnedRoomId, RoomId, UInt,
+    api::{FeatureFlag, client::sync::sync_events::v5 as http},
+    assign,
     events::StateEventType,
 };
 pub use state::*;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
@@ -96,6 +98,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomHistoryVisibility, ""),
     // Required to correctly calculate the room display name.
     (StateEventType::MemberHints, ""),
+    (StateEventType::SpaceParent, "*"),
+    (StateEventType::SpaceChild, "*"),
 ];
 
 /// The default `required_state` constant value for sliding sync room
@@ -153,8 +157,34 @@ impl RoomListService {
                 enabled: Some(true),
             }));
 
+        if client.enabled_thread_subscriptions() {
+            let server_features = client
+                .supported_versions()
+                .await
+                .map_err(|err| Error::SlidingSync(err.into()))?
+                .features;
+
+            if !server_features.contains(&FeatureFlag::from("org.matrix.msc4306")) {
+                warn!(
+                    "Thread subscriptions extension is requested on the client, but the server doesn't advertise support for it: not enabling."
+                );
+            } else {
+                debug!("Enabling the thread subscriptions extension");
+                builder = builder.with_thread_subscriptions_extension(
+                    assign!(http::request::ThreadSubscriptions::default(), {
+                        enabled: Some(true),
+                        limit: Some(ruma::uint!(10))
+                    }),
+                );
+            }
+        }
+
         if share_pos {
-            // We don't deal with encryption device messages here so this is safe
+            // The e2ee extensions aren't enabled in this sliding sync instance, and this is
+            // the only one that could be used from a different process. So it's
+            // fine to enable position sharing (i.e. reloading it from disk),
+            // since it's always exclusively owned by the current process.
+            debug!("Enabling `share_pos` for the room list sliding sync");
             builder = builder.share_pos();
         }
 

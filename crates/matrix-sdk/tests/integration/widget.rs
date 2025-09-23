@@ -18,40 +18,41 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    Client,
     test_utils::mocks::{
-        encryption::PendingToDeviceMessages, MatrixMockServer, RoomMessagesResponseTemplate,
+        MatrixMockServer, RoomMessagesResponseTemplate, encryption::PendingToDeviceMessages,
     },
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
-    Client,
 };
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, ALICE, BOB,
+    ALICE, BOB, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
 };
 use once_cell::sync::Lazy;
 use ruma::{
+    OwnedRoomId,
     api::client::to_device::send_event_to_device::v3::Messages,
     device_id, event_id,
     events::{
-        room::{member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
+        room::{member::MembershipState, message::RoomMessageEventContent},
     },
     owned_room_id, room_id,
     serde::{JsonObject, Raw},
     to_device::DeviceIdOrAllDevices,
-    user_id, OwnedRoomId,
+    user_id,
 };
 use serde::Serialize;
-use serde_json::{json, Value as JsonValue, Value};
+use serde_json::{Value as JsonValue, Value, json};
 use tracing::error;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, Request, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
@@ -1437,12 +1438,16 @@ async fn test_send_encrypted_to_device_event_wildcard() {
             assert_eq!(params.messages.len(), 1);
             let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
             assert_eq!(for_bob.len(), 2);
-            assert!(for_bob
-                .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                .is_some());
-            assert!(for_bob
-                .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                .is_some());
+            assert!(
+                for_bob
+                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
+                    .is_some()
+            );
+            assert!(
+                for_bob
+                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
+                    .is_some()
+            );
 
             ResponseTemplate::new(200)
         })
@@ -1518,12 +1523,16 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
             assert_eq!(params.messages.len(), 1);
             let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
             assert_eq!(for_bob.len(), 2);
-            assert!(for_bob
-                .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                .is_some());
-            assert!(for_bob
-                .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                .is_some());
+            assert!(
+                for_bob
+                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
+                    .is_some()
+            );
+            assert!(
+                for_bob
+                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
+                    .is_some()
+            );
 
             ResponseTemplate::new(200)
         })

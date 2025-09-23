@@ -25,12 +25,19 @@ impl<'a> TimelineView<'a> {
     }
 }
 
-#[derive(Default)]
 pub struct TimelineListState {
     state: ListState,
     /// An index from a rendered list item to the original timeline item index
     /// (since some timeline items may not be rendered).
     list_index_to_item_index: Vec<usize>,
+}
+
+impl Default for TimelineListState {
+    fn default() -> Self {
+        let mut state = ListState::default();
+        state.select_last();
+        Self { state, list_index_to_item_index: Vec::default() }
+    }
 }
 
 impl TimelineListState {
@@ -124,7 +131,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                     kind: MsgLikeKind::Poll(_), ..
                 })
                 | TimelineItemContent::CallInvite
-                | TimelineItemContent::CallNotify => {
+                | TimelineItemContent::RtcNotification => {
                     return None;
                 }
             }

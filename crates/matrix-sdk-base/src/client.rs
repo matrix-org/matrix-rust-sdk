@@ -24,6 +24,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+use matrix_sdk_common::timer;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
@@ -57,6 +58,7 @@ use crate::{
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
+    media::store::MediaStoreLock,
     response_processors::{self as processors, Context},
     room::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
@@ -90,6 +92,9 @@ pub struct BaseClient {
 
     /// The store used by the event cache.
     event_cache_store: EventCacheStoreLock,
+
+    /// The store used by the media cache.
+    media_store: MediaStoreLock,
 
     /// The store used for encryption.
     ///
@@ -189,6 +194,7 @@ impl BaseClient {
         BaseClient {
             state_store: store,
             event_cache_store: config.event_cache_store,
+            media_store: config.media_store,
             #[cfg(feature = "e2e-encryption")]
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
@@ -222,6 +228,7 @@ impl BaseClient {
         let copy = Self {
             state_store: BaseStateStore::new(config.state_store),
             event_cache_store: config.event_cache_store,
+            media_store: config.media_store,
             // We copy the crypto store as well as the `OlmMachine` for two reasons:
             // 1. The `self.crypto_store` is the same as the one used inside the `OlmMachine`.
             // 2. We need to ensure that the parent and child use the same data and caches inside
@@ -304,6 +311,11 @@ impl BaseClient {
     /// Get a reference to the event cache store.
     pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         &self.event_cache_store
+    }
+
+    /// Get a reference to the media store.
+    pub fn media_store(&self) -> &MediaStoreLock {
+        &self.media_store
     }
 
     /// Check whether the client has been activated.
@@ -1060,6 +1072,7 @@ impl BaseClient {
         &self,
         global_account_data_processor: &processors::account_data::Global,
     ) -> Result<Ruleset> {
+        let _timer = timer!(Level::TRACE, "get_push_rules");
         if let Some(event) = global_account_data_processor
             .push_rules()
             .and_then(|ev| ev.deserialize_as_unchecked::<PushRulesEvent>().ok())

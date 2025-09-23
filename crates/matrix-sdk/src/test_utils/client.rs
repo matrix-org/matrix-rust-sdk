@@ -14,12 +14,12 @@
 
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
-use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
-use ruma::{api::MatrixVersion, owned_device_id, owned_user_id, OwnedDeviceId, OwnedUserId};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
-    authentication::matrix::MatrixSession, config::RequestConfig, Client, ClientBuilder,
-    SessionTokens,
+    Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
+    config::RequestConfig,
 };
 
 /// An augmented [`ClientBuilder`] that also allows for handling session login.
@@ -54,7 +54,7 @@ impl MockClientBuilder {
         }
     }
 
-    /// Don't cache server versions in the client.
+    /// Don't use an initial, cached server versions list in the client.
     pub fn no_server_versions(mut self) -> Self {
         self.server_versions = ServerVersions::None;
         self
@@ -261,11 +261,11 @@ pub mod oauth {
     use url::Url;
 
     use crate::{
-        authentication::oauth::{
-            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-            ClientId, OAuthSession, UserSession,
-        },
         SessionTokens,
+        authentication::oauth::{
+            ClientId, OAuthSession, UserSession,
+            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
+        },
     };
 
     /// An OAuth 2.0 `ClientId`, for unit or integration tests.

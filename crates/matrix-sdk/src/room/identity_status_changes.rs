@@ -19,19 +19,19 @@ use std::collections::BTreeMap;
 
 use async_stream::stream;
 use futures_core::Stream;
-use futures_util::{stream_select, StreamExt};
+use futures_util::{StreamExt, stream_select};
 use matrix_sdk_base::crypto::{
     IdentityState, IdentityStatusChange, RoomIdentityChange, RoomIdentityState,
 };
-use ruma::{events::room::member::SyncRoomMemberEvent, OwnedUserId, UserId};
+use ruma::{OwnedUserId, UserId, events::room::member::SyncRoomMemberEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::Room;
 use crate::{
+    Client, Error, Result,
     encryption::identities::{IdentityUpdates, UserIdentity},
     event_handler::EventHandlerDropGuard,
-    Client, Error, Result,
 };
 
 /// Support for creating a stream of batches of [`IdentityStatusChange`].
@@ -153,7 +153,9 @@ fn combine_streams(
     stream_select!(identity_updates, room_member_events)
 }
 
-async fn wrap_identity_updates(client: &Client) -> Result<impl Stream<Item = RoomIdentityChange>> {
+async fn wrap_identity_updates(
+    client: &Client,
+) -> Result<impl Stream<Item = RoomIdentityChange> + use<>> {
     Ok(client
         .encryption()
         .user_identities_stream()
@@ -179,7 +181,7 @@ fn to_base_identities(
 
 fn wrap_room_member_events(
     room: &Room,
-) -> (EventHandlerDropGuard, impl Stream<Item = RoomIdentityChange>) {
+) -> (EventHandlerDropGuard, impl Stream<Item = RoomIdentityChange> + use<>) {
     let own_user_id = room.own_user_id().to_owned();
     let room_id = room.room_id();
     let (sender, receiver) = mpsc::channel(16);
@@ -199,7 +201,7 @@ fn wrap_room_member_events(
 mod tests {
     use std::time::Duration;
 
-    use futures_util::{pin_mut, FutureExt as _, StreamExt as _};
+    use futures_util::{FutureExt as _, StreamExt as _, pin_mut};
     use matrix_sdk_base::crypto::IdentityState;
     use matrix_sdk_test::{async_test, test_json::keys_query_sets::IdentityChangeDataSet};
     use test_setup::TestSetup;
@@ -591,29 +593,30 @@ mod tests {
 
         use futures_core::Stream;
         use matrix_sdk_base::{
-            crypto::{
-                testing::simulate_key_query_response_for_verification, IdentityStatusChange,
-                OtherUserIdentity,
-            },
             RoomState,
+            crypto::{
+                IdentityStatusChange, OtherUserIdentity,
+                testing::simulate_key_query_response_for_verification,
+            },
         };
         use matrix_sdk_test::{
-            test_json, test_json::keys_query_sets::IdentityChangeDataSet, JoinedRoomBuilder,
-            StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+            DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+            test_json, test_json::keys_query_sets::IdentityChangeDataSet,
         };
         use ruma::{
+            OwnedUserId, TransactionId, UserId,
             api::client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
             events::room::member::MembershipState,
-            owned_user_id, OwnedUserId, TransactionId, UserId,
+            owned_user_id,
         };
         use serde_json::json;
         use wiremock::{
-            matchers::{header, method, path_regex},
             Mock, MockServer, ResponseTemplate,
+            matchers::{header, method, path_regex},
         };
 
         use crate::{
-            encryption::identities::UserIdentity, test_utils::logged_in_client, Client, Room,
+            Client, Room, encryption::identities::UserIdentity, test_utils::logged_in_client,
         };
 
         /// Sets up a client and a room and allows changing user identities and
@@ -787,7 +790,7 @@ mod tests {
 
             pub(super) async fn subscribe_to_identity_status_changes(
                 &self,
-            ) -> impl Stream<Item = Vec<IdentityStatusChange>> {
+            ) -> impl Stream<Item = Vec<IdentityStatusChange>> + use<> {
                 self.room
                     .subscribe_to_identity_status_changes()
                     .await
@@ -855,7 +858,7 @@ mod tests {
                     (_, Some(m)) => {
                         assert_eq!(*m.membership(), new_state);
                     }
-                };
+                }
             }
 
             async fn bob_is_pinned(&self) -> bool {

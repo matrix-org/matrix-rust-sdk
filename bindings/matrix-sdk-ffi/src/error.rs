@@ -5,7 +5,7 @@ use matrix_sdk::{
     encryption::{identities::RequestVerificationError, CryptoStoreError},
     event_cache::EventCacheError,
     reqwest,
-    room::edit::EditError,
+    room::{calls::CallError, edit::EditError},
     send_queue::RoomSendQueueError,
     HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
@@ -183,6 +183,12 @@ impl From<EventCacheError> for ClientError {
 
 impl From<EditError> for ClientError {
     fn from(e: EditError) -> Self {
+        Self::from_err(e)
+    }
+}
+
+impl From<CallError> for ClientError {
+    fn from(e: CallError) -> Self {
         Self::from_err(e)
     }
 }

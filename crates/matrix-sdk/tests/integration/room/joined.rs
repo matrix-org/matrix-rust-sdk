@@ -10,43 +10,42 @@ use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
-    room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
+    room::{Receipts, ReportedContentScore, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
+    OwnedUserId, RoomVersionId, TransactionId,
     api::client::{
         membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType,
         room::upgrade_room::v3::Request as UpgradeRoomRequest,
     },
     assign, event_id,
     events::{
+        RoomAccountDataEventType, TimelineEventType,
         direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        RoomAccountDataEventType, TimelineEventType,
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, RoomVersionId,
-    TransactionId,
+    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
-    matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_json, body_partial_json, header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};
@@ -738,36 +737,6 @@ async fn test_room_message_send() {
     let response = room.send(content).with_transaction_id(txn_id).await.unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-}
-
-#[cfg(feature = "experimental-search")]
-#[async_test]
-async fn test_sync_message_is_indexed() {
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
-
-    let room_id = room_id!("!room_id:localhost");
-    let event_id = event_id!("$event_id:localost");
-    let user_id = user_id!("@user_id:localost");
-
-    let event_factory = EventFactory::new();
-    let room = mock_server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
-                .text_msg("this is a sentence")
-                .event_id(event_id)
-                .sender(user_id)
-                .into_raw_sync()]),
-        )
-        .await;
-
-    let response = room.search("this", 5).await.expect("search should have 1 result");
-
-    assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
-    assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
 }
 
 #[async_test]

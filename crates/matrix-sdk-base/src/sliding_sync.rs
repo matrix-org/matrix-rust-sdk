@@ -16,8 +16,11 @@
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
+use ruma::{
+    OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
+    serde::Raw,
+};
 use tracing::{instrument, trace};
 
 use super::BaseClient;
@@ -124,6 +127,8 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         }
 
+        let _timer = timer!(tracing::Level::TRACE, "_method");
+
         let mut context = processors::Context::default();
 
         let state_store = self.state_store.clone();
@@ -207,8 +212,7 @@ impl BaseClient {
             &extensions.account_data,
             &mut room_updates,
             &self.state_store,
-        )
-        .await;
+        );
 
         global_account_data_processor.apply(&mut context, &state_store).await;
 
@@ -253,27 +257,27 @@ impl BaseClient {
         &self,
         room_id: &OwnedRoomId,
         response: &http::Response,
-        sync_response: &mut SyncResponse,
+        new_sync_events: Vec<TimelineEvent>,
         room_previous_events: Vec<TimelineEvent>,
-    ) -> Result<()> {
+    ) -> Result<Option<Raw<SyncReceiptEvent>>> {
         let mut context = processors::Context::default();
 
         let mut save_context = false;
 
-        // Get or create the `JoinedRoomUpdate`, so that we can push the receipt
-        // ephemeral event, and compute the unread counts.
-        let joined_room_update = sync_response.rooms.joined.entry(room_id.to_owned()).or_default();
-
         // Handle the receipt ephemeral event.
-        if let Some(receipt_ephemeral_event) = response.extensions.receipts.rooms.get(room_id) {
+        let receipt_ephemeral_event = if let Some(receipt_ephemeral_event) =
+            response.extensions.receipts.rooms.get(room_id)
+        {
             processors::room::msc4186::extensions::dispatch_receipt_ephemeral_event_for_room(
                 &mut context,
                 room_id,
                 receipt_ephemeral_event,
-                joined_room_update,
             );
             save_context = true;
-        }
+            Some(receipt_ephemeral_event.clone())
+        } else {
+            None
+        };
 
         let user_id = &self.session_meta().expect("logged in user").user_id;
 
@@ -287,7 +291,7 @@ impl BaseClient {
                 room_id,
                 context.state_changes.receipts.get(room_id),
                 room_previous_events,
-                &joined_room_update.timeline.events,
+                &new_sync_events,
                 &mut room_info.read_receipts,
                 self.threading_support,
             );
@@ -309,7 +313,7 @@ impl BaseClient {
             processors::changes::save_only(context, &self.state_store).await?;
         }
 
-        Ok(())
+        Ok(receipt_ephemeral_event)
     }
 }
 
@@ -1449,6 +1453,7 @@ mod tests {
         assert!(client_room.latest_event().is_none());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_cached_latest_event_can_be_redacted() {
         // Given a logged-in client
@@ -1789,7 +1794,7 @@ mod tests {
 
         // Then the room in the client has the recency stamp
         let client_room = client.get_room(room_id).expect("No room found");
-        assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+        assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
     }
 
     #[async_test]
@@ -1811,7 +1816,7 @@ mod tests {
 
             // Then the room in the client has the recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
         }
 
         {
@@ -1827,7 +1832,7 @@ mod tests {
 
             // Then the room in the client has the previous recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
         }
 
         {
@@ -1844,7 +1849,7 @@ mod tests {
 
             // Then the room in the client has the recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 153);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 153.into());
         }
     }
 

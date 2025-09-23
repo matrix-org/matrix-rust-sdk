@@ -1,7 +1,7 @@
 [package]
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "A high level Matrix client-server library."
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
@@ -9,7 +9,7 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.13.0"
+version = "0.14.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
@@ -73,20 +73,22 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
 experimental-search = ["matrix-sdk-search"]
 
+experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
 aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
-async-channel = "2.3.1"
+async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
-axum = { version = "0.8.1", optional = true }
-bytes = "1.9.0"
+axum = { version = "0.8.4", optional = true }
+bytes = "1.10.1"
 bytesize = "2.0.1"
-cfg-if = "1.0.0"
-event-listener = "5.4.0"
+cfg-if = "1.0.3"
+event-listener = "5.4.1"
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
@@ -106,10 +108,10 @@ matrix-sdk-search = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime.workspace = true
-mime2ext = "0.1.53"
+mime2ext = "0.1.54"
 oauth2.workspace = true
 once_cell.workspace = true
-percent-encoding = "2.3.1"
+percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
@@ -132,7 +134,7 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.13"
+tokio-util = "0.7.16"
 tower = { version = "0.5.2", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -143,7 +145,7 @@ vodozemac.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-backon = "1.5.0"
+backon = "1.5.2"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

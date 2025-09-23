@@ -45,7 +45,7 @@ pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, apply_redaction,
+    RoomInfoNotableUpdateReasons, RoomRecencyStamp, apply_redaction,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
@@ -91,7 +91,7 @@ pub struct Room {
     /// Our own user ID.
     pub(super) own_user_id: OwnedUserId,
 
-    pub(super) inner: SharedObservable<RoomInfo>,
+    pub(super) info: SharedObservable<RoomInfo>,
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     pub(super) store: Arc<DynStateStore>,
 
@@ -140,7 +140,7 @@ impl Room {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
-            inner: SharedObservable::new(room_info),
+            info: SharedObservable::new(room_info),
             #[cfg(feature = "e2e-encryption")]
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
@@ -158,7 +158,7 @@ impl Room {
 
     /// Get a copy of the room creators.
     pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
-        self.inner.read().creators()
+        self.info.read().creators()
     }
 
     /// Get our own user id.
@@ -168,18 +168,18 @@ impl Room {
 
     /// Whether this room's [`RoomType`] is `m.space`.
     pub fn is_space(&self) -> bool {
-        self.inner.read().room_type().is_some_and(|t| *t == RoomType::Space)
+        self.info.read().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
     /// Returns the room's type as defined in its creation event
     /// (`m.room.create`).
     pub fn room_type(&self) -> Option<RoomType> {
-        self.inner.read().room_type().map(ToOwned::to_owned)
+        self.info.read().room_type().map(ToOwned::to_owned)
     }
 
     /// Get the unread notification counts.
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
-        self.inner.read().notification_counts
+        self.info.read().notification_counts
     }
 
     /// Get the number of unread messages (computed client-side).
@@ -187,12 +187,12 @@ impl Room {
     /// This might be more precise than [`Self::unread_notification_counts`] for
     /// encrypted rooms.
     pub fn num_unread_messages(&self) -> u64 {
-        self.inner.read().read_receipts.num_unread
+        self.info.read().read_receipts.num_unread
     }
 
     /// Get the detailed information about read receipts for the room.
     pub fn read_receipts(&self) -> RoomReadReceipts {
-        self.inner.read().read_receipts.clone()
+        self.info.read().read_receipts.clone()
     }
 
     /// Get the number of unread notifications (computed client-side).
@@ -200,7 +200,7 @@ impl Room {
     /// This might be more precise than [`Self::unread_notification_counts`] for
     /// encrypted rooms.
     pub fn num_unread_notifications(&self) -> u64 {
-        self.inner.read().read_receipts.num_notifications
+        self.info.read().read_receipts.num_notifications
     }
 
     /// Get the number of unread mentions (computed client-side), that is,
@@ -209,7 +209,7 @@ impl Room {
     /// This might be more precise than [`Self::unread_notification_counts`] for
     /// encrypted rooms.
     pub fn num_unread_mentions(&self) -> u64 {
-        self.inner.read().read_receipts.num_mentions
+        self.info.read().read_receipts.num_mentions
     }
 
     /// Check if the room states have been synced
@@ -220,40 +220,40 @@ impl Room {
     ///
     /// Returns true if the state is fully synced, false otherwise.
     pub fn is_state_fully_synced(&self) -> bool {
-        self.inner.read().sync_info == SyncInfo::FullySynced
+        self.info.read().sync_info == SyncInfo::FullySynced
     }
 
     /// Check if the room state has been at least partially synced.
     ///
     /// See [`Room::is_state_fully_synced`] for more info.
     pub fn is_state_partially_or_fully_synced(&self) -> bool {
-        self.inner.read().sync_info != SyncInfo::NoState
+        self.info.read().sync_info != SyncInfo::NoState
     }
 
     /// Get the `prev_batch` token that was received from the last sync. May be
     /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
-        self.inner.read().last_prev_batch.clone()
+        self.info.read().last_prev_batch.clone()
     }
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner.read().avatar_url().map(ToOwned::to_owned)
+        self.info.read().avatar_url().map(ToOwned::to_owned)
     }
 
     /// Get information about the avatar of this room.
     pub fn avatar_info(&self) -> Option<avatar::ImageInfo> {
-        self.inner.read().avatar_info().map(ToOwned::to_owned)
+        self.info.read().avatar_info().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
-        self.inner.read().canonical_alias().map(ToOwned::to_owned)
+        self.info.read().canonical_alias().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
     pub fn alt_aliases(&self) -> Vec<OwnedRoomAliasId> {
-        self.inner.read().alt_aliases().to_owned()
+        self.info.read().alt_aliases().to_owned()
     }
 
     /// Get the `m.room.create` content of this room.
@@ -266,7 +266,7 @@ impl Room {
     /// redacted, all fields except `creator` will be set to their default
     /// value.
     pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
-        match self.inner.read().base_info.create.as_ref()? {
+        match self.info.read().base_info.create.as_ref()? {
             MinimalStateEvent::Original(ev) => Some(ev.content.clone()),
             MinimalStateEvent::Redacted(ev) => Some(ev.content.clone()),
         }
@@ -279,7 +279,7 @@ impl Room {
     pub async fn is_direct(&self) -> StoreResult<bool> {
         match self.state() {
             RoomState::Joined | RoomState::Left | RoomState::Banned => {
-                Ok(!self.inner.read().base_info.dm_targets.is_empty())
+                Ok(!self.info.read().base_info.dm_targets.is_empty())
             }
 
             RoomState::Invited => {
@@ -316,41 +316,41 @@ impl Room {
     /// us to re-find a DM with a user even if they have left, since we may
     /// want to re-invite them.
     pub fn direct_targets(&self) -> HashSet<OwnedDirectUserIdentifier> {
-        self.inner.read().base_info.dm_targets.clone()
+        self.info.read().base_info.dm_targets.clone()
     }
 
     /// If this room is a direct message, returns the number of members that
     /// we're sharing the room with.
     pub fn direct_targets_length(&self) -> usize {
-        self.inner.read().base_info.dm_targets.len()
+        self.info.read().base_info.dm_targets.len()
     }
 
     /// Get the guest access policy of this room.
     pub fn guest_access(&self) -> GuestAccess {
-        self.inner.read().guest_access().clone()
+        self.info.read().guest_access().clone()
     }
 
     /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> Option<HistoryVisibility> {
-        self.inner.read().history_visibility().cloned()
+        self.info.read().history_visibility().cloned()
     }
 
     /// Get the history visibility policy of this room, or a sensible default if
     /// the event is missing.
     pub fn history_visibility_or_default(&self) -> HistoryVisibility {
-        self.inner.read().history_visibility_or_default().clone()
+        self.info.read().history_visibility_or_default().clone()
     }
 
     /// Is the room considered to be public.
     ///
     /// May return `None` if the join rule event is not available.
     pub fn is_public(&self) -> Option<bool> {
-        self.inner.read().join_rule().map(|join_rule| matches!(join_rule, JoinRule::Public))
+        self.info.read().join_rule().map(|join_rule| matches!(join_rule, JoinRule::Public))
     }
 
     /// Get the join rule policy of this room, if available.
     pub fn join_rule(&self) -> Option<JoinRule> {
-        self.inner.read().join_rule().cloned()
+        self.info.read().join_rule().cloned()
     }
 
     /// Get the maximum power level that this room contains.
@@ -358,7 +358,7 @@ impl Room {
     /// This is useful if one wishes to normalize the power levels, e.g. from
     /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
-        self.inner.read().base_info.max_power_level
+        self.info.read().base_info.max_power_level
     }
 
     /// Get the current power levels of this room.
@@ -370,7 +370,7 @@ impl Room {
             .ok_or(Error::InsufficientData)?
             .deserialize()?;
         let creators = self.creators().ok_or(Error::InsufficientData)?;
-        let rules = self.inner.read().room_version_rules_or_default();
+        let rules = self.info.read().room_version_rules_or_default();
 
         Ok(power_levels_content.power_levels(&rules.authorization, creators))
     }
@@ -383,7 +383,7 @@ impl Room {
         }
 
         // As a fallback, create the default power levels of a room.
-        let rules = self.inner.read().room_version_rules_or_default();
+        let rules = self.info.read().room_version_rules_or_default();
         RoomPowerLevels::new(
             RoomPowerLevelsSource::None,
             &rules.authorization,
@@ -396,12 +396,12 @@ impl Room {
     /// The returned string may be empty if the event has been redacted, or it's
     /// missing from storage.
     pub fn name(&self) -> Option<String> {
-        self.inner.read().name().map(ToOwned::to_owned)
+        self.info.read().name().map(ToOwned::to_owned)
     }
 
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
-        self.inner.read().topic().map(ToOwned::to_owned)
+        self.info.read().topic().map(ToOwned::to_owned)
     }
 
     /// Update the cached user defined notification mode.
@@ -410,7 +410,7 @@ impl Room {
     /// cached result can be retrieved in
     /// [`Self::cached_user_defined_notification_mode`].
     pub fn update_cached_user_defined_notification_mode(&self, mode: RoomNotificationMode) {
-        self.inner.update_if(|info| {
+        self.info.update_if(|info| {
             if info.cached_user_defined_notification_mode.as_ref() != Some(&mode) {
                 info.cached_user_defined_notification_mode = Some(mode);
 
@@ -426,7 +426,7 @@ impl Room {
     /// This cache is refilled every time we call
     /// [`Self::update_cached_user_defined_notification_mode`].
     pub fn cached_user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
-        self.inner.read().cached_user_defined_notification_mode
+        self.info.read().cached_user_defined_notification_mode
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -437,7 +437,7 @@ impl Room {
 
     /// Get the heroes for this room.
     pub fn heroes(&self) -> Vec<RoomHero> {
-        self.inner.read().heroes().to_vec()
+        self.info.read().heroes().to_vec()
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
@@ -468,19 +468,19 @@ impl Room {
     /// Returns a boolean indicating if this room has been manually marked as
     /// unread
     pub fn is_marked_unread(&self) -> bool {
-        self.inner.read().base_info.is_marked_unread
+        self.info.read().base_info.is_marked_unread
     }
 
     /// Returns the [`RoomVersionId`] of the room, if known.
     pub fn version(&self) -> Option<RoomVersionId> {
-        self.inner.read().room_version().cloned()
+        self.info.read().room_version().cloned()
     }
 
     /// Returns the recency stamp of the room.
     ///
     /// Please read `RoomInfo::recency_stamp` to learn more.
-    pub fn recency_stamp(&self) -> Option<u64> {
-        self.inner.read().recency_stamp
+    pub fn recency_stamp(&self) -> Option<RoomRecencyStamp> {
+        self.info.read().recency_stamp
     }
 
     /// Returns the details about an invite to this room if the invite has been
@@ -491,20 +491,20 @@ impl Room {
     /// - `None` if we didn't join this room using an invite or the invite
     ///   wasn't accepted by this client.
     pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
-        self.inner.read().invite_acceptance_details.clone()
+        self.info.read().invite_acceptance_details.clone()
     }
 
     /// Get a `Stream` of loaded pinned events for this room.
     /// If no pinned events are found a single empty `Vec` will be returned.
     pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
-        self.inner
+        self.info
             .subscribe()
             .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())
     }
 
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
-        self.inner.read().pinned_event_ids()
+        self.info.read().pinned_event_ids()
     }
 }
 

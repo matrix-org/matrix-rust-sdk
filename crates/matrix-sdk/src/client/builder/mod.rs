@@ -26,30 +26,31 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
-use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
+use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
-    api::{error::FromHttpResponseError, MatrixVersion, SupportedVersions},
     OwnedServerName, ServerName,
+    api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex, OnceCell};
-use tracing::{debug, field::debug, instrument, Span};
+use tokio::sync::{Mutex, OnceCell, broadcast};
+use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
-#[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndex;
-#[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndexStoreKind;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_family = "wasm"))]
 use crate::http_client::HttpSettings;
+#[cfg(feature = "experimental-search")]
+use crate::search_index::SearchIndex;
+#[cfg(feature = "experimental-search")]
+use crate::search_index::SearchIndexStoreKind;
 use crate::{
-    authentication::{oauth::OAuthCtx, AuthCtx},
+    HttpError, IdParseError,
+    authentication::{AuthCtx, oauth::OAuthCtx},
     client::{
         CachedValue::{Cached, NotSet},
         ClientServerInfo,
@@ -59,7 +60,6 @@ use crate::{
     http_client::HttpClient,
     send_queue::SendQueueData,
     sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
-    HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -299,7 +299,7 @@ impl ClientBuilder {
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
     /// # let custom_state_store = MemoryStore::new();
-    /// use matrix_sdk::{config::StoreConfig, Client};
+    /// use matrix_sdk::{Client, config::StoreConfig};
     ///
     /// let store_config =
     ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
@@ -482,7 +482,7 @@ impl ClientBuilder {
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` will be the value used for all cross-process store locks
     /// used by the `Client` being built.
     ///
@@ -608,6 +608,7 @@ impl ClientBuilder {
 
         let event_cache = OnceCell::new();
         let latest_events = OnceCell::new();
+        let thread_subscriptions_catchup = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
         let search_index =
@@ -632,6 +633,7 @@ impl ClientBuilder {
             self.cross_process_store_locks_holder_name,
             #[cfg(feature = "experimental-search")]
             search_index,
+            thread_subscriptions_catchup,
         )
         .await;
 
@@ -666,11 +668,20 @@ async fn build_store_config(
                 .event_cache_store({
                     let mut config = config.clone();
 
-                    if let Some(cache_path) = cache_path {
+                    if let Some(ref cache_path) = cache_path {
                         config = config.path(cache_path);
                     }
 
                     matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(config).await?
+                })
+                .media_store({
+                    let mut config = config.clone();
+
+                    if let Some(ref cache_path) = cache_path {
+                        config = config.path(cache_path);
+                    }
+
+                    matrix_sdk_sqlite::SqliteMediaStore::open_with_config(config).await?
                 });
 
             #[cfg(feature = "e2e-encryption")]
@@ -855,10 +866,10 @@ pub enum ClientBuildError {
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
-    use serde_json::{json_internal, Value as JsonValue};
+    use serde_json::{Value as JsonValue, json_internal};
     use wiremock::{
-        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use super::*;

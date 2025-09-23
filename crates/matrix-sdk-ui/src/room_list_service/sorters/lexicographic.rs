@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use super::{BoxedSorterFn, Sorter};
 
 /// Create a new sorter that will run multiple sorters. When the nth sorter
-/// returns [`Ordering::Equal`], the next sorter is called. It stops at soon as
+/// returns [`Ordering::Equal`], the next sorter is called. It stops as soon as
 /// a sorter return [`Ordering::Greater`] or [`Ordering::Less`].
 ///
 /// This is an implementation of a lexicographic order as defined for cartesian

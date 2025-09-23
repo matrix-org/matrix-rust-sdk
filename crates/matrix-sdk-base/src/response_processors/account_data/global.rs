@@ -17,6 +17,7 @@ use std::{
     mem,
 };
 
+use matrix_sdk_common::timer;
 use ruma::{
     RoomId,
     events::{
@@ -43,6 +44,8 @@ pub struct Global {
 impl Global {
     /// Creates a new processor for global account data.
     fn process(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Self {
+        let _timer = timer!(tracing::Level::TRACE, "Global::process (global account data)");
+
         let mut raw_by_type = BTreeMap::new();
         let mut parsed_events = Vec::new();
 
@@ -125,6 +128,8 @@ impl Global {
 
     /// Applies the processed data to the state changes and the state store.
     pub async fn apply(mut self, context: &mut Context, state_store: &BaseStateStore) {
+        let _timer = timer!(tracing::Level::TRACE, "Global::apply (global account data)");
+
         // Fill in the content of `changes.account_data`.
         mem::swap(&mut context.state_changes.account_data, &mut self.raw_by_type);
 

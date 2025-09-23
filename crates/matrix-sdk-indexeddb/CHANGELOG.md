@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.14.0] - 2025-09-04
+
+No notable changes in this release.
+
 ## [0.13.0] - 2025-07-10
 
 ### Features

@@ -327,14 +327,10 @@ impl TimelineMetadata {
                 relations: ev.relations(),
                 bundled_edit_encryption_info,
             });
-            return self.process_content_relations(
-                &content,
-                remote_ctx,
-                timeline_items,
-                is_thread_focus,
-            );
+            self.process_content_relations(&content, remote_ctx, timeline_items, is_thread_focus)
+        } else {
+            (None, None)
         }
-        (None, None)
     }
 
     /// Extracts the in-reply-to details and thread root from the content of a

@@ -527,37 +527,6 @@ impl PrivateCrossSigningIdentity {
             .sign(message))
     }
 
-    /// Create a new identity for the given Olm Account.
-    ///
-    /// Returns the new identity, the upload signing keys request and a
-    /// signature upload request that contains the signature of the account
-    /// signed by the self signing key.
-    ///
-    /// # Arguments
-    ///
-    /// * `account` - The Olm account that is creating the new identity. The
-    ///   account will sign the master key and the self signing key will sign
-    ///   the account.
-    pub(crate) async fn with_account(
-        account: &Account,
-    ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let mut master = MasterSigning::new(account.user_id().into());
-
-        account
-            .sign_cross_signing_key(master.public_key_mut().as_mut())
-            .expect("Can't sign our freshly created master key with our account");
-
-        let identity = Self::new_helper(account.user_id(), master);
-        let signature_request = identity
-            .sign_account(account.static_data())
-            .await
-            .expect("Can't sign own device with new cross signing keys");
-
-        let request = identity.as_upload_request().await;
-
-        (identity, request, signature_request)
-    }
-
     fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
         let (user, self_signing) = master.new_subkeys();
 
@@ -577,6 +546,32 @@ impl PrivateCrossSigningIdentity {
     pub fn new(user_id: OwnedUserId) -> Self {
         let master = MasterSigning::new(user_id.to_owned());
         Self::new_helper(&user_id, master)
+    }
+
+    /**
+     * Create a new private identity, suitable for the given [`Account`].
+     *
+     * The identity will be created with a fresh set of cross-signing keys.
+     * The master key will be signed by the `OlmAccount` (i.e. the device).
+     * The user-signing and self-signing keys will be signed by the
+     * master key.
+     *
+     * Note that after creating a new identity, the device will need to be
+     * signed by the self-signing key. This can be done via
+     * [`PrivateCrossSigningIdentity::sign_account`].
+     *
+     * # Arguments
+     *
+     * * `account` - The Olm account that is creating the new identity.
+     */
+    pub(crate) fn for_account(account: &Account) -> PrivateCrossSigningIdentity {
+        let mut master = MasterSigning::new(account.user_id().into());
+
+        account
+            .sign_cross_signing_key(master.public_key_mut().as_mut())
+            .expect("Can't sign our freshly created master key with our account");
+
+        Self::new_helper(account.user_id(), master)
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -754,7 +749,7 @@ mod tests {
     #[async_test]
     async fn test_private_identity_signed_by_account() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
+        let identity = PrivateCrossSigningIdentity::for_account(&account);
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
@@ -777,7 +772,7 @@ mod tests {
     #[async_test]
     async fn test_sign_device() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
+        let identity = PrivateCrossSigningIdentity::for_account(&account);
 
         let mut device = DeviceData::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
@@ -794,11 +789,11 @@ mod tests {
     #[async_test]
     async fn test_sign_user_identity() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
+        let identity = PrivateCrossSigningIdentity::for_account(&account);
 
         let bob_account =
             Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
-        let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
+        let bob_private = PrivateCrossSigningIdentity::for_account(&bob_account);
         let mut bob_public = OtherUserIdentityData::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;

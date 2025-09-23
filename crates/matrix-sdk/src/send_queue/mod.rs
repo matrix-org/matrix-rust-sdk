@@ -132,8 +132,8 @@ use std::{
     collections::{BTreeMap, HashMap},
     str::FromStr as _,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -141,46 +141,46 @@ use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
+    RoomState, StoreError,
+    cross_process_lock::CrossProcessLockError,
     event_cache::store::EventCacheStoreError,
-    media::MediaRequestParameters,
+    media::{MediaRequestParameters, store::MediaStoreError},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
-    store_locks::LockStoreError,
-    RoomState, StoreError,
 };
 use matrix_sdk_common::{
-    executor::{spawn, JoinHandle},
+    executor::{JoinHandle, spawn},
     locks::Mutex as SyncMutex,
 };
 use mime::Mime;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId,
     events::{
+        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
         reaction::ReactionEventContent,
         relation::Annotation,
         room::{
-            message::{FormattedBody, RoomMessageEventContent},
             MediaSource,
+            message::{FormattedBody, RoomMessageEventContent},
         },
-        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId,
 };
-use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
+use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
+    Client, Media, Room, TransmissionProgress,
     client::WeakClient,
     config::RequestConfig,
     error::RetryKind,
-    room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room, TransmissionProgress,
+    room::{WeakRoom, edit::EditedContent},
 };
 
 mod progress;
@@ -842,7 +842,7 @@ impl RoomSendQueue {
                 let fut = async move {
                     let data = room
                         .client()
-                        .event_cache_store()
+                        .media_store()
                         .lock()
                         .await?
                         .get_media_content(&cache_key)
@@ -2348,9 +2348,13 @@ pub enum RoomSendQueueStorageError {
     #[error(transparent)]
     EventCacheStoreError(#[from] EventCacheStoreError),
 
+    /// Error caused by the event cache store.
+    #[error(transparent)]
+    MediaStoreError(#[from] MediaStoreError),
+
     /// Error caused when attempting to get a handle on the event cache store.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// Error caused when (de)serializing into/from json.
     #[error(transparent)]
@@ -2740,10 +2744,11 @@ mod tests {
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
     };
-    use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+    use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
-        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-        room_id, MilliSecondsSinceUnixEpoch, TransactionId,
+        MilliSecondsSinceUnixEpoch, TransactionId,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        room_id,
     };
 
     use super::canonicalize_dependent_requests;

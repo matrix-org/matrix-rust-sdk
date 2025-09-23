@@ -12,43 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-#![allow(unused)]
+#![cfg_attr(not(test), allow(unused))]
 
-use std::time::Duration;
+use std::{rc::Rc, time::Duration};
 
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
-    event_cache::{
-        store::{
-            media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
-            EventCacheStore, MemoryStore,
-        },
-        Event, Gap,
-    },
+    event_cache::{store::EventCacheStore, Event, Gap},
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
         RawChunk, Update,
     },
-    media::MediaRequestParameters,
     timer,
 };
 use ruma::{
-    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
-    RoomId,
+    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
 };
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
-use crate::event_cache_store::{
-    migrations::current::keys,
-    serializer::{traits::Indexed, IndexeddbEventCacheStoreSerializer},
-    transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
-    types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+use crate::{
+    event_cache_store::{
+        migrations::current::keys,
+        transaction::IndexeddbEventCacheStoreTransaction,
+        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+    },
+    serializer::{Indexed, IndexedTypeSerializer},
+    transaction::TransactionError,
 };
 
 mod builder;
 mod error;
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod integration_tests;
 mod migrations;
 mod serializer;
@@ -63,18 +58,12 @@ pub use error::IndexeddbEventCacheStoreError;
 /// contexts.
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
-    inner: IdbDatabase,
+    inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
-    serializer: IndexeddbEventCacheStoreSerializer,
-    // An in-memory store for providing temporary implementations for
-    // functions of `EventCacheStore`.
-    //
-    // NOTE: This will be removed once we have IndexedDB-backed implementations for all
-    // functions in `EventCacheStore`.
-    memory_store: MemoryStore,
+    serializer: IndexedTypeSerializer,
 }
 
 impl IndexeddbEventCacheStore {
@@ -99,36 +88,11 @@ impl IndexeddbEventCacheStore {
     }
 }
 
-// Small hack to have the following macro invocation act as the appropriate
-// trait impl block on wasm, but still be compiled on non-wasm as a regular
-// impl block otherwise.
-//
-// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
-// this hack allows us to still have most of rust-analyzer's IDE functionality
-// within the impl block without having to set it up to check things against
-// the wasm target (which would disable many other parts of the codebase).
-#[cfg(target_arch = "wasm32")]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        #[async_trait::async_trait(?Send)]
-        impl EventCacheStore for IndexeddbEventCacheStore {
-            type Error = IndexeddbEventCacheStoreError;
+#[cfg(target_family = "wasm")]
+#[async_trait::async_trait(?Send)]
+impl EventCacheStore for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
 
-            $($body)*
-        }
-    };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        impl IndexeddbEventCacheStore {
-            $($body)*
-        }
-    };
-}
-
-impl_event_cache_store! {
     #[instrument(skip(self))]
     async fn try_take_leased_lock(
         &self,
@@ -348,8 +312,6 @@ impl_event_cache_store! {
     > {
         let _timer = timer!("method");
 
-        let owned_linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = owned_linked_chunk_id.room_id();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
@@ -362,7 +324,7 @@ impl_event_cache_store! {
         // for the last chunk in the room by getting the chunk which does not
         // have a next chunk.
         match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
-            Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
+            Err(TransactionError::ItemIsNotUnique) => {
                 // If there are multiple chunks that do not have a next chunk, that
                 // means we have more than one last chunk, which means that we have
                 // more than one list in the room.
@@ -509,6 +471,21 @@ impl_event_cache_store! {
         Ok(related_events)
     }
 
+    #[instrument(skip(self))]
+    async fn get_room_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        transaction
+            .get_room_events(room_id)
+            .await
+            .map(|vec| vec.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
+    }
+
     #[instrument(skip(self, event))]
     async fn save_event(
         &self,
@@ -523,7 +500,7 @@ impl_event_cache_store! {
         };
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
         let event = match transaction.get_event_by_room(room_id, &event_id).await? {
-            Some(mut inner) => inner.with_content(event),
+            Some(inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent {
                 linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
                 content: event,
@@ -534,130 +511,14 @@ impl_event_cache_store! {
         transaction.commit().await?;
         Ok(())
     }
-
-    #[instrument(skip_all)]
-    async fn add_media_content(
-        &self,
-        request: &MediaRequestParameters,
-        content: Vec<u8>,
-        ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .add_media_content(request, content, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn replace_media_key(
-        &self,
-        from: &MediaRequestParameters,
-        to: &MediaRequestParameters,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .replace_media_key(from, to)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn get_media_content(
-        &self,
-        request: &MediaRequestParameters,
-    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .get_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn remove_media_content(
-        &self,
-        request: &MediaRequestParameters,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip(self))]
-    async fn get_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip(self))]
-    async fn remove_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn set_media_retention_policy(
-        &self,
-        policy: MediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .set_media_retention_policy(policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    fn media_retention_policy(&self) -> MediaRetentionPolicy {
-        let _timer = timer!("method");
-        self.memory_store.media_retention_policy()
-    }
-
-    #[instrument(skip_all)]
-    async fn set_ignore_media_retention_policy(
-        &self,
-        request: &MediaRequestParameters,
-        ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .set_ignore_media_retention_policy(request, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .clean_up_media_cache()
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
-        event_cache::store::{EventCacheStore, EventCacheStoreError},
-        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
+        event_cache_store_integration_tests_time,
     };
-    use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
     use crate::{
@@ -674,14 +535,10 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
-        indexeddb_event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests_time!();
+
+        indexeddb_event_cache_store_integration_tests!();
     }
 
     mod encrypted {
@@ -694,13 +551,9 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
-        indexeddb_event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests_time!();
+
+        indexeddb_event_cache_store_integration_tests!();
     }
 }

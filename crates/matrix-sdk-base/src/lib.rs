@@ -45,6 +45,9 @@ pub mod sync;
 mod test_utils;
 mod utils;
 
+#[cfg(feature = "experimental-element-recent-emojis")]
+pub mod recent_emojis;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
@@ -57,12 +60,12 @@ pub use once_cell;
 pub use room::{
     EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomState,
-    RoomStateFilter, SuccessorRoom, apply_redaction,
+    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp,
+    RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,
-    StateStoreDataValue, StoreError,
+    StateStoreDataValue, StoreError, ThreadSubscriptionCatchupToken,
 };
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,

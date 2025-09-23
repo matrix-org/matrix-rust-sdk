@@ -25,9 +25,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{
-        key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
-    },
+    events::{key::verification::VerificationMethod, room::message::MessageType},
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -360,7 +358,8 @@ impl OtherUserIdentity {
     }
 
     /// Create a [`VerificationRequest`] object after the verification request
-    /// content has been sent out.
+    /// content returned by [`OtherUserIdentity::verification_request_content`]
+    /// has been sent out.
     pub fn request_verification(
         &self,
         room_id: &RoomId,
@@ -375,23 +374,22 @@ impl OtherUserIdentity {
         )
     }
 
-    /// Send a verification request to the given user.
+    /// Create a verification request to send to the given user.
     ///
-    /// The returned content needs to be sent out into a DM room with the given
-    /// user.
+    /// The returned content needs to be sent out into a DM room with the user.
     ///
     /// After the content has been sent out a [`VerificationRequest`] can be
     /// started with the [`OtherUserIdentity::request_verification()`] method.
     pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
-    ) -> KeyVerificationRequestEventContent {
-        VerificationRequest::request(
+    ) -> MessageType {
+        MessageType::VerificationRequest(VerificationRequest::request(
             self.verification_machine.own_user_id(),
             self.verification_machine.own_device_id(),
             self.user_id(),
             methods,
-        )
+        ))
     }
 
     /// Pin the current identity (public part of the master signing key).
@@ -1435,7 +1433,7 @@ pub(crate) mod tests {
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
-        CrossSigningKeyExport, OlmMachine, OtherUserIdentityData,
+        CrossSigningKeyExport, OlmMachine, OtherUserIdentity, OtherUserIdentityData,
     };
 
     #[test]
@@ -1598,17 +1596,8 @@ pub(crate) mod tests {
         assert!(!identity.is_device_signed(&first));
         assert!(identity.is_device_signed(&second));
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
-        let verification_machine = VerificationMachine::new(
-            Account::with_device_id(second.user_id(), second.device_id()).static_data,
-            private_identity,
-            Arc::new(CryptoStoreWrapper::new(
-                second.user_id(),
-                second.device_id(),
-                MemoryStore::new(),
-            )),
-        );
+        let account = Account::with_device_id(second.user_id(), second.device_id());
+        let verification_machine = get_verification_machine(&account);
 
         let first = Device {
             inner: first,
@@ -1641,21 +1630,8 @@ pub(crate) mod tests {
         let (_, device) = device(&response);
 
         let account = Account::with_device_id(device.user_id(), device.device_id());
-        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
-
-        let id = Arc::new(Mutex::new(identity.clone()));
-
-        let verification_machine = VerificationMachine::new(
-            Account::with_device_id(device.user_id(), device.device_id()).static_data,
-            id.clone(),
-            Arc::new(CryptoStoreWrapper::new(
-                device.user_id(),
-                device.device_id(),
-                MemoryStore::new(),
-            )),
-        );
-
-        let public_identity = identity.to_public_identity().await.unwrap();
+        let verification_machine = get_verification_machine(&account);
+        let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
         let mut device = Device {
             inner: device,
@@ -1668,6 +1644,7 @@ pub(crate) mod tests {
 
         let mut device_keys = device.as_device_keys().to_owned();
 
+        let identity = verification_machine.store.private_identity.lock().await;
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.is_verified());
@@ -1985,5 +1962,75 @@ pub(crate) mod tests {
             },
             "verified": false
         })
+    }
+
+    #[async_test]
+    async fn test_other_user_identity_verification_request_content() {
+        let other_user_identity = other_user_identity().await;
+        let verification_request_content = other_user_identity.verification_request_content(None);
+        let mut verification_request_content_json =
+            serde_json::to_value(verification_request_content)
+                .expect("Could not serialize verification request content");
+
+        // Remove the body which is a pain to match
+        let verification_request_content_object = verification_request_content_json
+            .as_object_mut()
+            .expect("serialized verification request was not an object");
+        verification_request_content_object.remove("body").expect("No `body` in message content");
+
+        // The methods are variable too
+        let methods = verification_request_content_object
+            .remove("methods")
+            .expect("No `methods` in message content");
+        let methods = methods.as_array().expect("`methods` was not an array");
+        assert!(methods.contains(&json!("m.sas.v1")));
+        assert!(methods.contains(&json!("m.reciprocate.v1")));
+
+        assert_eq!(
+            verification_request_content_json,
+            json!({
+                "msgtype": "m.key.verification.request",
+                "from_device": "DEV123",
+                "to": other_user_identity.user_id().to_string(),
+            })
+        );
+    }
+
+    /// Create an [`OtherUserIdentity`] for use in tests
+    async fn other_user_identity() -> OtherUserIdentity {
+        use ruma::owned_device_id;
+
+        let other_user_identity_data = get_other_identity();
+
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+
+        let verification_machine = get_verification_machine(&account);
+        let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
+
+        OtherUserIdentity {
+            inner: other_user_identity_data,
+            own_identity: Some(own_identity_data),
+            verification_machine,
+        }
+    }
+
+    /**
+     * Create a minimal [`VerificationMachine`] for the given account,
+     * backed by a [`MemoryStore`].
+     *
+     * Creates a new private user identity for the account.
+     */
+    fn get_verification_machine(account: &Account) -> VerificationMachine {
+        let private_identity = PrivateCrossSigningIdentity::for_account(account);
+        VerificationMachine::new(
+            account.static_data().clone(),
+            Arc::new(Mutex::new(private_identity)),
+            Arc::new(CryptoStoreWrapper::new(
+                account.user_id(),
+                account.device_id(),
+                MemoryStore::new(),
+            )),
+        )
     }
 }

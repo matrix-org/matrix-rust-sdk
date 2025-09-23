@@ -2,13 +2,13 @@
 //! use as a [crate::Room::latest_event].
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use ruma::{MxcUri, OwnedEventId};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId};
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
     UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+        call::invite::SyncCallInviteEvent,
         poll::unstable_start::SyncUnstablePollStartEvent,
         relation::RelationType,
         room::{
@@ -16,12 +16,152 @@ use ruma::{
             message::{MessageType, SyncRoomMessageEvent},
             power_levels::RoomPowerLevels,
         },
+        rtc::notification::SyncRtcNotificationEvent,
         sticker::SyncStickerEvent,
     },
 };
 use serde::{Deserialize, Serialize};
 
-use crate::MinimalRoomMemberEvent;
+use crate::{MinimalRoomMemberEvent, store::SerializableEventContent};
+
+/// A latest event value!
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub enum LatestEventValue {
+    /// No value has been computed yet, or no candidate value was found.
+    #[default]
+    None,
+
+    /// The latest event represents a remote event.
+    Remote(RemoteLatestEventValue),
+
+    /// The latest event represents a local event that is sending.
+    LocalIsSending(LocalLatestEventValue),
+
+    /// The latest event represents a local event that cannot be sent, either
+    /// because a previous local event, or this local event cannot be sent.
+    LocalCannotBeSent(LocalLatestEventValue),
+}
+
+impl LatestEventValue {
+    /// Get the timestamp of the [`LatestEventValue`].
+    ///
+    /// If it's [`None`], it returns `None`. If it's [`Remote`], it returns the
+    /// [`TimelineEvent::timestamp`]. If it's [`LocalIsSending`] or
+    /// [`LocalCannotBeSent`], it returns the
+    /// [`LocalLatestEventValue::timestamp`] value.
+    ///
+    /// [`None`]: LatestEventValue::None
+    /// [`Remote`]: LatestEventValue::Remote
+    /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        match self {
+            Self::None => None,
+            Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
+            Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
+            | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
+        }
+    }
+
+    /// Check whether the [`LatestEventValue`] represents a local value or not,
+    /// i.e. it is [`LocalIsSending`] or [`LocalCannotBeSent`].
+    ///
+    /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    pub fn is_local(&self) -> bool {
+        match self {
+            Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
+            Self::None | Self::Remote(_) => false,
+        }
+    }
+}
+
+/// Represents the value for [`LatestEventValue::Remote`].
+pub type RemoteLatestEventValue = TimelineEvent;
+
+/// Represents the value for [`LatestEventValue::LocalIsSending`] and
+/// [`LatestEventValue::LocalCannotBeSent`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalLatestEventValue {
+    /// The time where the event has been created (by this module).
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+
+    /// The content of the local event.
+    pub content: SerializableEventContent,
+}
+
+#[cfg(test)]
+mod tests_latest_event_value {
+    use ruma::{
+        MilliSecondsSinceUnixEpoch,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        serde::Raw,
+        uint,
+    };
+    use serde_json::json;
+
+    use super::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
+    use crate::store::SerializableEventContent;
+
+    #[test]
+    fn test_timestamp_with_none() {
+        let value = LatestEventValue::None;
+
+        assert_eq!(value.timestamp(), None);
+    }
+
+    #[test]
+    fn test_timestamp_with_remote() {
+        let value = LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain("raclette"),
+                    "type": "m.room.message",
+                    "event_id": "$ev0",
+                    "room_id": "!r0",
+                    "origin_server_ts": 42,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ));
+
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
+    }
+
+    #[test]
+    fn test_timestamp_with_local_is_sending() {
+        let value = LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        });
+
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
+    }
+
+    #[test]
+    fn test_timestamp_with_local_cannot_be_sent() {
+        let value = LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        });
+
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
+    }
+}
 
 /// Represents a decision about whether an event could be stored as the latest
 /// event in a room. Variants starting with Yes indicate that this message could
@@ -41,7 +181,7 @@ pub enum PossibleLatestEvent<'a> {
     YesCallInvite(&'a SyncCallInviteEvent),
 
     /// This message is suitable - it's a call notification
-    YesCallNotify(&'a SyncCallNotifyEvent),
+    YesRtcNotification(&'a SyncRtcNotificationEvent),
 
     /// This state event is suitable - it's a knock membership change
     /// that can be handled by the current user.
@@ -101,8 +241,8 @@ pub fn is_suitable_for_latest_event<'a>(
             PossibleLatestEvent::YesCallInvite(invite)
         }
 
-        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) => {
-            PossibleLatestEvent::YesCallNotify(notify)
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(notify)) => {
+            PossibleLatestEvent::YesRtcNotification(notify)
         }
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(sticker)) => {
@@ -302,26 +442,23 @@ impl LatestEvent {
 mod tests {
     #[cfg(feature = "e2e-encryption")]
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     #[cfg(feature = "e2e-encryption")]
     use assert_matches::assert_matches;
     #[cfg(feature = "e2e-encryption")]
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
-    use ruma::serde::Raw;
     #[cfg(feature = "e2e-encryption")]
     use ruma::{
         MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
         events::{
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
-            Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+            MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             call::{
                 SessionDescription,
                 invite::{CallInviteEventContent, SyncCallInviteEvent},
-                notify::{
-                    ApplicationType, CallNotifyEventContent, NotifyType, SyncCallNotifyEvent,
-                },
             },
             poll::{
                 unstable_response::{
@@ -348,6 +485,12 @@ mod tests {
             sticker::{StickerEventContent, SyncStickerEvent},
         },
         owned_event_id, owned_mxc_uri, owned_user_id,
+    };
+    use ruma::{
+        events::rtc::notification::{
+            NotificationType, RtcNotificationEventContent, SyncRtcNotificationEvent,
+        },
+        serde::Raw,
     };
     use serde_json::json;
 
@@ -430,13 +573,12 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_notifications_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(
-            SyncCallNotifyEvent::Original(OriginalSyncMessageLikeEvent {
-                content: CallNotifyEventContent::new(
-                    "call_id".into(),
-                    ApplicationType::Call,
-                    NotifyType::Ring,
-                    Mentions::new(),
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(
+            SyncRtcNotificationEvent::Original(OriginalSyncMessageLikeEvent {
+                content: RtcNotificationEventContent::new(
+                    MilliSecondsSinceUnixEpoch::now(),
+                    Duration::new(30, 0),
+                    NotificationType::Ring,
                 ),
                 event_id: owned_event_id!("$1"),
                 sender: owned_user_id!("@a:b.c"),
@@ -445,7 +587,7 @@ mod tests {
             }),
         ));
         assert_let!(
-            PossibleLatestEvent::YesCallNotify(SyncMessageLikeEvent::Original(_)) =
+            PossibleLatestEvent::YesRtcNotification(SyncMessageLikeEvent::Original(_)) =
                 is_suitable_for_latest_event(&event, None)
         );
     }
@@ -656,6 +798,7 @@ mod tests {
                             }
                         },
                         "thread_summary": "None",
+                        "timestamp": null,
                     }
                 }
             })

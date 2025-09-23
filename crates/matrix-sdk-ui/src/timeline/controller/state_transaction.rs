@@ -207,7 +207,6 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             raw_event,
             room_data_provider,
             None,
-            &self.meta,
             None,
             None,
             None,
@@ -411,7 +410,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusKind::Event { hide_threaded_events, .. } => {
+            TimelineFocusKind::Event { hide_threaded_events, paginator: _ } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 if thread_root.is_some() && *hide_threaded_events {
@@ -628,7 +627,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
-                    matches!(self.focus, TimelineFocusKind::Thread { .. }),
+                    self.focus.is_thread(),
                 );
 
                 let should_add = self.should_add_event_item(
@@ -648,8 +647,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         event,
                         &raw,
                         room_data_provider,
-                        utd_info,
-                        &self.meta,
+                        utd_info
+                            .map(|utd_info| (utd_info, self.meta.unable_to_decrypt_hook.as_ref())),
                         in_reply_to,
                         thread_root,
                         thread_summary,

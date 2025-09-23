@@ -23,17 +23,17 @@ use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
-use matrix_sdk_base::event_cache::store::media::IgnoreMediaRetentionPolicy;
-pub use matrix_sdk_base::{event_cache::store::media::MediaRetentionPolicy, media::*};
+use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
+pub use matrix_sdk_base::media::{store::MediaRetentionPolicy, *};
 use mime::Mime;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
     api::{
-        client::{authenticated_media, error::ErrorKind, media},
         OutgoingRequest,
+        client::{authenticated_media, error::ErrorKind, media},
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
-    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
 };
 #[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
@@ -41,8 +41,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, client::futures::SendMediaUploadRequest, config::RequestConfig, Client,
-    Error, Result, TransmissionProgress,
+    Client, Error, Result, TransmissionProgress, attachment::Thumbnail,
+    client::futures::SendMediaUploadRequest, config::RequestConfig,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -276,10 +276,10 @@ impl Media {
     ) -> Result<()> {
         // Do a best-effort at reporting an expired MXC URI here; otherwise the server
         // may complain about it later.
-        if let Some(expire_date) = uri.expire_date {
-            if MilliSecondsSinceUnixEpoch::now() >= expire_date {
-                return Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri));
-            }
+        if let Some(expire_date) = uri.expire_date
+            && MilliSecondsSinceUnixEpoch::now() >= expire_date
+        {
+            return Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri));
         }
 
         let timeout = std::cmp::max(
@@ -426,12 +426,11 @@ impl Media {
         }
 
         // Read from the cache.
-        if use_cache {
-            if let Some(content) =
-                self.client.event_cache_store().lock().await?.get_media_content(request).await?
-            {
-                return Ok(content);
-            }
+        if use_cache
+            && let Some(content) =
+                self.client.media_store().lock().await?.get_media_content(request).await?
+        {
+            return Ok(content);
         }
 
         let request_config = self
@@ -439,7 +438,7 @@ impl Media {
             .request_config()
             // Downloading a file should have no timeout as we don't know the network connectivity
             // available for the user or the file size
-            .timeout(None);
+            .timeout(Some(Duration::MAX));
 
         // Use the authenticated endpoints when the server supports it.
         let supported_versions = self.client.supported_versions().await?;
@@ -520,7 +519,7 @@ impl Media {
 
         if use_cache {
             self.client
-                .event_cache_store()
+                .media_store()
                 .lock()
                 .await?
                 .add_media_content(request, content.clone(), IgnoreMediaRetentionPolicy::No)
@@ -538,7 +537,7 @@ impl Media {
     async fn get_local_media_content(&self, uri: &MxcUri) -> Result<Vec<u8>> {
         // Read from the cache.
         self.client
-            .event_cache_store()
+            .media_store()
             .lock()
             .await?
             .get_media_content_for_uri(uri)
@@ -552,7 +551,7 @@ impl Media {
     ///
     /// * `request` - The `MediaRequest` of the content.
     pub async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
-        Ok(self.client.event_cache_store().lock().await?.remove_media_content(request).await?)
+        Ok(self.client.media_store().lock().await?.remove_media_content(request).await?)
     }
 
     /// Delete all the media content corresponding to the given
@@ -562,7 +561,7 @@ impl Media {
     ///
     /// * `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.client.event_cache_store().lock().await?.remove_media_content_for_uri(uri).await?)
+        Ok(self.client.media_store().lock().await?.remove_media_content_for_uri(uri).await?)
     }
 
     /// Get the file of the given media event content.
@@ -684,11 +683,11 @@ impl Media {
     /// * When a media needs to be cached, to check that it does not exceed the
     ///   max file size.
     ///
-    /// * When [`Media::clean_up_media_cache()`], to check that all media
-    ///   content in the store fits those criteria.
+    /// * When [`Media::clean()`], to check that all media content in the store
+    ///   fits those criteria.
     ///
     /// To apply the new policy to the media cache right away,
-    /// [`Media::clean_up_media_cache()`] should be called after this.
+    /// [`Media::clean()`] should be called after this.
     ///
     /// By default, an empty `MediaRetentionPolicy` is used, which means that no
     /// criteria are applied.
@@ -697,20 +696,20 @@ impl Media {
     ///
     /// * `policy` - The `MediaRetentionPolicy` to use.
     pub async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
-        self.client.event_cache_store().lock().await?.set_media_retention_policy(policy).await?;
+        self.client.media_store().lock().await?.set_media_retention_policy(policy).await?;
         Ok(())
     }
 
     /// Get the current `MediaRetentionPolicy`.
     pub async fn media_retention_policy(&self) -> Result<MediaRetentionPolicy> {
-        Ok(self.client.event_cache_store().lock().await?.media_retention_policy())
+        Ok(self.client.media_store().lock().await?.media_retention_policy())
     }
 
     /// Clean up the media cache with the current [`MediaRetentionPolicy`].
     ///
     /// If there is already an ongoing cleanup, this is a noop.
-    pub async fn clean_up_media_cache(&self) -> Result<()> {
-        self.client.event_cache_store().lock().await?.clean_up_media_cache().await?;
+    pub async fn clean(&self) -> Result<()> {
+        self.client.media_store().lock().await?.clean().await?;
         Ok(())
     }
 
@@ -808,8 +807,9 @@ impl Media {
 mod tests {
     use assert_matches2::assert_matches;
     use ruma::{
+        MxcUri,
         events::room::{EncryptedFile, MediaSource},
-        mxc_uri, owned_mxc_uri, uint, MxcUri,
+        mxc_uri, owned_mxc_uri, uint,
     };
     use serde_json::json;
 

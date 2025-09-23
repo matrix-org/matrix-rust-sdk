@@ -24,8 +24,8 @@ use matrix_sdk_base::{
 use ruma::OwnedEventId;
 
 use super::{
-    room::events::{Event, EventLinkedChunk},
     EventCacheError,
+    room::events::{Event, EventLinkedChunk},
 };
 
 /// Find duplicates in the given collection of new events, and return relevant
@@ -150,7 +150,7 @@ mod tests {
 
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{owned_event_id, serde::Raw, user_id, EventId};
+    use ruma::{EventId, owned_event_id, serde::Raw, user_id};
 
     use super::*;
 

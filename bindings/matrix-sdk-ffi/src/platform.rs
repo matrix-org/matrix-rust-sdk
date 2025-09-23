@@ -271,9 +271,11 @@ enum LogTarget {
     MatrixSdkBaseEventCache,
     MatrixSdkBaseSlidingSync,
     MatrixSdkBaseStoreAmbiguityMap,
+    MatrixSdkBaseResponseProcessors,
 
     // SDK common modules.
-    MatrixSdkCommonStoreLocks,
+    MatrixSdkCommonCrossProcessLock,
+    MatrixSdkCommonDeserializedResponses,
 
     // SDK modules.
     MatrixSdk,
@@ -300,7 +302,11 @@ impl LogTarget {
             LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
             LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
             LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
-            LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
+            LogTarget::MatrixSdkBaseResponseProcessors => "matrix_sdk_base::response_processors",
+            LogTarget::MatrixSdkCommonCrossProcessLock => "matrix_sdk_common::cross_process_lock",
+            LogTarget::MatrixSdkCommonDeserializedResponses => {
+                "matrix_sdk_common::deserialized_responses"
+            }
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
@@ -333,17 +339,19 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
-    (LogTarget::MatrixSdkCommonStoreLocks, LogLevel::Warn),
+    (LogTarget::MatrixSdkCommonCrossProcessLock, LogLevel::Warn),
+    (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
+    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
-    LogTarget::Hyper,                          // Too verbose
-    LogTarget::MatrixSdk,                      // Too generic
-    LogTarget::MatrixSdkFfi,                   // Too verbose
-    LogTarget::MatrixSdkCommonStoreLocks,      // Too verbose
-    LogTarget::MatrixSdkBaseStoreAmbiguityMap, // Too verbose
+    LogTarget::Hyper,                           // Too verbose
+    LogTarget::MatrixSdk,                       // Too generic
+    LogTarget::MatrixSdkFfi,                    // Too verbose
+    LogTarget::MatrixSdkCommonCrossProcessLock, // Too verbose
+    LogTarget::MatrixSdkBaseStoreAmbiguityMap,  // Too verbose
 ];
 
 /// A log pack can be used to set the trace log level for a group of multiple
@@ -358,6 +366,8 @@ pub enum TraceLogPacks {
     Timeline,
     /// Enables all the logs relevant to the notification client.
     NotificationClient,
+    /// Enables all the logs relevant to sync profiling.
+    SyncProfiling,
 }
 
 impl TraceLogPacks {
@@ -369,10 +379,22 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkEventCache,
                 LogTarget::MatrixSdkBaseEventCache,
                 LogTarget::MatrixSdkEventCacheStore,
+                LogTarget::MatrixSdkCommonCrossProcessLock,
+                LogTarget::MatrixSdkCommonDeserializedResponses,
             ],
             TraceLogPacks::SendQueue => &[LogTarget::MatrixSdkSendQueue],
-            TraceLogPacks::Timeline => &[LogTarget::MatrixSdkUiTimeline],
+            TraceLogPacks::Timeline => {
+                &[LogTarget::MatrixSdkUiTimeline, LogTarget::MatrixSdkCommonDeserializedResponses]
+            }
             TraceLogPacks::NotificationClient => &[LogTarget::MatrixSdkUiNotificationClient],
+            TraceLogPacks::SyncProfiling => &[
+                LogTarget::MatrixSdkSlidingSync,
+                LogTarget::MatrixSdkBaseSlidingSync,
+                LogTarget::MatrixSdkBaseResponseProcessors,
+                LogTarget::MatrixSdkCrypto,
+                LogTarget::MatrixSdkCommonCrossProcessLock,
+                LogTarget::MatrixSdkCommonDeserializedResponses,
+            ],
         }
     }
 }
@@ -675,6 +697,8 @@ fn setup_lightweight_tokio_runtime() {
 
 #[cfg(test)]
 mod tests {
+    use similar_asserts::assert_eq;
+
     use super::build_tracing_filter;
     use crate::platform::TraceLogPacks;
 
@@ -710,9 +734,11 @@ mod tests {
             matrix_sdk::event_cache=info,
             matrix_sdk_base::event_cache=info,
             matrix_sdk_sqlite::event_cache_store=info,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
+            matrix_sdk_base::response_processors=debug,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -753,9 +779,11 @@ mod tests {
             matrix_sdk::event_cache=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
+            matrix_sdk_base::response_processors=trace,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -797,9 +825,11 @@ mod tests {
             matrix_sdk::event_cache=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
+            matrix_sdk_base::response_processors=debug,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())

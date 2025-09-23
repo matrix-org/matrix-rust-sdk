@@ -2,7 +2,7 @@ use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_common::store_locks::CrossProcessStoreLock;
+use matrix_sdk_common::cross_process_lock::CrossProcessLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
@@ -321,7 +321,7 @@ impl CryptoStoreWrapper {
     /// the reader.
     pub fn room_keys_received_stream(
         &self,
-    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> + use<> {
         BroadcastStream::new(self.room_keys_received_sender.subscribe())
     }
 
@@ -349,7 +349,7 @@ impl CryptoStoreWrapper {
 
     /// Receive notifications of historic room key bundles being received and
     /// stored in the store as a [`Stream`].
-    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         let stream = BroadcastStream::new(self.historic_room_key_bundles_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "bundle_stream")
     }
@@ -390,14 +390,14 @@ impl CryptoStoreWrapper {
         })
     }
 
-    /// Creates a `CrossProcessStoreLock` for this store, that will contain the
+    /// Creates a [`CrossProcessLock`] for this store, that will contain the
     /// given key and value when hold.
     pub(crate) fn create_store_lock(
         &self,
         lock_key: String,
         lock_value: String,
-    ) -> CrossProcessStoreLock<LockableCryptoStore> {
-        CrossProcessStoreLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
+    ) -> CrossProcessLock<LockableCryptoStore> {
+        CrossProcessLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
     }
 }
 

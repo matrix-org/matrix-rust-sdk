@@ -15,7 +15,7 @@
 //! A wrapper around a hash map that tracks pending requests and makes sure
 //! that expired requests are removed.
 
-use indexmap::{map::Entry, IndexMap};
+use indexmap::{IndexMap, map::Entry};
 use ruma::time::{Duration, Instant};
 use tracing::warn;
 use uuid::Uuid;

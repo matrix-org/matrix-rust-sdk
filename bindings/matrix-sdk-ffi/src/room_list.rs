@@ -169,6 +169,15 @@ impl RoomList {
         page_size: u32,
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
+        self.entries_with_dynamic_adapters_with(page_size, false, listener)
+    }
+
+    fn entries_with_dynamic_adapters_with(
+        self: Arc<Self>,
+        page_size: u32,
+        enable_latest_event_sorter: bool,
+        listener: Box<dyn RoomListEntriesListener>,
+    ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
         let this = self;
 
         // The following code deserves a bit of explanation.
@@ -216,7 +225,10 @@ impl RoomList {
         // borrowing `this`, which is going to live long enough since it will live as
         // long as `entries_stream` and `dynamic_entries_controller`.
         let (entries_stream, dynamic_entries_controller) =
-            this.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
+            this.inner.entries_with_dynamic_adapters_with(
+                page_size.try_into().unwrap(),
+                enable_latest_event_sorter,
+            );
 
         // FFI dance to make those values consumable by foreign language, nothing fancy
         // here, that's the real code for this method.
@@ -231,7 +243,12 @@ impl RoomList {
                 listener.on_update(
                     diffs
                         .into_iter()
-                        .map(|room| RoomListEntriesUpdate::from(utd_hook.clone(), room))
+                        .map(|diff| {
+                            RoomListEntriesUpdate::from(
+                                utd_hook.clone(),
+                                diff.map(|room| room.into_inner()),
+                            )
+                        })
                         .collect(),
                 );
             }

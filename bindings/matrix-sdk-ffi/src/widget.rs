@@ -125,9 +125,10 @@ pub async fn generate_webview_url(
 ///   call widget.
 #[matrix_sdk_ffi_macros::export]
 pub fn new_virtual_element_call_widget(
-    props: matrix_sdk::widget::VirtualElementCallWidgetOptions,
+    props: matrix_sdk::widget::VirtualElementCallWidgetProperties,
+    config: matrix_sdk::widget::VirtualElementCallWidgetConfig,
 ) -> Result<WidgetSettings, ParseError> {
-    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props)
+    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props, config)
         .map(|w| w.into())?)
 }
 
@@ -175,6 +176,10 @@ pub fn get_element_call_required_permissions(
         WidgetEventFilter::MessageLikeWithType {
             event_type: MessageLikeEventType::RoomRedaction.to_string(),
         },
+        // This allows declining an incoming call and detect if someone declines a call.
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: MessageLikeEventType::RtcDecline.to_string(),
+        },
     ];
 
     WidgetCapabilities {
@@ -199,10 +204,12 @@ pub fn get_element_call_required_permissions(
         send: vec![
             // To notify other users that a call has started.
             WidgetEventFilter::MessageLikeWithType {
-                event_type: "org.matrix.msc4075.rtc.notification".to_owned(),
+                event_type: MessageLikeEventType::RtcNotification.to_string(),
             },
             // Also for call notifications, except this is the deprecated fallback type which
             // Element Call still sends.
+            // Deprecated for now, kept for backward compatibility as widgets will send both
+            // CallNotify and RtcNotification.
             WidgetEventFilter::MessageLikeWithType {
                 event_type: MessageLikeEventType::CallNotify.to_string(),
             },
@@ -528,5 +535,9 @@ mod tests {
         );
         cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
+
+        // RTC decline
+        cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
+        cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4310.rtc.decline");
     }
 }

@@ -10,11 +10,9 @@ use ruma::UserId;
 use tracing::{trace, warn};
 
 use super::{FrozenSlidingSyncList, SlidingSync, SlidingSyncPositionMarkers};
-#[cfg(feature = "e2e-encryption")]
-use crate::sliding_sync::FrozenSlidingSyncPos;
 #[cfg(doc)]
 use crate::sliding_sync::SlidingSyncList;
-use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
+use crate::{Client, Result, sliding_sync::SlidingSyncListCachePolicy};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
@@ -151,43 +149,53 @@ pub(super) struct RestoredFields {
     pub pos: Option<String>,
 }
 
+/// A sliding sync position marker that can be persisted or restored from a
+/// store.
+#[cfg(feature = "e2e-encryption")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FrozenSlidingSyncPos {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pos: Option<String>,
+}
+
 /// Restore the `SlidingSync`'s state from what is stored in the storage.
 ///
 /// If one cache is obsolete (corrupted, and cannot be deserialized or
 /// anything), the entire `SlidingSync` cache is removed.
 pub(super) async fn restore_sliding_sync_state(
     _client: &Client,
-    storage_key: &str,
+    _storage_key: &str,
 ) -> Result<Option<RestoredFields>> {
-    let _timer = timer!(format!("loading sliding sync {storage_key} state from DB"));
-
-    #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
-    let mut restored_fields = RestoredFields::default();
+    #[cfg(not(feature = "e2e-encryption"))]
+    return Ok(Some(Default::default()));
 
     #[cfg(feature = "e2e-encryption")]
-    if let Some(olm_machine) = &*_client.olm_machine().await {
-        match olm_machine.store().next_batch_token().await? {
-            Some(token) => {
-                restored_fields.to_device_token = Some(token);
+    {
+        let _timer = timer!(format!("loading sliding sync {_storage_key} state from DB"));
+
+        let mut restored_fields = RestoredFields::default();
+
+        if let Some(olm_machine) = &*_client.olm_machine().await {
+            match olm_machine.store().next_batch_token().await? {
+                Some(token) => {
+                    restored_fields.to_device_token = Some(token);
+                }
+                None => trace!("Couldn't read the previous to-device token from the crypto store"),
             }
-            None => trace!("No `SlidingSync` in the crypto-store cache"),
-        }
-    }
 
-    // Preload the `SlidingSync` object from the cache.
-    #[cfg(feature = "e2e-encryption")]
-    if let Some(olm_machine) = &*_client.olm_machine().await {
-        let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
+            let instance_storage_key = format_storage_key_for_sliding_sync(_storage_key);
 
-        if let Ok(Some(blob)) = olm_machine.store().get_custom_value(&instance_storage_key).await {
-            if let Ok(frozen_pos) = serde_json::from_slice::<FrozenSlidingSyncPos>(&blob) {
+            if let Ok(Some(blob)) =
+                olm_machine.store().get_custom_value(&instance_storage_key).await
+                && let Ok(frozen_pos) = serde_json::from_slice::<FrozenSlidingSyncPos>(&blob)
+            {
                 trace!("Successfully read the `Sliding Sync` pos from the crypto store cache");
                 restored_fields.pos = frozen_pos.pos;
             }
         }
-    }
 
-    Ok(Some(restored_fields))
+        Ok(Some(restored_fields))
+    }
 }
 
 #[cfg(test)]
@@ -202,7 +210,7 @@ mod tests {
         super::SlidingSyncList, format_storage_key_for_sliding_sync_list,
         format_storage_key_prefix, restore_sliding_sync_state, store_sliding_sync_state,
     };
-    use crate::{test_utils::logged_in_client, Result};
+    use crate::{Result, test_utils::logged_in_client};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -215,19 +223,23 @@ mod tests {
         let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
 
         // Store entries don't exist.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
         // Create a new `SlidingSync` instance, and store it.
         let storage_key = {
@@ -257,20 +269,24 @@ mod tests {
         };
 
         // Store entries now exist for `list_foo`.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
-            )
-            .await?
-            .is_some());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
+                )
+                .await?
+                .is_some()
+        );
 
         // But not for `list_bar`.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
         // Create a new `SlidingSync`, and it should be read from the cache.
         let max_number_of_room_stream = Arc::new(RwLock::new(None));

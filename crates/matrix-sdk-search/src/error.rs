@@ -41,14 +41,6 @@ pub enum IndexError {
     #[error(transparent)]
     IndexWriteError(IndexWriteError),
 
-    /// Search Error
-    #[error(transparent)]
-    IndexSearchError(IndexSearchError),
-
-    /// Add Event Error
-    #[error("Failed to add event to index")]
-    EventNotAdded,
-
     /// Message Type Error
     #[error("Message type not supported")]
     MessageTypeNotSupported,
@@ -96,12 +88,6 @@ impl From<IndexWriteError> for IndexError {
     }
 }
 
-impl From<IndexSearchError> for IndexError {
-    fn from(err: IndexSearchError) -> IndexError {
-        IndexError::IndexSearchError(err)
-    }
-}
-
 impl From<std::io::Error> for IndexError {
     fn from(err: std::io::Error) -> IndexError {
         IndexError::IO(err)
@@ -133,19 +119,5 @@ pub enum IndexWriteError {
 impl From<tantivy::TantivyError> for IndexWriteError {
     fn from(err: tantivy::TantivyError) -> IndexWriteError {
         IndexWriteError::TantivyError(err)
-    }
-}
-
-/// Internal representation of Search errors.
-#[derive(Error, Debug)]
-pub enum IndexSearchError {
-    /// Tantivy Error
-    #[error(transparent)]
-    TantivyError(tantivy::TantivyError),
-}
-
-impl From<tantivy::TantivyError> for IndexSearchError {
-    fn from(err: tantivy::TantivyError) -> IndexSearchError {
-        IndexSearchError::TantivyError(err)
     }
 }

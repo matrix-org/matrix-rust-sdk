@@ -21,13 +21,13 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::store::AccumulatedSentMediaInfo;
 use matrix_sdk_base::{media::MediaRequestParameters, store::DependentQueuedRequestKind};
 use matrix_sdk_common::executor::spawn;
-use ruma::{events::room::MediaSource, TransactionId};
+use ruma::{TransactionId, events::room::MediaSource};
 use tokio::sync::broadcast;
 use tracing::warn;
 
 use crate::{
-    send_queue::{QueueStorage, RoomSendQueue, RoomSendQueueStorageError, RoomSendQueueUpdate},
     Room, TransmissionProgress,
+    send_queue::{QueueStorage, RoomSendQueue, RoomSendQueueStorageError, RoomSendQueueUpdate},
 };
 
 /// Progress of an operation in abstract units.
@@ -94,17 +94,17 @@ impl RoomSendQueue {
         };
 
         // Get the size of the file being uploaded from the event cache.
-        let bytes = match room.client().event_cache_store().lock().await {
+        let bytes = match room.client().media_store().lock().await {
             Ok(cache) => match cache.get_media_content(cache_key).await {
                 Ok(Some(content)) => content.len(),
                 Ok(None) => 0,
                 Err(err) => {
-                    warn!("error when reading media content from cache store: {err}");
+                    warn!("error when reading media content from media store: {err}");
                     0
                 }
             },
             Err(err) => {
-                warn!("couldn't acquire cache store lock: {err}");
+                warn!("couldn't acquire media store lock: {err}");
                 0
             }
         };
@@ -132,17 +132,19 @@ impl RoomSendQueue {
             // it, from the database. This will account in the total progress of the
             // file+thumbnail upload (we're currently uploading the thumbnail,
             // in the first step).
-            let pending_file_bytes =
-                match RoomSendQueue::get_dependent_pending_file_upload_size(own_txn_id, room).await
-                {
-                    Ok(maybe_size) => maybe_size.unwrap_or(0),
-                    Err(err) => {
-                        warn!(
+            let pending_file_bytes = match RoomSendQueue::get_dependent_pending_file_upload_size(
+                own_txn_id, room,
+            )
+            .await
+            {
+                Ok(maybe_size) => maybe_size.unwrap_or(0),
+                Err(err) => {
+                    warn!(
                         "error when getting pending file upload size: {err}; using 0 as fallback"
                     );
-                        0
-                    }
-                };
+                    0
+                }
+            };
 
             // In nominal cases where the send queue is used correctly, only one of these
             // two values will be non-zero.
@@ -195,9 +197,9 @@ impl RoomSendQueue {
             return Ok(None);
         }
 
-        let cache_store_guard = client.event_cache_store().lock().await?;
+        let media_store_guard = client.media_store().lock().await?;
 
-        let maybe_content = cache_store_guard.get_media_content(&cache_key).await?;
+        let maybe_content = media_store_guard.get_media_content(&cache_key).await?;
 
         Ok(maybe_content.map(|c| c.len()))
     }

@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     event_cache::store::extract_event_relation,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{OwnedEventId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire

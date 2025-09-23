@@ -12,22 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use matrix_sdk_base::{
-    event_cache::store::{EventCacheStore, EventCacheStoreError, MemoryStore},
-    SendOutsideWasm, SyncOutsideWasm,
-};
+use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use serde::de::Error;
 use thiserror::Error;
 
-use crate::event_cache_store::transaction::IndexeddbEventCacheStoreTransactionError;
-
-/// A trait that combines the necessary traits needed for asynchronous runtimes,
-/// but excludes them when running in a web environment - i.e., when
-/// `#[cfg(target_family = "wasm")]`.
-pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static {}
-
-impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
-{}
+use crate::transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum IndexeddbEventCacheStoreError {
@@ -42,9 +31,7 @@ pub enum IndexeddbEventCacheStoreError {
     #[error("no max chunk id")]
     NoMaxChunkId,
     #[error("transaction: {0}")]
-    Transaction(#[from] IndexeddbEventCacheStoreTransactionError),
-    #[error("media store: {0}")]
-    MemoryStore(<MemoryStore as EventCacheStore>::Error),
+    Transaction(#[from] TransactionError),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -68,7 +55,18 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             | NoMaxChunkId
             | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
-            MemoryStore(inner) => inner,
+        }
+    }
+}
+
+impl From<TransactionError> for EventCacheStoreError {
+    fn from(value: TransactionError) -> Self {
+        use TransactionError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
         }
     }
 }

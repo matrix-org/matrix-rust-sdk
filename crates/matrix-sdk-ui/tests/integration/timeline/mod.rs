@@ -30,7 +30,8 @@ use matrix_sdk_ui::{
     Timeline,
     timeline::{
         AnyOtherFullStateEventContent, Error, EventSendState, RedactError, RoomExt,
-        TimelineBuilder, TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
+        TimelineBuilder, TimelineEventItemId, TimelineFocus, TimelineItemContent,
+        VirtualTimelineItem,
     },
 };
 use ruma::{
@@ -66,6 +67,69 @@ mod subscribe;
 mod thread;
 
 pub(crate) mod sliding_sync;
+
+#[async_test]
+async fn test_timeline_is_threaded() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    {
+        // A live timeline isn't threaded.
+        let timeline = room.timeline().await.unwrap();
+        assert!(timeline.is_threaded().not());
+    }
+
+    {
+        // A thread timeline is threaded.
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Thread { root_event_id: owned_event_id!("$thread_root") })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded());
+    }
+
+    {
+        let f = EventFactory::new();
+        let event = f
+            .text_msg("hello world")
+            .event_id(event_id!("$target"))
+            .room(room_id)
+            .sender(&ALICE)
+            .into_event();
+        server.mock_room_event_context().ok(event, "", "", Vec::new()).mount().await;
+
+        // An event-focused timeline isn't threaded.
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Event {
+                target: owned_event_id!("$target"),
+                num_context_events: 0,
+                hide_threaded_events: true,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded().not());
+    }
+
+    {
+        // A pinned events timeline isn't threaded.
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::PinnedEvents {
+                max_events_to_load: 0,
+                max_concurrent_requests: 10,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded().not());
+    }
+}
 
 #[async_test]
 async fn test_reaction() {

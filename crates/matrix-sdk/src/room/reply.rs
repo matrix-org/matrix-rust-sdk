@@ -16,7 +16,9 @@
 
 use as_variant::as_variant;
 use ruma::{
+    OwnedEventId, UserId,
     events::{
+        AnySyncTimelineEvent,
         room::{
             encrypted::Relation as EncryptedRelation,
             message::{
@@ -24,9 +26,7 @@ use ruma::{
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
         },
-        AnySyncTimelineEvent,
     },
-    OwnedEventId, UserId,
 };
 use thiserror::Error;
 use tracing::{error, instrument};
@@ -150,18 +150,18 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        EventId, OwnedEventId, event_id,
         events::{
-            room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             AnySyncTimelineEvent,
+            room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
         },
         serde::Raw,
-        user_id, EventId, OwnedEventId,
+        user_id,
     };
     use serde_json::json;
 
-    use super::{make_reply_event, EnforceThread, EventSource, Reply, ReplyError};
-    use crate::{event_cache::EventCacheError, Error};
+    use super::{EnforceThread, EventSource, Reply, ReplyError, make_reply_event};
+    use crate::{Error, event_cache::EventCacheError};
 
     #[derive(Default)]
     struct TestEventCache {

@@ -20,13 +20,13 @@
 use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, EventId, UInt};
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
+use ruma::{EventId, UInt, api::Direction};
 
 use crate::{
+    Room,
     paginators::{PaginationResult, PaginationToken, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
-    Room,
 };
 
 /// Current state of a [`Paginator`].
@@ -389,11 +389,11 @@ impl PaginableRoom for Room {
                     // If the error was a 404, then the event wasn't found on the server;
                     // special case this to make it easy to react to
                     // such an error.
-                    if let Some(error) = err.as_client_api_error() {
-                        if error.status_code == 404 {
-                            // Event not found
-                            return Err(PaginatorError::EventNotFound(event_id.to_owned()));
-                        }
+                    if let Some(error) = err.as_client_api_error()
+                        && error.status_code == 404
+                    {
+                        // Event not found
+                        return Err(PaginatorError::EventNotFound(event_id.to_owned()));
                     }
 
                     // Otherwise, just return a wrapped error.
@@ -419,7 +419,7 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
-    use ruma::{api::Direction, event_id, room_id, uint, user_id, EventId, RoomId, UInt, UserId};
+    use ruma::{EventId, RoomId, UInt, UserId, api::Direction, event_id, room_id, uint, user_id};
     use tokio::{
         spawn,
         sync::{Mutex, Notify},

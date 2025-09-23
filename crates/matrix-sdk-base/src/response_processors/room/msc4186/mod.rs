@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
@@ -67,6 +68,8 @@ pub async fn update_any_room(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     notification: notification::Notification<'_>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
+    let _timer = timer!(tracing::Level::TRACE, "update_any_room");
+
     let RoomCreationData {
         room_id,
         room_info_notable_update_sender,
@@ -117,6 +120,8 @@ pub async fn update_any_room(
         ambiguity_cache,
         &mut new_user_ids,
         state_store,
+        #[cfg(feature = "experimental-encrypted-state-events")]
+        e2ee.clone(),
     )
     .await?;
 
@@ -394,7 +399,7 @@ fn properties(
     }
 
     if let Some(recency_stamp) = &room_response.bump_stamp {
-        let recency_stamp: u64 = (*recency_stamp).into();
+        let recency_stamp = u64::from(*recency_stamp).into();
 
         if room_info.recency_stamp.as_ref() != Some(&recency_stamp) {
             room_info.update_recency_stamp(recency_stamp);
@@ -436,6 +441,8 @@ pub(crate) async fn cache_latest_events(
         store::ambiguity_map::is_display_name_ambiguous,
     };
 
+    let _timer = timer!(tracing::Level::TRACE, "cache_latest_events");
+
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
@@ -454,7 +461,7 @@ pub(crate) async fn cache_latest_events(
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)
-                | PossibleLatestEvent::YesCallNotify(_)
+                | PossibleLatestEvent::YesRtcNotification(_)
                 | PossibleLatestEvent::YesSticker(_)
                 | PossibleLatestEvent::YesKnockedStateEvent(_) => {
                     // We found a suitable latest event. Store it.

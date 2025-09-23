@@ -665,6 +665,9 @@ impl From<HistoryVisibility> for RustHistoryVisibility {
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether state event encryption is enabled.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub encrypt_state_events: bool,
     /// How long can the room key be used before it should be rotated. Time in
     /// seconds.
     pub rotation_period: u64,
@@ -694,6 +697,8 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
 
         RustEncryptionSettings {
             algorithm: v.algorithm.into(),
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            encrypt_state_events: false,
             rotation_period: Duration::from_secs(v.rotation_period),
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
@@ -910,6 +915,10 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
 pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether state event encryption is enabled.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[serde(default)]
+    pub encrypt_state_events: bool,
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.
     pub only_allow_trusted_devices: bool,
@@ -920,7 +929,12 @@ impl TryFrom<RustRoomSettings> for RoomSettings {
 
     fn try_from(value: RustRoomSettings) -> Result<Self, Self::Error> {
         let algorithm = value.algorithm.try_into()?;
-        Ok(Self { algorithm, only_allow_trusted_devices: value.only_allow_trusted_devices })
+        Ok(Self {
+            algorithm,
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            encrypt_state_events: value.encrypt_state_events,
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
+        })
     }
 }
 
@@ -1173,6 +1187,8 @@ mod tests {
         assert_eq!(
             Some(RoomSettings {
                 algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                #[cfg(feature = "experimental-encrypted-state-events")]
+                encrypt_state_events: false,
                 only_allow_trusted_devices: true
             }),
             settings1
@@ -1182,6 +1198,8 @@ mod tests {
         assert_eq!(
             Some(RoomSettings {
                 algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                #[cfg(feature = "experimental-encrypted-state-events")]
+                encrypt_state_events: false,
                 only_allow_trusted_devices: false
             }),
             settings2

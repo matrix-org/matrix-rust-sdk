@@ -251,7 +251,7 @@ jobs:
         uses: qmaru/wasm-pack-action@v0.5.1
         if: '!matrix.check_only'
         with:
-          version: v0.10.3
+          version: v0.13.1
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
@@ -292,7 +292,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@v1.35.4
+        uses: crate-ci/typos@v1.36.2
 
   lint:
     name: Lint
@@ -335,8 +335,7 @@ jobs:
           target/debug/xtask ci clippy
 
   integration-tests:
-    name: Integration test
-
+    name: 'Integration test (features: ${{ matrix.feature }})'
     runs-on: ubuntu-latest
 
     # run several docker containers with the same networking stack so the hostname 'synapse'
@@ -351,6 +350,13 @@ jobs:
             SERVER_NAME: synapse
         ports:
             - 8008:8008
+
+    strategy:
+      fail-fast: true
+      matrix:
+        feature:
+          - "default"
+          - "experimental-encrypted-state-events"
 
     steps:
       - name: Checkout the repo
@@ -378,7 +384,7 @@ jobs:
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
         run: |
-          cargo nextest run -p matrix-sdk-integration-testing
+          cargo nextest run -p matrix-sdk-integration-testing --features "${{ matrix.feature }}"
 
   compile-bench:
     name: 🚄 Compile benchmarks

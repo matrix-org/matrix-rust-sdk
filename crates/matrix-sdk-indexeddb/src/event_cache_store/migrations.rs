@@ -108,7 +108,6 @@ pub mod v1 {
     use super::*;
 
     pub mod keys {
-        pub const CORE: &str = "core";
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
@@ -133,17 +132,10 @@ pub mod v1 {
 
     /// Create all object stores and indices for v1 database
     pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
-        create_core_object_store(db)?;
         create_lease_object_store(db)?;
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
         create_gaps_object_store(db)?;
-        Ok(())
-    }
-
-    /// Create an object store for tracking miscellaneous information
-    fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let _ = db.create_object_store(keys::CORE)?;
         Ok(())
     }
 
@@ -188,7 +180,7 @@ pub mod v1 {
             keys::EVENTS_ROOM,
             &keys::EVENTS_ROOM_KEY_PATH.into(),
             &events_room_params,
-        );
+        )?;
 
         let events_position_params = IdbIndexParameters::new();
         events_position_params.set_unique(true);

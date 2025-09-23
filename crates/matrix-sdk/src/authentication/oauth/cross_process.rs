@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    store::{LockableCryptoStore, Store},
     CryptoStoreError,
+    store::{LockableCryptoStore, Store},
 };
-use matrix_sdk_common::store_locks::{
-    CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+use matrix_sdk_common::cross_process_lock::{
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard,
 };
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -61,13 +61,13 @@ fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
 #[derive(Clone)]
 pub(super) struct CrossProcessRefreshManager {
     store: Store,
-    store_lock: CrossProcessStoreLock<LockableCryptoStore>,
+    store_lock: CrossProcessLock<LockableCryptoStore>,
     known_session_hash: Arc<Mutex<Option<SessionHash>>>,
 }
 
 impl CrossProcessRefreshManager {
     /// Create a new `CrossProcessRefreshManager`.
-    pub fn new(store: Store, lock: CrossProcessStoreLock<LockableCryptoStore>) -> Self {
+    pub fn new(store: Store, lock: CrossProcessLock<LockableCryptoStore>) -> Self {
         Self { store, store_lock: lock, known_session_hash: Arc::new(Mutex::new(None)) }
     }
 
@@ -134,7 +134,7 @@ pub(super) struct CrossProcessRefreshLockGuard {
     hash_guard: OwnedMutexGuard<Option<SessionHash>>,
 
     /// Cross-process lock being hold.
-    _store_guard: CrossProcessStoreLockGuard,
+    _store_guard: CrossProcessLockGuard,
 
     /// Reference to the underlying store, for storing the hash of the latest
     /// known session (as a custom value).
@@ -193,14 +193,14 @@ impl CrossProcessRefreshLockGuard {
         let new_hash = compute_session_hash(trusted_tokens);
         trace!("Trusted OAuth 2.0 tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
 
-        if let Some(db_hash) = &self.db_hash {
-            if new_hash != *db_hash {
-                // That should never happen, unless we got into an impossible situation!
-                // In this case, we assume the value returned by the callback is always
-                // correct, so override that in the database too.
-                tracing::error!("error: DB and trusted disagree. Overriding in DB.");
-                self.save_in_database(&new_hash).await?;
-            }
+        if let Some(db_hash) = &self.db_hash
+            && new_hash != *db_hash
+        {
+            // That should never happen, unless we got into an impossible situation!
+            // In this case, we assume the value returned by the callback is always
+            // correct, so override that in the database too.
+            tracing::error!("error: DB and trusted disagree. Overriding in DB.");
+            self.save_in_database(&new_hash).await?;
         }
 
         self.save_in_memory(new_hash);
@@ -218,7 +218,7 @@ pub enum CrossProcessRefreshLockError {
 
     /// The locking itself failed.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// The previous hash isn't valid.
     #[error("the previous stored hash isn't a valid integer")]
@@ -247,21 +247,21 @@ mod tests {
 
     use anyhow::Context as _;
     use futures_util::future::join_all;
-    use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
+    use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
     use matrix_sdk_test::async_test;
     use ruma::{owned_device_id, owned_user_id};
 
     use super::compute_session_hash;
     use crate::{
+        Error,
         authentication::oauth::cross_process::SessionHash,
         test_utils::{
             client::{
-                mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
-                oauth::mock_session, MockClientBuilder,
+                MockClientBuilder, mock_prev_session_tokens_with_refresh,
+                mock_session_tokens_with_refresh, oauth::mock_session,
             },
             mocks::MatrixMockServer,
         },
-        Error,
     };
 
     #[async_test]

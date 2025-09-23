@@ -1,4 +1,4 @@
-// Copyright 2025 Kévin Commaille
+// Copyright 2023 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,17 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types and traits regarding media caching of the event cache store.
+pub mod traits;
 
-mod media_retention_policy;
-mod media_service;
-#[cfg(any(test, feature = "testing"))]
-#[macro_use]
-pub mod integration_tests;
-
-#[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::EventCacheStoreMediaIntegrationTests;
-pub use self::{
-    media_retention_policy::MediaRetentionPolicy,
-    media_service::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService},
-};
+#[cfg(feature = "e2e-encryption")]
+pub mod types;

@@ -463,7 +463,7 @@ impl OAuthCli {
                                     }
                                 }
 
-                                matrix_sdk_ui::sync_service::State::Error | matrix_sdk_ui::sync_service::State::Offline => {
+                                matrix_sdk_ui::sync_service::State::Error(_) | matrix_sdk_ui::sync_service::State::Offline => {
                                     num_errors += 1;
                                     num_running = 0;
 

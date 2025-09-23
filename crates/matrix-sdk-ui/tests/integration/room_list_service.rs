@@ -1,4 +1,4 @@
-use std::{ops::Not, sync::Arc};
+use std::{collections::BTreeMap, ops::Not, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -369,6 +369,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -1733,7 +1735,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
-        insert [ 0 ] [ "!r0:bar.org" ];
+        push front [ "!r0:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1904,7 +1906,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
-        insert [ 0 ] [ "!r0:bar.org" ];
+        push front [ "!r0:bar.org" ];
         end;
     };
 
@@ -1938,7 +1940,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 4 ];
-        insert [ 0 ] [ "!r2:bar.org" ];
+        push front [ "!r2:bar.org" ];
         end;
     };
 
@@ -2004,7 +2006,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     assert_entries_batch! {
         [stream]
         remove [ 5 ];
-        insert [ 0 ] [ "!r3:bar.org" ];
+        push front [ "!r3:bar.org" ];
         end;
     };
 
@@ -2273,6 +2275,8 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2316,6 +2320,8 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2886,4 +2892,197 @@ async fn test_multiple_timeline_init() {
 
     // A new timeline for the same room can still be constructed.
     room.timeline_builder().build().await.unwrap();
+}
+
+#[async_test]
+async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_it() {
+    let server = MatrixMockServer::new().await;
+
+    {
+        // The first time, don't advertise support for MSC4306; the extension will NOT
+        // enabled in this case, despite the client requesting it.
+        let features_map = BTreeMap::new();
+
+        server
+            .mock_versions()
+            .ok_custom(&["v1.11"], &features_map)
+            .named("/versions, first time")
+            .mock_once()
+            .mount()
+            .await;
+
+        let client = server
+            .client_builder()
+            .no_server_versions()
+            .on_builder(|b| {
+                b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                    with_subscriptions: true,
+                })
+            })
+            .build()
+            .await;
+        let room_list = RoomListService::new(client.clone()).await.unwrap();
+
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        let room_id = room_id!("!r0:bar.org");
+
+        let mock_server = server.server();
+        sync_then_assert_request_and_fake_response! {
+            [mock_server, room_list, sync]
+            assert request = {
+                "conn_id": "room-list",
+                "extensions": {
+                    "account_data": {
+                        "enabled": true,
+                    },
+                    "receipts": {
+                        "enabled": true,
+                        "rooms": ["*"],
+                    },
+                    "typing": {
+                        "enabled": true,
+                    },
+                },
+                "lists": {
+                    "all_rooms": {
+                        "filters": {},
+                        "ranges": [ [ 0, 19, ], ],
+                        "required_state": [
+                            [ "m.room.name", "" ],
+                            [ "m.room.encryption", "" ],
+                            [ "m.room.member", "$LAZY" ],
+                            [ "m.room.member", "$ME" ],
+                            [ "m.room.topic", "", ],
+                            [ "m.room.avatar", "", ],
+                            [ "m.room.canonical_alias", "", ],
+                            [ "m.room.power_levels", "", ],
+                            [ "org.matrix.msc3401.call.member", "*", ],
+                            [ "m.room.join_rules", "", ],
+                            [ "m.room.tombstone", "", ],
+                            [ "m.room.create", "", ],
+                            [ "m.room.history_visibility", "", ],
+                            [ "io.element.functional_members", "", ],
+                            [ "m.space.parent", "*", ],
+                            [ "m.space.child", "*", ],
+                        ],
+                        "timeline_limit": 1,
+                    },
+                },
+            },
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 2,
+                    },
+                },
+                "rooms": {
+                    room_id: {
+                        "initial": true,
+                        "timeline": [
+                            timeline_event!("$x0:bar.org" at 0 sec),
+                        ],
+                        "prev_batch": "prev-batch-token"
+                    },
+                },
+            },
+        };
+    }
+
+    // Then, advertise support with support for MSC4306; the extension will be
+    // enabled in this case.
+    let features_map = BTreeMap::from([("org.matrix.msc4306", true)]);
+
+    server
+        .mock_versions()
+        .ok_custom(&["v1.11"], &features_map)
+        .named("/versions, second time")
+        .mock_once()
+        .mount()
+        .await;
+
+    let client = server
+        .client_builder()
+        .no_server_versions()
+        .on_builder(|b| {
+            b.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: true,
+            })
+        })
+        .build()
+        .await;
+    let room_list = RoomListService::new(client.clone()).await.unwrap();
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    let mock_server = server.server();
+    sync_then_assert_request_and_fake_response! {
+        [mock_server, room_list, sync]
+        assert request = {
+            "conn_id": "room-list",
+            "extensions": {
+                "account_data": {
+                    "enabled": true,
+                },
+                "receipts": {
+                    "enabled": true,
+                    "rooms": ["*"],
+                },
+                "typing": {
+                    "enabled": true,
+                },
+                "io.element.msc4308.thread_subscriptions": {
+                    "enabled": true,
+                    "limit": 10,
+                },
+            },
+            "lists": {
+                "all_rooms": {
+                    "filters": {},
+                    "ranges": [ [ 0, 19, ], ],
+                    "required_state": [
+                        [ "m.room.name", "" ],
+                        [ "m.room.encryption", "" ],
+                        [ "m.room.member", "$LAZY" ],
+                        [ "m.room.member", "$ME" ],
+                        [ "m.room.topic", "", ],
+                        [ "m.room.avatar", "", ],
+                        [ "m.room.canonical_alias", "", ],
+                        [ "m.room.power_levels", "", ],
+                        [ "org.matrix.msc3401.call.member", "*", ],
+                        [ "m.room.join_rules", "", ],
+                        [ "m.room.tombstone", "", ],
+                        [ "m.room.create", "", ],
+                        [ "m.room.history_visibility", "", ],
+                        [ "io.element.functional_members", "", ],
+                        [ "m.space.parent", "*", ],
+                        [ "m.space.child", "*", ],
+                    ],
+                    "timeline_limit": 1,
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "initial": true,
+                    "timeline": [
+                        timeline_event!("$x0:bar.org" at 0 sec),
+                    ],
+                    "prev_batch": "prev-batch-token"
+                },
+            },
+        },
+    };
 }

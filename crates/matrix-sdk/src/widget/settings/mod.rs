@@ -14,8 +14,8 @@
 
 use language_tags::LanguageTag;
 use ruma::{
-    api::client::profile::{get_profile, AvatarUrl, DisplayName},
     DeviceId, RoomId, UserId,
+    api::client::profile::{AvatarUrl, DisplayName, get_profile},
 };
 use url::Url;
 
@@ -24,7 +24,9 @@ use crate::Room;
 mod element_call;
 mod url_params;
 
-pub use self::element_call::{EncryptionSystem, Intent, VirtualElementCallWidgetOptions};
+pub use self::element_call::{
+    EncryptionSystem, Intent, VirtualElementCallWidgetConfig, VirtualElementCallWidgetProperties,
+};
 
 /// Settings of the widget.
 #[derive(Debug, Clone)]

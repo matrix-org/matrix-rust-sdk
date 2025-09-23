@@ -6,6 +6,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    HttpError, RefreshTokenError, SessionChange, SessionTokens,
     authentication::matrix::MatrixSession,
     config::RequestConfig,
     executor::spawn,
@@ -16,21 +17,20 @@ use matrix_sdk::{
         mocks::{LoginResponseTemplate200, MatrixMockServer},
         no_retry_test_client_with_server, test_client_builder_with_server,
     },
-    HttpError, RefreshTokenError, SessionChange, SessionTokens,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
-        client::{account::register, error::ErrorKind},
         MatrixVersion,
+        client::{account::register, error::ErrorKind},
     },
     assign, owned_device_id, owned_user_id,
 };
 use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
-    matchers::{body_partial_json, header, method, path},
     Mock, ResponseTemplate,
+    matchers::{body_partial_json, header, method, path},
 };
 
 fn session() -> MatrixSession {

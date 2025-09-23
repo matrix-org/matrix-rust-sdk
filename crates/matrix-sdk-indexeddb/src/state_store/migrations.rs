@@ -46,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 13;
+const CURRENT_DB_VERSION: u32 = 14;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -239,6 +239,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 13 {
                 db = migrate_to_v13(db).await?;
+            }
+            if old_version < 14 {
+                db = migrate_to_v14(db).await?;
             }
         }
 
@@ -806,6 +809,18 @@ async fn migrate_to_v13(db: IdbDatabase) -> Result<IdbDatabase> {
     apply_migration(db, 13, migration).await
 }
 
+/// Empty the thread subscriptions table, because the serialized format has
+/// changed (from storing only the subscription to storing the
+/// `StoredThreadSubscription`).
+async fn migrate_to_v14(db: IdbDatabase) -> Result<IdbDatabase> {
+    let migration = OngoingMigration {
+        drop_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
+        create_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
+        data: Default::default(),
+    };
+    apply_migration(db, 14, migration).await
+}
+
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -838,7 +853,7 @@ mod tests {
 
     use super::{old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
     use crate::{
-        safe_encode::SafeEncode,
+        serializer::safe_encode::traits::SafeEncode,
         state_store::{encode_key, keys, serialize_value, Result},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };

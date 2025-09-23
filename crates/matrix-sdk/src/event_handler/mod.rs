@@ -39,8 +39,8 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, RwLock, Weak,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     task::{Context, Poll},
 };
@@ -53,14 +53,14 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
+    SendOutsideWasm, SyncOutsideWasm,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     sync::State,
-    SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use pin_project_lite::pin_project;
-use ruma::{events::BooleanType, push::Action, serde::Raw, OwnedRoomId};
-use serde::{de::DeserializeOwned, Deserialize};
+use ruma::{OwnedRoomId, events::BooleanType, push::Action, serde::Raw};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
@@ -137,19 +137,11 @@ pub enum HandlerKind {
 
 impl HandlerKind {
     fn message_like_redacted(redacted: bool) -> Self {
-        if redacted {
-            Self::RedactedMessageLike
-        } else {
-            Self::OriginalMessageLike
-        }
+        if redacted { Self::RedactedMessageLike } else { Self::OriginalMessageLike }
     }
 
     fn state_redacted(redacted: bool) -> Self {
-        if redacted {
-            Self::RedactedState
-        } else {
-            Self::OriginalState
-        }
+        if redacted { Self::RedactedState } else { Self::OriginalState }
     }
 }
 
@@ -735,9 +727,8 @@ where
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test,
+        DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, async_test,
         event_factory::{EventFactory, PreviousMembership},
-        InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use serde::Serialize;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
@@ -746,8 +737,8 @@ mod tests {
     use std::{
         future,
         sync::{
-            atomic::{AtomicU8, Ordering::SeqCst},
             Arc,
+            atomic::{AtomicU8, Ordering::SeqCst},
         },
     };
 
@@ -758,6 +749,7 @@ mod tests {
     use ruma::{
         event_id,
         events::{
+            AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
             macros::EventContent,
             room::{
                 member::{MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
@@ -766,7 +758,6 @@ mod tests {
             },
             secret_storage::key::SecretStorageKeyEvent,
             typing::SyncTypingEvent,
-            AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -775,9 +766,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        Client, Room,
         event_handler::Ctx,
         test_utils::{logged_in_client, no_retry_test_client},
-        Client, Room,
     };
 
     static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
@@ -884,7 +875,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_to_device_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -923,7 +913,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_room_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -959,9 +948,15 @@ mod tests {
         });
 
         // Room name event handler for room name events in room B
-        client.add_room_event_handler(room_id_b, move |_ev: OriginalSyncRoomNameEvent| async {
-            unreachable!("No room event in room B")
-        });
+        client.add_room_event_handler(
+            room_id_b,
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomNameEvent| -> () {
+                unreachable!("No room event in room B")
+            },
+        );
 
         let response = SyncResponseBuilder::default()
             .add_joined_room(
@@ -985,7 +980,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_event_handler_with_tuples() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -999,7 +993,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1012,13 +1005,21 @@ mod tests {
             }
         });
 
-        let handle_a = client.add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
-            panic!("handler should have been removed");
-        });
+        let handle_a = client.add_event_handler(
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
+                panic!("handler should have been removed");
+            },
+        );
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
             *DEFAULT_TEST_ROOM_ID,
-            move |_ev: OriginalSyncRoomMemberEvent| async {
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
             },
         );
@@ -1117,7 +1118,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_events() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1192,7 +1192,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_room_events() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1339,7 +1338,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_events_with_type_prefix() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1380,7 +1378,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_room_events_with_type_prefix() -> crate::Result<()> {
         // To create an event handler for a room account data event type with prefix, we
         // need to create a custom event type, none exist in the Matrix specification

@@ -25,11 +25,12 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
-    StoreError,
+    Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
+    event_cache::store::EventCacheStoreError, media::store::MediaStoreError,
 };
 use reqwest::Error as ReqwestError;
 use ruma::{
+    IdParseError,
     api::{
         client::{
             error::{ErrorBody, ErrorKind, RetryAfter},
@@ -39,15 +40,15 @@ use ruma::{
     },
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
-    IdParseError,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
 use crate::{
-    authentication::oauth::OAuthError, event_cache::EventCacheError, media::MediaError,
-    room::reply::ReplyError, sliding_sync::Error as SlidingSyncError, store_locks::LockStoreError,
+    authentication::oauth::OAuthError, cross_process_lock::CrossProcessLockError,
+    event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
+    sliding_sync::Error as SlidingSyncError,
 };
 
 /// Result type of the matrix-sdk.
@@ -315,7 +316,7 @@ pub enum Error {
 
     /// An error occurred with a cross-process store lock.
     #[error(transparent)]
-    CrossProcessLockError(Box<LockStoreError>),
+    CrossProcessLockError(Box<CrossProcessLockError>),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
@@ -339,6 +340,10 @@ pub enum Error {
     /// An error occurred in the event cache store.
     #[error(transparent)]
     EventCacheStore(Box<EventCacheStoreError>),
+
+    /// An error occurred in the media store.
+    #[error(transparent)]
+    MediaStore(Box<MediaStoreError>),
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
@@ -475,8 +480,8 @@ impl From<CryptoStoreError> for Error {
     }
 }
 
-impl From<LockStoreError> for Error {
-    fn from(error: LockStoreError) -> Self {
+impl From<CrossProcessLockError> for Error {
+    fn from(error: CrossProcessLockError) -> Self {
         Error::CrossProcessLockError(Box::new(error))
     }
 }
@@ -504,6 +509,12 @@ impl From<StoreError> for Error {
 impl From<EventCacheStoreError> for Error {
     fn from(error: EventCacheStoreError) -> Self {
         Error::EventCacheStore(Box::new(error))
+    }
+}
+
+impl From<MediaStoreError> for Error {
+    fn from(error: MediaStoreError) -> Self {
+        Error::MediaStore(Box::new(error))
     }
 }
 

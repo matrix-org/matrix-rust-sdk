@@ -14,7 +14,6 @@ use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
-    event_cache::EventCacheError,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -39,7 +38,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    Account, AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -48,6 +47,7 @@ use matrix_sdk_ui::{
         NotificationClient as MatrixNotificationClient,
         NotificationProcessSetup as MatrixNotificationProcessSetup,
     },
+    spaces::SpaceService as UISpaceService,
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
@@ -111,6 +111,7 @@ use crate::{
         MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
     },
     runtime::get_runtime_handle,
+    spaces::SpaceService,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
@@ -1257,6 +1258,11 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
+    pub fn space_service(&self) -> Arc<SpaceService> {
+        let inner = UISpaceService::new((*self.inner).clone());
+        Arc::new(SpaceService::new(inner))
+    }
+
     pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
         let inner = self.inner.notification_settings().await;
 
@@ -1503,8 +1509,8 @@ impl Client {
         &self,
         policy: MediaRetentionPolicy,
     ) -> Result<(), ClientError> {
-        let closure = async || -> Result<_, EventCacheError> {
-            let store = self.inner.event_cache_store().lock().await?;
+        let closure = async || -> Result<_, Error> {
+            let store = self.inner.media_store().lock().await?;
             Ok(store.set_media_retention_policy(policy).await?)
         };
 
@@ -1552,13 +1558,13 @@ impl Client {
 
             // Clean up the media cache according to the current media retention policy.
             self.inner
-                .event_cache_store()
+                .media_store()
                 .lock()
                 .await
-                .map_err(EventCacheError::from)?
-                .clean_up_media_cache()
+                .map_err(Error::from)?
+                .clean()
                 .await
-                .map_err(EventCacheError::from)?;
+                .map_err(Error::from)?;
 
             // Clear all the room chunks. It's important to *not* call
             // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
@@ -1621,7 +1627,7 @@ impl Client {
     /// This method retrieves information about the server's name and version
     /// by calling the `/_matrix/federation/v1/version` endpoint.
     pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
-        Ok(self.inner.server_vendor_info().await?)
+        Ok(self.inner.server_vendor_info(None).await?)
     }
 
     /// Subscribe to changes in the media preview configuration.
@@ -1738,6 +1744,42 @@ impl Client {
                 }
             }
         }))))
+    }
+}
+
+#[cfg(feature = "experimental-element-recent-emojis")]
+mod recent_emoji {
+    use crate::{client::Client, error::ClientError};
+
+    /// Represents an emoji recently used for reactions.
+    #[derive(Debug, uniffi::Record)]
+    pub struct RecentEmoji {
+        /// The actual emoji text representation.
+        pub emoji: String,
+        /// The number of times this emoji has been used for reactions.
+        pub count: u64,
+    }
+
+    #[matrix_sdk_ffi_macros::export]
+    impl Client {
+        /// Adds a recently used emoji to the list and uploads the updated
+        /// `io.element.recent_emoji` content to the global account data.
+        pub async fn add_recent_emoji(&self, emoji: String) -> Result<(), ClientError> {
+            Ok(self.inner.account().add_recent_emoji(&emoji).await?)
+        }
+
+        /// Gets the list of recently used emojis from the
+        /// `io.element.recent_emoji` global account data.
+        pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
+            Ok(self
+                .inner
+                .account()
+                .get_recent_emojis(false)
+                .await?
+                .into_iter()
+                .map(|(emoji, count)| RecentEmoji { emoji, count: count.into() })
+                .collect::<Vec<RecentEmoji>>())
+        }
     }
 }
 

@@ -12,139 +12,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
+use std::ops::Deref;
+
+use indexed_db_futures::prelude::IdbTransaction;
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
+    event_cache::{Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
 };
-use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
-use serde::{
-    de::{DeserializeOwned, Error},
-    Serialize,
-};
-use thiserror::Error;
-use web_sys::IdbCursorDirection;
+use ruma::{events::relation::RelationType, EventId, RoomId};
+use serde::{de::DeserializeOwned, Serialize};
 
-use crate::event_cache_store::{
+use crate::{
     error::AsyncErrorDeps,
-    serializer::{
-        traits::{
-            Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
-            IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
-        },
-        types::{
+    event_cache_store::{
+        serializer::indexed_types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
         },
-        IndexeddbEventCacheStoreSerializer,
+        types::{Chunk, ChunkType, Event, Gap, Lease, Position},
     },
-    types::{Chunk, ChunkType, Event, Gap, Lease, Position},
+    serializer::{
+        Indexed, IndexedKeyRange, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
+        IndexedTypeSerializer,
+    },
+    transaction::{Transaction, TransactionError},
 };
-
-#[derive(Debug, Error)]
-pub enum IndexeddbEventCacheStoreTransactionError {
-    #[error("DomException {name} ({code}): {message}")]
-    DomException { name: String, message: String, code: u16 },
-    #[error("serialization: {0}")]
-    Serialization(Box<dyn AsyncErrorDeps>),
-    #[error("item is not unique")]
-    ItemIsNotUnique,
-    #[error("item not found")]
-    ItemNotFound,
-}
-
-impl From<web_sys::DomException> for IndexeddbEventCacheStoreTransactionError {
-    fn from(value: web_sys::DomException) -> Self {
-        Self::DomException { name: value.name(), message: value.message(), code: value.code() }
-    }
-}
-
-impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreTransactionError {
-    fn from(e: serde_wasm_bindgen::Error) -> Self {
-        Self::Serialization(Box::new(serde_json::Error::custom(e.to_string())))
-    }
-}
-
-impl From<IndexeddbEventCacheStoreTransactionError> for EventCacheStoreError {
-    fn from(value: IndexeddbEventCacheStoreTransactionError) -> Self {
-        use IndexeddbEventCacheStoreTransactionError::*;
-
-        match value {
-            DomException { .. } => Self::InvalidData { details: value.to_string() },
-            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
-            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
-        }
-    }
-}
 
 /// Represents an IndexedDB transaction, but provides a convenient interface for
 /// performing operations relevant to the IndexedDB implementation of
 /// [`EventCacheStore`](matrix_sdk_base::event_cache::store::EventCacheStore).
 pub struct IndexeddbEventCacheStoreTransaction<'a> {
-    transaction: IdbTransaction<'a>,
-    serializer: &'a IndexeddbEventCacheStoreSerializer,
+    transaction: Transaction<'a>,
+}
+
+impl<'a> Deref for IndexeddbEventCacheStoreTransaction<'a> {
+    type Target = Transaction<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
 }
 
 impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
-    pub fn new(
-        transaction: IdbTransaction<'a>,
-        serializer: &'a IndexeddbEventCacheStoreSerializer,
-    ) -> Self {
-        Self { transaction, serializer }
-    }
-
-    /// Returns the underlying IndexedDB transaction.
-    pub fn into_inner(self) -> IdbTransaction<'a> {
-        self.transaction
+    pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
+        Self { transaction: Transaction::new(transaction, serializer) }
     }
 
     /// Commit all operations tracked in this transaction to IndexedDB.
-    pub async fn commit(self) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
-        self.transaction.await.into_result().map_err(Into::into)
-    }
-
-    /// Query IndexedDB for items that match the given key range
-    pub async fn get_items_by_key<T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K>>,
-    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
-    {
-        let range = self.serializer.encode_key_range::<T, K>(range)?;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        let array = if let Some(index) = K::INDEX {
-            object_store.index(index)?.get_all_with_key(&range)?.await?
-        } else {
-            object_store.get_all_with_key(&range)?.await?
-        };
-        let mut items = Vec::with_capacity(array.length() as usize);
-        for value in array {
-            let item = self.serializer.deserialize(value).map_err(|e| {
-                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
-            })?;
-            items.push(item);
-        }
-        Ok(items)
-    }
-
-    /// Query IndexedDB for items that match the given key component range
-    pub async fn get_items_by_key_components<'b, T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
-    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + 'b,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize + 'b,
-    {
-        let range: IndexedKeyRange<K> = range.into().encoded(self.serializer.inner());
-        self.get_items_by_key::<T, K>(range).await
+    pub async fn commit(self) -> Result<(), TransactionError> {
+        self.transaction.commit().await
     }
 
     /// Query IndexedDB for all items matching the given linked chunk id by key
@@ -152,7 +68,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_items_by_linked_chunk_id<'b, T, K>(
         &self,
         linked_chunk_id: LinkedChunkId<'b>,
-    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
+    ) -> Result<Vec<T>, TransactionError>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
@@ -161,7 +77,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.get_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
             linked_chunk_id,
-            self.serializer.inner(),
+            self.serializer().inner(),
         ))
         .await
     }
@@ -170,7 +86,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_items_in_room<'b, T, K>(
         &self,
         room_id: &'b RoomId,
-    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
+    ) -> Result<Vec<T>, TransactionError>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
@@ -179,84 +95,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.get_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
             room_id,
-            self.serializer.inner(),
+            self.serializer().inner(),
         ))
         .await
-    }
-
-    /// Query IndexedDB for items that match the given key. If
-    /// more than one item is found, an error is returned.
-    pub async fn get_item_by_key<T, K>(
-        &self,
-        key: K,
-    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
-    {
-        let mut items = self.get_items_by_key::<T, K>(key).await?;
-        if items.len() > 1 {
-            return Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique);
-        }
-        Ok(items.pop())
-    }
-
-    /// Query IndexedDB for items that match the given key components. If more
-    /// than one item is found, an error is returned.
-    pub async fn get_item_by_key_components<'b, T, K>(
-        &self,
-        components: K::KeyComponents<'b>,
-    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + 'b,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize + 'b,
-    {
-        let mut items = self.get_items_by_key_components::<T, K>(components).await?;
-        if items.len() > 1 {
-            return Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique);
-        }
-        Ok(items.pop())
-    }
-
-    /// Query IndexedDB for the number of items that match the given key range.
-    pub async fn get_items_count_by_key<T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K>>,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
-    {
-        let range = self.serializer.encode_key_range::<T, K>(range)?;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        let count = if let Some(index) = K::INDEX {
-            object_store.index(index)?.count_with_key(&range)?.await?
-        } else {
-            object_store.count_with_key(&range)?.await?
-        };
-        Ok(count as usize)
-    }
-
-    /// Query IndexedDB for the number of items that match the given key
-    /// components range.
-    pub async fn get_items_count_by_key_components<'b, T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + 'b,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize + 'b,
-    {
-        let range: IndexedKeyRange<K> = range.into().encoded(self.serializer.inner());
-        self.get_items_count_by_key::<T, K>(range).await
     }
 
     /// Query IndexedDB for the number of items matching the given linked chunk
@@ -264,7 +105,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_items_count_by_linked_chunk_id<'b, T, K>(
         &self,
         linked_chunk_id: LinkedChunkId<'b>,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
+    ) -> Result<usize, TransactionError>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
@@ -273,141 +114,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.get_items_count_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
             linked_chunk_id,
-            self.serializer.inner(),
+            self.serializer().inner(),
         ))
         .await
-    }
-
-    /// Query IndexedDB for the number of items of type `T` by `K` in the given
-    /// room.
-    pub async fn get_items_count_in_room<'b, T, K>(
-        &self,
-        room_id: &'b RoomId,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedPrefixKeyBounds<T, &'b RoomId> + Serialize,
-    {
-        self.get_items_count_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
-            room_id,
-            self.serializer.inner(),
-        ))
-        .await
-    }
-
-    /// Query IndexedDB for the item with the maximum key in the given range.
-    pub async fn get_max_item_by_key<T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K>>,
-    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
-    {
-        let range = self.serializer.encode_key_range::<T, K>(range)?;
-        let direction = IdbCursorDirection::Prev;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        if let Some(index) = K::INDEX {
-            object_store
-                .index(index)?
-                .open_cursor_with_range_and_direction(&range, direction)?
-                .await?
-                .map(|cursor| self.serializer.deserialize(cursor.value()))
-                .transpose()
-                .map_err(|e| IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e)))
-        } else {
-            object_store
-                .open_cursor_with_range_and_direction(&range, direction)?
-                .await?
-                .map(|cursor| self.serializer.deserialize(cursor.value()))
-                .transpose()
-                .map_err(|e| IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e)))
-        }
-    }
-
-    /// Adds an item to the corresponding IndexedDB object
-    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be rejected.
-    pub async fn add_item<T>(
-        &self,
-        item: &T,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + Serialize,
-        T::IndexedType: Serialize,
-        T::Error: AsyncErrorDeps,
-    {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .add_val_owned(self.serializer.serialize(item).map_err(|e| {
-                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
-            })?)?
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Puts an item in the corresponding IndexedDB object
-    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be overwritten.
-    pub async fn put_item<T>(
-        &self,
-        item: &T,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + Serialize,
-        T::IndexedType: Serialize,
-        T::Error: AsyncErrorDeps,
-    {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .put_val_owned(self.serializer.serialize(item).map_err(|e| {
-                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
-            })?)?
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Delete items in given key range from IndexedDB
-    pub async fn delete_items_by_key<T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K>>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        K: IndexedKey<T> + Serialize,
-    {
-        let range = self.serializer.encode_key_range::<T, K>(range)?;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        if let Some(index) = K::INDEX {
-            let index = object_store.index(index)?;
-            if let Some(cursor) = index.open_cursor_with_range(&range)?.await? {
-                while cursor.key().is_some() {
-                    cursor.delete()?.await?;
-                    cursor.continue_cursor()?.await?;
-                }
-            }
-        } else {
-            object_store.delete_owned(&range)?.await?;
-        }
-        Ok(())
-    }
-
-    /// Delete items in the given key component range from
-    /// IndexedDB
-    pub async fn delete_items_by_key_components<'b, T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + 'b,
-        K: IndexedKey<T> + Serialize + 'b,
-    {
-        let range: IndexedKeyRange<K> = range.into().encoded(self.serializer.inner());
-        self.delete_items_by_key::<T, K>(range).await
     }
 
     /// Delete all items of type `T` by key `K` associated with the given linked
@@ -415,71 +124,27 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn delete_items_by_linked_chunk_id<'b, T, K>(
         &self,
         linked_chunk_id: LinkedChunkId<'b>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    ) -> Result<(), TransactionError>
     where
         T: Indexed,
         K: IndexedPrefixKeyBounds<T, LinkedChunkId<'b>> + Serialize,
     {
         self.delete_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
             linked_chunk_id,
-            self.serializer.inner(),
+            self.serializer().inner(),
         ))
         .await
-    }
-
-    /// Delete all items of type `T` by key `K` in the given room from IndexedDB
-    pub async fn delete_items_in_room<'b, T, K>(
-        &self,
-        room_id: &'b RoomId,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-        K: IndexedPrefixKeyBounds<T, &'b RoomId> + Serialize,
-    {
-        self.delete_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
-            room_id,
-            self.serializer.inner(),
-        ))
-        .await
-    }
-
-    /// Delete item that matches the given key components from
-    /// IndexedDB
-    pub async fn delete_item_by_key<'b, T, K>(
-        &self,
-        key: K::KeyComponents<'b>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed + 'b,
-        K: IndexedKey<T> + Serialize + 'b,
-    {
-        self.delete_items_by_key_components::<T, K>(key).await
-    }
-
-    /// Clear all items of type `T` from the associated object store
-    /// `T::OBJECT_STORE` from IndexedDB
-    pub async fn clear<T>(&self) -> Result<(), IndexeddbEventCacheStoreTransactionError>
-    where
-        T: Indexed,
-    {
-        self.transaction.object_store(T::OBJECT_STORE)?.clear()?.await.map_err(Into::into)
     }
 
     /// Query IndexedDB for the lease that matches the given key `id`. If more
     /// than one lease is found, an error is returned.
-    pub async fn get_lease_by_id(
-        &self,
-        id: &str,
-    ) -> Result<Option<Lease>, IndexeddbEventCacheStoreTransactionError> {
+    pub async fn get_lease_by_id(&self, id: &str) -> Result<Option<Lease>, TransactionError> {
         self.get_item_by_key_components::<Lease, IndexedLeaseIdKey>(id).await
     }
 
     /// Puts a lease into IndexedDB. If an event with the same key already
     /// exists, it will be overwritten.
-    pub async fn put_lease(
-        &self,
-        lease: &Lease,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    pub async fn put_lease(&self, lease: &Lease) -> Result<(), TransactionError> {
         self.put_item(lease).await
     }
 
@@ -490,7 +155,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Option<Chunk>, TransactionError> {
         self.get_item_by_key_components::<Chunk, IndexedChunkIdKey>((linked_chunk_id, chunk_id))
             .await
     }
@@ -502,7 +167,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         next_chunk_id: Option<ChunkIdentifier>,
-    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Option<Chunk>, TransactionError> {
         self.get_item_by_key_components::<Chunk, IndexedNextChunkIdKey>((
             linked_chunk_id,
             next_chunk_id,
@@ -514,7 +179,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_chunks_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<Vec<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Vec<Chunk>, TransactionError> {
         self.get_items_by_linked_chunk_id::<Chunk, IndexedChunkIdKey>(linked_chunk_id).await
     }
 
@@ -523,7 +188,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_chunks_count_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<usize, TransactionError> {
         self.get_items_count_by_linked_chunk_id::<Chunk, IndexedChunkIdKey>(linked_chunk_id).await
     }
 
@@ -532,9 +197,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_max_chunk_by_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
-        let range =
-            IndexedKeyRange::all_with_prefix::<Chunk, _>(linked_chunk_id, self.serializer.inner());
+    ) -> Result<Option<Chunk>, TransactionError> {
+        let range = IndexedKeyRange::all_with_prefix::<Chunk, _>(
+            linked_chunk_id,
+            self.serializer().inner(),
+        );
         self.get_max_item_by_key::<Chunk, IndexedChunkIdKey>(range).await
     }
 
@@ -545,7 +212,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<Option<RawChunk<RawEvent, RawGap>>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Option<RawChunk<RawEvent, RawGap>>, TransactionError> {
         if let Some(chunk) = self.get_chunk_by_id(linked_chunk_id, chunk_id).await? {
             let content = match chunk.chunk_type {
                 ChunkType::Event => {
@@ -564,7 +231,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                     let gap = self
                         .get_gap_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
                         .await?
-                        .ok_or(IndexeddbEventCacheStoreTransactionError::ItemNotFound)?;
+                        .ok_or(TransactionError::ItemNotFound)?;
                     ChunkContent::Gap(RawGap { prev_token: gap.prev_token })
                 }
             };
@@ -582,10 +249,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// chunks are properly linked to the chunk being added. If a chunk with
     /// the same identifier already exists, the given chunk will be
     /// rejected.
-    pub async fn add_chunk(
-        &self,
-        chunk: &Chunk,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    pub async fn add_chunk(&self, chunk: &Chunk) -> Result<(), TransactionError> {
         self.add_item(chunk).await?;
         if let Some(previous) = chunk.previous {
             let previous_identifier = ChunkIdentifier::new(previous);
@@ -616,7 +280,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         if let Some(chunk) = self.get_chunk_by_id(linked_chunk_id, chunk_id).await? {
             if let Some(previous) = chunk.previous {
                 let previous_identifier = ChunkIdentifier::new(previous);
@@ -654,7 +318,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn delete_chunks_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_items_by_linked_chunk_id::<Chunk, IndexedChunkIdKey>(linked_chunk_id).await
     }
 
@@ -664,8 +328,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         event_id: &EventId,
-    ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
-        let key = self.serializer.encode_key((linked_chunk_id, event_id));
+    ) -> Result<Option<Event>, TransactionError> {
+        let key = self.serializer().encode_key((linked_chunk_id, event_id));
         self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
     }
 
@@ -675,35 +339,15 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
-        let key = self.serializer.encode_key((room_id, event_id));
+    ) -> Result<Option<Event>, TransactionError> {
+        let key = self.serializer().encode_key((room_id, event_id));
         self.get_item_by_key::<Event, IndexedEventRoomKey>(key).await
     }
 
-    /// Query IndexedDB for events in the given position range matching the
-    /// given linked chunk id.
-    pub async fn get_events_by_position(
-        &self,
-        linked_chunk_id: LinkedChunkId<'_>,
-        range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
-        self.get_items_by_key_components::<Event, IndexedEventPositionKey>(
-            range.into().map(|position| (linked_chunk_id, position)),
-        )
-        .await
-    }
-
-    /// Query IndexedDB for number of events in the given position range
-    /// matching the given linked_chunk_id.
-    pub async fn get_events_count_by_position(
-        &self,
-        linked_chunk_id: LinkedChunkId<'_>,
-        range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
-        self.get_items_count_by_key_components::<Event, IndexedEventPositionKey>(
-            range.into().map(|position| (linked_chunk_id, position)),
-        )
-        .await
+    /// Query IndexedDB for events that are in the given
+    /// room.
+    pub async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, TransactionError> {
+        self.get_items_in_room::<Event, IndexedEventRoomKey>(room_id).await
     }
 
     /// Query IndexedDB for events in the given chunk matching the given linked
@@ -712,9 +356,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
-        let range =
-            IndexedKeyRange::all_with_prefix((linked_chunk_id, chunk_id), self.serializer.inner());
+    ) -> Result<Vec<Event>, TransactionError> {
+        let range = IndexedKeyRange::all_with_prefix(
+            (linked_chunk_id, chunk_id),
+            self.serializer().inner(),
+        );
         self.get_items_by_key::<Event, IndexedEventPositionKey>(range).await
     }
 
@@ -724,9 +370,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
-        let range =
-            IndexedKeyRange::all_with_prefix((linked_chunk_id, chunk_id), self.serializer.inner());
+    ) -> Result<usize, TransactionError> {
+        let range = IndexedKeyRange::all_with_prefix(
+            (linked_chunk_id, chunk_id),
+            self.serializer().inner(),
+        );
         self.get_items_count_by_key::<Event, IndexedEventPositionKey>(range).await
     }
 
@@ -736,11 +384,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         room_id: &RoomId,
         range: impl Into<IndexedKeyRange<(&EventId, &RelationType)>>,
-    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Vec<Event>, TransactionError> {
         let range = range
             .into()
             .map(|(event_id, relation_type)| (room_id, event_id, relation_type))
-            .encoded(self.serializer.inner());
+            .encoded(self.serializer().inner());
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
@@ -750,18 +398,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         room_id: &RoomId,
         related_event_id: &EventId,
-    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
-        let range =
-            IndexedKeyRange::all_with_prefix((room_id, related_event_id), self.serializer.inner());
+    ) -> Result<Vec<Event>, TransactionError> {
+        let range = IndexedKeyRange::all_with_prefix(
+            (room_id, related_event_id),
+            self.serializer().inner(),
+        );
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
     /// Puts an event in IndexedDB. If an event with the same key already
     /// exists, it will be overwritten.
-    pub async fn put_event(
-        &self,
-        event: &Event,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    pub async fn put_event(&self, event: &Event) -> Result<(), TransactionError> {
         if let Some(position) = event.position() {
             // For some reason, we can't simply replace an event with `put_item`
             // because we can get an error stating that the data violates a uniqueness
@@ -783,7 +430,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_items_by_key_components::<Event, IndexedEventPositionKey>(
             range.into().map(|position| (linked_chunk_id, position)),
         )
@@ -795,7 +442,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         position: Position,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_item_by_key::<Event, IndexedEventPositionKey>((linked_chunk_id, position)).await
     }
 
@@ -804,9 +451,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
-        let range =
-            IndexedKeyRange::all_with_prefix((linked_chunk_id, chunk_id), self.serializer.inner());
+    ) -> Result<(), TransactionError> {
+        let range = IndexedKeyRange::all_with_prefix(
+            (linked_chunk_id, chunk_id),
+            self.serializer().inner(),
+        );
         self.delete_items_by_key::<Event, IndexedEventPositionKey>(range).await
     }
 
@@ -816,7 +465,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         position: Position,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         let lower = (linked_chunk_id, position);
         let upper = IndexedEventPositionKey::upper_key_components_with_prefix((
             linked_chunk_id,
@@ -830,7 +479,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn delete_events_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_items_by_linked_chunk_id::<Event, IndexedEventIdKey>(linked_chunk_id).await
     }
 
@@ -840,7 +489,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<Option<Gap>, IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<Option<Gap>, TransactionError> {
         self.get_item_by_key_components::<Gap, IndexedGapIdKey>((linked_chunk_id, chunk_id)).await
     }
 
@@ -850,7 +499,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         chunk_id: ChunkIdentifier,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_item_by_key::<Gap, IndexedGapIdKey>((linked_chunk_id, chunk_id)).await
     }
 
@@ -858,7 +507,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn delete_gaps_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+    ) -> Result<(), TransactionError> {
         self.delete_items_by_linked_chunk_id::<Gap, IndexedGapIdKey>(linked_chunk_id).await
     }
 }

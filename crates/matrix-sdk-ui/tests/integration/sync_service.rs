@@ -17,14 +17,15 @@ use std::{
     time::Duration,
 };
 
+use assert_matches::assert_matches;
 use matrix_sdk::{
-    assert_next_eq_with_timeout,
+    assert_next_matches_with_timeout,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
-use stream_assert::{assert_next_eq, assert_next_matches, assert_pending};
+use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
@@ -74,7 +75,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     let mut state_stream = sync_service.state();
 
     // At first, the sync service is sleeping.
-    assert_eq!(state_stream.get(), State::Idle);
+    assert_matches!(state_stream.get(), State::Idle);
     assert!(server.received_requests().await.unwrap().is_empty());
     assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
@@ -224,13 +225,13 @@ async fn test_sync_service_offline_mode() {
         let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
 
         sync_service.start().await;
-        assert_next_eq!(states, State::Running);
-        assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
+        assert_next_matches!(states, State::Running);
+        assert_next_matches_with_timeout!(states, 2000, State::Offline);
     }
 
     mock_server.mock_versions().ok().expect(1..).mount().await;
 
-    assert_next_eq_with_timeout!(states, State::Running, 1000 ms,  "We should have continued to sync");
+    assert_next_matches_with_timeout!(states, 1000, State::Running);
 }
 
 #[async_test]
@@ -249,11 +250,11 @@ async fn test_sync_service_offline_mode_stopping() {
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;
-    assert_next_eq!(states, State::Running);
+    assert_next_matches!(states, State::Running);
 
-    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
+    assert_next_matches_with_timeout!(states, 2000, State::Offline);
     sync_service.stop().await;
-    assert_next_eq_with_timeout!(states, State::Idle, 2000 ms, "We should have entered the idle mode");
+    assert_next_matches_with_timeout!(states, 2000, State::Idle);
 }
 
 #[async_test]
@@ -271,11 +272,11 @@ async fn test_sync_service_offline_mode_restarting() {
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;
-    assert_next_eq!(states, State::Running);
-    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
+    assert_next_matches!(states, State::Running);
+    assert_next_matches_with_timeout!(states, 2000, State::Offline);
 
     sync_service.start().await;
 
-    assert_next_eq_with_timeout!(states, State::Running, 2000 ms, "We should have entered the running mode");
-    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode again");
+    assert_next_matches_with_timeout!(states, 2000, State::Running);
+    assert_next_matches_with_timeout!(states, 2000, State::Offline);
 }

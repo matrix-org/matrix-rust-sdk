@@ -51,22 +51,20 @@ pub fn dispatch_receipt_ephemeral_event_for_room(
     context: &mut Context,
     room_id: &RoomId,
     receipt: &Raw<SyncEphemeralRoomEvent<ReceiptEventContent>>,
-    joined_room_update: &mut JoinedRoomUpdate,
 ) {
     let receipt: Raw<AnySyncEphemeralRoomEvent> = receipt.cast_ref().clone();
 
     dispatch_receipt(context, &receipt, room_id);
-    joined_room_update.ephemeral.push(receipt);
 }
 
-pub async fn room_account_data(
+pub fn room_account_data(
     context: &mut Context,
     account_data: &http::response::AccountData,
     room_updates: &mut RoomUpdates,
     state_store: &BaseStateStore,
 ) {
     for (room_id, raw) in &account_data.rooms {
-        account_data_for_room(context, room_id, raw, state_store).await;
+        account_data_for_room(context, room_id, raw, state_store);
 
         if let Some(room) = state_store.room(room_id) {
             match room.state() {

@@ -15,19 +15,16 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentity},
     RoomMemberships,
+    crypto::{CryptoStoreError, UserIdentity as CryptoUserIdentity, types::MasterPubkey},
 };
 use ruma::{
-    events::{
-        key::verification::VerificationMethod,
-        room::message::{MessageType, RoomMessageEventContent},
-    },
     OwnedUserId, UserId,
+    events::{key::verification::VerificationMethod, room::message::RoomMessageEventContent},
 };
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, Client};
+use crate::{Client, encryption::verification::VerificationRequest};
 
 /// Updates about [`UserIdentity`]s which got received over the `/keys/query`
 /// endpoint.
@@ -289,9 +286,7 @@ impl UserIdentity {
                     self.client.create_dm(i.user_id()).await?
                 };
 
-                let response = room
-                    .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
-                    .await?;
+                let response = room.send(RoomMessageEventContent::new(content)).await?;
 
                 let verification =
                     i.request_verification(room.room_id(), &response.event_id, methods);

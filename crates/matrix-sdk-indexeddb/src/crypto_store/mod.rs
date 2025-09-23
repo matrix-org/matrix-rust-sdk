@@ -52,7 +52,7 @@ use web_sys::IdbKeyRange;
 
 use crate::{
     crypto_store::migrations::open_and_upgrade_db,
-    serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted},
+    serializer::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError},
 };
 
 mod migrations;
@@ -122,7 +122,7 @@ pub struct IndexeddbCryptoStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
-    serializer: IndexeddbSerializer,
+    serializer: SafeEncodeSerializer,
     save_changes_lock: Arc<Mutex<()>>,
 }
 
@@ -155,14 +155,14 @@ pub enum IndexeddbCryptoStoreError {
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
 }
 
-impl From<IndexeddbSerializerError> for IndexeddbCryptoStoreError {
-    fn from(value: IndexeddbSerializerError) -> Self {
+impl From<SafeEncodeSerializerError> for IndexeddbCryptoStoreError {
+    fn from(value: SafeEncodeSerializerError) -> Self {
         match value {
-            IndexeddbSerializerError::Serialization(error) => Self::Serialization(error),
-            IndexeddbSerializerError::DomException { code, name, message } => {
+            SafeEncodeSerializerError::Serialization(error) => Self::Serialization(error),
+            SafeEncodeSerializerError::DomException { code, name, message } => {
                 Self::DomException { code, name, message }
             }
-            IndexeddbSerializerError::CryptoStoreError(crypto_store_error) => {
+            SafeEncodeSerializerError::CryptoStoreError(crypto_store_error) => {
                 Self::CryptoStoreError(crypto_store_error)
             }
         }
@@ -287,7 +287,7 @@ impl IndexeddbCryptoStore {
     ) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
-        let serializer = IndexeddbSerializer::new(store_cipher);
+        let serializer = SafeEncodeSerializer::new(store_cipher);
         debug!("IndexedDbCryptoStore: opening main store {name}");
         let db = open_and_upgrade_db(&name, &serializer).await?;
 
@@ -984,6 +984,31 @@ impl_crypto_store! {
             |value| self.deserialize_inbound_group_session(value),
             INBOUND_GROUP_SESSIONS_BATCH_SIZE
         ).await
+    }
+
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let range = self.serializer.encode_to_range(keys::INBOUND_GROUP_SESSIONS_V3, room_id)?;
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
+            .get_all_with_key(&range)?
+            .await?
+            .into_iter()
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<InboundGroupSession>>())
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
@@ -1708,7 +1733,7 @@ struct GossipRequestIndexedDbObject {
     #[serde(
         default,
         skip_serializing_if = "std::ops::Not::not",
-        with = "crate::serialize_bool_for_indexeddb"
+        with = "crate::serializer::foreign::bool"
     )]
     unsent: bool,
 }
@@ -1741,7 +1766,7 @@ struct InboundGroupSessionIndexedDbObject {
     #[serde(
         default,
         skip_serializing_if = "std::ops::Not::not",
-        with = "crate::serialize_bool_for_indexeddb"
+        with = "crate::serializer::foreign::bool"
     )]
     needs_backup: bool,
 
@@ -1779,7 +1804,7 @@ impl InboundGroupSessionIndexedDbObject {
     /// session.
     pub async fn from_session(
         session: &InboundGroupSession,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, CryptoStoreError> {
         let session_id =
             serializer.encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id());
@@ -1812,7 +1837,7 @@ mod unit_tests {
     use ruma::{device_id, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
-    use crate::serializer::{IndexeddbSerializer, MaybeEncrypted};
+    use crate::serializer::{MaybeEncrypted, SafeEncodeSerializer};
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
@@ -1890,7 +1915,7 @@ mod unit_tests {
         )
         .unwrap();
 
-        InboundGroupSessionIndexedDbObject::from_session(&session, &IndexeddbSerializer::new(None))
+        InboundGroupSessionIndexedDbObject::from_session(&session, &SafeEncodeSerializer::new(None))
             .await
             .unwrap()
     }

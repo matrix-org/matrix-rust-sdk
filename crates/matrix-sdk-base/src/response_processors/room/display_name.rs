@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::timer;
+
 use super::super::Context;
 use crate::{
     RoomInfoNotableUpdateReasons, room::UpdatedRoomDisplayName, store::BaseStateStore,
@@ -23,6 +25,8 @@ pub async fn update_for_rooms(
     room_updates: &RoomUpdates,
     state_store: &BaseStateStore,
 ) {
+    let _timer = timer!(tracing::Level::TRACE, "display_name::update_for_rooms");
+
     for room in room_updates.iter_all_room_ids().filter_map(|room_id| state_store.room(room_id)) {
         // Compute the display name. If it's different, let's register the `RoomInfo` in
         // the `StateChanges`.

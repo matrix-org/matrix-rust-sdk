@@ -3,6 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt, iter,
     path::Path,
+    str::FromStr as _,
     sync::Arc,
 };
 
@@ -11,9 +12,10 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
-        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
-        DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey, ThreadSubscription,
+        compare_thread_subscription_bump_stamps, migration_helpers::RoomInfoV1, ChildTransactionId,
+        DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError, QueuedRequest,
+        QueuedRequestKind, RoomLoadSettings, SentRequestKey, StoredThreadSubscription,
+        ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -38,7 +40,7 @@ use ruma::{
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     error::{Error, Result},
@@ -73,7 +75,7 @@ pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function.
-const DATABASE_VERSION: u8 = 13;
+const DATABASE_VERSION: u8 = 14;
 
 /// An SQLite-based state store.
 #[derive(Clone)]
@@ -368,6 +370,17 @@ impl SqliteStateStore {
             .await?;
         }
 
+        if from < 14 && to >= 14 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/012_thread_subscriptions_bumpstamp.sql"
+                ))?;
+                txn.set_db_version(14)
+            })
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -387,6 +400,9 @@ impl SqliteStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 Cow::Borrowed(StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                Cow::Borrowed(StateStoreDataKey::ONE_TIME_KEY_ALREADY_UPLOADED)
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 if let Some(thread_root) = thread_root {
                     Cow::Owned(format!(
@@ -399,6 +415,9 @@ impl SqliteStateStore {
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::SEEN_KNOCK_REQUESTS))
+            }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                Cow::Borrowed(StateStoreDataKey::THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS)
             }
         };
 
@@ -1012,11 +1031,19 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::UtdHookManagerData => {
                         StateStoreDataValue::UtdHookManagerData(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                        StateStoreDataValue::OneTimeKeyAlreadyUploaded
+                    }
                     StateStoreDataKey::ComposerDraft(_, _) => {
                         StateStoreDataValue::ComposerDraft(self.deserialize_value(&data)?)
                     }
                     StateStoreDataKey::SeenKnockRequests(_) => {
                         StateStoreDataValue::SeenKnockRequests(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                        StateStoreDataValue::ThreadSubscriptionsCatchupTokens(
+                            self.deserialize_value(&data)?,
+                        )
                     }
                 })
             })
@@ -1047,6 +1074,9 @@ impl StateStore for SqliteStateStore {
             StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             )?,
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                self.serialize_value(&true).expect("We should be able to serialize a boolean")
+            }
             StateStoreDataKey::ComposerDraft(_, _) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
             )?,
@@ -1054,6 +1084,11 @@ impl StateStore for SqliteStateStore {
                 &value
                     .into_seen_knock_requests()
                     .expect("Session data is not a set of seen knock request ids"),
+            )?,
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => self.serialize_value(
+                &value
+                    .into_thread_subscriptions_catchup_tokens()
+                    .expect("Session data is not a list of thread subscription catchup tokens"),
             )?,
         };
 
@@ -1607,7 +1642,7 @@ impl StateStore for SqliteStateStore {
                     (self.encode_key(keys::DISPLAY_NAME, normalized), display_name)
                 });
 
-                iter::once(raw).chain(normalized.into_iter())
+                iter::once(raw).chain(normalized)
             })
             .collect::<BTreeMap<_, _>>();
         let names = names_map.keys().cloned().collect();
@@ -2098,20 +2133,33 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        mut new: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
+        if let Some(previous) = self.load_thread_subscription(room_id, thread_id).await? {
+            if previous == new {
+                // No need to update anything.
+                trace!("not saving thread subscription because the subscription is the same");
+                return Ok(());
+            }
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                trace!("not saving thread subscription because we have a newer bump stamp");
+                return Ok(());
+            }
+        }
+
         let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
-        let status = subscription.as_str();
+        let status = new.status.as_str();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| {
+                // Try to find a previous value.
                 txn.prepare_cached(
-                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status)
-                         VALUES (?, ?, ?)",
+                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
+                         VALUES (?, ?, ?, ?)",
                 )?
-                .execute((room_id, thread_id, status))
+                .execute((room_id, thread_id, status, new.bump_stamp))
             })
             .await?;
         Ok(())
@@ -2121,7 +2169,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
 
@@ -2129,16 +2177,17 @@ impl StateStore for SqliteStateStore {
             .acquire()
             .await?
             .query_row(
-                "SELECT status FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
+                "SELECT status, bump_stamp FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?))
             )
             .await
             .optional()?
-            .map(|data| {
-                ThreadSubscription::from_value(&data).ok_or_else(|| Error::InvalidData {
-                    details: format!("Invalid thread status: {data}"),
-                })
+            .map(|(status, bump_stamp)| -> Result<_, Self::Error> {
+                let status = ThreadSubscriptionStatus::from_str(&status).map_err(|_| {
+                    Error::InvalidData { details: format!("Invalid thread status: {status}") }
+                })?;
+                Ok(StoredThreadSubscription { status, bump_stamp })
             })
             .transpose()?)
     }

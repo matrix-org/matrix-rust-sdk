@@ -9,7 +9,7 @@ name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.13.0"
+version = "0.14.1"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -65,13 +65,15 @@ testing = [
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = []
 
+experimental-element-recent-emojis = []
+
 [dependencies]
 as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
-decancer = "3.3.0"
+decancer = "3.3.3"
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true
@@ -82,7 +84,7 @@ matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 once_cell.workspace = true
-regex = "1.11.1"
+regex.workspace = true
 ruma = { workspace = true, features = [
     "canonical-json",
     "unstable-msc2867",
@@ -107,6 +109,7 @@ futures-executor.workspace = true
 http.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+proptest.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
 

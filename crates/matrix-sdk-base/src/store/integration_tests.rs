@@ -47,7 +47,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{
         ChildTransactionId, QueueWedgeError, SerializableEventContent, StateStoreExt,
-        ThreadSubscription,
+        StoredThreadSubscription, ThreadSubscriptionStatus,
     },
 };
 
@@ -73,6 +73,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_sync_token_saving(&self) -> TestResult;
     /// Test UtdHookManagerData saving.
     async fn test_utd_hook_manager_data_saving(&self) -> TestResult;
+    /// Test the saving of the OneTimeKeyAlreadyUploaded key/value data type.
+    async fn test_one_time_key_already_uploaded_data_saving(&self) -> TestResult;
     /// Test stripped room member saving.
     async fn test_stripped_member_saving(&self) -> TestResult;
     /// Test room power levels saving.
@@ -105,6 +107,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_get_room_infos(&self) -> TestResult;
     /// Test loading thread subscriptions.
     async fn test_thread_subscriptions(&self) -> TestResult;
+    /// Test thread subscription bumpstamp semantics.
+    async fn test_thread_subscriptions_bumpstamps(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -582,6 +586,26 @@ impl StateStoreIntegrationTests for DynStateStore {
             .expect("not UtdHookManagerData");
 
         assert_eq!(read_data, data);
+
+        Ok(())
+    }
+
+    async fn test_one_time_key_already_uploaded_data_saving(&self) -> TestResult {
+        // Before any data is written, the getter should return None.
+        assert!(
+            self.get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded).await?.is_none(),
+            "Store was not empty at start"
+        );
+
+        self.set_kv_data(
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded,
+            StateStoreDataValue::OneTimeKeyAlreadyUploaded,
+        )
+        .await?;
+
+        let data = self.get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded).await?;
+        data.expect("The loaded data should be Some");
+
         Ok(())
     }
 
@@ -1762,60 +1786,172 @@ impl StateStoreIntegrationTests for DynStateStore {
         let second_thread = event_id!("$t2");
 
         // At first, there is no thread subscription.
-        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert!(maybe_status.is_none());
+        let maybe_sub = self.load_thread_subscription(room_id(), first_thread).await?;
+        assert!(maybe_sub.is_none());
 
-        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert!(maybe_status.is_none());
+        let maybe_sub = self.load_thread_subscription(room_id(), second_thread).await?;
+        assert!(maybe_sub.is_none());
 
         // Setting the thread subscription works.
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription { automatic: true },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            },
         )
         .await?;
 
         self.upsert_thread_subscription(
             room_id(),
             second_thread,
-            ThreadSubscription { automatic: false },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            },
         )
         .await?;
 
         // Now, reading the thread subscription returns the expected status.
-        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: true }));
-        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        let maybe_sub = self.load_thread_subscription(room_id(), first_thread).await?;
+        assert_eq!(
+            maybe_sub,
+            Some(StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            })
+        );
+
+        let maybe_sub = self.load_thread_subscription(room_id(), second_thread).await?;
+        assert_eq!(
+            maybe_sub,
+            Some(StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            })
+        );
 
         // We can override the thread subscription status.
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription { automatic: false },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            },
         )
         .await?;
 
         // And it's correctly reflected.
-        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        let maybe_sub = self.load_thread_subscription(room_id(), first_thread).await?;
+        assert_eq!(
+            maybe_sub,
+            Some(StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            })
+        );
+
         // And the second thread is still subscribed.
-        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        let maybe_sub = self.load_thread_subscription(room_id(), second_thread).await?;
+        assert_eq!(
+            maybe_sub,
+            Some(StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            })
+        );
 
         // We can remove a thread subscription.
         self.remove_thread_subscription(room_id(), second_thread).await?;
 
         // And it's correctly reflected.
-        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert_eq!(maybe_status, None);
-        // And the first thread is still subscribed.
-        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        let maybe_sub = self.load_thread_subscription(room_id(), second_thread).await?;
+        assert_eq!(maybe_sub, None);
+
+        // And the first thread is still unsubscribed.
+        let maybe_sub = self.load_thread_subscription(room_id(), first_thread).await?;
+        assert_eq!(
+            maybe_sub,
+            Some(StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            })
+        );
 
         // Removing a thread subscription for an unknown thread is a no-op.
         self.remove_thread_subscription(room_id(), second_thread).await?;
+
+        Ok(())
+    }
+
+    async fn test_thread_subscriptions_bumpstamps(&self) -> TestResult {
+        let thread = event_id!("$fred");
+
+        // At first, there is no thread subscription.
+        let sub = self.load_thread_subscription(room_id(), thread).await?;
+        assert!(sub.is_none());
+
+        // Setting the thread subscription with some bumpstamp works.
+        self.upsert_thread_subscription(
+            room_id(),
+            thread,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(42),
+            },
+        )
+        .await?;
+
+        let sub = self.load_thread_subscription(room_id(), thread).await?.unwrap();
+        assert_eq!(
+            sub,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(42),
+            }
+        );
+
+        // Storing a subscription with an older bumpstamp has no effect.
+        self.upsert_thread_subscription(
+            room_id(),
+            thread,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: Some(41),
+            },
+        )
+        .await?;
+
+        let sub = self.load_thread_subscription(room_id(), thread).await?.unwrap();
+        assert_eq!(
+            sub,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(42),
+            }
+        );
+
+        // Storing with no bumpstamps keeps the previous one.
+        self.upsert_thread_subscription(
+            room_id(),
+            thread,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            },
+        )
+        .await?;
+
+        let sub = self.load_thread_subscription(room_id(), thread).await?.unwrap();
+        assert_eq!(
+            sub,
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(42),
+            }
+        );
 
         Ok(())
     }
@@ -1902,6 +2038,12 @@ macro_rules! statestore_integration_tests {
             async fn test_utd_hook_manager_data_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_utd_hook_manager_data_saving().await
+            }
+
+            #[async_test]
+            async fn test_one_time_key_already_uploaded_data_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_one_time_key_already_uploaded_data_saving().await
             }
 
             #[async_test]
@@ -1992,6 +2134,12 @@ macro_rules! statestore_integration_tests {
             async fn test_thread_subscriptions() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_thread_subscriptions().await
+            }
+
+            #[async_test]
+            async fn test_thread_subscriptions_bumpstamps() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_thread_subscriptions_bumpstamps().await
             }
         }
     };

@@ -17,6 +17,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering::SeqCst},
+    time::Duration,
 };
 
 use as_variant::as_variant;
@@ -29,15 +30,11 @@ use ruma::{
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
-        StaticEventContent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False,
+        GlobalAccountDataEventContent, Mentions, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEventContent, StaticEventContent,
         beacon::BeaconEventContent,
-        call::{
-            SessionDescription,
-            invite::CallInviteEventContent,
-            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
-        },
+        call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         ignored_user_list::IgnoredUserListEventContent,
         member_hints::MemberHintsEventContent,
@@ -52,7 +49,7 @@ use ruma::{
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
+        relation::{Annotation, BundledThread, InReplyTo, Reference, Replacement, Thread},
         room::{
             ImageInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -62,8 +59,9 @@ use ruma::{
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
-                ImageMessageEventContent, MessageType, Relation, RelationWithoutReplacement,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                ImageMessageEventContent, MessageType, OriginalSyncRoomMessageEvent, Relation,
+                RelationWithoutReplacement, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -72,10 +70,16 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::{
+            decline::RtcDeclineEventContent,
+            notification::{NotificationType, RtcNotificationEventContent},
+        },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
     push::Ruleset,
+    room::RoomType,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
@@ -327,6 +331,10 @@ where
         self.into_raw().deserialize().expect("expected message like event")
     }
 
+    pub fn into_original_sync_room_message_event(self) -> OriginalSyncRoomMessageEvent {
+        self.into_raw().deserialize().expect("expected original sync room message event")
+    }
+
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
         Raw::new(&self.construct_json(false)).unwrap().cast_unchecked()
     }
@@ -462,6 +470,12 @@ impl EventBuilder<RoomCreateEventContent> {
         self.content.predecessor = None;
         self
     }
+
+    /// Sets the `m.room.create` `type` field to `m.space`.
+    pub fn with_space_type(mut self) -> Self {
+        self.content.room_type = Some(RoomType::Space);
+        self
+    }
 }
 
 impl EventBuilder<StickerEventContent> {
@@ -545,6 +559,11 @@ impl EventFactory {
 
     pub fn sender(mut self, sender: &UserId) -> Self {
         self.sender = Some(sender.to_owned());
+        self
+    }
+
+    pub fn server_ts(self, ts: u64) -> Self {
+        self.next_ts.store(ts, SeqCst);
         self
     }
 
@@ -989,15 +1008,24 @@ impl EventFactory {
         self.event(CallInviteEventContent::new(call_id, lifetime, offer, version))
     }
 
-    /// Create a new `m.call.notify` event.
-    pub fn call_notify(
+    /// Create a new `m.rtc.notification` event.
+    pub fn rtc_notification(
         &self,
-        call_id: String,
-        application: ApplicationType,
-        notify_type: NotifyType,
-        mentions: Mentions,
-    ) -> EventBuilder<CallNotifyEventContent> {
-        self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
+        notification_type: NotificationType,
+    ) -> EventBuilder<RtcNotificationEventContent> {
+        self.event(RtcNotificationEventContent::new(
+            MilliSecondsSinceUnixEpoch::now(),
+            Duration::new(30, 0),
+            notification_type,
+        ))
+    }
+
+    // Creates a new `org.matrix.msc4310.rtc.decline` event.
+    pub fn call_decline(
+        &self,
+        notification_event_id: &EventId,
+    ) -> EventBuilder<RtcDeclineEventContent> {
+        self.event(RtcDeclineEventContent::new(notification_event_id))
     }
 
     /// Create a new `m.direct` global account data event.
@@ -1024,11 +1052,45 @@ impl EventFactory {
         builder
     }
 
+    /// Create a new `m.space.child` state event.
+    pub fn space_child(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceChildEventContent> {
+        let mut event = self.event(SpaceChildEventContent::new(vec![]));
+        event.room = Some(parent);
+        event.state_key = Some(child.to_string());
+        event
+    }
+
+    /// Create a new `m.space.parent` state event.
+    pub fn space_parent(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceParentEventContent> {
+        let mut event = self.event(SpaceParentEventContent::new(vec![]));
+        event.state_key = Some(parent.to_string());
+        event.room = Some(child);
+        event
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+
+    /// Create a new global account data event of the given `C` content type.
+    pub fn global_account_data<C>(&self, content: C) -> EventBuilder<C>
+    where
+        C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
+    {
+        let mut event = self.event(content);
+        event.is_global = true;
+        event
     }
 }
 
@@ -1134,6 +1196,23 @@ impl EventBuilder<RoomAvatarEventContent> {
     /// Defines the image info for the avatar.
     pub fn info(mut self, image: avatar::ImageInfo) -> Self {
         self.content.info = Some(Box::new(image));
+        self
+    }
+}
+
+impl EventBuilder<RtcNotificationEventContent> {
+    pub fn mentions(mut self, users: impl IntoIterator<Item = OwnedUserId>) -> Self {
+        self.content.mentions = Some(Mentions::with_user_ids(users));
+        self
+    }
+
+    pub fn relates_to_membership_state_event(mut self, event_id: OwnedEventId) -> Self {
+        self.content.relates_to = Some(Reference::new(event_id));
+        self
+    }
+
+    pub fn lifetime(mut self, time_in_seconds: u64) -> Self {
+        self.content.lifetime = Duration::from_secs(time_in_seconds);
         self
     }
 }

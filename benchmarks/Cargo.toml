@@ -14,17 +14,20 @@ release = false
 codspeed = []
 
 [dependencies]
-criterion = { version = "3.0.4", features = ["async", "async_tokio", "html_reports"], package = "codspeed-criterion-compat" }
+assert_matches.workspace = true
+criterion = { version = "3.0.5", features = ["async", "async_tokio", "html_reports"], package = "codspeed-criterion-compat" }
+futures-util.workspace = true
 matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "testing"] }
 matrix-sdk-base.workspace = true
 matrix-sdk-crypto.workspace = true
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-ui.workspace = true
+rand.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile = "3.3.0"
+tempfile.workspace = true
 tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
 wiremock.workspace = true
 
@@ -50,4 +53,8 @@ harness = false
 
 [[bench]]
 name = "event_cache"
+harness = false
+
+[[bench]]
+name = "room_list"
 harness = false

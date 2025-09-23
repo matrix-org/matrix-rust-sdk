@@ -6,8 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
-### Features
+## [0.14.1] - 2025-09-10
 
+### Security Fixes
+
+- Fix a panic in the `RoomMember::normalized_power_level` method.
+  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635)) (Low, [CVE-2025-59047](https://www.cve.org/CVERecord?id=CVE-2025-59047), [GHSA-qhj8-q5r6-8q6j](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-qhj8-q5r6-8q6j)).
+
+## [0.14.0] - 2025-09-04
+
+### Features
+- Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room updates.
+  ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
 - Add `EncryptionState::StateEncrypted` to represent rooms supporting encrypted
   state events. Feature-gated behind `experimental-encrypted-state-events`.
   ([#5523](https://github.com/matrix-org/matrix-rust-sdk/pull/5523))

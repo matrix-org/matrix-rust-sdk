@@ -32,7 +32,7 @@
 //! doesn't exist, as well:
 //!
 //! ```no_run
-//! use matrix_sdk::{encryption::EncryptionSettings, Client};
+//! use matrix_sdk::{Client, encryption::EncryptionSettings};
 //!
 //! # async {
 //! # let homeserver = "http://example.org";
@@ -95,9 +95,9 @@ use futures_util::StreamExt as _;
 use ruma::{
     api::client::keys::get_keys,
     events::{
+        GlobalAccountDataEventType,
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
         secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
-        GlobalAccountDataEventType,
     },
     serde::Raw,
 };
@@ -109,7 +109,7 @@ use crate::encryption::{
     backups::Backups,
     secret_storage::{SecretStorage, SecretStore},
 };
-use crate::{client::WeakClient, encryption::backups::BackupState, Client};
+use crate::{Client, client::WeakClient, encryption::backups::BackupState};
 
 pub mod futures;
 mod types;
@@ -169,7 +169,7 @@ impl Recovery {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn state_stream(&self) -> impl Stream<Item = RecoveryState> {
+    pub fn state_stream(&self) -> impl Stream<Item = RecoveryState> + use<> {
         self.client.inner.e2ee.recovery_state.subscribe_reset()
     }
 
@@ -307,19 +307,15 @@ impl Recovery {
         // Then we finally set the event to an empty JSON content.
         if let Ok(Some(default_event)) =
             self.client.encryption().secret_storage().fetch_default_key_id().await
+            && let Ok(default_event) = default_event.deserialize()
         {
-            if let Ok(default_event) = default_event.deserialize() {
-                let key_id = default_event.key_id;
-                let event_type = GlobalAccountDataEventType::SecretStorageKey(key_id);
+            let key_id = default_event.key_id;
+            let event_type = GlobalAccountDataEventType::SecretStorageKey(key_id);
 
-                self.client
-                    .account()
-                    .set_account_data_raw(
-                        event_type,
-                        Raw::new(&json!({})).expect("").cast_unchecked(),
-                    )
-                    .await?;
-            }
+            self.client
+                .account()
+                .set_account_data_raw(event_type, Raw::new(&json!({})).expect("").cast_unchecked())
+                .await?;
         }
 
         // Now let's "delete" the actual `m.secret.storage.default_key` event.
@@ -653,7 +649,7 @@ impl Recovery {
     /// task which is always listening for updates in the [`BackupState`].
     pub(crate) fn update_state_after_backup_state_change(
         client: &Client,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let mut stream = client.encryption().backups().state_stream();
         let weak = WeakClient::from_client(client);
 
@@ -688,13 +684,13 @@ impl Recovery {
 
     #[instrument(skip_all)]
     pub(crate) async fn update_state_after_keys_query(&self, response: &get_keys::v3::Response) {
-        if let Some(user_id) = self.client.user_id() {
-            if response.master_keys.contains_key(user_id) {
-                // TODO: This is unnecessarily expensive, we could let the crypto crate notify
-                // us that our private keys got erased... But, the OlmMachine
-                // gets recreated and... You know the drill by now...
-                self.update_recovery_state_no_fail().await;
-            }
+        if let Some(user_id) = self.client.user_id()
+            && response.master_keys.contains_key(user_id)
+        {
+            // TODO: This is unnecessarily expensive, we could let the crypto crate notify
+            // us that our private keys got erased... But, the OlmMachine
+            // gets recreated and... You know the drill by now...
+            self.update_recovery_state_no_fail().await;
         }
     }
 }

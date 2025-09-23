@@ -29,7 +29,7 @@ use crate::{
         },
         InboundGroupSessionIndexedDbObject, Result,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
     IndexeddbCryptoStoreError,
 };
 
@@ -59,7 +59,7 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
 }
 
 /// Migrate data from `inbound_group_sessions2` into `inbound_group_sessions3`.
-pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 10).await?;
 
     let txn = db.transaction_on_multi_with_mode(

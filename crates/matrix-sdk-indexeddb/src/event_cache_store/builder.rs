@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::sync::Arc;
+// At the moment, this builder is not public outside of the crate, so we
+// get a few dead code warnings; however, this will eventually be a public
+// type, at which point the line below can be removed.
+#![allow(dead_code)]
 
-use matrix_sdk_base::event_cache::store::MemoryStore;
+use std::{rc::Rc, sync::Arc};
+
 use matrix_sdk_store_encryption::StoreCipher;
-use web_sys::DomException;
 
 use crate::{
     event_cache_store::{
         error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
-        serializer::IndexeddbEventCacheStoreSerializer, IndexeddbEventCacheStore,
+        IndexeddbEventCacheStore,
     },
-    serializer::IndexeddbSerializer,
+    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbEventCacheStore`]
@@ -66,11 +69,8 @@ impl IndexeddbEventCacheStoreBuilder {
     /// and the provided store cipher.
     pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStore {
-            inner: open_and_upgrade_db(&self.database_name).await?,
-            serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
-                self.store_cipher,
-            )),
-            memory_store: MemoryStore::new(),
+            inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
+            serializer: IndexedTypeSerializer::new(SafeEncodeSerializer::new(self.store_cipher)),
         })
     }
 }

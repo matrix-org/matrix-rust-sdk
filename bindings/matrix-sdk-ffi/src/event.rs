@@ -18,7 +18,7 @@ use ruma::{
 
 use crate::{
     room_member::MembershipState,
-    ruma::{MessageType, NotifyType},
+    ruma::{MessageType, RtcNotificationType},
     utils::Timestamp,
     ClientError,
 };
@@ -153,7 +153,11 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
 pub enum MessageLikeEventContent {
     CallAnswer,
     CallInvite,
-    CallNotify { notify_type: NotifyType },
+    RtcNotification {
+        notification_type: RtcNotificationType,
+        /// The timestamp at which this notification is considered invalid.
+        expiration_ts: Timestamp,
+    },
     CallHangup,
     CallCandidates,
     KeyVerificationReady,
@@ -163,11 +167,21 @@ pub enum MessageLikeEventContent {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
-    Poll { question: String },
-    ReactionContent { related_event_id: String },
+    Poll {
+        question: String,
+    },
+    ReactionContent {
+        related_event_id: String,
+    },
     RoomEncrypted,
-    RoomMessage { message_type: MessageType, in_reply_to_event_id: Option<String> },
-    RoomRedaction { redacted_event_id: Option<String>, reason: Option<String> },
+    RoomMessage {
+        message_type: MessageType,
+        in_reply_to_event_id: Option<String>,
+    },
+    RoomRedaction {
+        redacted_event_id: Option<String>,
+        reason: Option<String>,
+    },
     Sticker,
 }
 
@@ -178,10 +192,13 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
         let content = match value {
             AnySyncMessageLikeEvent::CallAnswer(_) => MessageLikeEventContent::CallAnswer,
             AnySyncMessageLikeEvent::CallInvite(_) => MessageLikeEventContent::CallInvite,
-            AnySyncMessageLikeEvent::CallNotify(content) => {
-                let original_content = get_message_like_event_original_content(content)?;
-                MessageLikeEventContent::CallNotify {
-                    notify_type: original_content.notify_type.into(),
+            AnySyncMessageLikeEvent::RtcNotification(event) => {
+                let origin_server_ts = event.origin_server_ts();
+                let original_content = get_message_like_event_original_content(event)?;
+                let expiration_ts = original_content.expiration_ts(origin_server_ts, None).into();
+                MessageLikeEventContent::RtcNotification {
+                    notification_type: original_content.notification_type.into(),
+                    expiration_ts,
                 }
             }
             AnySyncMessageLikeEvent::CallHangup(_) => MessageLikeEventContent::CallHangup,
@@ -331,7 +348,7 @@ pub enum MessageLikeEventType {
     CallCandidates,
     CallHangup,
     CallInvite,
-    CallNotify,
+    RtcNotification,
     KeyVerificationAccept,
     KeyVerificationCancel,
     KeyVerificationDone,
@@ -357,7 +374,7 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
         match val {
             MessageLikeEventType::CallAnswer => Self::CallAnswer,
             MessageLikeEventType::CallInvite => Self::CallInvite,
-            MessageLikeEventType::CallNotify => Self::CallNotify,
+            MessageLikeEventType::RtcNotification => Self::RtcNotification,
             MessageLikeEventType::CallHangup => Self::CallHangup,
             MessageLikeEventType::CallCandidates => Self::CallCandidates,
             MessageLikeEventType::KeyVerificationReady => Self::KeyVerificationReady,

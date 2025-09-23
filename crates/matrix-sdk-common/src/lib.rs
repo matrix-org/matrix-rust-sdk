@@ -24,6 +24,7 @@ use futures_core::Future;
 #[doc(no_inline)]
 pub use ruma;
 
+pub mod cross_process_lock;
 pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
@@ -33,7 +34,6 @@ pub mod locks;
 pub mod ring_buffer;
 pub mod serde_helpers;
 pub mod sleep;
-pub mod store_locks;
 pub mod stream;
 pub mod timeout;
 pub mod tracing_timer;
@@ -45,8 +45,8 @@ pub mod ttl_cache;
 #[cfg(all(target_family = "wasm", not(tarpaulin_include)))]
 pub mod js_tracing;
 
+pub use cross_process_lock::LEASE_DURATION_MS;
 use ruma::{RoomVersionId, room_version_rules::RoomVersionRules};
-pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.

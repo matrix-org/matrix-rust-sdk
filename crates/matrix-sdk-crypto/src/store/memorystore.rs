@@ -20,7 +20,7 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    locks::RwLock as StdRwLock, store_locks::memory_store_helper::try_take_leased_lock,
+    cross_process_lock::memory_store_helper::try_take_leased_lock, locks::RwLock as StdRwLock,
 };
 use ruma::{
     events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
@@ -463,6 +463,25 @@ impl CryptoStore for MemoryStore {
 
         let total = self.inbound_group_sessions.read().values().map(HashMap::len).sum();
         Ok(RoomKeyCounts { total, backed_up })
+    }
+
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let inbounds = match self.inbound_group_sessions.read().get(room_id) {
+            None => Vec::new(),
+            Some(v) => v
+                .values()
+                .map(|ser| {
+                    let pickle: PickledInboundGroupSession =
+                        serde_json::from_str(ser).expect("Pickle deserialization should work");
+                    InboundGroupSession::from_pickle(pickle)
+                        .expect("Expect from pickle to always work")
+                })
+                .collect(),
+        };
+        Ok(inbounds)
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
@@ -1368,6 +1387,13 @@ mod integration_tests {
             backup_version: Option<&str>,
         ) -> Result<RoomKeyCounts, Self::Error> {
             self.0.inbound_group_session_counts(backup_version).await
+        }
+
+        async fn get_inbound_group_sessions_by_room_id(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+            self.0.get_inbound_group_sessions_by_room_id(room_id).await
         }
 
         async fn get_inbound_group_sessions_for_device_batch(

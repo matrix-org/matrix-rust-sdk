@@ -55,7 +55,7 @@ use crate::{
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    store::ThreadSubscription,
+    store::StoredThreadSubscription,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -481,11 +481,19 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 
     /// Insert or update a thread subscription for a given room and thread.
+    ///
+    /// If the new thread subscription hasn't set a bumpstamp, and there was a
+    /// previous subscription in the database with a bumpstamp, the existing
+    /// bumpstamp is kept.
+    ///
+    /// If the new thread subscription has a bumpstamp that's lower than or
+    /// equal to a previously one, the existing subscription is kept, i.e.
+    /// this method must have no effect.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error>;
 
     /// Remove a previous thread subscription for a given room and thread.
@@ -504,7 +512,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error>;
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -804,7 +812,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
     }
@@ -813,7 +821,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.0.load_thread_subscription(room, thread_id).await.map_err(Into::into)
     }
 
@@ -1131,6 +1139,10 @@ pub enum StateStoreDataValue {
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData(GrowableBloom),
 
+    /// A unit value telling us that the client uploaded duplicate one-time
+    /// keys.
+    OneTimeKeyAlreadyUploaded,
+
     /// A composer draft for the room.
     /// To learn more, see [`ComposerDraft`].
     ///
@@ -1139,6 +1151,38 @@ pub enum StateStoreDataValue {
 
     /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(BTreeMap<OwnedEventId, OwnedUserId>),
+
+    /// A list of tokens to continue thread subscriptions catchup.
+    ///
+    /// See documentation of [`ThreadSubscriptionCatchupToken`] for more
+    /// details.
+    ThreadSubscriptionsCatchupTokens(Vec<ThreadSubscriptionCatchupToken>),
+}
+
+/// Tokens to use when catching up on thread subscriptions.
+///
+/// These tokens are created when the client receives some thread subscriptions
+/// from sync, but the sync indicates that there are more thread subscriptions
+/// available on the server. In this case, it's expected that the client will
+/// call the [MSC4308] companion endpoint to catch up (back-paginate) on
+/// previous thread subscriptions.
+///
+/// [MSC4308]: https://github.com/matrix-org/matrix-spec-proposals/pull/4308
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadSubscriptionCatchupToken {
+    /// The token to use as the lower bound when fetching new threads
+    /// subscriptions.
+    ///
+    /// In sliding sync, this is the `prev_batch` value of a sliding sync
+    /// response.
+    pub from: String,
+
+    /// The token to use as the upper bound when fetching new threads
+    /// subscriptions.
+    ///
+    /// In sliding sync, it must be set to the `pos` value of the sliding sync
+    /// *request*, which response received a `prev_batch` token.
+    pub to: Option<String>,
 }
 
 /// Current draft of the composer for the room.
@@ -1210,6 +1254,14 @@ impl StateStoreDataValue {
     pub fn into_seen_knock_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
         as_variant!(self, Self::SeenKnockRequests)
     }
+
+    /// Get this value if it is the data for the thread subscriptions catchup
+    /// tokens.
+    pub fn into_thread_subscriptions_catchup_tokens(
+        self,
+    ) -> Option<Vec<ThreadSubscriptionCatchupToken>> {
+        as_variant!(self, Self::ThreadSubscriptionsCatchupTokens)
+    }
 }
 
 /// A key for key-value data.
@@ -1234,6 +1286,10 @@ pub enum StateStoreDataKey<'a> {
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData,
 
+    /// Data remembering if the client already reported that it has uploaded
+    /// duplicate one-time keys.
+    OneTimeKeyAlreadyUploaded,
+
     /// A composer draft for the room.
     /// To learn more, see [`ComposerDraft`].
     ///
@@ -1242,16 +1298,22 @@ pub enum StateStoreDataKey<'a> {
 
     /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(&'a RoomId),
+
+    /// A list of thread subscriptions catchup tokens.
+    ThreadSubscriptionsCatchupTokens,
 }
 
 impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
     pub const SYNC_TOKEN: &'static str = "sync_token";
+
     /// Key to use for the [`ServerInfo`][Self::ServerInfo]
     /// variant.
     pub const SERVER_INFO: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
+    //
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
     pub const FILTER: &'static str = "filter";
+
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
     /// variant.
     pub const USER_AVATAR_URL: &'static str = "user_avatar_url";
@@ -1264,6 +1326,10 @@ impl StateStoreDataKey<'_> {
     /// variant.
     pub const UTD_HOOK_MANAGER_DATA: &'static str = "utd_hook_manager_data";
 
+    /// Key to use for the flag remembering that we already reported that we
+    /// uploaded duplicate one-time keys.
+    pub const ONE_TIME_KEY_ALREADY_UPLOADED: &'static str = "one_time_key_already_uploaded";
+
     /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
@@ -1271,6 +1337,42 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the
     /// [`SeenKnockRequests`][Self::SeenKnockRequests] variant.
     pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
+
+    /// Key prefix to use for the
+    /// [`ThreadSubscriptionsCatchupTokens`][Self::ThreadSubscriptionsCatchupTokens] variant.
+    pub const THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS: &'static str =
+        "thread_subscriptions_catchup_tokens";
+}
+
+/// Compare two thread subscription changes bump stamps, given a fixed room and
+/// thread root event id pair.
+///
+/// May update the newer one to keep the previous one if needed, under some
+/// conditions.
+///
+/// Returns true if the new subscription should be stored, or false if the new
+/// subscription should be ignored.
+pub fn compare_thread_subscription_bump_stamps(
+    previous: Option<u64>,
+    new: &mut Option<u64>,
+) -> bool {
+    match (previous, &new) {
+        // If the previous subscription had a bump stamp, and the new one doesn't, keep the
+        // previous one; it should be updated soon via sync anyways.
+        (Some(prev_bump), None) => {
+            *new = Some(prev_bump);
+        }
+
+        // If the previous bump stamp is newer than the new one, don't store the value at all.
+        (Some(prev_bump), Some(new_bump)) if *new_bump <= prev_bump => {
+            return false;
+        }
+
+        // In all other cases, keep the new bumpstamp.
+        _ => {}
+    }
+
+    true
 }
 
 #[cfg(test)]

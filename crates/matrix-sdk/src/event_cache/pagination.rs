@@ -22,8 +22,8 @@ use ruma::api::Direction;
 use tracing::{debug, instrument, trace};
 
 use super::{
-    room::{LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
+    room::{LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
 };
 use crate::{
     event_cache::{EventCacheError, RoomEventCacheGenericUpdate},

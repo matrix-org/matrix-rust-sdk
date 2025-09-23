@@ -20,7 +20,7 @@ use std::{
 
 use bitflags::bitflags;
 use ruma::{
-    MxcUri, OwnedUserId, UserId,
+    Int, MxcUri, OwnedUserId, UserId,
     events::{
         MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -48,7 +48,7 @@ impl Room {
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
-        self.inner.read().members_synced
+        self.info.read().members_synced
     }
 
     /// Mark this Room as holding all member information.
@@ -57,14 +57,14 @@ impl Room {
     /// about its members.
     #[cfg(feature = "testing")]
     pub fn mark_members_synced(&self) {
-        self.inner.update(|info| {
+        self.info.update(|info| {
             info.members_synced = true;
         });
     }
 
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&self) {
-        self.inner.update_if(|info| {
+        self.info.update_if(|info| {
             // notify observable subscribers only if the previous value was false
             mem::replace(&mut info.members_synced, false)
         })
@@ -119,17 +119,17 @@ impl Room {
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {
-        self.inner.read().active_members_count()
+        self.info.read().active_members_count()
     }
 
     /// Returns the number of members who have been invited to the room.
     pub fn invited_members_count(&self) -> u64 {
-        self.inner.read().invited_members_count()
+        self.info.read().invited_members_count()
     }
 
     /// Returns the number of members who have joined the room.
     pub fn joined_members_count(&self) -> u64 {
-        self.inner.read().joined_members_count()
+        self.info.read().joined_members_count()
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -277,15 +277,13 @@ impl RoomMember {
             return UserPowerLevel::Infinite;
         };
 
-        let mut power_level = i64::from(power_level);
+        let normalized_power_level = if self.max_power_level > 0 {
+            normalize_power_level(power_level, self.max_power_level)
+        } else {
+            power_level
+        };
 
-        if self.max_power_level > 0 {
-            power_level = (power_level * 100) / self.max_power_level;
-        }
-
-        UserPowerLevel::Int(
-            power_level.try_into().expect("normalized power level should fit in Int"),
-        )
+        UserPowerLevel::Int(normalized_power_level)
     }
 
     /// Get the power level of this member.
@@ -466,5 +464,66 @@ impl RoomMemberships {
         }
 
         memberships
+    }
+}
+
+/// Scale the given `power_level` to a range between 0-100.
+pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
+    let mut power_level = i64::from(power_level);
+    power_level = (power_level * 100) / max_power_level;
+
+    Int::try_from(power_level.clamp(0, 100))
+        .expect("We clamped the normalized power level so they must fit into the Int")
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        fn arb_int()(id in any::<i64>()) -> Int {
+            id.try_into().unwrap_or_default()
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10_000))]
+        #[test]
+        fn test_power_level_normalization_with_min_max_level(power_level in arb_int()) {
+            let normalized = normalize_power_level(power_level, 1);
+            let normalized = i64::from(normalized);
+
+            assert!(normalized >= 0);
+            assert!(normalized <= 100);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10_000))]
+        #[test]
+        fn test_power_level_normalization(power_level in arb_int(), max_level in 1i64..) {
+            let normalized = normalize_power_level(power_level, max_level);
+            let normalized = i64::from(normalized);
+
+            assert!(normalized >= 0);
+            assert!(normalized <= 100);
+        }
+    }
+
+    #[test]
+    fn test_power_level_normalization_limits() {
+        let level = Int::MIN;
+        let normalized = normalize_power_level(level, 1);
+        let normalized = i64::from(normalized);
+        assert!(normalized >= 0);
+        assert!(normalized <= 100);
+
+        let level = Int::MAX;
+        let normalized = normalize_power_level(level, 1);
+        let normalized = i64::from(normalized);
+        assert!(normalized >= 0);
+        assert!(normalized <= 100);
     }
 }

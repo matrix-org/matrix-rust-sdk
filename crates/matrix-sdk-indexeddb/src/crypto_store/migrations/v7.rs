@@ -34,7 +34,7 @@ pub struct InboundGroupSessionIndexedDbObject2 {
     #[serde(
         default,
         skip_serializing_if = "std::ops::Not::not",
-        with = "crate::serialize_bool_for_indexeddb"
+        with = "crate::serializer::foreign::bool"
     )]
     pub needs_backup: bool,
 }

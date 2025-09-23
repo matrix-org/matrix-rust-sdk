@@ -15,7 +15,7 @@
 //! The SDK's representation of the result of a `/sync` request.
 
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
     fmt,
     time::Duration,
 };
@@ -28,21 +28,22 @@ use matrix_sdk_base::{
     },
     sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
+    timer,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
+    OwnedRoomId, RoomId,
     api::client::sync::sync_events::{
         self,
         v3::{InvitedRoom, KnockedRoom},
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent},
+    events::{AnyGlobalAccountDataEvent, presence::PresenceEvent},
     serde::Raw,
     time::Instant,
-    OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};
 
-use crate::{event_handler::HandlerKind, Client, Result, Room};
+use crate::{Client, Result, Room, event_handler::HandlerKind};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]
@@ -172,6 +173,8 @@ impl Client {
         &self,
         response: &BaseSyncResponse,
     ) -> Result<()> {
+        let _timer = timer!(tracing::Level::TRACE, "_method");
+
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
         let now = Instant::now();
@@ -331,10 +334,10 @@ impl Client {
         // If the last sync happened less than a second ago, sleep for a
         // while to not hammer out requests if the server doesn't respect
         // the sync timeout.
-        if let Some(t) = last_sync_time {
-            if now - *t <= Duration::from_secs(1) {
-                Self::sleep().await;
-            }
+        if let Some(t) = last_sync_time
+            && now - *t <= Duration::from_secs(1)
+        {
+            Self::sleep().await;
         }
 
         *last_sync_time = Some(now);

@@ -133,19 +133,37 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
     /// general, unless they hide in-thread events, in which case they will
     /// use the main thread.
     pub(super) fn receipt_thread(&self) -> ReceiptThread {
+        if let Some(thread_root) = self.thread_root() {
+            ReceiptThread::Thread(thread_root.to_owned())
+        } else if self.hide_threaded_events() {
+            ReceiptThread::Main
+        } else {
+            ReceiptThread::Unthreaded
+        }
+    }
+
+    /// Whether to hide in-thread events from the timeline.
+    fn hide_threaded_events(&self) -> bool {
         match self {
             TimelineFocusKind::Live { hide_threaded_events }
-            | TimelineFocusKind::Event { hide_threaded_events, .. } => {
-                if *hide_threaded_events {
-                    ReceiptThread::Main
-                } else {
-                    ReceiptThread::Unthreaded
-                }
-            }
-            TimelineFocusKind::Thread { root_event_id } => {
-                ReceiptThread::Thread(root_event_id.clone())
-            }
-            TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
+            | TimelineFocusKind::Event { hide_threaded_events, .. } => *hide_threaded_events,
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
+        }
+    }
+
+    /// Whether the focus is on a thread (from a live thread or a thread
+    /// permalink).
+    fn is_thread(&self) -> bool {
+        self.thread_root().is_some()
+    }
+
+    /// If the focus is a thread, returns its root event ID.
+    fn thread_root(&self) -> Option<&EventId> {
+        match self {
+            TimelineFocusKind::Live { .. }
+            | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
+            | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
         }
     }
 }
@@ -274,7 +292,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                             UnstablePollStartEventContent::New(_),
                         )
                         | AnyMessageLikeEventContent::CallInvite(_)
-                        | AnyMessageLikeEventContent::CallNotify(_)
+                        | AnyMessageLikeEventContent::RtcNotification(_)
                         | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
 
                         _ => false,
@@ -358,11 +376,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let has_events = !events.is_empty();
 
-                self.replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Cache,
-                )
-                .await;
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 match room_event_cache.pagination().status().get() {
                     RoomPaginationStatus::Idle { hit_timeline_start } => {
@@ -393,7 +407,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !start_from_result.events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    start_from_result.events.into_iter(),
+                    start_from_result.events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -417,11 +431,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     }
                 }
 
-                self.replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Cache,
-                )
-                .await;
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 // Now that we've inserted the thread events, add the aggregations too.
                 if !related_events.is_empty() {
@@ -451,7 +461,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !loaded_events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    loaded_events.into_iter(),
+                    loaded_events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -593,11 +603,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     /// Is this timeline focused on a thread?
     pub(super) fn is_threaded(&self) -> bool {
-        matches!(&*self.focus, TimelineFocusKind::Thread { .. })
+        self.focus.is_thread()
     }
 
+    /// The root of the current thread, for a live thread timeline or a
+    /// permalink to a thread message.
     pub(super) fn thread_root(&self) -> Option<OwnedEventId> {
-        as_variant!(&*self.focus, TimelineFocusKind::Thread { root_event_id } => root_event_id.clone())
+        self.focus.thread_root().map(ToOwned::to_owned)
     }
 
     /// Get a copy of the current items in the list.
@@ -826,7 +838,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         events: Events,
         origin: RemoteEventOrigin,
     ) where
-        Events: IntoIterator + ExactSizeIterator,
+        Events: IntoIterator,
         <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         let mut state = self.state.write().await;
@@ -844,7 +856,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // Previously we just had to check the new one wasn't empty because
         // we did a clear operation before so the current one would always be empty, but
         // now we may want to replace a populated timeline with an empty one.
-        if !state.items.is_empty() || events.len() > 0 {
+        let mut events = events.into_iter().peekable();
+        if !state.items.is_empty() || events.peek().is_some() {
             state
                 .replace_with_remote_events(
                     events,

@@ -16,7 +16,7 @@ use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::json;
 
-use super::{capabilities::assert_capabilities_dance, parse_msg, WIDGET_ID};
+use super::{WIDGET_ID, capabilities::assert_capabilities_dance, parse_msg};
 use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]

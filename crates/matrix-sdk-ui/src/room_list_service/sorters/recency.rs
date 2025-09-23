@@ -14,136 +14,242 @@
 
 use std::cmp::Ordering;
 
-use super::{Room, Sorter};
+use super::{RoomListItem, Sorter};
 
-struct RecencyMatcher<F>
+fn cmp<F>(timestamps: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
+    F: Fn(&RoomListItem, &RoomListItem) -> (Option<Rank>, Option<Rank>),
 {
-    recency_stamps: F,
-}
+    match timestamps(left, right) {
+        (Some(left), Some(right)) => left.cmp(&right).reverse(),
 
-impl<F> RecencyMatcher<F>
-where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
-{
-    fn matches(&self, left: &Room, right: &Room) -> Ordering {
-        if left.room_id() == right.room_id() {
-            // `left` and `right` are the same room. We are comparing the same
-            // `LatestEvent`!
-            //
-            // The way our `Room` types are implemented makes it so they are sharing the
-            // same data, because they are all built from the same store. They can be seen
-            // as shallow clones of each others. In practice it's really great: a `Room` can
-            // never be outdated. However, for the case of sorting rooms, it breaks the
-            // search algorithm. `left` and `right` will have the exact same recency
-            // stamp, so `left` and `right` will always be `Ordering::Equal`. This is
-            // wrong: if `left` is compared with `right` and if they are both the same room,
-            // it means that one of them (either `left`, or `right`, it's not important) has
-            // received an update. The room position is very likely to change. But if they
-            // compare to `Equal`, the position may not change. It actually depends of the
-            // search algorithm used by [`eyeball_im_util::SortBy`].
-            //
-            // Since this room received an update, it is more recent than the previous one
-            // we matched against, so return `Ordering::Greater`.
-            return Ordering::Greater;
-        }
+        (Some(_), None) => Ordering::Less,
 
-        match (self.recency_stamps)(left, right) {
-            (Some(left_stamp), Some(right_stamp)) => left_stamp.cmp(&right_stamp).reverse(),
+        (None, Some(_)) => Ordering::Greater,
 
-            (Some(_), None) => Ordering::Less,
-
-            (None, Some(_)) => Ordering::Greater,
-
-            (None, None) => Ordering::Equal,
-        }
+        (None, None) => Ordering::Equal,
     }
 }
 
-/// Create a new sorter that will sort two [`Room`] by recency, i.e. by
-/// comparing their [`RoomInfo::recency_stamp`] value. The `Room` with the
-/// newest recency stamp comes first, i.e. newest < oldest.
+/// Create a new sorter that will sort two [`RoomListItem`] by recency, i.e.
+/// by comparing their [`RoomInfo::new_latest_event`]'s recency (timestamp)
+/// if any (i.e. if different from [`LatestEventValue::None`]), or their
+/// [`RoomInfo::recency_stamp`] value. The `Room` with the newest recency stamp
+/// comes first, i.e. newest < oldest.
 ///
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
+/// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
+/// [`LatestEventValue::None`]: matrix_sdk_base::latest_event::LatestEventValue::None
 pub fn new_sorter() -> impl Sorter {
-    let matcher = RecencyMatcher {
-        recency_stamps: move |left, right| (left.recency_stamp(), right.recency_stamp()),
-    };
+    let ranks = |left: &RoomListItem, right: &RoomListItem| extract_rank(left, right);
 
-    move |left, right| -> Ordering { matcher.matches(left, right) }
+    move |left, right| -> Ordering { cmp(ranks, left, right) }
+}
+
+/// The term _rank_ is used here to avoid any confusion with a _timestamp_ (a
+/// `u64` from the latest event), or a _recency stamp_ (a `u64` from the recency
+/// stamp of the room). This type hides `u64` for the sake of semantics.
+type Rank = u64;
+
+/// Extract the recency _rank_ from the [`RoomInfo::recency_stamp`].
+// TODO @hywan: We must update this method to handle the latest event's
+// timestamp instead of the recency stamp.
+fn extract_rank(left: &RoomListItem, right: &RoomListItem) -> (Option<Rank>, Option<Rank>) {
+    (left.cached_recency_stamp.map(Into::into), right.cached_recency_stamp.map(Into::into))
 }
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::{
+        RoomRecencyStamp,
+        latest_events::{LatestEventValue, RemoteLatestEventValue},
+        test_utils::logged_in_client_with_server,
+    };
+    use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
+    use serde_json::json;
 
     use super::{super::super::filters::new_rooms, *};
 
+    fn none() -> LatestEventValue {
+        LatestEventValue::None
+    }
+
+    fn remote(origin_server_ts: u64) -> LatestEventValue {
+        LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain("raclette"),
+                    "type": "m.room.message",
+                    "event_id": "$ev0",
+                    "room_id": "!r0",
+                    "origin_server_ts": origin_server_ts,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ))
+    }
+
+    // TODO @hywan: restore this once `extract_rank` works on latest event's value
+    /*
+    fn local_is_sending(origin_server_ts: u32) -> LatestEventValue {
+        LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        })
+    }
+
+    fn local_cannot_be_sent(origin_server_ts: u32) -> LatestEventValue {
+        LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        })
+    }
+    */
+
+    fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
+        let mut room_info = room.clone_info();
+        room_info.set_new_latest_event(latest_event_value);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
+        room.refresh_cached_data();
+    }
+
+    fn set_recency_stamp(room: &mut RoomListItem, recency_stamp: RoomRecencyStamp) {
+        let mut room_info = room.clone_info();
+        room_info.update_recency_stamp(recency_stamp);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);
+        room.refresh_cached_data();
+    }
+
     #[async_test]
-    async fn test_with_two_recency_stamps() {
+    async fn test_extract_rank_with_none() {
+        let (client, server) = logged_in_client_with_server().await;
+        let [mut room_a, mut room_b] =
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
+
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
+
+        // Both rooms have a `LatestEventValue::None`.
+        {
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, none());
+
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
+        }
+
+        // `room_a` has `None`, `room_b` has something else.
+        {
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, remote(3));
+
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
+        }
+
+        // `room_b` has `None`, `room_a` has something else.
+        {
+            set_latest_event_value(&mut room_a, remote(3));
+            set_latest_event_value(&mut room_b, none());
+
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
+        }
+    }
+
+    // TODO @hywan: restore this once `extract_rank` works on latest event's value
+    /*
+    #[async_test]
+    async fn test_extract_rank_with_remote_or_local() {
+        let (client, server) = logged_in_client_with_server().await;
+        let [mut room_a, mut room_b] =
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
+
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
+
+        // `room_a` and `room_b` has either `Remote` or `Local*`.
+        {
+            for latest_event_value_a in [remote(3), local_is_sending(3), local_cannot_be_sent(3)] {
+                for latest_event_value_b in
+                    [remote(4), local_is_sending(4), local_cannot_be_sent(4)]
+                {
+                    set_latest_event_value(&mut room_a, latest_event_value_a.clone());
+                    set_latest_event_value(&mut room_b, latest_event_value_b);
+
+                    assert_eq!(extract_rank(&room_a, &room_b), (Some(3), Some(4)));
+                }
+            }
+        }
+    }
+    */
+
+    #[async_test]
+    async fn test_with_two_ranks() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` has an older recency stamp than `room_b`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(2)) };
-
             // `room_a` is greater than `room_b`, i.e. it must come after `room_b`.
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(
+                cmp(|_left, _right| (Some(1), Some(2)), &room_a, &room_b),
+                Ordering::Greater
+            );
         }
 
         // `room_b` has an older recency stamp than `room_a`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(2), Some(1)) };
-
             // `room_a` is less than `room_b`, i.e. it must come before `room_b`.
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(cmp(|_left, _right| (Some(2), Some(1)), &room_a, &room_b), Ordering::Less);
         }
 
         // `room_a` has an equally old recency stamp than `room_b`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(1)) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(cmp(|_left, _right| (Some(1), Some(1)), &room_a, &room_b), Ordering::Equal);
         }
     }
 
     #[async_test]
-    async fn test_with_one_recency_stamp() {
+    async fn test_with_one_rank() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` has a recency stamp, `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), None) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(cmp(|_left, _right| (Some(1), None), &room_a, &room_b), Ordering::Less);
         }
 
         // `room_a` has no recency stamp, `room_b` has a recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, Some(1)) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(cmp(|_left, _right| (None, Some(1)), &room_a, &room_b), Ordering::Greater);
         }
     }
 
     #[async_test]
-    async fn test_with_zero_recency_stamp() {
+    async fn test_with_zero_rank() {
         let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` and `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, None) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(cmp(|_left, _right| (None, None), &room_a, &room_b), Ordering::Equal);
         }
     }
 }

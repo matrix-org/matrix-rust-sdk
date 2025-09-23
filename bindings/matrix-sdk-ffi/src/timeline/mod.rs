@@ -31,8 +31,8 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
-    MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
-    TimelineUniqueId as SdkTimelineUniqueId,
+    LatestEventValue as UiLatestEventValue, MediaUploadProgress as SdkMediaUploadProgress, Profile,
+    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
@@ -605,13 +605,14 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
+    ///
+    /// Returns `true` if the reaction was added, `false` if it was removed.
     pub async fn toggle_reaction(
         &self,
         item_id: EventOrTransactionId,
         key: String,
-    ) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&item_id.try_into()?, &key).await?;
-        Ok(())
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.toggle_reaction(&item_id.try_into()?, &key).await?)
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
@@ -1282,6 +1283,44 @@ impl LazyTimelineItemProvider {
 
     fn contains_only_emojis(&self) -> bool {
         self.0.contains_only_emojis()
+    }
+}
+
+/// Mimic the [`UiLatestEventValue`] type.
+#[derive(Clone, uniffi::Enum)]
+pub enum LatestEventValue {
+    None,
+    Remote {
+        timestamp: Timestamp,
+        sender: String,
+        is_own: bool,
+        profile: ProfileDetails,
+        content: TimelineItemContent,
+    },
+    Local {
+        timestamp: Timestamp,
+        content: TimelineItemContent,
+        is_sending: bool,
+    },
+}
+
+impl From<UiLatestEventValue> for LatestEventValue {
+    fn from(value: UiLatestEventValue) -> Self {
+        match value {
+            UiLatestEventValue::None => Self::None,
+            UiLatestEventValue::Remote { timestamp, sender, is_own, profile, content } => {
+                Self::Remote {
+                    timestamp: timestamp.into(),
+                    sender: sender.to_string(),
+                    is_own,
+                    profile: profile.into(),
+                    content: content.into(),
+                }
+            }
+            UiLatestEventValue::Local { timestamp, content, is_sending } => {
+                Self::Local { timestamp: timestamp.into(), content: content.into(), is_sending }
+            }
+        }
     }
 }
 

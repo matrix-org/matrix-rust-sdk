@@ -14,20 +14,20 @@
 
 //! High-level push notification settings API
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use indexmap::IndexSet;
 use ruma::{
+    RoomId,
     api::client::push::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
     push::{Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
-    RoomId,
 };
 use tokio::sync::{
-    broadcast::{self, Receiver},
     RwLock,
+    broadcast::{self, Receiver},
 };
 use tracing::{debug, error};
 
@@ -40,8 +40,8 @@ mod rules;
 pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
 
 use crate::{
-    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
-    Client, Result,
+    Client, Result, config::RequestConfig, error::NotificationSettingsError,
+    event_handler::EventHandlerDropGuard,
 };
 
 /// Whether or not a room is encrypted
@@ -55,11 +55,7 @@ pub enum IsEncrypted {
 
 impl From<bool> for IsEncrypted {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Yes
-        } else {
-            Self::No
-        }
+        if value { Self::Yes } else { Self::No }
     }
 }
 
@@ -74,11 +70,7 @@ pub enum IsOneToOne {
 
 impl From<bool> for IsOneToOne {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Yes
-        } else {
-            Self::No
-        }
+        if value { Self::Yes } else { Self::No }
     }
 }
 
@@ -571,45 +563,54 @@ impl NotificationSettings {
         }
         Ok(())
     }
+
+    /// Returns the inner ruleset currently known by this
+    /// [`NotificationSettings`] instance.
+    pub async fn ruleset(&self) -> Ruleset {
+        self.rules.read().await.ruleset.clone()
+    }
+
+    /// Returns the inner [`Rules`] object currently known by this instance.
+    pub(crate) async fn rules(&self) -> impl Deref<Target = Rules> + '_ {
+        self.rules.read().await
+    }
 }
 
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     };
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
-        async_test,
+        TestResult, async_test,
         event_factory::EventFactory,
         notification_settings::{build_ruleset, get_server_default_ruleset},
-        TestResult,
     };
     use ruma::{
-        owned_room_id,
+        OwnedRoomId, RoomId, owned_room_id,
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
         },
-        OwnedRoomId, RoomId,
     };
     use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, path_regex},
     };
 
     use crate::{
+        Client,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
         },
         test_utils::{logged_in_client, mocks::MatrixMockServer},
-        Client,
     };
 
     fn get_test_room_id() -> OwnedRoomId {

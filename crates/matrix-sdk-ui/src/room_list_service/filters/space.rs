@@ -12,30 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-struct SpaceRoomMatcher<F>
+fn matches<F>(is_space: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> bool,
+    F: Fn(&RoomListItem) -> bool,
 {
-    is_space: F,
-}
-
-impl<F> SpaceRoomMatcher<F>
-where
-    F: Fn(&Room) -> bool,
-{
-    fn matches(&self, room: &Room) -> bool {
-        (self.is_space)(room)
-    }
+    is_space(room)
 }
 
 /// Create a new filter that will filter out rooms that are spaces, i.e.
 /// room with a `room_type` of `m.space` as defined in <https://spec.matrix.org/latest/client-server-api/#spaces>
 pub fn new_filter() -> impl Filter {
-    let matcher = SpaceRoomMatcher { is_space: move |room| room.is_space() };
+    let is_space = |room: &RoomListItem| room.cached_is_space;
 
-    move |room| -> bool { matcher.matches(room) }
+    move |room| -> bool { matches(is_space, room) }
 }
 
 #[cfg(test)]
@@ -51,10 +42,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = SpaceRoomMatcher { is_space: |_| false };
-        assert!(!matcher.matches(&room));
-
-        let matcher = SpaceRoomMatcher { is_space: |_| true };
-        assert!(matcher.matches(&room));
+        assert!(!matches(|_| false, &room));
+        assert!(matches(|_| true, &room));
     }
 }

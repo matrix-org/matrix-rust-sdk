@@ -1,0 +1,5 @@
+---
+source: crates/matrix-sdk-crypto/src/session_manager/group_sessions/share_strategy.rs
+expression: serialized
+---
+{"algorithm":"m.megolm.v1.aes-sha2","encrypt_state_events":false,"rotation_period":{"secs":604800,"nanos":0},"rotation_period_msgs":100,"history_visibility":"shared","sharing_strategy":"AllDevices"}

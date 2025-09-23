@@ -31,7 +31,7 @@ use matrix_sdk_common::{
         UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
-    BoxFuture,
+    timer, BoxFuture,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
@@ -897,7 +897,7 @@ impl OlmMachine {
         // This function is only ever called by add_room_key via
         // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ? content.room_id, session_id)
+        fields(room_id = ? content.room_id, session_id, message_index)
     )]
     async fn handle_key(
         &self,
@@ -911,6 +911,7 @@ impl OlmMachine {
         match session {
             Ok(mut session) => {
                 Span::current().record("session_id", session.session_id());
+                Span::current().record("message_index", session.first_known_index());
 
                 let sender_data =
                     SenderDataFinder::find_using_event(self.store(), sender_key, event, &session)
@@ -2202,6 +2203,8 @@ impl OlmMachine {
         decrypt_unsigned: bool,
         decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<DecryptedRoomEvent> {
+        let _timer = timer!(tracing::Level::TRACE, "_method");
+
         let event = event.deserialize()?;
 
         Span::current()
@@ -2294,17 +2297,10 @@ impl OlmMachine {
     ) -> MegolmResult<()> {
         use serde::Deserialize;
 
-        // We only need to verify state events.
-        let Some(raw_state_key) = &original.state_key else { return Ok(()) };
-
-        // Unpack event type and state key from the raw state key.
-        let (outer_event_type, outer_state_key) =
-            raw_state_key.split_once(":").ok_or(MegolmError::StateKeyVerificationFailed)?;
-
         // Helper for deserializing.
         #[derive(Deserialize)]
         struct PayloadDeserializationHelper {
-            state_key: String,
+            state_key: Option<String>,
             #[serde(rename = "type")]
             event_type: String,
         }
@@ -2316,6 +2312,17 @@ impl OlmMachine {
         } = decrypted
             .deserialize_as_unchecked()
             .map_err(|_| MegolmError::StateKeyVerificationFailed)?;
+
+        // Ensure we have a state key on the outer event iff there is one in the inner.
+        let (raw_state_key, inner_state_key) = match (&original.state_key, &inner_state_key) {
+            (Some(raw_state_key), Some(inner_state_key)) => (raw_state_key, inner_state_key),
+            (None, None) => return Ok(()),
+            _ => return Err(MegolmError::StateKeyVerificationFailed),
+        };
+
+        // Unpack event type and state key from the raw state key.
+        let (outer_event_type, outer_state_key) =
+            raw_state_key.split_once(":").ok_or(MegolmError::StateKeyVerificationFailed)?;
 
         // Check event types match, discard if not.
         if outer_event_type != inner_event_type {

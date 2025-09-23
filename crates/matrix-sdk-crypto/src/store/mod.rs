@@ -99,7 +99,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    deserialized_responses::WithheldCode, store_locks::CrossProcessStoreLock, timeout::timeout,
+    cross_process_lock::CrossProcessLock, deserialized_responses::WithheldCode, timeout::timeout,
 };
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
@@ -1137,7 +1137,7 @@ impl Store {
     /// `CryptoStoreWrapper` are dropped.
     pub fn room_keys_received_stream(
         &self,
-    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> + use<> {
         self.inner.store.room_keys_received_stream()
     }
 
@@ -1269,13 +1269,13 @@ impl Store {
         self.inner.store.identities_stream().map(|(_, identities, devices)| (identities, devices))
     }
 
-    /// Creates a `CrossProcessStoreLock` for this store, that will contain the
+    /// Creates a [`CrossProcessLock`] for this store, that will contain the
     /// given key and value when hold.
     pub fn create_store_lock(
         &self,
         lock_key: String,
         lock_value: String,
-    ) -> CrossProcessStoreLock<LockableCryptoStore> {
+    ) -> CrossProcessLock<LockableCryptoStore> {
         self.inner.store.create_store_lock(lock_key, lock_value)
     }
 
@@ -1361,7 +1361,7 @@ impl Store {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         self.inner.store.historic_room_key_stream()
     }
 
@@ -1588,10 +1588,7 @@ impl Store {
         &self,
         room_id: &RoomId,
     ) -> std::result::Result<RoomKeyBundle, CryptoStoreError> {
-        // TODO: make this WAY more efficient. We should only fetch sessions for the
-        // correct room.
-        let mut sessions = self.get_inbound_group_sessions().await?;
-        sessions.retain(|session| session.room_id == room_id);
+        let sessions = self.get_inbound_group_sessions_by_room_id(room_id).await?;
 
         let mut bundle = RoomKeyBundle::default();
         for session in sessions {
@@ -1711,7 +1708,7 @@ impl Deref for Store {
 #[derive(Clone, Debug)]
 pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 
-impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
+impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
     type LockError = CryptoStoreError;
 
     async fn try_lock(

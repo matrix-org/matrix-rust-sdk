@@ -15,9 +15,9 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
-    future::{ready, Future},
+    future::{Future, ready},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
     time::Duration,
@@ -29,19 +29,23 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
+use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreLock,
-    store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
-    sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
+    event_cache::store::EventCacheStoreLock,
+    media::store::MediaStoreLock,
+    store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
+    sync::{Notification, RoomUpdates},
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
+use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
+    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
+        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -54,37 +58,38 @@ use ruma::{
                 get_supported_versions,
             },
             error::ErrorKind,
-            filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
+            filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
+            threads::get_thread_subscriptions_changes,
             uiaa,
             user_directory::search_users,
         },
         error::FromHttpResponseError,
         federation::discovery::get_server_version,
-        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
     push::Ruleset,
     time::Instant,
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
+use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
+use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
 use url::Url;
 
 use self::futures::SendRequest;
 use crate::{
+    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
+    Room, SessionTokens, TransmissionProgress,
     authentication::{
-        matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
-        SaveSessionCallback,
+        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
+        oauth::OAuth,
     },
+    client::thread_subscriptions::ThreadSubscriptionCatchup,
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
@@ -102,24 +107,21 @@ use crate::{
     send_queue::{SendQueue, SendQueueData},
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
-    Room, SessionTokens, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
+    cross_process_lock::CrossProcessLock,
     encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
-    store_locks::CrossProcessStoreLock,
 };
 
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
-#[cfg(feature = "experimental-search")]
-pub(crate) mod search;
+pub(crate) mod thread_subscriptions;
 
-pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndex;
+use crate::search_index::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -231,8 +233,7 @@ pub(crate) struct ClientLocks {
     pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock:
-        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+    pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -298,7 +299,7 @@ pub(crate) struct ClientInner {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     ///
@@ -368,6 +369,10 @@ pub(crate) struct ClientInner {
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
 
+    /// Service handling the catching up of thread subscriptions in the
+    /// background.
+    thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
+
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
@@ -396,6 +401,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
+        thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -433,6 +439,7 @@ impl ClientInner {
             server_max_upload_size: Mutex::new(OnceCell::new()),
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
+            thread_subscription_catchup,
         };
 
         #[allow(clippy::let_and_return)]
@@ -448,6 +455,13 @@ impl ClientInner {
                     WeakClient::from_inner(&client),
                     client.base_client.event_cache_store().clone(),
                 )
+            })
+            .await;
+
+        let _ = client
+            .thread_subscription_catchup
+            .get_or_init(|| async {
+                ThreadSubscriptionCatchup::new(Client { inner: client.clone() })
             })
             .await;
 
@@ -503,7 +517,7 @@ impl Client {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     pub fn cross_process_store_locks_holder_name(&self) -> &str {
@@ -559,15 +573,20 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let server_info = client.server_vendor_info().await?;
+    /// let server_info = client.server_vendor_info(None).await?;
     /// println!(
     ///     "Server: {}, Version: {}",
     ///     server_info.server_name, server_info.version
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
-        let res = self.send(get_server_version::v1::Request::new()).await?;
+    pub async fn server_vendor_info(
+        &self,
+        request_config: Option<RequestConfig>,
+    ) -> HttpResult<ServerVendorInfo> {
+        let res = self
+            .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
+            .await?;
 
         // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();
@@ -636,8 +655,7 @@ impl Client {
     }
 
     /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`. Each event contains the
-    /// room and a boolean whether this event should trigger a room list update.
+    /// for new events, use `receiver.resubscribe()`.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.base_client().room_info_notable_update_receiver()
     }
@@ -724,6 +742,11 @@ impl Client {
     /// Get a reference to the event cache store.
     pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         self.base_client().event_cache_store()
+    }
+
+    /// Get a reference to the media store.
+    pub fn media_store(&self) -> &MediaStoreLock {
+        self.base_client().media_store()
     }
 
     /// Access the native Matrix authentication API with this client.
@@ -858,7 +881,7 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    /// client.add_event_handler(async |ev: SyncTokenEvent, room: Room| -> () {
     ///     todo!("Display the token");
     /// });
     ///
@@ -924,8 +947,8 @@ impl Client {
     /// ```
     /// use futures_util::StreamExt as _;
     /// use matrix_sdk::{
-    ///     ruma::{events::room::message::SyncRoomMessageEvent, push::Action},
     ///     Client, Room,
+    ///     ruma::{events::room::message::SyncRoomMessageEvent, push::Action},
     /// };
     ///
     /// # async fn example(client: Client) -> Option<()> {
@@ -943,6 +966,7 @@ impl Client {
     ///
     /// ```
     /// use matrix_sdk::{
+    ///     Client, Room,
     ///     deserialized_responses::EncryptionInfo,
     ///     ruma::{
     ///         events::room::{
@@ -950,7 +974,6 @@ impl Client {
     ///         },
     ///         push::Action,
     ///     },
-    ///     Client, Room,
     /// };
     ///
     /// # async fn example(client: Client) {
@@ -1065,8 +1088,8 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// #
     /// use matrix_sdk::{
-    ///     event_handler::EventHandlerHandle,
-    ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
+    ///     Client, event_handler::EventHandlerHandle,
+    ///     ruma::events::room::member::SyncRoomMemberEvent,
     /// };
     /// #
     /// # futures_executor::block_on(async {
@@ -1112,8 +1135,8 @@ impl Client {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     event_handler::Ctx, ruma::events::room::message::SyncRoomMessageEvent,
-    ///     Room,
+    ///     Room, event_handler::Ctx,
+    ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
     /// # struct SomeType;
@@ -1234,6 +1257,15 @@ impl Client {
         self.rooms_filtered(RoomStateFilter::LEFT)
     }
 
+    /// Returns the joined space rooms this client knows about.
+    pub fn joined_space_rooms(&self) -> Vec<Room> {
+        self.base_client()
+            .rooms_filtered(RoomStateFilter::JOINED)
+            .into_iter()
+            .flat_map(|room| room.is_space().then_some(Room::new(self.clone(), room)))
+            .collect()
+    }
+
     /// Get a room with the given room id.
     ///
     /// # Arguments
@@ -1328,12 +1360,11 @@ impl Client {
     /// * `login_well_known` - The `well_known` field from a successful login
     ///   response.
     pub(crate) fn maybe_update_login_well_known(&self, login_well_known: Option<&DiscoveryInfo>) {
-        if self.inner.respect_login_well_known {
-            if let Some(well_known) = login_well_known {
-                if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
-                    self.set_homeserver(homeserver);
-                }
-            }
+        if self.inner.respect_login_well_known
+            && let Some(well_known) = login_well_known
+            && let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url)
+        {
+            self.set_homeserver(homeserver);
         }
     }
 
@@ -1542,13 +1573,12 @@ impl Client {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        if self.inner.enable_share_history_on_invite {
-            if let Some(inviter) =
+        if self.inner.enable_share_history_on_invite
+            && let Some(inviter) =
                 pre_join_room_info.as_ref().and_then(|info| info.inviter.as_ref())
-            {
-                crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
-                    .await?;
-            }
+        {
+            crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
+                .await?;
         }
 
         // Suppress "unused variable" and "unused field" lints
@@ -1671,8 +1701,8 @@ impl Client {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
     ///     Client,
+    ///     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
     /// };
     /// # use url::Url;
     /// #
@@ -1692,13 +1722,13 @@ impl Client {
 
         let joined_room = Room::new(self.clone(), base_room);
 
-        if is_direct_room && !invite.is_empty() {
-            if let Err(error) =
+        if is_direct_room
+            && !invite.is_empty()
+            && let Err(error) =
                 self.account().mark_as_dm(joined_room.room_id(), invite.as_slice()).await
-            {
-                // FIXME: Retry in the background
-                error!("Failed to mark room as DM: {error}");
-            }
+        {
+            // FIXME: Retry in the background
+            error!("Failed to mark room as DM: {error}");
         }
 
         Ok(joined_room)
@@ -1718,9 +1748,10 @@ impl Client {
     /// * `user_id` - The ID of the user to create a DM for.
     pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
         #[cfg(feature = "e2e-encryption")]
-        let initial_state =
-            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-                .to_raw_any()];
+        let initial_state = vec![
+            InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                .to_raw_any(),
+        ];
 
         #[cfg(not(feature = "e2e-encryption"))]
         let initial_state = vec![];
@@ -2298,8 +2329,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -2419,8 +2450,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -2624,7 +2655,7 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures_util::StreamExt;
-    /// use matrix_sdk::{config::SyncSettings, Client};
+    /// use matrix_sdk::{Client, config::SyncSettings};
     ///
     /// let client = Client::new(homeserver).await?;
     /// client.matrix_auth().login_username(&username, &password).send().await?;
@@ -2730,10 +2761,10 @@ impl Client {
 
     /// Create a new specialized `Client` that can process notifications.
     ///
-    /// See [`CrossProcessStoreLock::new`] to learn more about
+    /// See [`CrossProcessLock::new`] to learn more about
     /// `cross_process_store_locks_holder_name`.
     ///
-    /// [`CrossProcessStoreLock::new`]: matrix_sdk_common::store_locks::CrossProcessStoreLock::new
+    /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
         cross_process_store_locks_holder_name: String,
@@ -2761,6 +2792,7 @@ impl Client {
                 cross_process_store_locks_holder_name,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
+                self.inner.thread_subscription_catchup.clone(),
             )
             .await,
         };
@@ -2868,8 +2900,9 @@ impl Client {
         &self.base_client().decryption_settings
     }
 
+    /// Returns the [`SearchIndex`] for this [`Client`].
     #[cfg(feature = "experimental-search")]
-    pub(crate) fn search_index(&self) -> &SearchIndex {
+    pub fn search_index(&self) -> &SearchIndex {
         &self.inner.search_index
     }
 
@@ -2884,6 +2917,29 @@ impl Client {
             ThreadingSupport::Enabled { with_subscriptions } => with_subscriptions,
             ThreadingSupport::Disabled => false,
         }
+    }
+
+    /// Fetch thread subscriptions changes between `from` and up to `to`.
+    ///
+    /// The `limit` optional parameter can be used to limit the number of
+    /// entries in a response. It can also be overridden by the server, if
+    /// it's deemed too large.
+    pub async fn fetch_thread_subscriptions(
+        &self,
+        from: Option<String>,
+        to: Option<String>,
+        limit: Option<UInt>,
+    ) -> Result<get_thread_subscriptions_changes::unstable::Response> {
+        let request = assign!(get_thread_subscriptions_changes::unstable::Request::new(), {
+            from,
+            to,
+            limit,
+        });
+        Ok(self.send(request).await?)
+    }
+
+    pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
+        self.inner.thread_subscription_catchup.get().unwrap()
     }
 }
 
@@ -3003,33 +3059,34 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball::SharedObservable;
-    use futures_util::{pin_mut, FutureExt, StreamExt};
-    use js_int::{uint, UInt};
+    use futures_util::{FutureExt, StreamExt, pin_mut};
+    use js_int::{UInt, uint};
     use matrix_sdk_base::{
-        store::{MemoryStore, StoreConfig},
         RoomState,
+        store::{MemoryStore, StoreConfig},
     };
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        event_factory::EventFactory,
     };
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
+        RoomId, ServerName, UserId,
         api::{
+            FeatureFlag, MatrixVersion,
             client::{
                 discovery::discover_homeserver::RtcFocusInfo,
                 room::create_room::v3::Request as CreateRoomRequest,
             },
-            FeatureFlag, MatrixVersion,
         },
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, owned_user_id, room_alias_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, owned_user_id, room_alias_id, room_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -3041,12 +3098,12 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        client::{futures::SendMediaUploadRequest, WeakClient},
+        Error, TransmissionProgress,
+        client::{WeakClient, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
-        Error, TransmissionProgress,
     };
 
     #[async_test]
@@ -3421,11 +3478,13 @@ pub(crate) mod tests {
             .await;
 
         // These calls to the new client hit the on-disk cache.
-        assert!(client
-            .unstable_features()
-            .await
-            .unwrap()
-            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        assert!(
+            client
+                .unstable_features()
+                .await
+                .unwrap()
+                .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
+        );
         let supported = client.supported_versions().await.unwrap();
         assert!(supported.versions.contains(&MatrixVersion::V1_0));
         assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
@@ -3497,11 +3556,13 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert!(client
-            .unstable_features()
-            .await
-            .unwrap()
-            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        assert!(
+            client
+                .unstable_features()
+                .await
+                .unwrap()
+                .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
+        );
 
         // Then this call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);

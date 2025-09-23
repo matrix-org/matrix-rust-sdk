@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.13.0"
+version = "0.14.0"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
@@ -15,10 +15,14 @@ rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = ["e2e-encryption", "state-store", "event-cache-store"]
-event-cache-store = ["dep:matrix-sdk-base"]
+event-cache-store = ["dep:matrix-sdk-base", "media-store"]
+media-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
+experimental-encrypted-state-events = [
+    "matrix-sdk-crypto?/experimental-encrypted-state-events"
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -32,6 +36,7 @@ js-sys.workspace = true
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-store-encryption.workspace = true
+rmp-serde.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde-wasm-bindgen = "0.6.5"

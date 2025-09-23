@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use eyeball::SharedObservable;
+use matrix_sdk_common::timer;
 use ruma::{
     events::{GlobalAccountDataEventType, ignored_user_list::IgnoredUserListEvent},
     serde::Raw,
@@ -29,6 +30,8 @@ use crate::{
 /// only! The changes aren't applied on the in-memory rooms.
 #[instrument(skip_all)]
 pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result<()> {
+    let _timer = timer!(tracing::Level::TRACE, "_method");
+
     save_changes(&context, state_store, None).await?;
     broadcast_room_info_notable_updates(&context, state_store);
 
@@ -44,6 +47,8 @@ pub async fn save_and_apply(
     ignore_user_list_changes: &SharedObservable<Vec<String>>,
     sync_token: Option<String>,
 ) -> Result<()> {
+    let _timer = timer!(tracing::Level::TRACE, "_method");
+
     trace!("ready to submit changes to store");
 
     let previous_ignored_user_list =

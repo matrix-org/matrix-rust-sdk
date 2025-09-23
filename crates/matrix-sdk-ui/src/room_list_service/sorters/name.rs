@@ -14,40 +14,29 @@
 
 use std::cmp::Ordering;
 
-use super::{Room, Sorter};
+use super::{RoomListItem, Sorter};
 
-struct NameMatcher<F>
+fn cmp<'a, 'b, F>(names: F, left: &'a RoomListItem, right: &'b RoomListItem) -> Ordering
 where
-    F: Fn(&Room, &Room) -> (Option<String>, Option<String>),
+    F: Fn(&'a RoomListItem, &'b RoomListItem) -> (Option<&'a str>, Option<&'b str>),
 {
-    names: F,
+    let (left_name, right_name) = names(left, right);
+
+    left_name.cmp(&right_name)
 }
 
-impl<F> NameMatcher<F>
-where
-    F: Fn(&Room, &Room) -> (Option<String>, Option<String>),
-{
-    fn matches(&self, left: &Room, right: &Room) -> Ordering {
-        let (left_name, right_name) = (self.names)(left, right);
-
-        left_name.cmp(&right_name)
-    }
-}
-
-/// Create a new sorter that will sort two [`Room`] by name, i.e. by
+/// Create a new sorter that will sort two [`RoomListItem`] by name, i.e. by
 /// comparing their display names. A lexicographically ordering is applied, i.e.
 /// "a" < "b".
 pub fn new_sorter() -> impl Sorter {
-    let matcher = NameMatcher {
-        names: move |left, right| {
-            (
-                left.cached_display_name().map(|display_name| display_name.to_string()),
-                right.cached_display_name().map(|display_name| display_name.to_string()),
-            )
-        },
-    };
+    fn names<'a, 'b>(
+        left: &'a RoomListItem,
+        right: &'b RoomListItem,
+    ) -> (Option<&'a str>, Option<&'b str>) {
+        (left.cached_display_name.as_deref(), right.cached_display_name.as_deref())
+    }
 
-    move |left, right| -> Ordering { matcher.matches(left, right) }
+    move |left, right| -> Ordering { cmp(names, left, right) }
 }
 
 #[cfg(test)]
@@ -66,29 +55,26 @@ mod tests {
 
         // `room_a` has a “greater name” than `room_b`.
         {
-            let matcher = NameMatcher {
-                names: |_left, _right| (Some("Foo".to_owned()), Some("Baz".to_owned())),
-            };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(
+                cmp(|_left, _right| (Some("Foo"), Some("Baz")), &room_a, &room_b),
+                Ordering::Greater
+            );
         }
 
         // `room_a` has a “lesser name” than `room_b`.
         {
-            let matcher = NameMatcher {
-                names: |_left, _right| (Some("Bar".to_owned()), Some("Baz".to_owned())),
-            };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(
+                cmp(|_left, _right| (Some("Bar"), Some("Baz")), &room_a, &room_b),
+                Ordering::Less
+            );
         }
 
         // `room_a` has the same name than `room_b`.
         {
-            let matcher = NameMatcher {
-                names: |_left, _right| (Some("Baz".to_owned()), Some("Baz".to_owned())),
-            };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(
+                cmp(|_left, _right| (Some("Baz"), Some("Baz")), &room_a, &room_b),
+                Ordering::Equal
+            );
         }
     }
 
@@ -100,16 +86,15 @@ mod tests {
 
         // `room_a` has a name, `room_b` has no name.
         {
-            let matcher = NameMatcher { names: |_left, _right| (Some("Foo".to_owned()), None) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(
+                cmp(|_left, _right| (Some("Foo"), None), &room_a, &room_b),
+                Ordering::Greater
+            );
         }
 
         // `room_a` has no name, `room_b` has a name.
         {
-            let matcher = NameMatcher { names: |_left, _right| (None, Some("Bar".to_owned())) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(cmp(|_left, _right| (None, Some("Bar")), &room_a, &room_b), Ordering::Less);
         }
     }
 
@@ -121,9 +106,7 @@ mod tests {
 
         // `room_a` and `room_b` has no name.
         {
-            let matcher = NameMatcher { names: |_left, _right| (None, None) };
-
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(cmp(|_left, _right| (None, None), &room_a, &room_b), Ordering::Equal);
         }
     }
 }

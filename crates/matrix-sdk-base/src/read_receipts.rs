@@ -570,7 +570,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
             match event {
                 AnySyncMessageLikeEvent::CallAnswer(_)
                 | AnySyncMessageLikeEvent::CallInvite(_)
-                | AnySyncMessageLikeEvent::CallNotify(_)
+                | AnySyncMessageLikeEvent::RtcNotification(_)
                 | AnySyncMessageLikeEvent::CallHangup(_)
                 | AnySyncMessageLikeEvent::CallCandidates(_)
                 | AnySyncMessageLikeEvent::CallNegotiate(_)

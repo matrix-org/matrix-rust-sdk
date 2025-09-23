@@ -19,8 +19,9 @@ use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
 use imbl::Vector;
 use ruma::{
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
     api::client::directory::get_public_rooms_filtered::v3::Request as PublicRoomsFilterRequest,
-    directory::Filter, room::JoinRuleKind, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
+    directory::Filter, room::JoinRuleKind,
 };
 
 use crate::{Client, OwnedServerName, Result};
@@ -77,11 +78,7 @@ enum SearchState {
 
 impl SearchState {
     fn next_token(&self) -> Option<&str> {
-        if let Self::Next(next_token) = &self {
-            Some(next_token)
-        } else {
-            None
-        }
+        if let Self::Next(next_token) = &self { Some(next_token) } else { None }
     }
 
     fn is_at_end(&self) -> bool {
@@ -100,7 +97,7 @@ impl SearchState {
 /// # Example
 ///
 /// ```no_run
-/// use matrix_sdk::{room_directory_search::RoomDirectorySearch, Client};
+/// use matrix_sdk::{Client, room_directory_search::RoomDirectorySearch};
 /// use url::Url;
 ///
 /// async {
@@ -195,7 +192,8 @@ impl RoomDirectorySearch {
     /// search, and a stream of updates for them.
     pub fn results(
         &self,
-    ) -> (Vector<RoomDescription>, impl Stream<Item = Vec<VectorDiff<RoomDescription>>>) {
+    ) -> (Vector<RoomDescription>, impl Stream<Item = Vec<VectorDiff<RoomDescription>>> + use<>)
+    {
         self.results.subscribe().into_values_and_batched_stream()
     }
 
@@ -220,19 +218,19 @@ mod tests {
     use futures_util::StreamExt;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        directory::Filter, owned_server_name, room::JoinRuleKind, serde::Raw, RoomAliasId, RoomId,
+        RoomAliasId, RoomId, directory::Filter, owned_server_name, room::JoinRuleKind, serde::Raw,
     };
     use serde_json::Value as JsonValue;
     use stream_assert::assert_pending;
     use wiremock::{
-        matchers::{method, path_regex},
         Match, Mock, MockServer, Request, ResponseTemplate,
+        matchers::{method, path_regex},
     };
 
     use crate::{
+        Client,
         room_directory_search::{RoomDescription, RoomDirectorySearch},
         test_utils::logged_in_client,
-        Client,
     };
 
     struct RoomDirectorySearchMatcher {

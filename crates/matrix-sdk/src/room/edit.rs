@@ -15,7 +15,10 @@
 //! Facilities to edit existing events.
 
 use ruma::{
+    EventId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions,
+        SyncMessageLikeEvent,
         poll::unstable_start::{
             ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
             UnstablePollStartEventContent,
@@ -24,10 +27,7 @@ use ruma::{
             FormattedBody, MessageType, ReplacementMetadata, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions,
-        SyncMessageLikeEvent,
     },
-    EventId, UserId,
 };
 use thiserror::Error;
 use tracing::instrument;
@@ -290,16 +290,16 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        EventId, OwnedEventId, event_id,
         events::{
-            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
+            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
         },
-        owned_mxc_uri, owned_user_id, user_id, EventId, OwnedEventId,
+        owned_mxc_uri, owned_user_id, user_id,
     };
 
-    use super::{make_edit_event, EditError, EventSource};
-    use crate::{room::edit::EditedContent, Error};
+    use super::{EditError, EventSource, make_edit_event};
+    use crate::{Error, room::edit::EditedContent};
 
     #[derive(Default)]
     struct TestEventCache {

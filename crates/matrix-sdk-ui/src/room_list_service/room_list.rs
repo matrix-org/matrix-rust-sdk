@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, sync::Arc};
+use std::{future::ready, ops::Deref, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
@@ -22,10 +22,11 @@ use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{Stream, StreamExt as _, pin_mut, stream};
 use matrix_sdk::{
-    Client, SlidingSync, SlidingSyncList,
+    Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     executor::{JoinHandle, spawn},
 };
 use matrix_sdk_base::RoomInfoNotableUpdate;
+use ruma::MilliSecondsSinceUnixEpoch;
 use tokio::{
     select,
     sync::broadcast::{self, error::RecvError},
@@ -33,9 +34,12 @@ use tokio::{
 use tracing::{error, trace};
 
 use super::{
-    Error, Room, State,
+    Error, State,
     filters::BoxedFilterFn,
-    sorters::{new_sorter_lexicographic, new_sorter_name, new_sorter_recency},
+    sorters::{
+        BoxedSorterFn, new_sorter_latest_event, new_sorter_lexicographic, new_sorter_name,
+        new_sorter_recency,
+    },
 };
 
 /// A `RoomList` represents a list of rooms, from a
@@ -137,7 +141,27 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-    ) -> (impl Stream<Item = Vec<VectorDiff<Room>>> + '_, RoomListDynamicEntriesController) {
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListItem>>> + '_, RoomListDynamicEntriesController)
+    {
+        self.entries_with_dynamic_adapters_impl(page_size, false)
+    }
+
+    #[doc(hidden)]
+    pub fn entries_with_dynamic_adapters_with(
+        &self,
+        page_size: usize,
+        enable_latest_event_sorter: bool,
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListItem>>> + '_, RoomListDynamicEntriesController)
+    {
+        self.entries_with_dynamic_adapters_impl(page_size, enable_latest_event_sorter)
+    }
+
+    fn entries_with_dynamic_adapters_impl(
+        &self,
+        page_size: usize,
+        enable_latest_event_sorter: bool,
+    ) -> (impl Stream<Item = Vec<VectorDiff<RoomListItem>>> + '_, RoomListDynamicEntriesController)
+    {
         let room_info_notable_update_receiver = self.client.room_info_notable_update_receiver();
         let list = self.sliding_sync_list.clone();
 
@@ -158,16 +182,29 @@ impl RoomList {
                 let filter_fn = filter_fn_cell.take().await;
 
                 let (raw_values, raw_stream) = self.entries();
+                let values = raw_values.into_iter().map(Into::into).collect::<Vector<RoomListItem>>();
 
                 // Combine normal stream events with other updates from rooms
-                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
+                let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
-                let (values, stream) = (raw_values, merged_streams)
+                let mut sorters: Vec<BoxedSorterFn> = Vec::with_capacity(3);
+
+                if enable_latest_event_sorter {
+                    // Sort by latest event's kind, i.e. put the rooms with a
+                    // **local** latest event first.
+                    sorters.push(Box::new(new_sorter_latest_event()));
+                }
+
+                // Sort rooms by their recency (either by looking
+                // at their latest event's timestamp, or their
+                // `recency_stamp`).
+                sorters.push(Box::new(new_sorter_recency()));
+                // Finally, sort by name.
+                sorters.push(Box::new(new_sorter_name()));
+
+                let (values, stream) = (values, stream)
                     .filter(filter_fn)
-                    .sort_by(new_sorter_lexicographic(vec![
-                        Box::new(new_sorter_recency()),
-                        Box::new(new_sorter_name())
-                    ]))
+                    .sort_by(new_sorter_lexicographic(sorters))
                     .dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
@@ -185,10 +222,10 @@ impl RoomList {
 /// knows where all rooms are. When the receiver is triggered, a Set operation
 /// for the room position is inserted to the stream.
 fn merge_stream_and_receiver(
-    mut raw_current_values: Vector<Room>,
+    mut current_values: Vector<RoomListItem>,
     raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
-) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
+) -> impl Stream<Item = Vec<VectorDiff<RoomListItem>>> {
     stream! {
         pin_mut!(raw_stream);
 
@@ -199,11 +236,13 @@ fn merge_stream_and_receiver(
 
                 diffs = raw_stream.next() => {
                     if let Some(diffs) = diffs {
+                        let diffs = diffs.into_iter().map(|diff| diff.map(RoomListItem::from)).collect::<Vec<_>>();
+
                         for diff in &diffs {
                             diff.clone().map(|room| {
                                 trace!(room = %room.room_id(), "updated in response");
                                 room
-                            }).apply(&mut raw_current_values);
+                            }).apply(&mut current_values);
                         }
 
                         yield diffs;
@@ -217,10 +256,11 @@ fn merge_stream_and_receiver(
                     match update {
                         Ok(update) => {
                             // Emit a `VectorDiff::Set` for the specific rooms.
-                            if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
-                                let room = &raw_current_values[index];
-                                let update = VectorDiff::Set { index, value: room.clone() };
-                                yield vec![update];
+                            if let Some(index) = current_values.iter().position(|room| room.room_id() == update.room_id) {
+                                let mut room = current_values[index].clone();
+                                room.refresh_cached_data();
+
+                                yield vec![VectorDiff::Set { index, value: room }];
                             }
                         }
 
@@ -341,5 +381,86 @@ impl RoomListDynamicEntriesController {
     /// page.
     pub fn reset_to_one_page(&self) {
         self.limit.set_if_not_eq(self.page_size);
+    }
+}
+
+/// A facade type that derefs to [`Room`] and that caches data from
+/// [`RoomInfo`].
+///
+/// Why caching data? [`RoomInfo`] is behind a lock. Every time a filter or a
+/// sorter calls a method on [`Room`], it's likely to hit the lock in front of
+/// [`RoomInfo`]. It creates a big contention. By caching the data, it avoids
+/// hitting the lock, improving the performance greatly.
+///
+/// Data are refreshed in `merge_stream_and_receiver` (private function).
+///
+/// [`RoomInfo`]: matrix_sdk::RoomInfo
+#[derive(Clone, Debug)]
+pub struct RoomListItem {
+    /// The inner room.
+    inner: Room,
+
+    /// Cache of `Room::new_latest_event_timestamp`.
+    pub(super) cached_latest_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+
+    /// Cache of `Room::new_latest_event_is_local`.
+    pub(super) cached_latest_event_is_local: bool,
+
+    /// Cache of `Room::recency_stamp`.
+    pub(super) cached_recency_stamp: Option<RoomRecencyStamp>,
+
+    /// Cache of `Room::cached_display_name`, already as a string.
+    pub(super) cached_display_name: Option<String>,
+
+    /// Cache of `Room::is_space`.
+    pub(super) cached_is_space: bool,
+
+    // Cache of `Room::state`.
+    pub(super) cached_state: RoomState,
+}
+
+impl RoomListItem {
+    /// Deconstruct to the inner room value.
+    pub fn into_inner(self) -> Room {
+        self.inner
+    }
+
+    /// Refresh the cached data.
+    pub(super) fn refresh_cached_data(&mut self) {
+        self.cached_latest_event_timestamp = self.inner.new_latest_event_timestamp();
+        self.cached_latest_event_is_local = self.inner.new_latest_event_is_local();
+        self.cached_recency_stamp = self.inner.recency_stamp();
+        self.cached_display_name = self.inner.cached_display_name().map(|name| name.to_string());
+        // no need to refresh `Self::is_space`.
+        self.cached_state = self.inner.state();
+    }
+}
+
+impl From<Room> for RoomListItem {
+    fn from(inner: Room) -> Self {
+        let cached_latest_event_timestamp = inner.new_latest_event_timestamp();
+        let cached_latest_event_is_local = inner.new_latest_event_is_local();
+        let cached_recency_stamp = inner.recency_stamp();
+        let cached_display_name = inner.cached_display_name().map(|name| name.to_string());
+        let cached_is_space = inner.is_space();
+        let cached_state = inner.state();
+
+        Self {
+            inner,
+            cached_latest_event_timestamp,
+            cached_latest_event_is_local,
+            cached_recency_stamp,
+            cached_display_name,
+            cached_is_space,
+            cached_state,
+        }
+    }
+}
+
+impl Deref for RoomListItem {
+    type Target = Room;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }

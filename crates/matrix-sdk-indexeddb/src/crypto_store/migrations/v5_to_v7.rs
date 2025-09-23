@@ -30,7 +30,7 @@ use crate::{
         migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
     IndexeddbCryptoStoreError,
 };
 
@@ -51,7 +51,7 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
 }
 
 /// Migrate data from `inbound_group_sessions` into `inbound_group_sessions2`.
-pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 7).await?;
 
     // The new store has been made for inbound group sessions; time to populate it.

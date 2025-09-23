@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
 use ruma::{
+    OwnedRoomId,
     push::{
         Action, NewConditionalPushRule, NewPatternedPushRule, NewPushRule, NewSimplePushRule,
         PushCondition, RuleKind, Tweak,
     },
-    OwnedRoomId,
 };
 
 use crate::NotificationSettingsError;

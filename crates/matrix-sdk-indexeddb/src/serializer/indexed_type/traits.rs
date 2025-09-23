@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use ruma::RoomId;
-
-use crate::serializer::IndexeddbSerializer;
+use crate::serializer::SafeEncodeSerializer;
 
 /// A conversion trait for preparing high-level types into indexed types
 /// which are better suited for storage in IndexedDB.
@@ -35,13 +33,13 @@ pub trait Indexed: Sized {
     /// Converts the high-level type into an indexed type.
     fn to_indexed(
         &self,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error>;
 
     /// Converts an indexed type into the high-level type.
     fn from_indexed(
         indexed: Self::IndexedType,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -62,7 +60,7 @@ pub trait IndexedKey<T: Indexed> {
     /// argument, which provides the necessary context for encryption and
     /// decryption, in the case that certain components of the key must be
     /// encrypted before storage.
-    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self;
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self;
 }
 
 /// A trait for constructing the bounds of an [`IndexedKey`].
@@ -86,10 +84,10 @@ pub trait IndexedKey<T: Indexed> {
 /// the proper bound.
 pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
     /// Constructs the lower bound of the key.
-    fn lower_key(serializer: &IndexeddbSerializer) -> Self;
+    fn lower_key(serializer: &SafeEncodeSerializer) -> Self;
 
     /// Constructs the upper bound of the key.
-    fn upper_key(serializer: &IndexeddbSerializer) -> Self;
+    fn upper_key(serializer: &SafeEncodeSerializer) -> Self;
 }
 
 impl<T, K> IndexedKeyBounds<T> for K
@@ -98,12 +96,12 @@ where
     K: IndexedKeyComponentBounds<T> + Sized,
 {
     /// Constructs the lower bound of the key.
-    fn lower_key(serializer: &IndexeddbSerializer) -> Self {
+    fn lower_key(serializer: &SafeEncodeSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::lower_key_components(), serializer)
     }
 
     /// Constructs the upper bound of the key.
-    fn upper_key(serializer: &IndexeddbSerializer) -> Self {
+    fn upper_key(serializer: &SafeEncodeSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::upper_key_components(), serializer)
     }
 }
@@ -142,11 +140,11 @@ pub trait IndexedKeyComponentBounds<T: Indexed>: IndexedKeyBounds<T> {
 pub trait IndexedPrefixKeyBounds<T: Indexed, P>: IndexedKey<T> {
     /// Constructs the lower bound of the key while maintaining a constant
     /// prefix.
-    fn lower_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self;
+    fn lower_key_with_prefix(prefix: P, serializer: &SafeEncodeSerializer) -> Self;
 
     /// Constructs the upper bound of the key while maintaining a constant
     /// prefix.
-    fn upper_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self;
+    fn upper_key_with_prefix(prefix: P, serializer: &SafeEncodeSerializer) -> Self;
 }
 
 impl<'a, T, K, P> IndexedPrefixKeyBounds<T, P> for K
@@ -155,11 +153,11 @@ where
     K: IndexedPrefixKeyComponentBounds<'a, T, P> + Sized,
     P: 'a,
 {
-    fn lower_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self {
+    fn lower_key_with_prefix(prefix: P, serializer: &SafeEncodeSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::lower_key_components_with_prefix(prefix), serializer)
     }
 
-    fn upper_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self {
+    fn upper_key_with_prefix(prefix: P, serializer: &SafeEncodeSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::upper_key_components_with_prefix(prefix), serializer)
     }
 }

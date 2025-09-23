@@ -37,39 +37,39 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
+    ThreadingSupport,
+    cross_process_lock::CrossProcessLockError,
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
-        store::{EventCacheStoreError, EventCacheStoreLock},
         Gap,
+        store::{EventCacheStoreError, EventCacheStoreLock},
     },
     executor::AbortOnDrop,
-    linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
+    linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
-    store_locks::LockStoreError,
     sync::RoomUpdates,
     timer,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use room::RoomEventCacheState;
-#[cfg(feature = "experimental-search")]
-use ruma::events::AnySyncMessageLikeEvent;
 use ruma::{
-    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    RoomId,
+    OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
+    serde::Raw,
 };
 use tokio::{
     select,
     sync::{
-        broadcast::{channel, error::RecvError, Receiver, Sender},
-        mpsc, Mutex, RwLock,
+        Mutex, RwLock,
+        broadcast::{Receiver, Sender, channel, error::RecvError},
+        mpsc,
     },
 };
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use crate::{
+    Client,
     client::WeakClient,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
-    Client,
 };
 
 mod deduplicator;
@@ -111,7 +111,7 @@ pub enum EventCacheError {
 
     /// An error happening when attempting to (cross-process) lock storage.
     #[error(transparent)]
-    LockingStorage(#[from] LockStoreError),
+    LockingStorage(#[from] CrossProcessLockError),
 
     /// The [`EventCache`] owns a weak reference to the [`Client`] it pertains
     /// to. It's possible this weak reference points to nothing anymore, at
@@ -725,47 +725,44 @@ impl EventCache {
                         return;
                     };
 
+                    let maybe_room_cache = client.event_cache().for_room(&room_id).await;
+                    let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
+                        warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
+                        continue;
+                    };
+
+                    let maybe_room = client.get_room(&room_id);
+                    let Some(room) = maybe_room else {
+                        warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
+                        continue;
+                    };
+                    let redaction_rules =
+                        room.clone_info().room_version_rules_or_default().redaction;
+
                     let mut search_index_guard = client.search_index().lock().await;
 
-                    for event in timeline_events {
-                        if let Some(message_event) = parse_timeline_event_for_search_index(&event) {
-                            if let Err(err) =
-                                search_index_guard.handle_event(message_event, &room_id)
-                            {
-                                warn!("Failed to handle event for indexing: {err}")
-                            }
-                        }
+                    if let Err(err) = search_index_guard
+                        .bulk_handle_timeline_event(
+                            timeline_events,
+                            &room_cache,
+                            &room_id,
+                            &redaction_rules,
+                        )
+                        .await
+                    {
+                        error!("Failed to handle events for indexing: {err}")
                     }
                 }
                 Err(RecvError::Closed) => {
-                    debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
+                    debug!(
+                        "Linked chunk update channel has been closed, exiting thread subscriber task"
+                    );
                     break;
                 }
                 Err(RecvError::Lagged(num_skipped)) => {
                     warn!(num_skipped, "Lagged behind linked chunk updates");
                 }
             }
-        }
-    }
-}
-
-#[cfg(feature = "experimental-search")]
-fn parse_timeline_event_for_search_index(event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
-    use ruma::events::AnySyncTimelineEvent;
-
-    if event.kind.is_utd() {
-        return None;
-    }
-
-    match event.raw().deserialize() {
-        Ok(event) => match event {
-            AnySyncTimelineEvent::MessageLike(event) => Some(event),
-            AnySyncTimelineEvent::State(_) => None,
-        },
-
-        Err(e) => {
-            warn!("failed to parse event: {e:?}");
-            None
         }
     }
 }
@@ -998,9 +995,15 @@ impl EventCacheInner {
                     .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
                 let room_version_rules = room.clone_info().room_version_rules_or_default();
 
+                let enabled_thread_support = matches!(
+                    client.base_client().threading_support,
+                    ThreadingSupport::Enabled { .. }
+                );
+
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
                     room_version_rules,
+                    enabled_thread_support,
                     self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
@@ -1157,21 +1160,26 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
+        RoomState,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
-        RoomState,
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    };
     use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
+    use tokio::time::sleep;
 
     use super::{EventCacheError, RoomEventCacheGenericUpdate, RoomEventCacheUpdate};
-    use crate::test_utils::{assert_event_matches_msg, logged_in_client};
+    use crate::test_utils::{
+        assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
+    };
 
     #[async_test]
     async fn test_must_explicitly_subscribe() {
@@ -1351,11 +1359,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![event_factory
-                            .text_msg("hello")
-                            .sender(user)
-                            .event_id(event_id!("$ev0"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("hello")
+                                .sender(user)
+                                .event_id(event_id!("$ev0"))
+                                .into_event(),
+                        ],
                     },
                 ],
             )
@@ -1426,11 +1436,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(2), 0),
-                        items: vec![event_factory
-                            .text_msg("hello")
-                            .sender(user)
-                            .event_id(event_id!("$ev0"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("hello")
+                                .sender(user)
+                                .event_id(event_id!("$ev0"))
+                                .into_event(),
+                        ],
                     },
                     // Non-empty items chunk.
                     Update::NewItemsChunk {
@@ -1440,11 +1452,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(3), 0),
-                        items: vec![event_factory
-                            .text_msg("world")
-                            .sender(user)
-                            .event_id(event_id!("$ev1"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("world")
+                                .sender(user)
+                                .event_id(event_id!("$ev1"))
+                                .into_event(),
+                        ],
                     },
                 ],
             )
@@ -1512,5 +1526,47 @@ mod tests {
 
         // Room exists. Everything fine.
         assert!(event_cache.for_room(room_id).await.is_ok());
+    }
+
+    /// Test that the event cache does not create reference cycles or tasks that
+    /// retain its reference indefinitely, preventing it from being deallocated.
+    #[cfg(not(target_family = "wasm"))]
+    #[async_test]
+    async fn test_no_refcycle_event_cache_tasks() {
+        let client = MockClientBuilder::new(None).build().await;
+
+        // Wait for the init tasks to die.
+        sleep(Duration::from_secs(1)).await;
+
+        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
+        assert_eq!(event_cache_weak.strong_count(), 1);
+
+        {
+            let room_id = room_id!("!room:example.org");
+
+            // Have the client know the room.
+            let response = SyncResponseBuilder::default()
+                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .build_sync_response();
+            client.inner.base_client.receive_sync_response(response).await.unwrap();
+
+            client.event_cache().subscribe().unwrap();
+
+            let (_room_event_cache, _drop_handles) =
+                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+        }
+
+        drop(client);
+
+        // Give a bit of time for background tasks to die.
+        sleep(Duration::from_secs(1)).await;
+
+        // No strong counts should exist now that the Client has been dropped.
+        assert_eq!(
+            event_cache_weak.strong_count(),
+            0,
+            "Too many strong references to the event cache {}",
+            event_cache_weak.strong_count()
+        );
     }
 }

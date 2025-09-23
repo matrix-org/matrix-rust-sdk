@@ -45,7 +45,7 @@ impl From<MatrixSyncServiceState> for SyncServiceState {
             MatrixSyncServiceState::Idle => Self::Idle,
             MatrixSyncServiceState::Running => Self::Running,
             MatrixSyncServiceState::Terminated => Self::Terminated,
-            MatrixSyncServiceState::Error => Self::Error,
+            MatrixSyncServiceState::Error(_error) => Self::Error,
             MatrixSyncServiceState::Offline => Self::Offline,
         }
     }
@@ -89,6 +89,15 @@ impl SyncService {
                 listener.on_update(state.into());
             }
         })))
+    }
+
+    /// Force expiring both sliding sync sessions.
+    ///
+    /// This ensures that the sync service is stopped before expiring both
+    /// sessions. It should be used sparingly, as it will cause a restart of
+    /// the sessions on the server as well.
+    pub async fn expire_sessions(&self) {
+        self.inner.expire_sessions().await;
     }
 }
 

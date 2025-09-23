@@ -17,8 +17,8 @@ use std::{
     fmt::Debug,
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -28,8 +28,8 @@ use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::Method;
 use ruma::api::{
-    error::{FromHttpResponseError, IntoHttpError},
     AuthScheme, OutgoingRequest, SendAccessToken, SupportedVersions,
+    error::{FromHttpResponseError, IntoHttpError},
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, field::debug, instrument, trace};
@@ -259,8 +259,8 @@ mod tests {
     use std::{
         num::NonZeroUsize,
         sync::{
-            atomic::{AtomicU8, Ordering},
             Arc,
+            atomic::{AtomicU8, Ordering},
         },
         time::Duration,
     };
@@ -268,8 +268,8 @@ mod tests {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, test_json};
     use wiremock::{
-        matchers::{method, path},
         Mock, Request, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use crate::{

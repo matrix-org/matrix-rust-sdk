@@ -7,14 +7,14 @@ use std::{
 
 use cfg_if::cfg_if;
 use matrix_sdk_common::timer;
-use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
-use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
-    cache::format_storage_key_prefix, sticky_parameters::SlidingSyncStickyManager, Error,
-    SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers, Version,
+    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    Version, cache::format_storage_key_prefix, sticky_parameters::SlidingSyncStickyManager,
 };
-use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
+use crate::{Client, Result, sliding_sync::SlidingSyncStickyParameters};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -180,6 +180,23 @@ impl SlidingSyncBuilder {
     pub fn without_receipt_extension(mut self) -> Self {
         self.extensions.get_or_insert_with(Default::default).receipts =
             http::request::Receipts::default();
+        self
+    }
+
+    /// Set the Threads subscriptions extension configuration.
+    pub fn with_thread_subscriptions_extension(
+        mut self,
+        thread_subscriptions: http::request::ThreadSubscriptions,
+    ) -> Self {
+        self.extensions.get_or_insert_with(Default::default).thread_subscriptions =
+            thread_subscriptions;
+        self
+    }
+
+    /// Unset the Threads subscriptions extension configuration.
+    pub fn without_thread_subscriptions_extension(mut self) -> Self {
+        self.extensions.get_or_insert_with(Default::default).thread_subscriptions =
+            Default::default();
         self
     }
 

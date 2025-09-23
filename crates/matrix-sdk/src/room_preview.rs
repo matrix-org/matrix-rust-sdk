@@ -21,15 +21,15 @@
 use futures_util::future::join_all;
 use matrix_sdk_base::{RoomHero, RoomInfo, RoomState};
 use ruma::{
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
     api::client::{membership::joined_members, state::get_state_events},
     events::room::history_visibility::HistoryVisibility,
     room::{JoinRuleSummary, RoomType},
-    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
 };
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{room_directory_search::RoomDirectorySearch, Client, Error, Room};
+use crate::{Client, Error, Room, room_directory_search::RoomDirectorySearch};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug, Clone)]
@@ -383,10 +383,11 @@ fn ensure_server_names_is_not_empty(
 ) -> Vec<OwnedServerName> {
     let mut server_names = server_names;
 
-    if let Some((own_server, alias_server)) = own_server_name.zip(room_or_alias_id.server_name()) {
-        if server_names.is_empty() && own_server != alias_server {
-            server_names.push(alias_server.to_owned());
-        }
+    if let Some((own_server, alias_server)) = own_server_name.zip(room_or_alias_id.server_name())
+        && server_names.is_empty()
+        && own_server != alias_server
+    {
+        server_names.push(alias_server.to_owned());
     }
 
     server_names
@@ -394,7 +395,7 @@ fn ensure_server_names_is_not_empty(
 
 #[cfg(test)]
 mod tests {
-    use ruma::{owned_server_name, room_alias_id, room_id, server_name, RoomOrAliasId, ServerName};
+    use ruma::{RoomOrAliasId, ServerName, owned_server_name, room_alias_id, room_id, server_name};
 
     use crate::room_preview::ensure_server_names_is_not_empty;
 
