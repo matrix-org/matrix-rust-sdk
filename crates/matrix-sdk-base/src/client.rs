@@ -806,7 +806,11 @@ impl BaseClient {
         .await;
 
         // Save the new display name updates if any.
-        processors::changes::save_only(context, &self.state_store).await?;
+        {
+            let _sync_lock = self.sync_lock().lock().await;
+
+            processors::changes::save_only(context, &self.state_store).await?;
+        }
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
