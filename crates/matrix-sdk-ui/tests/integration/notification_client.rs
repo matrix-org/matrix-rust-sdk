@@ -8,7 +8,10 @@ use assert_matches2::assert_let;
 use matrix_sdk::{
     ThreadingSupport,
     config::SyncSettings,
-    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
+    test_utils::{
+        logged_in_client_with_server,
+        mocks::{MatrixMockServer, RoomContextResponseTemplate},
+    },
 };
 use matrix_sdk_test::{
     JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
@@ -73,7 +76,8 @@ async fn test_notification_client_with_context() {
     // The notification client retrieves the event via `/rooms/*/context/`.
     server
         .mock_room_event_context()
-        .ok(event, Vec::new(), Vec::new(), "", "", vec![sender_member_event.cast_unchecked()])
+        .ok(RoomContextResponseTemplate::new(event)
+            .state_events(vec![sender_member_event.cast_unchecked()]))
         .mock_once()
         .mount()
         .await;
@@ -158,7 +162,8 @@ async fn test_subscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
+            .ok(RoomContextResponseTemplate::new(event.clone())
+                .state_events(vec![sender_member_event.clone()]))
             .mock_once()
             .mount()
             .await;
@@ -182,7 +187,7 @@ async fn test_subscribed_threads_get_notifications() {
     server
         .mock_room_event_context()
         .match_event_id()
-        .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event])
+        .ok(RoomContextResponseTemplate::new(event.clone()).state_events(vec![sender_member_event]))
         .mock_once()
         .mount()
         .await;
@@ -254,7 +259,8 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
+            .ok(RoomContextResponseTemplate::new(event.clone())
+                .state_events(vec![sender_member_event.clone()]))
             .mock_once()
             .mount()
             .await;
@@ -281,7 +287,8 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event.clone()])
+            .ok(RoomContextResponseTemplate::new(event.clone())
+                .state_events(vec![sender_member_event.clone()]))
             .mock_once()
             .mount()
             .await;
@@ -307,7 +314,8 @@ async fn test_unsubscribed_threads_get_notifications() {
         server
             .mock_room_event_context()
             .match_event_id()
-            .ok(event.clone(), Vec::new(), Vec::new(), "", "", vec![sender_member_event])
+            .ok(RoomContextResponseTemplate::new(event.clone())
+                .state_events(vec![sender_member_event]))
             .mock_once()
             .mount()
             .await;
@@ -1138,7 +1146,7 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
     // Mock the /context response
     server
         .mock_room_event_context()
-        .ok(event, Vec::new(), Vec::new(), "start", "end", Vec::new())
+        .ok(RoomContextResponseTemplate::new(event).start("start").end("end"))
         .mock_once()
         .mount()
         .await;

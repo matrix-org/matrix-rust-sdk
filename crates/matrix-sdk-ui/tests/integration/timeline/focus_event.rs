@@ -23,7 +23,7 @@ use matrix_sdk::{
     config::{SyncSettings, SyncToken},
     test_utils::{
         logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+        mocks::{MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate},
     },
 };
 use matrix_sdk_test::{
@@ -439,7 +439,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         f.text_msg("Hey").in_thread(root_thread_id, prev_thread_event_id).into_event();
     let threaded_event_id = threaded_event.event_id().unwrap().clone();
 
-    // Mock the initial /context request to check if the event is in a thread
+    // Mock the initial /context request to check if the event is in a thread.
     let events_before = vec![
         f.text_msg("Unrelated before 1").into_event(),
         f.text_msg("Unrelated before 2").into_event(),
@@ -451,7 +451,11 @@ async fn test_focused_timeline_handles_threaded_event() {
     server
         .mock_room_event_context()
         .room(room_id)
-        .ok(threaded_event, events_before, events_after, "prev_token_1", "next_token_1", Vec::new())
+        .ok(RoomContextResponseTemplate::new(threaded_event)
+            .events_before(events_before)
+            .events_after(events_after)
+            .start("prev_token_1")
+            .end("next_token_1"))
         .mock_once()
         .mount()
         .await;
@@ -473,8 +477,6 @@ async fn test_focused_timeline_handles_threaded_event() {
         timeline.live_back_pagination_status().await.is_none(),
         "there should be no live back-pagination status for a focused timeline"
     );
-
-    server.server().reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
     assert_eq!(items.len(), 2);
@@ -517,7 +519,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     assert_eq!(*index, 2);
 
     // We paginate back until the start of the timeline, which will trigger an
-    // /event request for the initial item
+    // /event request for the initial item.
     server
         .mock_room_relations()
         .match_from("prev_token_2")

@@ -2678,6 +2678,61 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     }
 }
 
+/// A builder pattern for the response to a [`RoomEventContextEndpoint`]
+/// request.
+pub struct RoomContextResponseTemplate {
+    event: TimelineEvent,
+    events_before: Vec<TimelineEvent>,
+    events_after: Vec<TimelineEvent>,
+    start: Option<String>,
+    end: Option<String>,
+    state_events: Vec<Raw<AnyStateEvent>>,
+}
+
+impl RoomContextResponseTemplate {
+    /// Creates a new context response with the given focused event.
+    pub fn new(event: TimelineEvent) -> Self {
+        Self {
+            event,
+            events_before: Vec::new(),
+            events_after: Vec::new(),
+            start: None,
+            end: None,
+            state_events: Vec::new(),
+        }
+    }
+
+    /// Add some events before the target event.
+    pub fn events_before(mut self, events: Vec<TimelineEvent>) -> Self {
+        self.events_before = events;
+        self
+    }
+
+    /// Add some events after the target event.
+    pub fn events_after(mut self, events: Vec<TimelineEvent>) -> Self {
+        self.events_after = events;
+        self
+    }
+
+    /// Set the start token that could be used for paginating backwards.
+    pub fn start(mut self, start: impl Into<String>) -> Self {
+        self.start = Some(start.into());
+        self
+    }
+
+    /// Set the end token that could be used for paginating forwards.
+    pub fn end(mut self, end: impl Into<String>) -> Self {
+        self.end = Some(end.into());
+        self
+    }
+
+    /// Pass some extra state events to this response.
+    pub fn state_events(mut self, state_events: Vec<Raw<AnyStateEvent>>) -> Self {
+        self.state_events = state_events;
+        self
+    }
+}
+
 /// A prebuilt mock for getting a single event with its context in a room.
 pub struct RoomEventContextEndpoint {
     room: Option<OwnedRoomId>,
@@ -2697,18 +2752,10 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
         self
     }
 
-    /// Returns an endpoint that emulates success.
-    pub fn ok(
-        self,
-        event: TimelineEvent,
-        events_before: Vec<TimelineEvent>,
-        events_after: Vec<TimelineEvent>,
-        start: impl Into<String>,
-        end: impl Into<String>,
-        state_events: Vec<Raw<AnyStateEvent>>,
-    ) -> MatrixMock<'a> {
+    /// Returns an endpoint that emulates a successful response.
+    pub fn ok(self, response: RoomContextResponseTemplate) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.event_id().expect("an event id is required");
+            let event_id = response.event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
@@ -2723,12 +2770,12 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
             .mock
             .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/context/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "event": event.into_raw().json(),
-                "events_before": events_before.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
-                "events_after": events_after.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
-                "end": end.into(),
-                "start": start.into(),
-                "state": state_events,
+                "event": response.event.into_raw().json(),
+                "events_before": response.events_before.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
+                "events_after": response.events_after.into_iter().map(|event| event.into_raw().json().to_owned()).collect::<Vec<_>>(),
+                "end": response.end,
+                "start": response.start,
+                "state": response.state_events,
             })));
         MatrixMock { server: self.server, mock }
     }
