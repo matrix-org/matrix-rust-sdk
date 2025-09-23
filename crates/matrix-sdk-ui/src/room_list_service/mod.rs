@@ -465,13 +465,15 @@ impl RoomListService {
 
         // Before subscribing, let's listen these rooms to calculate their latest
         // events.
-        let latest_events = self.client.latest_events().await;
+        if self.client.event_cache().has_subscribed() {
+            let latest_events = self.client.latest_events().await;
 
-        for room_id in room_ids {
-            if let Err(error) = latest_events.listen_to_room(room_id).await {
-                // Let's not fail the room subscription. Instead, emit a log because it's very
-                // unlikely to happen.
-                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+            for room_id in room_ids {
+                if let Err(error) = latest_events.listen_to_room(room_id).await {
+                    // Let's not fail the room subscription. Instead, emit a log because it's very
+                    // unlikely to happen.
+                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+                }
             }
         }
 
