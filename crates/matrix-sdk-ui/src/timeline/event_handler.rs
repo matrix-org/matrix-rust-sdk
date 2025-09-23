@@ -382,8 +382,8 @@ impl TimelineAction {
                 ),
             },
 
-            _event => {
-                let other = OtherMessageLike { event_type: _event.event_type() };
+            event => {
+                let other = OtherMessageLike { event_type: event.event_type() };
 
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {

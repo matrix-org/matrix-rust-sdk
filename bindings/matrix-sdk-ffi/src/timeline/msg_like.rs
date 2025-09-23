@@ -191,8 +191,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     // This should always fail since we cannot construct a custom
                     // MessageLikeEventType, because the enum must be
                     // exhaustive.
-                    event_type: MessageLikeEventType::try_from(other.event_type().clone())
-                        .map_err(|e| (e, other.event_type().to_string()))?,
+                    event_type: MessageLikeEventType::Other(other.event_type().to_string()),
                 },
                 reactions,
                 in_reply_to,

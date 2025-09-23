@@ -29,9 +29,9 @@ use matrix_sdk_test::{
 use matrix_sdk_ui::{
     Timeline,
     timeline::{
-        AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike, RedactError, RoomExt,
-        TimelineBuilder, TimelineEventItemId, TimelineFocus, TimelineItemContent,
-        VirtualTimelineItem, default_event_filter,
+        AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
+        RedactError, RoomExt, TimelineBuilder, TimelineEventItemId, TimelineFocus,
+        TimelineItemContent, VirtualTimelineItem, default_event_filter,
     },
 };
 use ruma::{
@@ -900,11 +900,8 @@ async fn test_custom_msglike_event_in_timeline() {
     let timeline = room
         .timeline_builder()
         .event_filter(|event, room_version| {
-            if event.event_type() == TimelineEventType::from("rs.matrix-sdk.custom.test") {
-                true
-            } else {
-                default_event_filter(event, room_version)
-            }
+            event.event_type() == TimelineEventType::from("rs.matrix-sdk.custom.test")
+                || default_event_filter(event, room_version)
         })
         .build()
         .await

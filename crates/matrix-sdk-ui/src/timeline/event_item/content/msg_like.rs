@@ -79,7 +79,7 @@ impl MsgLikeContent {
             MsgLikeKind::Poll(_) => "a poll",
             MsgLikeKind::Redacted => "a redacted message",
             MsgLikeKind::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
-            MsgLikeKind::Other(_) => "a custom message",
+            MsgLikeKind::Other(_) => "a custom message-like event",
         }
     }
 

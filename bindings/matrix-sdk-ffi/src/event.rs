@@ -380,6 +380,7 @@ pub enum MessageLikeEventType {
     UnstablePollEnd,
     UnstablePollResponse,
     UnstablePollStart,
+    Other(String),
 }
 
 impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
@@ -408,54 +409,7 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
             MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
             MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
             MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
-        }
-    }
-}
-
-impl TryFrom<ruma::events::MessageLikeEventType> for MessageLikeEventType {
-    type Error = ClientError;
-
-    fn try_from(val: ruma::events::MessageLikeEventType) -> Result<Self, Self::Error> {
-        match val {
-            ruma::events::MessageLikeEventType::CallAnswer => Ok(Self::CallAnswer),
-            ruma::events::MessageLikeEventType::CallInvite => Ok(Self::CallInvite),
-            ruma::events::MessageLikeEventType::CallNotify => Ok(Self::CallNotify),
-            ruma::events::MessageLikeEventType::CallHangup => Ok(Self::CallHangup),
-            ruma::events::MessageLikeEventType::CallCandidates => Ok(Self::CallCandidates),
-            ruma::events::MessageLikeEventType::KeyVerificationReady => {
-                Ok(Self::KeyVerificationReady)
-            }
-            ruma::events::MessageLikeEventType::KeyVerificationStart => {
-                Ok(Self::KeyVerificationStart)
-            }
-            ruma::events::MessageLikeEventType::KeyVerificationCancel => {
-                Ok(Self::KeyVerificationCancel)
-            }
-            ruma::events::MessageLikeEventType::KeyVerificationAccept => {
-                Ok(Self::KeyVerificationAccept)
-            }
-            ruma::events::MessageLikeEventType::KeyVerificationKey => Ok(Self::KeyVerificationKey),
-            ruma::events::MessageLikeEventType::KeyVerificationMac => Ok(Self::KeyVerificationMac),
-            ruma::events::MessageLikeEventType::KeyVerificationDone => {
-                Ok(Self::KeyVerificationDone)
-            }
-            ruma::events::MessageLikeEventType::Reaction => Ok(Self::Reaction),
-            ruma::events::MessageLikeEventType::RoomEncrypted => Ok(Self::RoomEncrypted),
-            ruma::events::MessageLikeEventType::RoomMessage => Ok(Self::RoomMessage),
-            ruma::events::MessageLikeEventType::RoomRedaction => Ok(Self::RoomRedaction),
-            ruma::events::MessageLikeEventType::Sticker => Ok(Self::Sticker),
-            ruma::events::MessageLikeEventType::PollEnd => Ok(Self::PollEnd),
-            ruma::events::MessageLikeEventType::PollResponse => Ok(Self::PollResponse),
-            ruma::events::MessageLikeEventType::PollStart => Ok(Self::PollStart),
-            ruma::events::MessageLikeEventType::UnstablePollEnd => Ok(Self::UnstablePollEnd),
-            ruma::events::MessageLikeEventType::UnstablePollResponse => {
-                Ok(Self::UnstablePollResponse)
-            }
-            ruma::events::MessageLikeEventType::UnstablePollStart => Ok(Self::UnstablePollStart),
-            _type => Err(self::ClientError::Generic {
-                msg: "Cannot convert custom MessageLikeEventTypes yet".to_owned(),
-                details: Some(format!("origin type: {}", _type)),
-            }),
+            MessageLikeEventType::Other(msgtype) => Self::from(msgtype),
         }
     }
 }

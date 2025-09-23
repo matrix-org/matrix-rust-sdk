@@ -30,8 +30,8 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     AnyOtherFullStateEventContent, MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter,
-    TimelineItem, TimelineItemContent, TimelineItemKind, controller::TimelineSettings,
-    tests::TestTimelineBuilder,
+    TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    controller::TimelineSettings, tests::TestTimelineBuilder,
 };
 
 #[async_test]
@@ -150,8 +150,13 @@ async fn test_custom_filter_for_custom_msglike_event() {
 
     let f = &timeline.factory;
     timeline.handle_live_event(f.custom_message_like_event().sender(&ALICE)).await;
-    let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    let _item = item.as_event().unwrap().content.as_msglike().unwrap().kind.clone();
+    let _date_divider = date_divider.as_virtual().unwrap();
+    assert!(matches!(MsgLikeKind::Other, _item));
+    assert!(matches!(VirtualTimelineItem::ReadMarker, _date_divider));
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 }
