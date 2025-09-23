@@ -931,18 +931,21 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
-        let _sync_lock = self.sync_lock().lock().await;
-        let mut room_info = room.clone_info();
-        room_info.mark_members_synced();
-        context.state_changes.add_room(room_info);
+        {
+            let _sync_lock = self.sync_lock().lock().await;
 
-        processors::changes::save_and_apply(
-            context,
-            &self.state_store,
-            &self.ignore_user_list_changes,
-            None,
-        )
-        .await?;
+            let mut room_info = room.clone_info();
+            room_info.mark_members_synced();
+            context.state_changes.add_room(room_info);
+
+            processors::changes::save_and_apply(
+                context,
+                &self.state_store,
+                &self.ignore_user_list_changes,
+                None,
+            )
+            .await?;
+        }
 
         let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
