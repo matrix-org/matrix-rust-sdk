@@ -734,7 +734,10 @@ impl IdentityResetHandle {
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::events::secret::request::SecretName;
+    use ruma::{
+        events::{secret::request::SecretName, secret_storage::key},
+        serde::Base64,
+    };
     use serde_json::json;
 
     use super::Recovery;
@@ -752,27 +755,27 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
 
         server
-            .mock_global_account_data()
+            .mock_get_secret_storage_key()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
-                json!({
-                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
-                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
-                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
-                }),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
             )
             .mount()
             .await;
         server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
-                json!({
-                    "key": "abc"
-                }),
-            )
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
             .mount()
             .await;
 
@@ -796,38 +799,30 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
 
         server
-            .mock_global_account_data()
+            .mock_get_secret_storage_key()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
-                json!({
-                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
-                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
-                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
-                }),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
             )
             .mount()
             .await;
         server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
-                json!({
-                    "key": "abc"
-                }),
-            )
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
             .mount()
             .await;
-        server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()),
-                json!({}),
-            )
-            .mount()
-            .await;
+        server.mock_get_master_signing_key().ok(client.user_id().unwrap(), json!({})).mount().await;
 
         let recovery = Recovery { client };
 
@@ -849,34 +844,33 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
 
         server
-            .mock_global_account_data()
+            .mock_get_secret_storage_key()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
-                json!({
-                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
-                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
-                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
-                }),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
             )
             .mount()
             .await;
         server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
-                json!({
-                    "key": "abc"
-                }),
-            )
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
             .mount()
             .await;
         server
-            .mock_global_account_data()
+            .mock_get_master_signing_key()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()),
                 json!({
                     "encrypted": {
                         "abc": {
