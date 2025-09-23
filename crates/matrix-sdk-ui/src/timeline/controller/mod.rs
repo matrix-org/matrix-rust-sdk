@@ -511,27 +511,23 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 match paginator.get().expect("Paginator was not instantiated") {
                     AnyPaginator::Unthreaded { .. } => {
                         self.replace_with_initial_remote_events(
-                            events.into_iter(),
+                            events,
                             RemoteEventOrigin::Pagination,
                         )
                         .await;
                     }
+
                     AnyPaginator::Threaded(threaded_events_loader) => {
                         // We filter only events that are part of the thread, since /context will
-                        // return adjacent events without filters
-                        let events_in_thread = events
-                            .into_iter()
-                            .filter(|event| {
-                                if let Some(thread_root) = extract_thread_root(event.raw()) {
-                                    thread_root == threaded_events_loader.thread_root_event_id()
-                                } else {
-                                    false
-                                }
+                        // return adjacent events without filters.
+                        let events_in_thread = events.into_iter().filter(|event| {
+                            extract_thread_root(event.raw()).is_some_and(|thread_root| {
+                                thread_root == threaded_events_loader.thread_root_event_id()
                             })
-                            .collect::<Vec<TimelineEvent>>();
+                        });
 
                         self.replace_with_initial_remote_events(
-                            events_in_thread.into_iter(),
+                            events_in_thread,
                             RemoteEventOrigin::Pagination,
                         )
                         .await;
