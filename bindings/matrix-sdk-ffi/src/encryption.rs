@@ -287,8 +287,8 @@ impl Encryption {
         Ok(self.inner.recovery().is_last_device().await?)
     }
 
-    /// Does the user has other devices that the current device can verify
-    /// against.
+    /// Does the user have other devices that the current device can verify
+    /// against?
     ///
     /// The device must be signed by the user's cross-signing key, must have an
     /// identity, and must not be a dehydrated device.
