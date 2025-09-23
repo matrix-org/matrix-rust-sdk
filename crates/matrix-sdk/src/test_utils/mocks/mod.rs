@@ -1276,6 +1276,7 @@ impl MatrixMockServer {
     ///
     /// # anyhow::Ok(()) });
     /// ```
+    #[cfg(feature = "e2e-encryption")]
     pub fn mock_get_default_secret_storage_key(
         &self,
     ) -> MockEndpoint<'_, GetDefaultSecretStorageKeyEndpoint> {
@@ -1328,6 +1329,7 @@ impl MatrixMockServer {
     ///
     /// # anyhow::Ok(()) });
     /// ```
+    #[cfg(feature = "e2e-encryption")]
     pub fn mock_get_secret_storage_key(&self) -> MockEndpoint<'_, GetSecretStorageKeyEndpoint> {
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, GetSecretStorageKeyEndpoint).expect_default_access_token()
@@ -1342,6 +1344,7 @@ impl MatrixMockServer {
     /// tokio_test::block_on(async {
     /// use js_int::uint;
     /// use serde_json::json;
+    /// use ruma::events::GlobalAccountDataEventType;
     /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
     ///
     /// let mock_server = MatrixMockServer::new().await;
@@ -1354,13 +1357,14 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// self.client.account()
+    /// client.account()
     ///     .fetch_account_data(GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()))
     ///     .await
     ///     .unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
+    #[cfg(feature = "e2e-encryption")]
     pub fn mock_get_master_signing_key(&self) -> MockEndpoint<'_, GetMasterSigningKeyEndpoint> {
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, GetMasterSigningKeyEndpoint).expect_default_access_token()
@@ -3696,8 +3700,10 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
 /// A prebuilt mock for a `GET
 /// /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.default_key`
 /// request, which fetches the ID of the default secret storage key.
+#[cfg(feature = "e2e-encryption")]
 pub struct GetDefaultSecretStorageKeyEndpoint;
 
+#[cfg(feature = "e2e-encryption")]
 impl<'a> MockEndpoint<'a, GetDefaultSecretStorageKeyEndpoint> {
     /// Returns a mock for a successful fetch of the default secret storage key.
     pub fn ok(self, user_id: &UserId, key_id: &str) -> MatrixMock<'a> {
@@ -3716,8 +3722,10 @@ impl<'a> MockEndpoint<'a, GetDefaultSecretStorageKeyEndpoint> {
 /// A prebuilt mock for a `GET
 /// /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.key.{keyId}`
 /// request, which fetches information about a secret storage key.
+#[cfg(feature = "e2e-encryption")]
 pub struct GetSecretStorageKeyEndpoint;
 
+#[cfg(feature = "e2e-encryption")]
 impl<'a> MockEndpoint<'a, GetSecretStorageKeyEndpoint> {
     /// Returns a mock for a successful fetch of the secret storage key
     pub fn ok(
@@ -3740,8 +3748,10 @@ impl<'a> MockEndpoint<'a, GetSecretStorageKeyEndpoint> {
 /// A prebuilt mock for a `GET
 /// /_matrix/client/v3/user/{userId}/account_data/m.cross_signing.master`
 /// request, which fetches information about the master signing key.
+#[cfg(feature = "e2e-encryption")]
 pub struct GetMasterSigningKeyEndpoint;
 
+#[cfg(feature = "e2e-encryption")]
 impl<'a> MockEndpoint<'a, GetMasterSigningKeyEndpoint> {
     /// Returns a mock for a successful fetch of the master signing key
     pub fn ok<B: Serialize>(self, user_id: &UserId, key_json: B) -> MatrixMock<'a> {
