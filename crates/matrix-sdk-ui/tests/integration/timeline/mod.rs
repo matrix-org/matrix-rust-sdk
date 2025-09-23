@@ -20,7 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-    test_utils::mocks::MatrixMockServer,
+    test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
 use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, async_test,
@@ -102,11 +102,7 @@ async fn test_timeline_is_threaded() {
             .room(room_id)
             .sender(&ALICE)
             .into_event();
-        server
-            .mock_room_event_context()
-            .ok(event, Vec::new(), Vec::new(), "", "", Vec::new())
-            .mount()
-            .await;
+        server.mock_room_event_context().ok(RoomContextResponseTemplate::new(event)).mount().await;
 
         // An event-focused timeline isn't threaded.
         let timeline = TimelineBuilder::new(&room)
