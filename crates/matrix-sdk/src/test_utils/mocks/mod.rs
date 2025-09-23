@@ -1253,18 +1253,26 @@ impl MatrixMockServer {
     /// ```
     /// tokio_test::block_on(async {
     /// use js_int::uint;
-    /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    /// use matrix_sdk::{
+    ///     encryption::secret_storage::SecretStorage,
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
     ///
     /// mock_server.mock_get_default_secret_storage_key().ok(
     ///     client.user_id().unwrap(),
-    ///     "abcdefg", // key ID of default secret storage key
+    ///     "abc", // key ID of default secret storage key
     /// )
-    /// .mock_once()
-    /// .mount()
-    /// .await;
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client.encryption()
+    ///     .secret_storage()
+    ///     .fetch_default_key_id()
+    ///     .await
+    ///     .unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
@@ -1285,12 +1293,21 @@ impl MatrixMockServer {
     /// use js_int::uint;
     /// use ruma::events::secret_storage::key;
     /// use ruma::serde::Base64;
-    /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    /// use matrix_sdk::{
+    ///     encryption::secret_storage::SecretStorage,
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
     ///
     /// mock_server.mock_get_default_secret_storage_key().ok(
+    ///     client.user_id().unwrap(),
+    ///     "abc",
+    /// )
+    ///     .mount()
+    ///     .await;
+    /// mock_server.mock_get_secret_storage_key().ok(
     ///     client.user_id().unwrap(),
     ///     &key::SecretStorageKeyEventContent::new(
     ///         "abc".into(),
@@ -1300,9 +1317,14 @@ impl MatrixMockServer {
     ///         )),
     ///     ),
     /// )
-    /// .mock_once()
-    /// .mount()
-    /// .await;
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client.encryption()
+    ///     .secret_storage()
+    ///     .open_secret_store("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd")
+    ///     .await
+    ///     .unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
@@ -1329,9 +1351,13 @@ impl MatrixMockServer {
     ///     client.user_id().unwrap(),
     ///     json!({})
     /// )
-    /// .mock_once()
     /// .mount()
     /// .await;
+    ///
+    /// self.client.account()
+    ///     .fetch_account_data(GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()))
+    ///     .await
+    ///     .unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
