@@ -1597,7 +1597,7 @@ mod private {
         /// observers that a single item has been replaced. Otherwise,
         /// such a notification is not emitted, because observers are
         /// unlikely to observe the store updates directly.
-        async fn replace_event_at(
+        pub(crate) async fn replace_event_at(
             &mut self,
             location: EventLocation,
             event: Event,

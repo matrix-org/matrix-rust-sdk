@@ -74,6 +74,7 @@ use crate::{
 
 mod deduplicator;
 mod pagination;
+mod redecryptor;
 mod room;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
