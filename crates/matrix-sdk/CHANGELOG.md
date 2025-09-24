@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
   an error that occurred when importing a secret from secret storage.
   ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
+- [**breaking**] Add `authentication::oauth::qrcode::login::LoginProgress::SyncingSecrets` to
+  indicate that secrets are being synced between the two devices.
+  ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
 
 ### Refactor
 

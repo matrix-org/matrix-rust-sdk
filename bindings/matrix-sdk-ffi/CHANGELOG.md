@@ -11,9 +11,12 @@ All notable changes to this project will be documented in this file.
 - The `normalized_power_level` field has been removed from the `RoomMember`
   struct.
   ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
-
 - Remove the deprecated `CallNotify` event (`org.matrix.msc4075.call.notify`) in favor of the new
   `RtcNotification` event (`org.matrix.msc4075.rtc.notification`).
+  ([#5668](https://github.com/matrix-org/matrix-rust-sdk/pull/5668))
+- Add `QrLoginProgress::SyncingSecrets` to indicate that secrets are being synced between the two
+  devices.
+  ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
 
 ### Features:
 
