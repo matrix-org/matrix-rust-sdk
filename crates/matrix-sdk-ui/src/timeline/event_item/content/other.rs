@@ -20,7 +20,7 @@ use std::fmt;
 use ruma::events::MessageLikeEventType;
 
 /// A custom event created by the EventContent macro from ruma.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct OtherMessageLike {
     pub(in crate::timeline) event_type: MessageLikeEventType,
 }

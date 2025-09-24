@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -30,8 +31,8 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     AnyOtherFullStateEventContent, MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter,
-    TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
-    controller::TimelineSettings, tests::TestTimelineBuilder,
+    TimelineItem, TimelineItemContent, TimelineItemKind, controller::TimelineSettings,
+    tests::TestTimelineBuilder,
 };
 
 #[async_test]
@@ -153,10 +154,11 @@ async fn test_custom_filter_for_custom_msglike_event() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
-    let _item = item.as_event().unwrap().content.as_msglike().unwrap().kind.clone();
-    let _date_divider = date_divider.as_virtual().unwrap();
-    assert!(matches!(MsgLikeKind::Other, _item));
-    assert!(matches!(VirtualTimelineItem::ReadMarker, _date_divider));
+    assert_matches!(
+        item.as_event().unwrap().content().as_msglike().unwrap().kind.clone(),
+        MsgLikeKind::Other(_)
+    );
+    assert!(date_divider.is_date_divider());
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 }

@@ -922,11 +922,13 @@ async fn test_custom_msglike_event_in_timeline() {
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     let event_type = MessageLikeEventType::from("rs.matrix-sdk.custom.test");
-    let _other_msglike = OtherMessageLike::from_event_type(event_type);
-    assert!(matches!(
+    let other_msglike = OtherMessageLike::from_event_type(event_type);
+    assert_matches!(
         first.as_event().unwrap().content().as_msglike().unwrap().kind.clone(),
-        MsgLikeKind::Other(_other_msglike)
-    ));
+        MsgLikeKind::Other(observed_other) => {
+           assert_eq!(observed_other, other_msglike);
+       }
+    );
 }
 
 struct PinningTestSetup<'a> {

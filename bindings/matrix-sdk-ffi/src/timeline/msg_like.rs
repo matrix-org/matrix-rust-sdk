@@ -188,9 +188,6 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
             },
             Kind::Other(other) => Self {
                 kind: MsgLikeKind::Other {
-                    // This should always fail since we cannot construct a custom
-                    // MessageLikeEventType, because the enum must be
-                    // exhaustive.
                     event_type: MessageLikeEventType::Other(other.event_type().to_string()),
                 },
                 reactions,

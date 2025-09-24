@@ -1079,7 +1079,7 @@ impl EventFactory {
 
     /// Create a new `rs.matrix-sdk.custom.test` custom event
     pub fn custom_message_like_event(&self) -> EventBuilder<CustomMessageLikeEventContent> {
-        self.event(CustomMessageLikeEventContent::new())
+        self.event(CustomMessageLikeEventContent)
     }
 
     /// Set the next server timestamp.
@@ -1304,18 +1304,6 @@ impl From<MembershipState> for PreviousMembership {
     }
 }
 
-#[derive(Clone, Debug, Serialize, EventContent)]
+#[derive(Clone, Default, Debug, Serialize, EventContent)]
 #[ruma_event(type = "rs.matrix-sdk.custom.test", kind = MessageLike)]
-pub struct CustomMessageLikeEventContent {}
-
-impl CustomMessageLikeEventContent {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for CustomMessageLikeEventContent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub struct CustomMessageLikeEventContent;
