@@ -865,6 +865,29 @@ impl Encryption {
         Some(machine.cross_signing_status().await)
     }
 
+    /// Does the user have other devices that the current device can verify
+    /// against?
+    ///
+    /// The device must be signed by the user's cross-signing key, must have an
+    /// identity, and must not be a dehydrated device.
+    pub async fn has_devices_to_verify_against(&self) -> Result<bool> {
+        let olm_machine = self.client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
+        let user_id = olm_machine.user_id();
+
+        self.ensure_initial_key_query().await?;
+
+        let devices = self.get_user_devices(user_id).await?;
+
+        let ret = devices.devices().any(|device| {
+            device.is_cross_signed_by_owner()
+                && device.curve25519_key().is_some()
+                && !device.is_dehydrated()
+        });
+
+        Ok(ret)
+    }
+
     /// Get all the tracked users we know about
     ///
     /// Tracked users are users for which we keep the device list of E2EE
@@ -2427,5 +2450,178 @@ mod tests {
 
         DuplicateOneTimeKeyErrorMessage::from_str("One time key already exists.")
             .expect_err("We shouldn't be able to parse an incomplete error message");
+    }
+
+    // Helper function for the test_devices_to_verify_against_* tests.  Make a
+    // response to a /keys/query request using the given device keys and a
+    // pre-defined set of cross-signing keys.
+    fn devices_to_verify_against_keys_query_response(
+        devices: Vec<serde_json::Value>,
+    ) -> serde_json::Value {
+        let device_keys: serde_json::Map<String, serde_json::Value> = devices
+            .into_iter()
+            .map(|device| (device.get("device_id").unwrap().as_str().unwrap().to_owned(), device))
+            .collect();
+        json!({
+            "device_keys": {
+                "@example:localhost": device_keys,
+            },
+            "master_keys": {
+                "@example:localhost": {
+                    "keys": {
+                        "ed25519:PJklDgml7Xtt1Wr8jsWvB+lC5YD/bVDpHL+fYuItNxU": "PJklDgml7Xtt1Wr8jsWvB+lC5YD/bVDpHL+fYuItNxU",
+                    },
+                    "usage": ["master"],
+                    "user_id": "@example:localhost",
+                },
+            },
+            "self_signing_keys": {
+                "@example:localhost": {
+                    "keys": {
+                        "ed25519:jobZVcxG+PBLwZMsF4XEJSJTVqOgDxd0Ud3J/bw3HYM": "jobZVcxG+PBLwZMsF4XEJSJTVqOgDxd0Ud3J/bw3HYM",
+                    },
+                    "usage": ["self_signing"],
+                    "user_id": "@example:localhost",
+                    "signatures": {
+                        "@example:localhost": {
+                            "ed25519:PJklDgml7Xtt1Wr8jsWvB+lC5YD/bVDpHL+fYuItNxU": "etO1bB+rCk+TQ/FcjQ8eWu/RsRNQNNQ1Ek+PD6//j8yz6igRjfvuHZaMvr/quAFrirfgExph2TdOwlDgN5bFCQ",
+                        },
+                    },
+                },
+            },
+            "user_signing_keys": {
+                "@example:localhost": {
+                    "keys": {
+                        "ed25519:CBaovtekFxzf2Ijjhk4B49drOH0/qmhBbptFlVW7HC0": "CBaovtekFxzf2Ijjhk4B49drOH0/qmhBbptFlVW7HC0",
+                    },
+                    "usage": ["user_signing"],
+                    "user_id": "@example:localhost",
+                    "signatures": {
+                        "@example:localhost": {
+                            "ed25519:PJklDgml7Xtt1Wr8jsWvB+lC5YD/bVDpHL+fYuItNxU": "E/DFi/hQTIb/7eSB+HbCXeTLFaLjqWHzLO9GwjL1qdhfO7ew4p6YdtXSH3T2YYr1dKCPteH/4nMYVwOhww2CBg",
+                        },
+                    },
+                },
+            }
+        })
+    }
+
+    // The following three tests test that we can detect whether the user has
+    // other devices that they can verify against under different conditions.
+    #[async_test]
+    /// Test that we detect that can't verify against another device if we have
+    /// no devices.
+    async fn test_devices_to_verify_against_no_devices() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/r0/keys/query".to_owned()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(devices_to_verify_against_keys_query_response(vec![])),
+            )
+            .mount(&server)
+            .await;
+
+        assert!(!client.encryption().has_devices_to_verify_against().await.unwrap());
+    }
+
+    #[async_test]
+    /// Test that we detect that we can verify against another cross-signed
+    /// regular device.
+    async fn test_devices_to_verify_against_cross_signed() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/r0/keys/query".to_owned()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                devices_to_verify_against_keys_query_response(vec![
+                    json!({
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2",
+                        ],
+                        "user_id": "@example:localhost",
+                        "device_id": "SIGNEDDEVICE",
+                        "keys": {
+                            "curve25519:SIGNEDDEVICE": "o1LqUtH/sqd3WF+BB2Qr77uw3sDmZhMOz68/IV9aHxs",
+                            "ed25519:SIGNEDDEVICE": "iVoEfMOoUqxXVMLdpZCOgvQuCrT3/kQWkBmB3Phi/lo",
+                        },
+                        "signatures": {
+                            "@example:localhost": {
+                                "ed25519:SIGNEDDEVICE": "C7yRu1fNrdD2EobVdtANMqk3LBtWtTRWrIU22xVS8/Om1kmA/luzek64R3N6JsZhYczVmZYBKhUC9kRvHHwOBg",
+                                "ed25519:jobZVcxG+PBLwZMsF4XEJSJTVqOgDxd0Ud3J/bw3HYM": "frfh2HP28GclmGvwTic00Fj4nZCvm4RlRA6U56mnD5920hOi04+L055ojzp6ybZXvC/GQYfyTHwQXlUN1nvxBA",
+                            },
+                        },
+                    })
+                ])
+            ))
+            .mount(&server)
+            .await;
+
+        assert!(client.encryption().has_devices_to_verify_against().await.unwrap());
+    }
+
+    #[async_test]
+    /// Test that we detect that we can't verify against a dehydrated or
+    /// unsigned device.
+    async fn test_devices_to_verify_against_dehydrated_and_unsigned() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let user_id = client.user_id().unwrap();
+        let olm_machine = client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().unwrap();
+
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/r0/keys/query".to_owned()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                devices_to_verify_against_keys_query_response(vec![
+                    json!({
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2",
+                        ],
+                        "user_id": "@example:localhost",
+                        "device_id": "DEHYDRATEDDEVICE",
+                        "keys": {
+                            "curve25519:DEHYDRATEDDEVICE": "XOn5VguAgokZ3p9mBz2yOB395fn6j75G8jIPcXEWQGY",
+                            "ed25519:DEHYDRATEDDEVICE": "4GG5xmBT7z4rgUgmWNlKZ+ABE3QlGgTorF+luCnKfYI",
+                        },
+                        "dehydrated": true,
+                        "signatures": {
+                            "@example:localhost": {
+                                "ed25519:DEHYDRATEDDEVICE": "+OMasB7nzVlMV+zRDxkh4h8h/Q0bY42P1SPv7X2IURIelT5G+d+AYSmg30N4maphxEDBqt/vI8/lIr71exc3Dg",
+                                "ed25519:jobZVcxG+PBLwZMsF4XEJSJTVqOgDxd0Ud3J/bw3HYM": "8DzynAgbYgXX1Md5d4Vw91Zstpoi4dpG7levFeVhi4psCAWuBnV76Qu1s2TGjQQ0CLDXEqcxxuX9X4eUK5TGCg",
+                            },
+                        },
+                    }),
+                    json!({
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2",
+                        ],
+                        "user_id": "@example:localhost",
+                        "device_id": "UNSIGNEDDEVICE",
+                        "keys": {
+                            "curve25519:UNSIGNEDDEVICE": "mMby6NpprkHxj+ONfO9Z5lBqVUHJBMkrPFSNJhogBkg",
+                            "ed25519:UNSIGNEDDEVICE": "Zifq39ZDrlIaSRf0Hh22owEqXCPE+1JSSgs6LDlubwQ",
+                        },
+                        "signatures": {
+                            "@example:localhost": {
+                                "ed25519:UNSIGNEDDEVICE": "+L29RoDKoTufPGm/Bae65KHno7Z1H7GYhxSKpB4RQZRS7NrR29AMW1PVhEsIozYuDVEFuMZ0L8H3dlcaHxagBA",
+                            },
+                        },
+                    }),
+                ])
+            ))
+            .mount(&server)
+            .await;
+
+        let (request_id, request) = olm_machine.query_keys_for_users([user_id]);
+        client.keys_query(&request_id, request.device_keys).await.unwrap();
+
+        assert!(!client.encryption().has_devices_to_verify_against().await.unwrap());
     }
 }
