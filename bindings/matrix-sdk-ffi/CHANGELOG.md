@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 - Add `Room::load_or_fetch_event` so we can get a `TimelineEvent` given its event id ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
 - Add `TimelineEvent::thread_root_event_id` to expose the thread root event id for this type too ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
+- Add `NotificationSettings::get_raw_push_rules` so clients can fetch the raw JSON content of the push rules of the current user and include it in bug reports ([#5706](https://github.com/matrix-org/matrix-rust-sdk/pull/5706)).
 
 ## [0.14.0] - 2025-09-04
 
