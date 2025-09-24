@@ -15,8 +15,6 @@
 //! Timeline item content for other message-like events created by the
 //! EventContent macro from ruma.
 
-use std::fmt;
-
 use ruma::events::MessageLikeEventType;
 
 /// A custom event created by the EventContent macro from ruma.
