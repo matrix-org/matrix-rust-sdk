@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::IntoFuture;
+use std::{future::IntoFuture, sync::Arc};
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use matrix_sdk_base::{
     SessionMeta, boxed_into_future,
-    crypto::types::qr_login::{QrCodeData, QrCodeMode},
+    crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData},
     store::RoomLoadSettings,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
@@ -26,17 +26,18 @@ use ruma::{
     OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
+use tokio::sync::Mutex;
 use tracing::trace;
 use vodozemac::{Curve25519PublicKey, ecies::CheckCode};
 
 use super::{
     DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
     messages::{LoginFailureReason, QrAuthMessage},
-    secure_channel::EstablishedSecureChannel,
+    secure_channel::{EstablishedSecureChannel, SecureChannel},
 };
 use crate::{
     Client,
-    authentication::oauth::{ClientRegistrationData, OAuth, OAuthError},
+    authentication::oauth::{ClientRegistrationData, OAuth, OAuthError, qrcode::LoginProtocolType},
 };
 
 async fn send_unexpected_message_error(
@@ -243,9 +244,8 @@ pub enum LoginProgress<Q> {
     /// We're just starting up, this is the default and initial state.
     #[default]
     Starting,
-    /// We have established the secure channel, but we need to let the other
-    /// side know about the [`CheckCode`] so they can verify that the secure
-    /// channel is indeed secure.
+    /// We have established the secure channel, but need to exchange the
+    /// [`CheckCode`] so the channel can be verified to indeed be secure.
     EstablishingSecureChannel(Q),
     /// We're waiting for the OAuth 2.0 authorization server to give us the
     /// access token. This will only happen if the other device allows the
@@ -264,10 +264,66 @@ pub enum LoginProgress<Q> {
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
 /// this device is the one scanning the QR code.
+///
+/// We have established the secure channel, but we need to let the other
+/// side know about the [`CheckCode`] so they can verify that the secure
+/// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
     pub check_code: CheckCode,
+}
+
+/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
+/// this device is the one generating the QR code.
+///
+/// We have established the secure channel, but we need to let the
+/// other side know about the [`QrCodeData`] so they can send us the
+/// [`CheckCode`] and verify that the secure channel is indeed secure.
+#[derive(Clone, Debug)]
+pub enum GeneratedQrProgress {
+    /// The QR code data that must be sent to the existing device.
+    QrReady(QrCodeData),
+    /// Used to send the [`CheckCode`] to the login task once we receive
+    /// it from the existing device.
+    QrScanned(CheckCodeSender),
+}
+
+/// Used to send the [`CheckCode`] to the new device that generated the
+/// QR code.
+#[derive(Clone, Debug)]
+pub struct CheckCodeSender {
+    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,
+}
+
+impl CheckCodeSender {
+    fn new(tx: tokio::sync::oneshot::Sender<u8>) -> Self {
+        Self { inner: Arc::new(Mutex::new(Some(tx))) }
+    }
+
+    /// Send the [`CheckCode`].
+    ///
+    /// Calling this method more than once will result in an error.
+    pub async fn send(&self, check_code: u8) -> Result<(), CheckCodeSenderError> {
+        match self.inner.lock().await.take() {
+            Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
+            None => Err(CheckCodeSenderError::AlreadySent),
+        }
+    }
+}
+
+/// Possible errors when calling [`CheckCodeSender::send`].
+#[derive(Debug, thiserror::Error)]
+pub enum CheckCodeSenderError {
+    /// The check code has already been sent.
+    #[error("check code already sent.")]
+    AlreadySent,
+    /// The check code cannot be sent.
+    ///
+    /// This probably means that the new device log-in process
+    /// crashed somehow.
+    #[error("check code cannot be sent.")]
+    CannotSend,
 }
 
 /// Named future for the [`OAuth::login_with_qr_code()`] method.
@@ -336,6 +392,111 @@ impl<'a> LoginWithQrCode<'a> {
         .await?;
 
         Ok(channel)
+    }
+}
+
+/// Named future for the [`OAuth::login_with_generated_qr_code()`] method.
+#[derive(Debug)]
+pub struct LoginWithGeneratedQrCode<'a> {
+    client: &'a Client,
+    registration_data: Option<&'a ClientRegistrationData>,
+    state: SharedObservable<LoginProgress<GeneratedQrProgress>>,
+}
+
+impl LoginWithGeneratedQrCode<'_> {
+    /// Subscribe to the progress of QR code login.
+    ///
+    /// It's necessary to subscribe to this to show the QR code to the existing
+    /// device so it can send the check code back to this device.
+    pub fn subscribe_to_progress(
+        &self,
+    ) -> impl Stream<Item = LoginProgress<GeneratedQrProgress>> + use<> {
+        self.state.subscribe()
+    }
+}
+
+impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
+    type Output = Result<(), QRCodeLoginError>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let mut channel = self.establish_secure_channel().await?;
+
+            trace!("Established the secure channel.");
+
+            // Receive m.login.protocols message.
+            let message = channel.receive_json().await?;
+
+            match message {
+                QrAuthMessage::LoginProtocols { protocols, .. } => {
+                    if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
+                        channel
+                            .send_json(QrAuthMessage::LoginFailure {
+                                reason: LoginFailureReason::UnsupportedProtocol,
+                                homeserver: None,
+                            })
+                            .await?;
+
+                        return Err(QRCodeLoginError::LoginFailure {
+                            reason: LoginFailureReason::UnsupportedProtocol,
+                            homeserver: None,
+                        });
+                    }
+                }
+                _ => {
+                    send_unexpected_message_error(&mut channel).await?;
+
+                    return Err(QRCodeLoginError::UnexpectedMessage {
+                        expected: "m.login.protocols",
+                        received: message,
+                    });
+                }
+            }
+
+            finish_login(self.client, channel, self.registration_data, self.state).await
+        })
+    }
+}
+
+impl<'a> LoginWithGeneratedQrCode<'a> {
+    pub(crate) fn new(
+        client: &'a Client,
+        registration_data: Option<&'a ClientRegistrationData>,
+    ) -> Self {
+        Self { client, registration_data, state: Default::default() }
+    }
+
+    async fn establish_secure_channel(
+        &self,
+    ) -> Result<EstablishedSecureChannel, SecureChannelError> {
+        let http_client = self.client.inner.http_client.clone();
+
+        let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
+
+        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+
+        let qr_code_data = secure_channel.qr_code_data().clone();
+
+        trace!("Generated QR code.");
+        self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
+            qr_code_data,
+        )));
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        let channel = secure_channel.connect().await?;
+
+        trace!("Waiting for checkcode.");
+        self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+            CheckCodeSender::new(tx),
+        )));
+
+        let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
+
+        trace!("Received check code.");
+
+        channel.confirm(check_code)
     }
 }
 
@@ -519,6 +680,190 @@ mod test {
         assert!(own_identity.is_verified());
     }
 
+    async fn grant_login_with_generated_qr(
+        alice: &Client,
+        qr_receiver: tokio::sync::oneshot::Receiver<QrCodeData>,
+        cctx_receiver: tokio::sync::oneshot::Receiver<CheckCodeSender>,
+        behavior: AliceBehaviour,
+    ) {
+        let qr_code_data = qr_receiver.await.expect("Alice should receive the QR code");
+
+        let mut channel = EstablishedSecureChannel::from_qr_code(
+            alice.inner.http_client.inner.clone(),
+            &qr_code_data,
+            QrCodeMode::Reciprocate,
+        )
+        .await
+        .expect("Alice should be able to establish the secure channel");
+
+        trace!("Established the secure channel.");
+
+        // The other side isn't yet sure that it's talking to the right device, show
+        // a check code so they can confirm.
+        let check_code = channel.check_code().to_digit();
+
+        let check_code_sender =
+            cctx_receiver.await.expect("Alice should receive the CheckCodeSender");
+
+        check_code_sender
+            .send(check_code)
+            .await
+            .expect("Alice should be able to send the check code to Bob");
+
+        // Alice sends m.login.protocols message
+        let message = QrAuthMessage::LoginProtocols {
+            protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+            homeserver: alice.homeserver(),
+        };
+        channel
+            .send_json(message)
+            .await
+            .expect("Alice should be able to send the `m.login.protocols` message to Bob");
+
+        // Alice receives m.login.protocol message
+        let message: QrAuthMessage = channel
+            .receive_json()
+            .await
+            .expect("Alice should be able to receive the `m.login.protocol` message from Bob");
+        assert_let!(QrAuthMessage::LoginProtocol { protocol, .. } = message);
+        assert_eq!(protocol, LoginProtocolType::DeviceAuthorizationGrant);
+
+        // Alice sends m.login.protocol_accepted message
+        let message = match behavior {
+            AliceBehaviour::DeclinedProtocol => QrAuthMessage::LoginFailure {
+                reason: LoginFailureReason::UnsupportedProtocol,
+                homeserver: None,
+            },
+            AliceBehaviour::UnexpectedMessage => QrAuthMessage::LoginDeclined,
+            _ => QrAuthMessage::LoginProtocolAccepted,
+        };
+        channel
+            .send_json(message)
+            .await
+            .expect("Alice should be able to send the `m.login.protocol_accepted` message to Bob");
+
+        let message: QrAuthMessage = channel
+            .receive_json()
+            .await
+            .expect("Alice should be able to receive the `m.login.success` message from Bob");
+        assert_let!(QrAuthMessage::LoginSuccess = message);
+
+        // Alice sends m.login.secrets message
+        let message = match behavior {
+            AliceBehaviour::UnexpectedMessageInsteadOfSecrets => QrAuthMessage::LoginDeclined,
+            AliceBehaviour::RefuseSecrets => QrAuthMessage::LoginFailure {
+                reason: LoginFailureReason::DeviceNotFound,
+                homeserver: None,
+            },
+            _ => QrAuthMessage::LoginSecrets(secrets_bundle()),
+        };
+        channel
+            .send_json(message)
+            .await
+            .expect("Alice should be able to send the `m.login.secrets` message to Bob");
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
+        let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
+
+        let oauth_server = server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        oauth_server
+            .mock_device_authorization()
+            .ok()
+            .expect(1)
+            .named("device_authorization")
+            .mount()
+            .await;
+        oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+        server.mock_versions().ok().expect(1..).named("versions").mount().await;
+        server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server.mock_query_keys().ok().expect(1).named("query_keys").mount().await;
+
+        let homeserver_url = rendezvous_server.homeserver_url.clone();
+
+        // Create Alice, the existing client, as a logged-in client. They will scan the
+        // QR code generated by Bob.
+        let alice = server.client_builder().logged_in_with_oauth().build().await;
+        assert!(alice.session_meta().is_some(), "Alice should be logged in");
+
+        // Create Bob, the new client. They will generate the QR code.
+        let bob = Client::builder()
+            .server_name_or_homeserver_url(&homeserver_url)
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .expect("Should be able to create a client for Bob");
+
+        let secure_channel = SecureChannel::login(bob.inner.http_client.clone(), &homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel");
+
+        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+
+        let registration_data = mock_client_metadata().into();
+        let bob_oauth = bob.oauth();
+        let bob_login = bob_oauth.login_with_generated_qr_code(Some(&registration_data));
+        let mut bob_updates = bob_login.subscribe_to_progress();
+
+        let updates_task = spawn(async move {
+            let mut qr_sender = Some(qr_sender);
+            let mut cctx_sender = Some(cctx_sender);
+
+            while let Some(update) = bob_updates.next().await {
+                match update {
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(qr)) => {
+                        qr_sender
+                            .take()
+                            .expect("The establishing secure channel update with a qr code should be received only once")
+                            .send(qr)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+                        cctx,
+                    )) => {
+                        cctx_sender
+                            .take()
+                            .expect("The establishing secure channel update with a CheckCodeSender should be received only once")
+                            .send(cctx)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::Done => break,
+                    _ => (),
+                }
+            }
+        });
+
+        let alice_task = spawn(async move {
+            grant_login_with_generated_qr(
+                &alice,
+                qr_receiver,
+                cctx_receiver,
+                AliceBehaviour::HappyPath,
+            )
+            .await
+        });
+
+        join!(
+            async { bob_login.await.expect("Bob should be able to login") },
+            async { alice_task.await.expect("Alice should have completed it's task successfully") },
+            async { updates_task.await.unwrap() }
+        );
+
+        assert!(bob.encryption().cross_signing_status().await.unwrap().is_complete());
+        let own_identity =
+            bob.encryption().get_user_identity(bob.user_id().unwrap()).await.unwrap().unwrap();
+
+        assert!(own_identity.is_verified());
+    }
+
     async fn test_failure(
         token_response: TokenResponse,
         alice_behavior: AliceBehaviour,
@@ -591,9 +936,113 @@ mod test {
         login_bob.await
     }
 
+    async fn test_generated_failure(
+        token_response: TokenResponse,
+        alice_behavior: AliceBehaviour,
+    ) -> Result<(), QRCodeLoginError> {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
+        let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
+
+        let oauth_server = server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        oauth_server
+            .mock_device_authorization()
+            .ok()
+            .expect(1)
+            .named("device_authorization")
+            .mount()
+            .await;
+
+        let token_mock = oauth_server.mock_token();
+        let token_mock = match token_response {
+            TokenResponse::Ok => token_mock.ok(),
+            TokenResponse::AccessDenied => token_mock.access_denied(),
+            TokenResponse::ExpiredToken => token_mock.expired_token(),
+        };
+        token_mock.named("token").mount().await;
+
+        server.mock_versions().ok().named("versions").mount().await;
+        server.mock_who_am_i().ok().named("whoami").mount().await;
+
+        let homeserver_url = rendezvous_server.homeserver_url.clone();
+
+        // Create Alice, the existing client, as a logged-in client. They will scan the
+        // QR code generated by Bob.
+        let alice = server.client_builder().logged_in_with_oauth().build().await;
+        assert!(alice.session_meta().is_some(), "Alice should be logged in");
+
+        // Create Bob, the new client. They will generate the QR code.
+        let bob = Client::builder()
+            .server_name_or_homeserver_url(&homeserver_url)
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .expect("Should be able to create a client for Bob");
+
+        let secure_channel = SecureChannel::login(bob.inner.http_client.clone(), &homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel");
+
+        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+
+        let registration_data = mock_client_metadata().into();
+        let bob_oauth = bob.oauth();
+        let bob_login = bob_oauth.login_with_generated_qr_code(Some(&registration_data));
+        let mut bob_updates = bob_login.subscribe_to_progress();
+
+        let _updates_task = spawn(async move {
+            let mut qr_sender = Some(qr_sender);
+            let mut cctx_sender = Some(cctx_sender);
+
+            while let Some(update) = bob_updates.next().await {
+                match update {
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(qr)) => {
+                        qr_sender
+                            .take()
+                            .expect("The establishing secure channel update with a qr code should be received only once")
+                            .send(qr)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+                        cctx,
+                    )) => {
+                        cctx_sender
+                            .take()
+                            .expect("The establishing secure channel update with a CheckCodeSender should be received only once")
+                            .send(cctx)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::Done => break,
+                    _ => (),
+                }
+            }
+        });
+
+        let _alice_task = spawn(async move {
+            grant_login_with_generated_qr(&alice, qr_receiver, cctx_receiver, alice_behavior).await
+        });
+        bob_login.await
+    }
+
     #[async_test]
     async fn test_qr_login_refused_access_token() {
         let result = test_failure(TokenResponse::AccessDenied, AliceBehaviour::HappyPath).await;
+
+        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_eq!(
+            e.as_request_token_error(),
+            Some(&DeviceCodeErrorResponseType::AccessDenied),
+            "The server should have told us that access has been denied."
+        );
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_refused_access_token() {
+        let result =
+            test_generated_failure(TokenResponse::AccessDenied, AliceBehaviour::HappyPath).await;
 
         assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
         assert_eq!(
@@ -616,8 +1065,34 @@ mod test {
     }
 
     #[async_test]
+    async fn test_generated_qr_login_expired_token() {
+        let result =
+            test_generated_failure(TokenResponse::ExpiredToken, AliceBehaviour::HappyPath).await;
+
+        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_eq!(
+            e.as_request_token_error(),
+            Some(&DeviceCodeErrorResponseType::ExpiredToken),
+            "The server should have told us that access has been denied."
+        );
+    }
+
+    #[async_test]
     async fn test_qr_login_declined_protocol() {
         let result = test_failure(TokenResponse::Ok, AliceBehaviour::DeclinedProtocol).await;
+
+        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_eq!(
+            reason,
+            LoginFailureReason::UnsupportedProtocol,
+            "Alice should have told us that the protocol is unsupported."
+        );
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_declined_protocol() {
+        let result =
+            test_generated_failure(TokenResponse::Ok, AliceBehaviour::DeclinedProtocol).await;
 
         assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
         assert_eq!(
@@ -636,6 +1111,15 @@ mod test {
     }
 
     #[async_test]
+    async fn test_generated_qr_login_unexpected_message() {
+        let result =
+            test_generated_failure(TokenResponse::Ok, AliceBehaviour::UnexpectedMessage).await;
+
+        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_eq!(expected, "m.login.protocol_accepted");
+    }
+
+    #[async_test]
     async fn test_qr_login_unexpected_message_instead_of_secrets() {
         let result =
             test_failure(TokenResponse::Ok, AliceBehaviour::UnexpectedMessageInsteadOfSecrets)
@@ -646,8 +1130,28 @@ mod test {
     }
 
     #[async_test]
+    async fn test_generated_qr_login_unexpected_message_instead_of_secrets() {
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessageInsteadOfSecrets,
+        )
+        .await;
+
+        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_eq!(expected, "m.login.secrets");
+    }
+
+    #[async_test]
     async fn test_qr_login_refuse_secrets() {
         let result = test_failure(TokenResponse::Ok, AliceBehaviour::RefuseSecrets).await;
+
+        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_eq!(reason, LoginFailureReason::DeviceNotFound);
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_refuse_secrets() {
+        let result = test_generated_failure(TokenResponse::Ok, AliceBehaviour::RefuseSecrets).await;
 
         assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
         assert_eq!(reason, LoginFailureReason::DeviceNotFound);
