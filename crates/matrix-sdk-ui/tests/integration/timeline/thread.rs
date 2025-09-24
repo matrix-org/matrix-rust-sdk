@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Not as _;
+use std::{ops::Not as _, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
     Client, ThreadingSupport, assert_let_timeout,
-    test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+    sleep::sleep,
+    test_utils::mocks::{
+        MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
+    },
 };
 use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
@@ -1490,4 +1493,81 @@ async fn test_send_read_receipts() {
     // Trying to mark the thread as read again is a no-op.
     let did_send = timeline.mark_as_read(SendReceiptType::Read).await.unwrap();
     assert!(did_send.not());
+}
+
+#[async_test]
+async fn test_permalink_doesnt_listen_to_thread_sync() {
+    let server = MatrixMockServer::new().await;
+
+    let client = client_with_threading_support(&server).await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    // But an event-focused timeline, focused on an in-thread event, is threaded \o/
+    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let thread_root = event_id!("$thread_root");
+    let event = f
+        .text_msg("hey to you too")
+        .event_id(event_id!("$target"))
+        .in_thread(thread_root, thread_root)
+        .into_event();
+
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event))
+        .mock_once()
+        .mount()
+        .await;
+
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: owned_event_id!("$target"),
+            num_context_events: 0,
+            hide_threaded_events: true,
+        })
+        .build()
+        .await
+        .unwrap();
+
+    // Sanity check.
+    assert!(timeline.is_threaded());
+
+    // Subscribe to the timeline changes.
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // Initially, it contains a date divider and the target event only.
+    assert_eq!(initial_items.len(), 2);
+    assert!(initial_items[0].is_date_divider());
+    assert_eq!(initial_items[1].as_event().unwrap().event_id(), Some(event_id!("$target")));
+
+    assert_pending!(stream);
+
+    // If a back-pagination happens in the thread event cache, it should NOT be
+    // reflected in the focused timeline.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![
+                f.text_msg("a new threaded event")
+                    .event_id(event_id!("$new_threaded"))
+                    .in_thread(thread_root, event_id!("$new_threaded")),
+            ])
+            // Include a next-batch token to not have to mock /event for the root.
+            .next_batch("next-batch"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let (room_event_cache, _drop_guards) = room.event_cache().await.unwrap();
+    let hit_start =
+        room_event_cache.paginate_thread_backwards(thread_root.to_owned(), 42).await.unwrap();
+    assert!(hit_start.not());
+
+    sleep(Duration::from_millis(100)).await;
+
+    // The stream should still be pending!
+    assert_pending!(stream);
 }
