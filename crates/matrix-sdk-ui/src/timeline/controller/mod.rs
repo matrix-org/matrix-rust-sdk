@@ -25,7 +25,7 @@ use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{RoomEventCache, RoomPaginationStatus},
-    paginators::{PaginationResult, Paginator},
+    paginators::{PaginationResult, PaginationToken, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -474,12 +474,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let event_paginator = Paginator::new(self.room_data_provider.clone());
 
-                // Start a /context request so we can know if the event is in a thread or not
+                // Start a /context request so we can know if the event is in a thread or not,
+                // and know which kind of pagination we'll be using then.
                 let start_from_result = event_paginator
                     .start_from(event_id, (*num_context_events).into())
                     .await
                     .map_err(PaginationError::Paginator)?;
 
+                // Find the target event, and see if it's part of a thread.
                 let thread_root_event_id = start_from_result
                     .events
                     .iter()
@@ -492,13 +494,28 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let _ = paginator.set(match thread_root_event_id {
                     Some(root_id) => {
-                        let tokens = event_paginator.tokens();
+                        let mut tokens = event_paginator.tokens();
+
+                        // Look if the thread root event is part of the /context response. This
+                        // allows us to spare some backwards pagination with
+                        // /relations.
+                        let includes_root_event = start_from_result.events.iter().any(|event| {
+                            if let Some(id) = event.event_id() { id == root_id } else { false }
+                        });
+
+                        if includes_root_event {
+                            // If we have the root event, there's no need to do back-paginations
+                            // with /relations, since we are at the start of the thread.
+                            tokens.previous = PaginationToken::HitEnd;
+                        }
+
                         AnyPaginator::Threaded(ThreadedEventsLoader::new(
                             self.room_data_provider.clone(),
                             root_id,
                             tokens,
                         ))
                     }
+
                     None => AnyPaginator::Unthreaded {
                         paginator: event_paginator,
                         hide_threaded_events: *hide_threaded_events,
@@ -518,12 +535,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     }
 
                     AnyPaginator::Threaded(threaded_events_loader) => {
-                        // We filter only events that are part of the thread, since /context will
-                        // return adjacent events without filters.
+                        // We filter only events that are part of the thread (including the root),
+                        // since /context will return adjacent events without filters.
+                        let thread_root = threaded_events_loader.thread_root_event_id();
                         let events_in_thread = events.into_iter().filter(|event| {
-                            extract_thread_root(event.raw()).is_some_and(|thread_root| {
-                                thread_root == threaded_events_loader.thread_root_event_id()
-                            })
+                            extract_thread_root(event.raw())
+                                .is_some_and(|event_thread_root| event_thread_root == thread_root)
+                                || event.event_id().as_deref() == Some(thread_root)
                         });
 
                         self.replace_with_initial_remote_events(

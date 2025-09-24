@@ -26,22 +26,35 @@ use matrix_sdk::{
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{EncryptionSettings, backups::BackupState},
-    room::edit::EditedContent,
+    room::{
+        edit::EditedContent,
+        reply::{EnforceThread, Reply},
+    },
     ruma::{
         MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             InitialStateEvent,
-            room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
+            room::{
+                encryption::RoomEncryptionEventContent,
+                message::{
+                    ReplyWithinThread, RoomMessageEventContent,
+                    RoomMessageEventContentWithoutRelation,
+                },
+            },
         },
     },
 };
+use matrix_sdk_test::TestResult;
 use matrix_sdk_ui::{
     Timeline,
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
-    timeline::{EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem},
+    timeline::{
+        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder, TimelineFocus,
+        TimelineItem,
+    },
 };
 use similar_asserts::assert_eq;
 use stream_assert::assert_pending;
@@ -909,4 +922,97 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         assert_let!(VectorDiff::Set { index, .. } = &update2[0]);
         assert_eq!(*index, 10);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_thread_focused_timeline() -> TestResult {
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let alice_clone = alice.clone();
+    let alice_sync = spawn(async move {
+        alice_clone.sync(Default::default()).await.expect("sync failed for alice!");
+    });
+
+    // Set up sync for another user Bob.
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    // Enable Bob's event cache, to speed up creating the in-thread reply event.
+    bob.event_cache().subscribe().unwrap();
+
+    let bob_clone = bob.clone();
+    let bob_sync = spawn(async move {
+        bob_clone.sync(Default::default()).await.expect("sync failed for bob!");
+    });
+
+    debug!("Creating room…");
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+        }))
+        .await?;
+
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
+
+    // Bob joins the room.
+
+    let bob_room = loop {
+        if let Some(room) = bob.get_room(alice_room.room_id()) {
+            room.join().await?;
+            break room;
+        }
+        sleep(Duration::from_millis(10)).await;
+    };
+
+    // Bob sends messages in a thread.
+    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?;
+    let thread_root = resp.event_id;
+
+    let thread_reply_event_content = bob_room
+        .make_reply_event(
+            RoomMessageEventContentWithoutRelation::text_plain("First reply"),
+            Reply {
+                event_id: thread_root.clone(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
+        )
+        .await?;
+
+    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.event_id;
+
+    // Alice creates a timeline focused on the in-thread event, so this will use
+    // /context, and the thread root will be part of the response.
+    let timeline = TimelineBuilder::new(&alice_room)
+        .with_focus(TimelineFocus::Event {
+            target: thread_reply_event_id.clone(),
+            num_context_events: 42,
+            hide_threaded_events: false,
+        })
+        .build()
+        .await?;
+
+    // The timeline should be focused on the thread reply, so it should be
+    // considered threaded.
+    assert!(timeline.is_threaded());
+
+    // Observe that the timeline contains both the root and the reply.
+    let (items, mut stream) = timeline.subscribe().await;
+
+    assert_eq!(items.len(), 3);
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().event_id().unwrap(), thread_root);
+    assert_eq!(items[2].as_event().unwrap().event_id().unwrap(), thread_reply_event_id);
+
+    // If Alice paginates backwards, nothing happens on the timeline, as we've hit
+    // the start in the /context response.
+    let hit_start = timeline.paginate_backwards(10).await?;
+    assert!(hit_start);
+
+    sleep(Duration::from_millis(100)).await;
+    assert_pending!(stream);
+
+    alice_sync.abort();
+    bob_sync.abort();
+
+    Ok(())
 }
