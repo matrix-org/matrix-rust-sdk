@@ -34,11 +34,9 @@ use super::{
     messages::{LoginFailureReason, QrAuthMessage},
     secure_channel::EstablishedSecureChannel,
 };
-#[cfg(doc)]
-use crate::authentication::oauth::OAuth;
 use crate::{
     Client,
-    authentication::oauth::{ClientRegistrationData, OAuthError},
+    authentication::oauth::{ClientRegistrationData, OAuth, OAuthError},
 };
 
 async fn send_unexpected_message_error(
@@ -50,6 +48,191 @@ async fn send_unexpected_message_error(
             homeserver: None,
         })
         .await
+}
+
+async fn finish_login(
+    client: &Client,
+    mut channel: EstablishedSecureChannel,
+    registration_data: Option<&ClientRegistrationData>,
+    state: SharedObservable<LoginProgress>,
+) -> Result<(), QRCodeLoginError> {
+    let oauth = client.oauth();
+
+    // Register the client with the OAuth 2.0 authorization server.
+    trace!("Registering the client with the OAuth 2.0 authorization server.");
+    let server_metadata = register_client(&oauth, registration_data).await?;
+
+    // We want to use the Curve25519 public key for the device ID, so let's generate
+    // a new vodozemac `Account` now.
+    let account = vodozemac::olm::Account::new();
+    let public_key = account.identity_keys().curve25519;
+    let device_id = public_key;
+
+    // Let's tell the OAuth 2.0 authorization server that we want to log in using
+    // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
+    trace!("Requesting device authorization.");
+    let auth_grant_response =
+        request_device_authorization(&oauth, &server_metadata, device_id).await?;
+
+    // Now we need to inform the other device of the login protocols we picked and
+    // the URL they should use to log us in.
+    trace!("Letting the existing device know about the device authorization grant.");
+    let message =
+        QrAuthMessage::authorization_grant_login_protocol((&auth_grant_response).into(), device_id);
+    channel.send_json(&message).await?;
+
+    // Let's see if the other device agreed to our proposed protocols.
+    match channel.receive_json().await? {
+        QrAuthMessage::LoginProtocolAccepted => (),
+        QrAuthMessage::LoginFailure { reason, homeserver } => {
+            return Err(QRCodeLoginError::LoginFailure { reason, homeserver });
+        }
+        message => {
+            send_unexpected_message_error(&mut channel).await?;
+
+            return Err(QRCodeLoginError::UnexpectedMessage {
+                expected: "m.login.protocol_accepted",
+                received: message,
+            });
+        }
+    }
+
+    // The OAuth 2.0 authorization server may or may not show this user code to
+    // double check that we're talking to the right server. Let us display this, so
+    // the other device can double check this as well.
+    let user_code = auth_grant_response.user_code();
+    state.set(LoginProgress::WaitingForToken { user_code: user_code.secret().to_owned() });
+
+    // Let's now wait for the access token to be provided to use by the OAuth 2.0
+    // authorization server.
+    trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
+    if let Err(e) = wait_for_tokens(&oauth, &server_metadata, &auth_grant_response).await {
+        // If we received an error, and it's one of the ones we should report to the
+        // other side, do so now.
+        if let Some(e) = e.as_request_token_error() {
+            match e {
+                DeviceCodeErrorResponseType::AccessDenied => {
+                    channel.send_json(QrAuthMessage::LoginDeclined).await?;
+                }
+                DeviceCodeErrorResponseType::ExpiredToken => {
+                    channel
+                        .send_json(QrAuthMessage::LoginFailure {
+                            reason: LoginFailureReason::AuthorizationExpired,
+                            homeserver: None,
+                        })
+                        .await?;
+                }
+                _ => (),
+            }
+        }
+
+        return Err(e.into());
+    }
+
+    // We only received an access token from the OAuth 2.0 authorization server, we
+    // have no clue who we are, so we need to figure out our user ID
+    // now. TODO: This snippet is almost the same as the
+    // OAuth::finish_login_method(), why is that method even a public
+    // method and not called as part of the set session tokens method.
+    trace!("Discovering our own user id.");
+    let whoami_response = client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
+    client
+        .base_client()
+        .activate(
+            SessionMeta {
+                user_id: whoami_response.user_id,
+                device_id: OwnedDeviceId::from(device_id.to_base64()),
+            },
+            RoomLoadSettings::default(),
+            Some(account),
+        )
+        .await
+        .map_err(|error| QRCodeLoginError::SessionTokens(error.into()))?;
+
+    client.oauth().enable_cross_process_lock().await?;
+
+    // Tell the existing device that we're logged in.
+    trace!("Telling the existing device that we successfully logged in.");
+    let message = QrAuthMessage::LoginSuccess;
+    channel.send_json(&message).await?;
+
+    // Let's wait for the secrets bundle to be sent to us, otherwise we won't be a
+    // fully E2EE enabled device.
+    trace!("Waiting for the secrets bundle.");
+    let bundle = match channel.receive_json().await? {
+        QrAuthMessage::LoginSecrets(bundle) => bundle,
+        QrAuthMessage::LoginFailure { reason, homeserver } => {
+            return Err(QRCodeLoginError::LoginFailure { reason, homeserver });
+        }
+        message => {
+            send_unexpected_message_error(&mut channel).await?;
+
+            return Err(QRCodeLoginError::UnexpectedMessage {
+                expected: "m.login.secrets",
+                received: message,
+            });
+        }
+    };
+
+    // Import the secrets bundle, this will allow us to sign the device keys with
+    // the master key when we upload them.
+    client.encryption().import_secrets_bundle(&bundle).await?;
+
+    // Upload the device keys, this will ensure that other devices see us as a fully
+    // verified device ass soon as this method returns.
+    client
+        .encryption()
+        .ensure_device_keys_upload()
+        .await
+        .map_err(QRCodeLoginError::DeviceKeyUpload)?;
+
+    // Run and wait for the E2EE initialization tasks, this will ensure that we
+    // ourselves see us as verified and the recovery/backup states will
+    // be known. If we did receive all the secrets in the secrets
+    // bundle, then backups will be enabled after this step as well.
+    client.encryption().spawn_initialization_task(None).await;
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    trace!("successfully logged in and enabled E2EE.");
+
+    // Tell our listener that we're done.
+    state.set(LoginProgress::Done);
+
+    // And indeed, we are done with the login.
+    Ok(())
+}
+
+/// Register the client with the OAuth 2.0 authorization server.
+///
+/// Returns the authorization server metadata.
+async fn register_client(
+    oauth: &OAuth,
+    registration_data: Option<&ClientRegistrationData>,
+) -> Result<AuthorizationServerMetadata, DeviceAuthorizationOAuthError> {
+    let server_metadata = oauth.server_metadata().await.map_err(OAuthError::from)?;
+    oauth.use_registration_data(&server_metadata, registration_data).await?;
+
+    Ok(server_metadata)
+}
+
+async fn request_device_authorization(
+    oauth: &OAuth,
+    server_metadata: &AuthorizationServerMetadata,
+    device_id: Curve25519PublicKey,
+) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
+    let response = oauth
+        .request_device_authorization(server_metadata, Some(device_id.to_base64().into()))
+        .await?;
+    Ok(response)
+}
+
+async fn wait_for_tokens(
+    oauth: &OAuth,
+    server_metadata: &AuthorizationServerMetadata,
+    auth_response: &StandardDeviceAuthorizationResponse,
+) -> Result<(), DeviceAuthorizationOAuthError> {
+    oauth.exchange_device_code(server_metadata, auth_response).await?;
+    Ok(())
 }
 
 /// Type telling us about the progress of the QR code login.
@@ -107,161 +290,17 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // First things first, establish the secure channel. Since we're the one that
             // scanned the QR code, we're certain that the secure channel is
             // secure, under the assumption that we didn't scan the wrong QR code.
-            let mut channel = self.establish_secure_channel().await?;
+            let channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
             // The other side isn't yet sure that it's talking to the right device, show
             // a check code so they can confirm.
             let check_code = channel.check_code().to_owned();
+
             self.state.set(LoginProgress::EstablishingSecureChannel { check_code });
 
-            // Register the client with the OAuth 2.0 authorization server.
-            trace!("Registering the client with the OAuth 2.0 authorization server.");
-            let server_metadata = self.register_client().await?;
-
-            // We want to use the Curve25519 public key for the device ID, so let's generate
-            // a new vodozemac `Account` now.
-            let account = vodozemac::olm::Account::new();
-            let public_key = account.identity_keys().curve25519;
-            let device_id = public_key;
-
-            // Let's tell the OAuth 2.0 authorization server that we want to log in using
-            // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
-            trace!("Requesting device authorization.");
-            let auth_grant_response =
-                self.request_device_authorization(&server_metadata, device_id).await?;
-
-            // Now we need to inform the other device of the login protocols we picked and
-            // the URL they should use to log us in.
-            trace!("Letting the existing device know about the device authorization grant.");
-            let message = QrAuthMessage::authorization_grant_login_protocol(
-                (&auth_grant_response).into(),
-                device_id,
-            );
-            channel.send_json(&message).await?;
-
-            // Let's see if the other device agreed to our proposed protocols.
-            match channel.receive_json().await? {
-                QrAuthMessage::LoginProtocolAccepted => (),
-                QrAuthMessage::LoginFailure { reason, homeserver } => {
-                    return Err(QRCodeLoginError::LoginFailure { reason, homeserver });
-                }
-                message => {
-                    send_unexpected_message_error(&mut channel).await?;
-
-                    return Err(QRCodeLoginError::UnexpectedMessage {
-                        expected: "m.login.protocol_accepted",
-                        received: message,
-                    });
-                }
-            }
-
-            // The OAuth 2.0 authorization server may or may not show this user code to
-            // double check that we're talking to the right server. Let us display this, so
-            // the other device can double check this as well.
-            let user_code = auth_grant_response.user_code();
-            self.state
-                .set(LoginProgress::WaitingForToken { user_code: user_code.secret().to_owned() });
-
-            // Let's now wait for the access token to be provided to use by the OAuth 2.0
-            // authorization server.
-            trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
-            if let Err(e) = self.wait_for_tokens(&server_metadata, &auth_grant_response).await {
-                // If we received an error, and it's one of the ones we should report to the
-                // other side, do so now.
-                if let Some(e) = e.as_request_token_error() {
-                    match e {
-                        DeviceCodeErrorResponseType::AccessDenied => {
-                            channel.send_json(QrAuthMessage::LoginDeclined).await?;
-                        }
-                        DeviceCodeErrorResponseType::ExpiredToken => {
-                            channel
-                                .send_json(QrAuthMessage::LoginFailure {
-                                    reason: LoginFailureReason::AuthorizationExpired,
-                                    homeserver: None,
-                                })
-                                .await?;
-                        }
-                        _ => (),
-                    }
-                }
-
-                return Err(e.into());
-            }
-
-            // We only received an access token from the OAuth 2.0 authorization server, we
-            // have no clue who we are, so we need to figure out our user ID
-            // now. TODO: This snippet is almost the same as the
-            // OAuth::finish_login_method(), why is that method even a public
-            // method and not called as part of the set session tokens method.
-            trace!("Discovering our own user id.");
-            let whoami_response =
-                self.client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
-            self.client
-                .base_client()
-                .activate(
-                    SessionMeta {
-                        user_id: whoami_response.user_id,
-                        device_id: OwnedDeviceId::from(device_id.to_base64()),
-                    },
-                    RoomLoadSettings::default(),
-                    Some(account),
-                )
-                .await
-                .map_err(|error| QRCodeLoginError::SessionTokens(error.into()))?;
-
-            self.client.oauth().enable_cross_process_lock().await?;
-
-            // Tell the existing device that we're logged in.
-            trace!("Telling the existing device that we successfully logged in.");
-            let message = QrAuthMessage::LoginSuccess;
-            channel.send_json(&message).await?;
-
-            // Let's wait for the secrets bundle to be sent to us, otherwise we won't be a
-            // fully E2EE enabled device.
-            trace!("Waiting for the secrets bundle.");
-            let bundle = match channel.receive_json().await? {
-                QrAuthMessage::LoginSecrets(bundle) => bundle,
-                QrAuthMessage::LoginFailure { reason, homeserver } => {
-                    return Err(QRCodeLoginError::LoginFailure { reason, homeserver });
-                }
-                message => {
-                    send_unexpected_message_error(&mut channel).await?;
-
-                    return Err(QRCodeLoginError::UnexpectedMessage {
-                        expected: "m.login.secrets",
-                        received: message,
-                    });
-                }
-            };
-
-            // Import the secrets bundle, this will allow us to sign the device keys with
-            // the master key when we upload them.
-            self.client.encryption().import_secrets_bundle(&bundle).await?;
-
-            // Upload the device keys, this will ensure that other devices see us as a fully
-            // verified device ass soon as this method returns.
-            self.client
-                .encryption()
-                .ensure_device_keys_upload()
-                .await
-                .map_err(QRCodeLoginError::DeviceKeyUpload)?;
-
-            // Run and wait for the E2EE initialization tasks, this will ensure that we
-            // ourselves see us as verified and the recovery/backup states will
-            // be known. If we did receive all the secrets in the secrets
-            // bundle, then backups will be enabled after this step as well.
-            self.client.encryption().spawn_initialization_task(None).await;
-            self.client.encryption().wait_for_e2ee_initialization_tasks().await;
-
-            trace!("successfully logged in and enabled E2EE.");
-
-            // Tell our listener that we're done.
-            self.state.set(LoginProgress::Done);
-
-            // And indeed, we are done with the login.
-            Ok(())
+            finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
 }
@@ -288,41 +327,6 @@ impl<'a> LoginWithQrCode<'a> {
         .await?;
 
         Ok(channel)
-    }
-
-    /// Register the client with the OAuth 2.0 authorization server.
-    ///
-    /// Returns the authorization server metadata.
-    async fn register_client(
-        &self,
-    ) -> Result<AuthorizationServerMetadata, DeviceAuthorizationOAuthError> {
-        let oauth = self.client.oauth();
-        let server_metadata = oauth.server_metadata().await.map_err(OAuthError::from)?;
-        oauth.use_registration_data(&server_metadata, self.registration_data).await?;
-
-        Ok(server_metadata)
-    }
-
-    async fn request_device_authorization(
-        &self,
-        server_metadata: &AuthorizationServerMetadata,
-        device_id: Curve25519PublicKey,
-    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
-        let oauth = self.client.oauth();
-        let response = oauth
-            .request_device_authorization(server_metadata, Some(device_id.to_base64().into()))
-            .await?;
-        Ok(response)
-    }
-
-    async fn wait_for_tokens(
-        &self,
-        server_metadata: &AuthorizationServerMetadata,
-        auth_response: &StandardDeviceAuthorizationResponse,
-    ) -> Result<(), DeviceAuthorizationOAuthError> {
-        let oauth = self.client.oauth();
-        oauth.exchange_device_code(server_metadata, auth_response).await?;
-        Ok(())
     }
 }
 
