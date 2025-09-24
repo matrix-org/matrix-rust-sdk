@@ -153,8 +153,8 @@ impl LatestEvent {
 
         let client = room.client();
 
-        // Take the sync lock.
-        let _sync_lock = client.base_client().sync_lock().lock().await;
+        // Take the state store lock.
+        let _state_store_lock = client.base_client().state_store_lock().lock().await;
 
         // Update the `RoomInfo` in the state store.
         if let Err(error) = client.state_store().save_changes(&state_changes).await {

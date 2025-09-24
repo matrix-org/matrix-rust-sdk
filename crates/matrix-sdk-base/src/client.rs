@@ -425,7 +425,7 @@ impl BaseClient {
         );
 
         if room.state() != RoomState::Knocked {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_as_knocked();
@@ -492,7 +492,7 @@ impl BaseClient {
         // If the state isn't `RoomState::Joined` then this means that we knew about
         // this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             let previous_state = room.state();
@@ -543,7 +543,7 @@ impl BaseClient {
         );
 
         if room.state() != RoomState::Left {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
@@ -558,9 +558,12 @@ impl BaseClient {
         Ok(())
     }
 
-    /// Get access to the store's sync lock.
-    pub fn sync_lock(&self) -> &Mutex<()> {
-        self.state_store.sync_lock()
+    /// Get a lock to the state store, with an exclusive access.
+    ///
+    /// It doesn't give an access to the state store itself. It's rather a lock
+    /// to synchronise all accesses to the state store.
+    pub fn state_store_lock(&self) -> &Mutex<()> {
+        self.state_store.lock()
     }
 
     /// Receive a response from a sync call.
@@ -783,7 +786,7 @@ impl BaseClient {
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
         {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             processors::changes::save_and_apply(
                 context,
@@ -807,7 +810,7 @@ impl BaseClient {
 
         // Save the new display name updates if any.
         {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             processors::changes::save_only(context, &self.state_store).await?;
         }
@@ -932,7 +935,7 @@ impl BaseClient {
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
         {
-            let _sync_lock = self.sync_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
