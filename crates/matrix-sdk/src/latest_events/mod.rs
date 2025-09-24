@@ -64,7 +64,10 @@ use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
     select,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
+    sync::{
+        OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        broadcast, mpsc,
+    },
 };
 use tracing::{error, warn};
 
@@ -158,9 +161,12 @@ impl LatestEvents {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<Subscriber<LatestEventValue, AsyncLock>>, LatestEventsError> {
-        let Some(latest_event) = self.state.registered_rooms.for_room(room_id).await? else {
+        let Some(room_latest_events) = self.state.registered_rooms.for_room(room_id).await? else {
             return Ok(None);
         };
+
+        let room_latest_events = room_latest_events.read().await;
+        let latest_event = room_latest_events.for_room();
 
         Ok(Some(latest_event.subscribe().await))
     }
@@ -187,10 +193,16 @@ impl LatestEvents {
         room_id: &RoomId,
         thread_id: &EventId,
     ) -> Result<Option<Subscriber<LatestEventValue, AsyncLock>>, LatestEventsError> {
-        let Some(latest_event) = self.state.registered_rooms.for_thread(room_id, thread_id).await?
+        let Some(room_latest_events) =
+            self.state.registered_rooms.for_thread(room_id, thread_id).await?
         else {
             return Ok(None);
         };
+
+        let room_latest_events = room_latest_events.read().await;
+        let latest_event = room_latest_events
+            .for_thread(thread_id)
+            .expect("The `LatestEvent` for the thread must have been created");
 
         Ok(Some(latest_event.subscribe().await))
     }
@@ -292,14 +304,15 @@ impl RegisteredRooms {
                     }
                 }
 
-                if let Some(room_latest_event) = rooms.get_mut(room_id) {
+                if let Some(room_latest_event) = rooms.get(room_id) {
+                    let mut room_latest_event = room_latest_event.write().await;
+
                     // In `RoomLatestEvents`, the `LatestEvent` for this thread doesn't exist. Let's
                     // create and insert it.
-                    if room_latest_event.per_thread.contains_key(thread_id).not() {
-                        room_latest_event.per_thread.insert(
-                            thread_id.to_owned(),
-                            room_latest_event.create_latest_event_for(Some(thread_id)).await,
-                        );
+                    if room_latest_event.has_thread(thread_id).not() {
+                        room_latest_event
+                            .create_and_insert_latest_event_for_thread(thread_id)
+                            .await;
                     }
                 }
 
@@ -340,34 +353,25 @@ impl RegisteredRooms {
         })
     }
 
-    /// Start listening to updates (if not already) for a particular room, and
-    /// fetch the [`LatestEvent`] for this room.
+    /// Start listening to updates (if not already) for a particular room.
     ///
     /// It returns `None` if the room doesn't exist.
     pub async fn for_room(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<RwLockReadGuard<'_, LatestEvent>>, LatestEventsError> {
-        Ok(self.room_latest_event(room_id, None).await?.map(|lock_guard| {
-            RwLockReadGuard::map(lock_guard, |room_latest_event| room_latest_event.for_room())
-        }))
+    ) -> Result<Option<RwLockReadGuard<'_, RoomLatestEvents>>, LatestEventsError> {
+        self.room_latest_event(room_id, None).await
     }
 
-    /// Start listening to updates (if not already) for a particular room, and
-    /// fetch the [`LatestEvent`] for a particular thread in this room.
+    /// Start listening to updates (if not already) for a particular room.
     ///
     /// It returns `None` if the room or the thread doesn't exist.
     pub async fn for_thread(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<RwLockReadGuard<'_, LatestEvent>>, LatestEventsError> {
-        Ok(self.room_latest_event(room_id, Some(thread_id)).await?.and_then(|lock_guard| {
-            RwLockReadGuard::try_map(lock_guard, |room_latest_event| {
-                room_latest_event.for_thread(thread_id)
-            })
-            .ok()
-        }))
+    ) -> Result<Option<RwLockReadGuard<'_, RoomLatestEvents>>, LatestEventsError> {
+        self.room_latest_event(room_id, Some(thread_id)).await
     }
 
     /// Forget a room.
@@ -377,10 +381,12 @@ impl RegisteredRooms {
     ///
     /// If [`LatestEvents`] is not listening for `room_id`, nothing happens.
     pub async fn forget_room(&self, room_id: &RoomId) {
-        let mut rooms = self.rooms.write().await;
+        {
+            let mut rooms = self.rooms.write().await;
 
-        // Remove the whole `RoomLatestEvents`.
-        rooms.remove(room_id);
+            // Remove the whole `RoomLatestEvents`.
+            rooms.remove(room_id);
+        }
 
         let _ =
             self.room_registration_sender.send(RoomRegistration::Remove(room_id.to_owned())).await;
@@ -394,11 +400,16 @@ impl RegisteredRooms {
     /// If [`LatestEvents`] is not listening for `room_id` or `thread_id`,
     /// nothing happens.
     pub async fn forget_thread(&self, room_id: &RoomId, thread_id: &EventId) {
-        let mut rooms = self.rooms.write().await;
+        let rooms = self.rooms.read().await;
 
         // If the `RoomLatestEvents`, remove the `LatestEvent` in `per_thread`.
-        if let Some(room_latest_event) = rooms.get_mut(room_id) {
-            room_latest_event.per_thread.remove(thread_id);
+        if let Some(room_latest_event) = rooms.get(room_id) {
+            let mut room_latest_event = room_latest_event.write().await;
+
+            // Release the lock on `self.rooms`.
+            drop(rooms);
+
+            room_latest_event.forget_thread(thread_id);
         }
     }
 }
@@ -439,6 +450,63 @@ enum LatestEventQueueUpdate {
 /// Type holding the [`LatestEvent`] for a room and for all its threads.
 #[derive(Debug)]
 struct RoomLatestEvents {
+    /// The state of this type.
+    state: Arc<RwLock<RoomLatestEventsState>>,
+}
+
+impl RoomLatestEvents {
+    /// Create a new [`RoomLatestEvents`].
+    async fn new(
+        weak_room: WeakRoom,
+        event_cache: &EventCache,
+    ) -> Result<Option<Self>, LatestEventsError> {
+        let room_id = weak_room.room_id();
+        let room_event_cache = match event_cache.for_room(room_id).await {
+            // It's fine to drop the `EventCacheDropHandles` here as the caller
+            // (`LatestEventState`) owns a clone of the `EventCache`.
+            Ok((room_event_cache, _drop_handles)) => room_event_cache,
+            Err(EventCacheError::RoomNotFound { .. }) => return Ok(None),
+            Err(err) => return Err(LatestEventsError::EventCache(err)),
+        };
+
+        Ok(Some(Self {
+            state: Arc::new(RwLock::new(RoomLatestEventsState {
+                for_the_room: Self::create_latest_event_for_inner(
+                    &weak_room,
+                    None,
+                    &room_event_cache,
+                )
+                .await,
+                per_thread: HashMap::new(),
+                weak_room,
+                room_event_cache,
+            })),
+        }))
+    }
+
+    async fn create_latest_event_for_inner(
+        weak_room: &WeakRoom,
+        thread_id: Option<&EventId>,
+        room_event_cache: &RoomEventCache,
+    ) -> LatestEvent {
+        LatestEvent::new(weak_room, thread_id, room_event_cache).await
+    }
+
+    /// Lock this type with shared read access, and return an owned lock guard.
+    async fn read(&self) -> RoomLatestEventsReadGuard {
+        RoomLatestEventsReadGuard { inner: self.state.clone().read_owned().await }
+    }
+
+    /// Lock this type with exclusive write access, and return an owned lock
+    /// guard.
+    async fn write(&self) -> RoomLatestEventsWriteGuard {
+        RoomLatestEventsWriteGuard { inner: self.state.clone().write_owned().await }
+    }
+}
+
+/// The state of [`RoomLatestEvents`].
+#[derive(Debug)]
+struct RoomLatestEventsState {
     /// The latest event of the room.
     for_the_room: LatestEvent,
 
@@ -455,50 +523,55 @@ struct RoomLatestEvents {
     weak_room: WeakRoom,
 }
 
-impl RoomLatestEvents {
-    async fn new(
-        weak_room: WeakRoom,
-        event_cache: &EventCache,
-    ) -> Result<Option<Self>, LatestEventsError> {
-        let room_id = weak_room.room_id();
-        let room_event_cache = match event_cache.for_room(room_id).await {
-            // It's fine to drop the `EventCacheDropHandles` here as the caller
-            // (`LatestEventState`) owns a clone of the `EventCache`.
-            Ok((room_event_cache, _drop_handles)) => room_event_cache,
-            Err(EventCacheError::RoomNotFound { .. }) => return Ok(None),
-            Err(err) => return Err(LatestEventsError::EventCache(err)),
-        };
+/// The owned lock guard returned by [`RoomLatestEvents::read`].
+struct RoomLatestEventsReadGuard {
+    inner: OwnedRwLockReadGuard<RoomLatestEventsState>,
+}
 
-        Ok(Some(Self {
-            for_the_room: Self::create_latest_event_for_inner(&weak_room, None, &room_event_cache)
-                .await,
-            per_thread: HashMap::new(),
-            weak_room,
-            room_event_cache,
-        }))
-    }
-
-    async fn create_latest_event_for(&self, thread_id: Option<&EventId>) -> LatestEvent {
-        Self::create_latest_event_for_inner(&self.weak_room, thread_id, &self.room_event_cache)
-            .await
-    }
-
-    async fn create_latest_event_for_inner(
-        weak_room: &WeakRoom,
-        thread_id: Option<&EventId>,
-        room_event_cache: &RoomEventCache,
-    ) -> LatestEvent {
-        LatestEvent::new(weak_room, thread_id, room_event_cache).await
-    }
-
+impl RoomLatestEventsReadGuard {
     /// Get the [`LatestEvent`] for the room.
     fn for_room(&self) -> &LatestEvent {
-        &self.for_the_room
+        &self.inner.for_the_room
     }
 
     /// Get the [`LatestEvent`] for the thread if it exists.
     fn for_thread(&self, thread_id: &EventId) -> Option<&LatestEvent> {
-        self.per_thread.get(thread_id)
+        self.inner.per_thread.get(thread_id)
+    }
+}
+
+/// The owned lock guard returned by [`RoomLatestEvents::write`].
+struct RoomLatestEventsWriteGuard {
+    inner: OwnedRwLockWriteGuard<RoomLatestEventsState>,
+}
+
+impl RoomLatestEventsWriteGuard {
+    async fn create_latest_event_for(&self, thread_id: Option<&EventId>) -> LatestEvent {
+        RoomLatestEvents::create_latest_event_for_inner(
+            &self.inner.weak_room,
+            thread_id,
+            &self.inner.room_event_cache,
+        )
+        .await
+    }
+
+    /// Check whether this [`RoomLatestEvents`] has a latest event for a
+    /// particular thread.
+    fn has_thread(&self, thread_id: &EventId) -> bool {
+        self.inner.per_thread.contains_key(thread_id)
+    }
+
+    /// Create the [`LatestEvent`] for thread `thread_id` and insert it in this
+    /// [`RoomLatestEvents`].
+    async fn create_and_insert_latest_event_for_thread(&mut self, thread_id: &EventId) {
+        let latest_event = self.create_latest_event_for(Some(thread_id)).await;
+
+        self.inner.per_thread.insert(thread_id.to_owned(), latest_event);
+    }
+
+    /// Forget the thread `thread_id`.
+    fn forget_thread(&mut self, thread_id: &EventId) {
+        self.inner.per_thread.remove(thread_id);
     }
 
     /// Update the latest events for the room and its threads, based on the
@@ -509,7 +582,7 @@ impl RoomLatestEvents {
         //
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
-        let room = self.weak_room.get();
+        let room = self.inner.weak_room.get();
         let power_levels = match &room {
             Some(room) => {
                 let power_levels = room.power_levels().await.ok();
@@ -520,10 +593,15 @@ impl RoomLatestEvents {
             None => None,
         };
 
-        self.for_the_room.update_with_event_cache(&self.room_event_cache, &power_levels).await;
+        let inner = &mut *self.inner;
+        let for_the_room = &mut inner.for_the_room;
+        let per_thread = &mut inner.per_thread;
+        let room_event_cache = &inner.room_event_cache;
 
-        for latest_event in self.per_thread.values_mut() {
-            latest_event.update_with_event_cache(&self.room_event_cache, &power_levels).await;
+        for_the_room.update_with_event_cache(room_event_cache, &power_levels).await;
+
+        for latest_event in per_thread.values_mut() {
+            latest_event.update_with_event_cache(room_event_cache, &power_levels).await;
         }
     }
 
@@ -535,7 +613,7 @@ impl RoomLatestEvents {
         //
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
-        let room = self.weak_room.get();
+        let room = self.inner.weak_room.get();
         let power_levels = match &room {
             Some(room) => {
                 let power_levels = room.power_levels().await.ok();
@@ -546,13 +624,18 @@ impl RoomLatestEvents {
             None => None,
         };
 
-        self.for_the_room
-            .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+        let inner = &mut *self.inner;
+        let for_the_room = &mut inner.for_the_room;
+        let per_thread = &mut inner.per_thread;
+        let room_event_cache = &inner.room_event_cache;
+
+        for_the_room
+            .update_with_send_queue(send_queue_update, room_event_cache, &power_levels)
             .await;
 
-        for latest_event in self.per_thread.values_mut() {
+        for latest_event in per_thread.values_mut() {
             latest_event
-                .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+                .update_with_send_queue(send_queue_update, room_event_cache, &power_levels)
                 .await;
         }
     }
@@ -639,9 +722,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
         }
 
         room_event_cache_generic_update = event_cache_generic_updates_subscriber.recv().fuse() => {
-            if let Ok(room_event_cache_generic_update) = room_event_cache_generic_update {
-                let room_id = room_event_cache_generic_update.room_id;
-
+            if let Ok(RoomEventCacheGenericUpdate { room_id }) = room_event_cache_generic_update {
                 if listened_rooms.contains(&room_id) {
                     let _ = latest_event_queue_sender.send(LatestEventQueueUpdate::EventCache {
                         room_id
@@ -701,9 +782,15 @@ async fn compute_latest_events(
     for latest_event_queue_update in latest_event_queue_updates {
         match latest_event_queue_update {
             LatestEventQueueUpdate::EventCache { room_id } => {
-                let mut rooms = registered_rooms.rooms.write().await;
+                let rooms = registered_rooms.rooms.read().await;
 
-                if let Some(room_latest_events) = rooms.get_mut(room_id) {
+                if let Some(room_latest_events) = rooms.get(room_id) {
+                    let mut room_latest_events = room_latest_events.write().await;
+
+                    // Release the lock on `registered_rooms`.
+                    // It is possible because `room_latest_events` is an owned lock guard.
+                    drop(rooms);
+
                     room_latest_events.update_with_event_cache().await;
                 } else {
                     error!(?room_id, "Failed to find the room");
@@ -713,9 +800,15 @@ async fn compute_latest_events(
             }
 
             LatestEventQueueUpdate::SendQueue { room_id, update } => {
-                let mut rooms = registered_rooms.rooms.write().await;
+                let rooms = registered_rooms.rooms.read().await;
 
-                if let Some(room_latest_events) = rooms.get_mut(room_id) {
+                if let Some(room_latest_events) = rooms.get(room_id) {
+                    let mut room_latest_events = room_latest_events.write().await;
+
+                    // Release the lock on `registered_rooms`.
+                    // It is possible because `room_latest_events` is an owned lock guard.
+                    drop(rooms);
+
                     room_latest_events.update_with_send_queue(update).await;
                 } else {
                     error!(?room_id, "Failed to find the room");
@@ -787,9 +880,9 @@ mod tests {
             assert!(rooms.contains_key(room_id_1));
 
             // Room 0 contains zero thread latest events.
-            assert!(rooms.get(room_id_0).unwrap().per_thread.is_empty());
+            assert!(rooms.get(room_id_0).unwrap().read().await.inner.per_thread.is_empty());
             // Room 1 contains zero thread latest events.
-            assert!(rooms.get(room_id_1).unwrap().per_thread.is_empty());
+            assert!(rooms.get(room_id_1).unwrap().read().await.inner.per_thread.is_empty());
         }
 
         // Now let's listen to one thread respectively for two rooms.
@@ -806,15 +899,17 @@ mod tests {
             assert!(rooms.contains_key(room_id_2));
 
             // Room 0 contains zero thread latest events.
-            assert!(rooms.get(room_id_0).unwrap().per_thread.is_empty());
+            assert!(rooms.get(room_id_0).unwrap().read().await.inner.per_thread.is_empty());
             // Room 1 contains one thread latest event…
-            assert_eq!(rooms.get(room_id_1).unwrap().per_thread.len(), 1);
+            let room_1 = rooms.get(room_id_1).unwrap().read().await;
+            assert_eq!(room_1.inner.per_thread.len(), 1);
             // … which is thread 1.0.
-            assert!(rooms.get(room_id_1).unwrap().per_thread.contains_key(thread_id_1_0));
+            assert!(room_1.inner.per_thread.contains_key(thread_id_1_0));
             // Room 2 contains one thread latest event…
-            assert_eq!(rooms.get(room_id_2).unwrap().per_thread.len(), 1);
+            let room_2 = rooms.get(room_id_2).unwrap().read().await;
+            assert_eq!(room_2.inner.per_thread.len(), 1);
             // … which is thread 2.0.
-            assert!(rooms.get(room_id_2).unwrap().per_thread.contains_key(thread_id_2_0));
+            assert!(room_2.inner.per_thread.contains_key(thread_id_2_0));
         }
     }
 
@@ -844,7 +939,7 @@ mod tests {
             assert!(rooms.contains_key(room_id_0));
 
             // Room 0 contains zero thread latest events.
-            assert!(rooms.get(room_id_0).unwrap().per_thread.is_empty());
+            assert!(rooms.get(room_id_0).unwrap().read().await.inner.per_thread.is_empty());
         }
 
         // Now let's forget about room 0.
@@ -884,9 +979,10 @@ mod tests {
             assert!(rooms.contains_key(room_id_0));
 
             // Room 0 contains one thread latest event…
-            assert_eq!(rooms.get(room_id_0).unwrap().per_thread.len(), 1);
+            let room_0 = rooms.get(room_id_0).unwrap().read().await;
+            assert_eq!(room_0.inner.per_thread.len(), 1);
             // … which is thread 0.0.
-            assert!(rooms.get(room_id_0).unwrap().per_thread.contains_key(thread_id_0_0));
+            assert!(room_0.inner.per_thread.contains_key(thread_id_0_0));
         }
 
         // Now let's forget about the thread.
@@ -900,7 +996,7 @@ mod tests {
             assert!(rooms.contains_key(room_id_0));
 
             // But the thread has been removed.
-            assert!(rooms.get(room_id_0).unwrap().per_thread.is_empty());
+            assert!(rooms.get(room_id_0).unwrap().read().await.inner.per_thread.is_empty());
         }
     }
 
