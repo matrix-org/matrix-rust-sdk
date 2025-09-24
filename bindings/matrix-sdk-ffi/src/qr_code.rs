@@ -137,6 +137,8 @@ pub enum QrLoginProgress {
     /// We are waiting for the login and for the OAuth 2.0 authorization server
     /// to give us an access token.
     WaitingForToken { user_code: String },
+    /// We are syncing secrets.
+    SyncingSecrets,
     /// The login has successfully finished.
     Done,
 }
@@ -161,6 +163,7 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
                 }
             }
             LoginProgress::WaitingForToken { user_code } => Self::WaitingForToken { user_code },
+            LoginProgress::SyncingSecrets => Self::SyncingSecrets,
             LoginProgress::Done => Self::Done,
         }
     }
