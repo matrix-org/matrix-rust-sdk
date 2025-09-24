@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   ([#5733](https://github.com/matrix-org/matrix-rust-sdk/pull/5733))
 - The Matrix SDK crate now uses the 2024 edition of Rust.
   ([#5677](https://github.com/matrix-org/matrix-rust-sdk/pull/5677))
+- [**breaking**] Make `LoginProgress::EstablishingSecureChannel` generic in order to reuse it
+  for the currently missing QR login flow.
+  ([#5750](https://github.com/matrix-org/matrix-rust-sdk/pull/5750))
 
 ### Bugfix
 
