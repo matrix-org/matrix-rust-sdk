@@ -62,6 +62,7 @@ use tracing::warn;
 
 mod message;
 mod msg_like;
+pub(super) mod other;
 pub(crate) mod pinned_events;
 mod polls;
 mod reply;
@@ -74,6 +75,7 @@ pub(in crate::timeline) use self::message::{
 pub use self::{
     message::Message,
     msg_like::{MsgLikeContent, MsgLikeKind, ThreadSummary},
+    other::OtherMessageLike,
     polls::{PollResult, PollState},
     reply::{EmbeddedEvent, InReplyToDetails},
 };

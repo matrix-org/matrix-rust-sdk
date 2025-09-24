@@ -58,7 +58,8 @@ use super::{
     traits::RoomDataProvider,
 };
 use crate::{
-    timeline::controller::aggregations::PendingEdit, unable_to_decrypt_hook::UtdHookManager,
+    timeline::{controller::aggregations::PendingEdit, event_item::OtherMessageLike},
+    unable_to_decrypt_hook::UtdHookManager,
 };
 
 /// When adding an event, useful information related to the source of the event.
@@ -381,12 +382,18 @@ impl TimelineAction {
                 ),
             },
 
-            _ => {
-                debug!(
-                    "Ignoring message-like event of type `{}`, not supported (yet)",
-                    content.event_type()
-                );
-                return None;
+            event => {
+                let other = OtherMessageLike { event_type: event.event_type() };
+
+                Self::AddItem {
+                    content: TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Other(other),
+                        reactions: Default::default(),
+                        thread_root,
+                        in_reply_to,
+                        thread_summary,
+                    }),
+                }
             }
         })
     }

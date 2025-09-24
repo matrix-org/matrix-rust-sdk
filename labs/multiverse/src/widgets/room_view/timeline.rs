@@ -123,6 +123,10 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                     kind: MsgLikeKind::Sticker(_),
                     ..
                 })
+                | TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::Other(_),
+                    ..
+                })
                 | TimelineItemContent::ProfileChange(_)
                 | TimelineItemContent::OtherState(_)
                 | TimelineItemContent::FailedToParseMessageLike { .. }

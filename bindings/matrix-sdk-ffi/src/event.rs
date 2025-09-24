@@ -380,6 +380,7 @@ pub enum MessageLikeEventType {
     UnstablePollEnd,
     UnstablePollResponse,
     UnstablePollStart,
+    Other(String),
 }
 
 impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
@@ -408,6 +409,7 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
             MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
             MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
             MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
+            MessageLikeEventType::Other(msgtype) => Self::from(msgtype),
         }
     }
 }

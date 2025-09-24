@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -135,6 +136,31 @@ async fn test_custom_filter() {
     timeline.handle_live_event(f.room_name("Alice's room").sender(&ALICE)).await;
 
     assert_eq!(timeline.controller.items().await.len(), 3);
+}
+
+#[async_test]
+async fn test_custom_filter_for_custom_msglike_event() {
+    // Filter out all state events.
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
+            ..Default::default()
+        })
+        .build();
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.custom_message_like_event().sender(&ALICE)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    assert_matches!(
+        item.as_event().unwrap().content().as_msglike().unwrap().kind.clone(),
+        MsgLikeKind::Other(_)
+    );
+    assert!(date_divider.is_date_divider());
+
+    assert_eq!(timeline.controller.items().await.len(), 2);
 }
 
 #[async_test]
