@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
+    authentication::oauth::qrcode::{
+        self, DeviceCodeErrorResponseType, LoginFailureReason, QrProgress,
+    },
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
@@ -144,13 +146,13 @@ pub trait QrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, state: QrLoginProgress);
 }
 
-impl From<qrcode::LoginProgress> for QrLoginProgress {
-    fn from(value: qrcode::LoginProgress) -> Self {
+impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
+    fn from(value: qrcode::LoginProgress<QrProgress>) -> Self {
         use qrcode::LoginProgress;
 
         match value {
             LoginProgress::Starting => Self::Starting,
-            LoginProgress::EstablishingSecureChannel { check_code } => {
+            LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                 let check_code = check_code.to_digit();
 
                 Self::EstablishingSecureChannel {
