@@ -949,7 +949,7 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                let _sync_lock = self.client.base_client().sync_lock().lock().await;
+                let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
 
                 // Persist the event and the fact that we requested it from the server in
                 // `RoomInfo`.
@@ -2073,7 +2073,9 @@ impl Room {
                     loop {
                         // Listen for sync events, then check if the encryption state is known.
                         self.client.inner.sync_beat.listen().await;
-                        let _sync_lock = self.client.base_client().sync_lock().lock().await;
+                        let _state_store_lock =
+                            self.client.base_client().state_store_lock().lock().await;
+
                         if !self.inner.encryption_state().is_unknown() {
                             break;
                         }
@@ -2083,7 +2085,7 @@ impl Room {
             )
             .await;
 
-            let _sync_lock = self.client.base_client().sync_lock().lock().await;
+            let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
 
             // If encryption was enabled, return.
             #[cfg(not(feature = "experimental-encrypted-state-events"))]

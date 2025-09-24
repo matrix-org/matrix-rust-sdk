@@ -261,12 +261,12 @@ impl SlidingSync {
             let _timer = timer!("response processor");
 
             let response_processor = {
-                // Take the lock to avoid concurrent sliding syncs overwriting each other's room
-                // infos.
-                let _sync_lock = {
-                    let _timer = timer!("acquiring the `sync_lock`");
+                // Take the lock to synchronise accesses to the state store, to avoid concurrent
+                // sliding syncs overwriting each other's room infos.
+                let _state_store_lock = {
+                    let _timer = timer!("acquiring the `state_store_lock`");
 
-                    self.inner.client.base_client().sync_lock().lock().await
+                    self.inner.client.base_client().state_store_lock().lock().await
                 };
 
                 let mut response_processor =
@@ -2843,7 +2843,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_sync_lock_is_released_before_calling_handlers() -> Result<()> {
+    async fn test_state_store_lock_is_released_before_calling_handlers() -> Result<()> {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let room_id = room_id!("!mu5hr00m:example.org");

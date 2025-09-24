@@ -184,7 +184,7 @@ pub(crate) struct BaseStateStore {
     rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
-    sync_lock: Arc<Mutex<()>>,
+    lock: Arc<Mutex<()>>,
 }
 
 impl BaseStateStore {
@@ -196,13 +196,13 @@ impl BaseStateStore {
             room_load_settings: Default::default(),
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
-            sync_lock: Default::default(),
+            lock: Default::default(),
         }
     }
 
     /// Get access to the syncing lock.
-    pub fn sync_lock(&self) -> &Mutex<()> {
-        &self.sync_lock
+    pub fn lock(&self) -> &Mutex<()> {
+        &self.lock
     }
 
     /// Set the [`SessionMeta`] into [`BaseStateStore::session_meta`].
