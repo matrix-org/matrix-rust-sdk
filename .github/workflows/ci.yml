@@ -385,23 +385,3 @@ jobs:
           HOMESERVER_DOMAIN: "synapse"
         run: |
           cargo nextest run -p matrix-sdk-integration-testing --features "${{ matrix.feature }}"
-
-  compile-bench:
-    name: 🚄 Compile benchmarks
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Compile benchmarks (no run)
-        run: |
-          cargo bench --profile dev --no-run
