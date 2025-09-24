@@ -151,6 +151,8 @@ async fn finish_login<Q>(
 
     client.oauth().enable_cross_process_lock().await?;
 
+    state.set(LoginProgress::SyncingSecrets);
+
     // Tell the existing device that we're logged in.
     trace!("Telling the existing device that we successfully logged in.");
     let message = QrAuthMessage::LoginSuccess;
@@ -254,6 +256,8 @@ pub enum LoginProgress<Q> {
         /// enter this code.
         user_code: String,
     },
+    /// We are syncing secrets.
+    SyncingSecrets,
     /// The login process has completed.
     Done,
 }

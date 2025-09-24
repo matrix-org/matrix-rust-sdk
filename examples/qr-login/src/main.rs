@@ -121,7 +121,7 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let task = tokio::spawn(async move {
         while let Some(state) = subscriber.next().await {
             match state {
-                LoginProgress::Starting => (),
+                LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
                 LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                     let code = check_code.to_digit();
                     println!("Please enter the following code into the other device {code:02}");
