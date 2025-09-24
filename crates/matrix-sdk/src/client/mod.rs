@@ -818,7 +818,11 @@ impl Client {
     ///         events::{
     ///             macros::EventContent,
     ///             push_rules::PushRulesEvent,
-    ///             room::{message::SyncRoomMessageEvent, topic::SyncRoomTopicEvent},
+    ///             room::{
+    ///                 message::SyncRoomMessageEvent,
+    ///                 topic::SyncRoomTopicEvent,
+    ///                 member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+    ///             },
     ///         },
     ///         push::Action,
     ///         Int, MilliSecondsSinceUnixEpoch,
@@ -870,6 +874,18 @@ impl Client {
     /// client.add_event_handler(|ev: SyncRoomMessageEvent, context: Ctx<MyContext>| async move {
     ///     // Use the context
     /// });
+    ///
+    /// // This will handle membership events in joined rooms. Invites are special, cf below.
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMemberEvent| async move {},
+    /// );
+    ///
+    /// // To handle state events in invited rooms (including invite membership events),
+    /// // `StrippedRoomMemberEvent` should be used.
+    /// // cf https://spec.matrix.org/v1.16/client-server-api/#stripped-state
+    /// client.add_event_handler(
+    ///     |ev: StrippedRoomMemberEvent| async move {},
+    /// );
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
