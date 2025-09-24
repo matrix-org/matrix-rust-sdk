@@ -50,11 +50,11 @@ async fn send_unexpected_message_error(
         .await
 }
 
-async fn finish_login(
+async fn finish_login<Q>(
     client: &Client,
     mut channel: EstablishedSecureChannel,
     registration_data: Option<&ClientRegistrationData>,
-    state: SharedObservable<LoginProgress>,
+    state: SharedObservable<LoginProgress<Q>>,
 ) -> Result<(), QRCodeLoginError> {
     let oauth = client.oauth();
 
@@ -237,17 +237,14 @@ async fn wait_for_tokens(
 
 /// Type telling us about the progress of the QR code login.
 #[derive(Clone, Debug, Default)]
-pub enum LoginProgress {
+pub enum LoginProgress<Q> {
     /// We're just starting up, this is the default and initial state.
     #[default]
     Starting,
     /// We have established the secure channel, but we need to let the other
     /// side know about the [`CheckCode`] so they can verify that the secure
     /// channel is indeed secure.
-    EstablishingSecureChannel {
-        /// The check code we need to, out of band, send to the other device.
-        check_code: CheckCode,
-    },
+    EstablishingSecureChannel(Q),
     /// We're waiting for the OAuth 2.0 authorization server to give us the
     /// access token. This will only happen if the other device allows the
     /// OAuth 2.0 authorization server to do so.
@@ -261,13 +258,21 @@ pub enum LoginProgress {
     Done,
 }
 
+/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
+/// this device is the one scanning the QR code.
+#[derive(Clone, Debug)]
+pub struct QrProgress {
+    /// The check code we need to, out of band, send to the other device.
+    pub check_code: CheckCode,
+}
+
 /// Named future for the [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
 pub struct LoginWithQrCode<'a> {
     client: &'a Client,
     registration_data: Option<&'a ClientRegistrationData>,
     qr_code_data: &'a QrCodeData,
-    state: SharedObservable<LoginProgress>,
+    state: SharedObservable<LoginProgress<QrProgress>>,
 }
 
 impl LoginWithQrCode<'_> {
@@ -276,7 +281,7 @@ impl LoginWithQrCode<'_> {
     /// It's usually necessary to subscribe to this to let the existing device
     /// know about the [`CheckCode`] which is used to verify that the two
     /// devices are communicating in a secure manner.
-    pub fn subscribe_to_progress(&self) -> impl Stream<Item = LoginProgress> + use<> {
+    pub fn subscribe_to_progress(&self) -> impl Stream<Item = LoginProgress<QrProgress>> + use<> {
         self.state.subscribe()
     }
 }
@@ -298,7 +303,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // a check code so they can confirm.
             let check_code = channel.check_code().to_owned();
 
-            self.state.set(LoginProgress::EstablishingSecureChannel { check_code });
+            self.state.set(LoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
@@ -478,7 +483,7 @@ mod test {
 
             while let Some(update) = updates.next().await {
                 match update {
-                    LoginProgress::EstablishingSecureChannel { check_code } => {
+                    LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                         sender
                             .take()
                             .expect("The establishing secure channel update should be received only once")
@@ -566,7 +571,7 @@ mod test {
 
             while let Some(update) = updates.next().await {
                 match update {
-                    LoginProgress::EstablishingSecureChannel { check_code } => {
+                    LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                         sender
                             .take()
                             .expect("The establishing secure channel update should be received only once")
@@ -689,7 +694,7 @@ mod test {
 
             while let Some(update) = updates.next().await {
                 match update {
-                    LoginProgress::EstablishingSecureChannel { check_code } => {
+                    LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                         sender
                                 .take()
                                 .expect("The establishing secure channel update should be received only once")
