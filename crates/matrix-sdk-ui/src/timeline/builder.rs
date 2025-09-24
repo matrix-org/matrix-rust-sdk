@@ -206,7 +206,9 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
-        let thread_update_join_handle = if let Some(root) = controller.thread_root() {
+        let thread_update_join_handle = if let TimelineFocus::Thread { root_event_id: root } =
+            &focus
+        {
             Some({
                 let span = info_span!(
                     parent: Span::none(),
@@ -226,7 +228,7 @@ impl TimelineBuilder {
                         receiver,
                         room_event_cache.clone(),
                         controller.clone(),
-                        root,
+                        root.clone(),
                     )
                     .instrument(span),
                 )
