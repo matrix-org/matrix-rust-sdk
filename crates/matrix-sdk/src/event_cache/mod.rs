@@ -935,7 +935,7 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
-        // Note: bnjbvr tried to make this concurrent at some point, but it turned out
+        // NOTE: bnjbvr tried to make this concurrent at some point, but it turned out
         // to be a performance regression, even for large sync updates. Lacking
         // time to investigate, this code remains sequential for now. See also
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
