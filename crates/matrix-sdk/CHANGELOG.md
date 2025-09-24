@@ -79,6 +79,9 @@ All notable changes to this project will be documented in this file.
   begins ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
 - Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so they can be assigned from other files
   ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
+- Add `OAuth::login_with_generated_qr_code` for generating a QR code on a new device
+  and logging it in with the help of an existing device scanning the code.
+  ([#5711](https://github.com/matrix-org/matrix-rust-sdk/pull/5711))
 
 ### Refactor
 

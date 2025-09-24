@@ -104,7 +104,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
-                | SecureChannelError::InvalidCheckCode => HumanQrLoginError::ConnectionInsecure,
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::CannotReceiveCheckCode => {
+                    HumanQrLoginError::ConnectionInsecure
+                }
                 SecureChannelError::InvalidIntent => HumanQrLoginError::OtherDeviceNotSignedIn,
             },
 

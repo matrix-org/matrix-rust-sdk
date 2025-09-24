@@ -41,7 +41,7 @@ mod rendezvous_channel;
 mod secure_channel;
 
 pub use self::{
-    login::{LoginProgress, LoginWithQrCode, QrProgress},
+    login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress},
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
 use super::CrossProcessRefreshLockError;
@@ -192,4 +192,12 @@ pub enum SecureChannelError {
          the two devices have the same login intent"
     )]
     InvalidIntent,
+
+    /// The secure channel could not have been established, the check code
+    /// cannot be received.
+    #[error(
+        "The secure channel could not have been established, \
+         the check code cannot be received"
+    )]
+    CannotReceiveCheckCode,
 }

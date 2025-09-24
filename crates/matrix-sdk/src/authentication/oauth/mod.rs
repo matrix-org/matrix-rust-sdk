@@ -214,7 +214,7 @@ mod tests;
 #[cfg(feature = "e2e-encryption")]
 use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager};
 #[cfg(feature = "e2e-encryption")]
-use self::qrcode::LoginWithQrCode;
+use self::qrcode::{LoginWithGeneratedQrCode, LoginWithQrCode};
 pub use self::{
     account_management_url::{AccountManagementActionFull, AccountManagementUrlBuilder},
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
@@ -457,6 +457,31 @@ impl OAuth {
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCode<'a> {
         LoginWithQrCode::new(&self.client, data, registration_data)
+    }
+
+    /// Log in using a generated QR code.
+    ///
+    /// This method allows you to log in with a QR code, this device
+    /// needs to display the QR code by calling this method so the existing
+    /// device can scan it and grant the log in.
+    ///
+    /// A successful login using this method will automatically mark the device
+    /// as verified and transfer all end-to-end encryption related secrets, like
+    /// the private cross-signing keys and the backup key from the existing
+    /// device to the new device.
+    ///
+    /// # Arguments
+    ///
+    /// * `registration_data` - The data to restore or register the client with
+    ///   the server. If this is not provided, an error will occur unless
+    ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
+    ///   was called previously.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn login_with_generated_qr_code<'a>(
+        &'a self,
+        registration_data: Option<&'a ClientRegistrationData>,
+    ) -> LoginWithGeneratedQrCode<'a> {
+        LoginWithGeneratedQrCode::new(&self.client, registration_data)
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given

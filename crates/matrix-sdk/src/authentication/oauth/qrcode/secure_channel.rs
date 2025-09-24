@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(test)]
-use matrix_sdk_base::crypto::types::qr_login::QrCodeModeData;
-use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode};
+use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
-#[cfg(test)]
 use url::Url;
-use vodozemac::ecies::{CheckCode, Ecies, EstablishedEcies, Message, OutboundCreationResult};
-#[cfg(test)]
-use vodozemac::ecies::{InboundCreationResult, InitialMessage};
+use vodozemac::ecies::{
+    CheckCode, Ecies, EstablishedEcies, InboundCreationResult, InitialMessage, Message,
+    OutboundCreationResult,
+};
 
 use super::{
     SecureChannelError as Error,
@@ -32,21 +30,32 @@ use crate::{config::RequestConfig, http_client::HttpClient};
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
 const LOGIN_OK_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_OK";
 
-#[cfg(test)]
 pub(super) struct SecureChannel {
     channel: RendezvousChannel,
     qr_code_data: QrCodeData,
     ecies: Ecies,
 }
 
-// This is only used in tests because we're only supporting the new device part
-// of the QR login flow. It will be needed once we support reciprocating of the
-// login.
-//
-// It's still very much useful to have this, as we're testing the whole flow by
-// mocking the reciprocation.
-#[cfg(test)]
 impl SecureChannel {
+    /// Create a new secure channel to request a login with.
+    pub(super) async fn login(
+        http_client: HttpClient,
+        homeserver_url: &Url,
+    ) -> Result<Self, Error> {
+        let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
+        let rendezvous_url = channel.rendezvous_url().to_owned();
+        let mode_data = QrCodeModeData::Login;
+
+        let ecies = Ecies::new();
+        let public_key = ecies.public_key();
+
+        let qr_code_data = QrCodeData { public_key, rendezvous_url, mode_data };
+
+        Ok(Self { channel, qr_code_data, ecies })
+    }
+
+    /// Create a new login to reciprocate an existing login with.
+    #[cfg(test)]
     pub(super) async fn new(http_client: HttpClient, homeserver_url: &Url) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
         let rendezvous_url = channel.rendezvous_url().to_owned();
@@ -99,12 +108,10 @@ impl SecureChannel {
 
 /// An SecureChannel that is yet to be confirmed as with the [`CheckCode`].
 /// Same deal as for the [`SecureChannel`], not used for now.
-#[cfg(test)]
 pub(super) struct AlmostEstablishedSecureChannel {
     secure_channel: EstablishedSecureChannel,
 }
 
-#[cfg(test)]
 impl AlmostEstablishedSecureChannel {
     /// Confirm that the secure channel is indeed secure.
     ///
