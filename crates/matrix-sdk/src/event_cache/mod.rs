@@ -74,10 +74,13 @@ use crate::{
 
 mod deduplicator;
 mod pagination;
+#[cfg(feature = "e2e-encryption")]
 mod redecryptor;
 mod room;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
+#[cfg(feature = "e2e-encryption")]
+pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate};
 
 /// An error observed in the [`EventCache`].
@@ -149,6 +152,10 @@ pub struct EventCacheDropHandles {
 
     /// The task used to automatically shrink the linked chunks.
     auto_shrink_linked_chunk_task: JoinHandle<()>,
+
+    /// The task used to automatically redecrypt UTDs.
+    #[cfg(feature = "e2e-encryption")]
+    _redecryptor: redecryptor::Redecryptor,
 }
 
 impl fmt::Debug for EventCacheDropHandles {
@@ -258,10 +265,15 @@ impl EventCache {
                 auto_shrink_receiver,
             ));
 
+            #[cfg(feature = "e2e-encryption")]
+            let redecryptor = redecryptor::Redecryptor::new(Arc::downgrade(&self.inner));
+
             Arc::new(EventCacheDropHandles {
                 listen_updates_task,
                 ignore_user_list_update_task,
                 auto_shrink_linked_chunk_task,
+                #[cfg(feature = "e2e-encryption")]
+                _redecryptor: redecryptor,
             })
         });
 
