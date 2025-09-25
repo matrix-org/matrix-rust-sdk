@@ -180,10 +180,8 @@ impl SpaceRoomList {
                 let space_id = space_id.clone();
                 let space_observable = space_observable.clone();
                 async move {
-                    loop {
-                        if subscriber.next().await.is_some()
-                            && let Some(room) = client.get_room(&space_id)
-                        {
+                    while subscriber.next().await.is_some() {
+                        if let Some(room) = client.get_room(&space_id) {
                             space_observable
                                 .set(Some(SpaceRoom::new_from_known(&room, children_count)));
                         }
