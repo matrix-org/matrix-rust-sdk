@@ -27,7 +27,7 @@ use ruma::{
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
             MediaSource,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
     ServerName, UserId,
@@ -1188,7 +1188,12 @@ impl Room {
     ) -> Result<TimelineEvent, ClientError> {
         let event_id = EventId::parse(event_id)?;
         let timeline_event = self.inner.load_or_fetch_event(&event_id, None).await?;
-        Ok(timeline_event.kind.into_raw().deserialize_as_unchecked::<AnyTimelineEvent>()?.into())
+        Ok(timeline_event
+            .kind
+            .into_raw()
+            .deserialize()?
+            .into_full_event(self.inner.room_id().to_owned())
+            .into())
     }
 }
 
