@@ -560,7 +560,41 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
         trace!(%event_id, "loading initial receipts for an event");
 
         let receipt_thread = self.focus.receipt_thread();
-        let read_receipts = room_data_provider.load_event_receipts(event_id, receipt_thread).await;
+
+        let mut read_receipts;
+
+        if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
+            // If the requested receipt thread is unthreaded or main, we maintain maximal
+            // compatibility with clients using either unthreaded or main-thread read
+            // receipts by allowing both here.
+
+            // First, load the main receipts.
+            read_receipts =
+                room_data_provider.load_event_receipts(event_id, ReceiptThread::Main).await;
+
+            // Then, load the unthreaded receipts.
+            let unthreaded_receipts =
+                room_data_provider.load_event_receipts(event_id, ReceiptThread::Unthreaded).await;
+
+            // Only insert unthreaded receipts that are more recent. Ideally we'd compare
+            // the receipted event position, but we don't have access to that
+            // here.
+            for (user_id, unthreaded_receipt) in unthreaded_receipts {
+                if let Some(main_receipt) = read_receipts.get(&user_id) {
+                    if unthreaded_receipt.ts > main_receipt.ts {
+                        read_receipts.insert(user_id, unthreaded_receipt);
+                    }
+                } else {
+                    read_receipts.insert(user_id, unthreaded_receipt);
+                }
+            }
+        } else {
+            // In all other cases, return what's requested, and only that (threaded
+            // receipts).
+            read_receipts =
+                room_data_provider.load_event_receipts(event_id, receipt_thread.clone()).await
+        }
+
         let own_user_id = room_data_provider.own_user_id();
 
         // Since they are explicit read receipts, we need to check if they are

@@ -232,53 +232,6 @@ impl RoomDataProvider for Room {
         event_id: &'a EventId,
         receipt_thread: ReceiptThread,
     ) -> IndexMap<OwnedUserId, Receipt> {
-        if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
-            // If the requested receipt thread is unthreaded or main, we maintain maximal
-            // compatibility with clients using either unthreaded or main-thread read
-            // receipts by allowing both here.
-
-            // First, load the main receipts.
-            let mut result = match self
-                .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
-                .await
-            {
-                Ok(receipts) => receipts.into_iter().collect(),
-                Err(e) => {
-                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                    IndexMap::new()
-                }
-            };
-
-            // Then, load the unthreaded receipts.
-            let unthreaded_receipts = match self
-                .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-                .await
-            {
-                Ok(receipts) => receipts,
-                Err(e) => {
-                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                    Vec::new()
-                }
-            };
-
-            // Only insert unthreaded receipts that are more recent. Ideally we'd compare
-            // the receipted event position, but we don't have access to that
-            // here.
-            for (user_id, unthreaded_receipt) in unthreaded_receipts {
-                if let Some(main_receipt) = result.get(&user_id) {
-                    if unthreaded_receipt.ts > main_receipt.ts {
-                        result.insert(user_id, unthreaded_receipt);
-                    }
-                } else {
-                    result.insert(user_id, unthreaded_receipt);
-                }
-            }
-
-            return result;
-        }
-
-        // In all other cases, return what's requested, and only that (threaded
-        // receipts).
         match self.load_event_receipts(ReceiptType::Read, receipt_thread.clone(), event_id).await {
             Ok(receipts) => receipts.into_iter().collect(),
             Err(e) => {
