@@ -103,7 +103,7 @@ pub struct SpaceRoomList {
 
     space_id: OwnedRoomId,
 
-    space: SharedObservable<Option<SpaceRoom>>,
+    space: Arc<SharedObservable<Option<SpaceRoom>>>,
 
     via_parameters: Mutex<Option<HashMap<OwnedRoomId, Vec<OwnedServerName>>>>,
 
@@ -112,6 +112,8 @@ pub struct SpaceRoomList {
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
 
     rooms: Arc<Mutex<ObservableVector<SpaceRoom>>>,
+
+    _space_update_handle: Option<AbortOnDrop<()>>,
 
     _room_update_handle: AbortOnDrop<()>,
 }
@@ -123,7 +125,7 @@ impl SpaceRoomList {
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        let handle = spawn({
+        let room_update_handle = spawn({
             let client = client.clone();
             let rooms = rooms.clone();
 
@@ -164,28 +166,53 @@ impl SpaceRoomList {
             }
         });
 
-        let space = if let Some(parent) = client.get_room(&space_id) {
+        let space_observable = Arc::new(SharedObservable::new(None));
+
+        let (space_room, space_update_handle) = if let Some(parent) = client.get_room(&space_id) {
             let children_count = parent
                 .get_state_events_static::<SpaceChildEventContent>()
                 .await
                 .map_or(0, |c| c.len() as u64);
 
-            Some(SpaceRoom::new_from_known(&parent, children_count))
+            let mut subscriber = parent.subscribe_info();
+            let space_update_handle = spawn({
+                let client = client.clone();
+                let space_id = space_id.clone();
+                let space_observable = space_observable.clone();
+                async move {
+                    loop {
+                        if subscriber.next().await.is_some()
+                            && let Some(room) = client.get_room(&space_id)
+                        {
+                            space_observable
+                                .set(Some(SpaceRoom::new_from_known(&room, children_count)));
+                        }
+                    }
+                }
+            });
+
+            (
+                Some(SpaceRoom::new_from_known(&parent, children_count)),
+                Some(AbortOnDrop::new(space_update_handle)),
+            )
         } else {
-            None
+            (None, None)
         };
+
+        space_observable.set(space_room);
 
         Self {
             client,
             space_id,
-            space: SharedObservable::new(space),
+            space: space_observable,
             via_parameters: Mutex::new(None),
             token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
             }),
             rooms,
-            _room_update_handle: AbortOnDrop::new(handle),
+            _space_update_handle: space_update_handle,
+            _room_update_handle: AbortOnDrop::new(room_update_handle),
         }
     }
 
@@ -571,6 +598,46 @@ mod tests {
         // The parent space is known to the client and should be populated accordingly
         assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
+    }
+
+    #[async_test]
+    async fn test_parent_space_room_info_update() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let space_service = SpaceService::new(client.clone());
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+
+        server.sync_room(&client, JoinedRoomBuilder::new(parent_space_id)).await;
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+        assert_let!(Some(parent_space) = room_list.space());
+
+        // The parent space is known to the client
+        let parent_space_subscriber = room_list.subscribe_to_space_updates();
+        pin_mut!(parent_space_subscriber);
+        assert_pending!(parent_space_subscriber);
+
+        // So any room info changes are automatically published
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(parent_space_id)
+                    .add_state_event(factory.room_topic("New room topic").sender(user_id))
+                    .add_state_event(factory.room_name("New room name").sender(user_id)),
+            )
+            .await;
+
+        let mut updated_parent_space = parent_space.clone();
+        updated_parent_space.topic = Some("New room topic".to_owned());
+        updated_parent_space.name = Some("New room name".to_owned());
+
+        // And the subscription is informed about the change
+        assert_next_eq!(parent_space_subscriber, Some(updated_parent_space));
     }
 
     #[async_test]
