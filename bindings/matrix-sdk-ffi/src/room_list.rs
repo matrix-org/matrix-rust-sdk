@@ -473,6 +473,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     All { filters: Vec<RoomListEntriesDynamicFilterKind> },
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
     NonSpace,
+    Space,
     NonLeft,
     // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
     // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
@@ -515,8 +516,9 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::Any { filters } => Box::new(new_filter_any(
                 filters.into_iter().map(|filter| BoxedFilterFn::from(filter)).collect(),
             )),
-            Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::NonSpace => Box::new(new_filter_not(Box::new(new_filter_space()))),
+            Kind::Space => Box::new(new_filter_space()),
+            Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::Joined => Box::new(new_filter_joined()),
             Kind::Unread => Box::new(new_filter_unread()),
             Kind::Favourite => Box::new(new_filter_favourite()),
