@@ -125,6 +125,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
