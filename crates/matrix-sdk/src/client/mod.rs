@@ -875,7 +875,7 @@ impl Client {
     ///     // Use the context
     /// });
     ///
-    /// // This will handle membership events in joined rooms. Invites are special, cf below.
+    /// // This will handle membership events in joined rooms. Invites are special, see below.
     /// client.add_event_handler(
     ///     |ev: SyncRoomMemberEvent| async move {},
     /// );
