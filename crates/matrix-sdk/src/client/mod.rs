@@ -882,7 +882,7 @@ impl Client {
     ///
     /// // To handle state events in invited rooms (including invite membership events),
     /// // `StrippedRoomMemberEvent` should be used.
-    /// // cf https://spec.matrix.org/v1.16/client-server-api/#stripped-state
+    /// // https://spec.matrix.org/v1.16/client-server-api/#stripped-state
     /// client.add_event_handler(
     ///     |ev: StrippedRoomMemberEvent| async move {},
     /// );
