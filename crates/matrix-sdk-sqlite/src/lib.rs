@@ -48,7 +48,7 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
-/// A enum used to store the secret that gives access to a store
+/// An enum used to store the secret that gives access to a store
 #[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
     // Cryptographic key used to open the store
