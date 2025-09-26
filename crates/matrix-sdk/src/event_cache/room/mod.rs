@@ -1301,6 +1301,12 @@ mod private {
             &self.room_linked_chunk
         }
 
+        /// Returns a mutable reference to the underlying room linked chunk.
+        #[cfg(feature = "e2e-encryption")]
+        pub(in crate::event_cache) fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
+            &mut self.room_linked_chunk
+        }
+
         //// Find a single event in this room, starting from the most recent event.
         ///
         /// **Warning**! It looks into the loaded events from the in-memory
