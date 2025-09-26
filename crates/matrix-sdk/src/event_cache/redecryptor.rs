@@ -206,3 +206,178 @@ impl Redecryptor {
         info!("Shutting down the event cache redecryptor");
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use assert_matches2::assert_matches;
+    use eyeball_im::VectorDiff;
+    use matrix_sdk_base::deserialized_responses::TimelineEventKind;
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
+    };
+    use ruma::{device_id, event_id, room_id, user_id};
+    use serde_json::json;
+
+    use crate::{
+        assert_let_timeout, encryption::EncryptionSettings, event_cache::RoomEventCacheUpdate,
+        test_utils::mocks::MatrixMockServer,
+    };
+
+    #[async_test]
+    async fn test_redecryptor() {
+        let room_id = room_id!("!test:localhost");
+
+        let alice_user_id = user_id!("@alice:localhost");
+        let alice_device_id = device_id!("ALICEDEVICE");
+        let bob_user_id = user_id!("@bob:localhost");
+        let bob_device_id = device_id!("BOBDEVICE");
+
+        let matrix_mock_server = MatrixMockServer::new().await;
+        matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+        let encryption_settings =
+            EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+        // Create some clients for Alice and Bob.
+
+        let alice = matrix_mock_server
+            .client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id)
+            .on_builder(|builder| {
+                builder
+                    .with_enable_share_history_on_invite(true)
+                    .with_encryption_settings(encryption_settings)
+            })
+            .build()
+            .await;
+
+        let bob = matrix_mock_server
+            .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
+            .on_builder(|builder| {
+                builder
+                    .with_enable_share_history_on_invite(true)
+                    .with_encryption_settings(encryption_settings)
+            })
+            .build()
+            .await;
+
+        bob.event_cache().subscribe().expect("Bob should be able to enable the event cache");
+
+        // Ensure that Alice and Bob are aware of their devices and identities.
+        matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
+
+        let event_factory = EventFactory::new().room(room_id);
+        let alice_member_event = event_factory.member(alice_user_id).into_raw();
+        let bob_member_event = event_factory.member(bob_user_id).into_raw();
+
+        // Let us now create a room for them.
+        let room_builder = JoinedRoomBuilder::new(room_id)
+            .add_state_event(StateTestEvent::Create)
+            .add_state_event(StateTestEvent::Encryption);
+
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&alice, |builder| {
+                builder.add_joined_room(room_builder.clone());
+            })
+            .await;
+
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(room_builder);
+            })
+            .await;
+
+        let room = alice
+            .get_room(room_id)
+            .expect("Alice should have access to the room now that we synced");
+
+        // Alice will send a single event to the room, but this will trigger a to-device
+        // message containing the room key to be sent as well. We capture both the event
+        // and the to-device message.
+
+        let event_type = "m.room.message";
+        let content = json!({"body": "It's a secret to everybody", "msgtype": "m.text"});
+
+        let event_id = event_id!("$some_id");
+        let (event_receiver, mock) =
+            matrix_mock_server.mock_room_send().ok_with_capture(event_id, alice_user_id);
+        let (_guard, room_key) = matrix_mock_server.mock_capture_put_to_device(alice_user_id).await;
+
+        {
+            let _guard = mock.mock_once().mount_as_scoped().await;
+
+            matrix_mock_server
+                .mock_get_members()
+                .ok(vec![alice_member_event.clone(), bob_member_event.clone()])
+                .mock_once()
+                .mount()
+                .await;
+
+            room.send_raw(event_type, content)
+                .await
+                .expect("We should be able to send an initial message");
+        };
+
+        // Let's now see what Bob's event cache does.
+
+        let (room_cache, _) = bob
+            .event_cache()
+            .for_room(room_id)
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+
+        let (_, mut subscriber) = room_cache.subscribe().await;
+
+        // Let us retrieve the captured event and to-device message.
+        let event = event_receiver.await.expect("Alice should have sent the event by now");
+        let room_key = room_key.await;
+
+        // Let us forward the event to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .await;
+
+        // Alright, Bob has received an update from the cache.
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // There should be a single new event, and it should be a UTD as we did not
+        // receive the room key yet.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // Now we send the room key to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(
+                    room_key
+                        .deserialize_as()
+                        .expect("We should be able to deserialize the room key"),
+                );
+            })
+            .await;
+
+        // Bob should receive a new update from the cache.
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // It should replace the UTD with a decrypted event.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Set { index, value });
+        assert_eq!(*index, 0);
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+    }
+}
