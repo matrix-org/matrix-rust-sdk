@@ -11,6 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
+    events::push_rules::PushRulesEventContent,
     push::{
         Action as SdkAction, ComparisonOperator as SdkComparisonOperator, PredefinedOverrideRuleId,
         PredefinedUnderrideRuleId, PushCondition as SdkPushCondition, RoomMemberCountIs,
@@ -20,7 +21,7 @@ use ruma::{
 };
 use tokio::sync::RwLock as AsyncRwLock;
 
-use crate::error::NotificationSettingsError;
+use crate::error::{ClientError, NotificationSettingsError};
 
 #[derive(Clone, Default, uniffi::Enum)]
 pub enum ComparisonOperator {
@@ -769,5 +770,12 @@ impl NotificationSettings {
             .unmute_room(&parsed_room_id, is_encrypted.into(), is_one_to_one.into())
             .await?;
         Ok(())
+    }
+
+    /// Returns the raw push rules in JSON format.
+    pub async fn get_raw_push_rules(&self) -> Result<Option<String>, ClientError> {
+        let raw_push_rules =
+            self.sdk_client.account().account_data::<PushRulesEventContent>().await?;
+        Ok(raw_push_rules.map(|raw| serde_json::to_string(&raw)).transpose()?)
     }
 }
