@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
-- Implement a new constructor that allows to open SqliteCryptoStore with a cryptographic key
+- Implement a new constructor that allows to open `SqliteCryptoStore` with a cryptographic key
   ([#5472](https://github.com/matrix-org/matrix-rust-sdk/pull/5472))
 
 ### Refactor
