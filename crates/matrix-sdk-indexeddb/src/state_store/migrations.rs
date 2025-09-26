@@ -18,7 +18,14 @@ use std::{
 };
 
 use gloo_utils::format::JsValueSerdeExt;
-use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
+use indexed_db_futures::{
+    database::{Database, VersionChangeEvent},
+    error::Error,
+    future::OpenDbRequest,
+    object_store::ObjectStore,
+    prelude::*,
+    transaction::{Transaction, TransactionMode},
+};
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::SyncOrStrippedState, store::migration_helpers::RoomInfoV1,
@@ -38,7 +45,6 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use wasm_bindgen::JsValue;
-use web_sys::IdbTransactionMode;
 
 use super::{
     deserialize_value, encode_key, encode_to_range, keys, serialize_value, Result, RoomMember,
@@ -82,35 +88,41 @@ mod old_keys {
 pub async fn upgrade_meta_db(
     meta_name: &str,
     passphrase: Option<&str>,
-) -> Result<(IdbDatabase, Option<Arc<StoreCipher>>)> {
+) -> Result<(Database, Option<Arc<StoreCipher>>)> {
     // Meta database.
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(meta_name, CURRENT_META_DB_VERSION)?;
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let db = evt.db();
-        let old_version = evt.old_version() as u32;
+    let db_req: OpenDbRequest = Database::open(meta_name)
+        .with_version(CURRENT_META_DB_VERSION)
+        .with_on_upgrade_needed(
+            |evt: VersionChangeEvent, tx: &Transaction<'_>| -> Result<(), Error> {
+                let db = tx.db();
+                let old_version = evt.old_version() as u32;
 
-        if old_version < 1 {
-            db.create_object_store(keys::INTERNAL_STATE)?;
-        }
+                if old_version < 1 {
+                    db.create_object_store(keys::INTERNAL_STATE).build()?;
+                }
 
-        if old_version < 2 {
-            db.create_object_store(keys::BACKUPS_META)?;
-        }
+                if old_version < 2 {
+                    db.create_object_store(keys::BACKUPS_META).build()?;
+                }
 
-        Ok(())
-    }));
+                Ok(())
+            },
+        )
+        .build()?;
 
-    let meta_db: IdbDatabase = db_req.await?;
+    let meta_db: Database = db_req.await?;
 
     let store_cipher = if let Some(passphrase) = passphrase {
-        let tx: IdbTransaction<'_> = meta_db
-            .transaction_on_one_with_mode(keys::INTERNAL_STATE, IdbTransactionMode::Readwrite)?;
+        let tx: Transaction<'_> = meta_db
+            .transaction(keys::INTERNAL_STATE)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
         let ob = tx.object_store(keys::INTERNAL_STATE)?;
 
         let cipher = if let Some(StoreKeyWrapper(inner)) = ob
-            .get(&JsValue::from_str(keys::STORE_KEY))?
+            .get(&JsValue::from_str(keys::STORE_KEY))
             .await?
-            .map(|v| v.into_serde())
+            .map(|v: JsValue| v.into_serde())
             .transpose()?
         {
             StoreCipher::import(passphrase, &inner)?
@@ -120,14 +132,11 @@ pub async fn upgrade_meta_db(
             let export = cipher.export(passphrase)?;
             #[cfg(test)]
             let export = cipher._insecure_export_fast_for_testing(passphrase)?;
-            ob.put_key_val(
-                &JsValue::from_str(keys::STORE_KEY),
-                &JsValue::from_serde(&StoreKeyWrapper(export))?,
-            )?;
+            ob.put(&StoreKeyWrapper(export)).with_key(keys::STORE_KEY.to_owned()).serde()?.await?;
             cipher
         };
 
-        tx.await.into_result()?;
+        tx.commit().await?;
         Some(Arc::new(cipher))
     } else {
         None
@@ -151,9 +160,9 @@ pub async fn upgrade_inner_db(
     name: &str,
     store_cipher: Option<&StoreCipher>,
     migration_strategy: MigrationConflictStrategy,
-    meta_db: &IdbDatabase,
-) -> Result<IdbDatabase> {
-    let mut db = IdbDatabase::open(name)?.await?;
+    meta_db: &Database,
+) -> Result<Database> {
+    let mut db = Database::open(name).await?;
 
     // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
     // works with an unsigned integer.
@@ -247,19 +256,21 @@ pub async fn upgrade_inner_db(
 
         db.close();
 
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
-        db_req.set_on_upgrade_needed(Some(
-            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-                // Sanity check.
-                // There should be no upgrade needed since the database should have already been
-                // upgraded to the latest version.
-                panic!(
-                    "Opening database that was not fully upgraded: \
+        let db_req: OpenDbRequest = Database::open(name)
+            .with_version(CURRENT_DB_VERSION)
+            .with_on_upgrade_needed(
+                move |evt: VersionChangeEvent, _: &Transaction<'_>| -> Result<(), Error> {
+                    // Sanity check.
+                    // There should be no upgrade needed since the database should have already been
+                    // upgraded to the latest version.
+                    panic!(
+                        "Opening database that was not fully upgraded: \
                      DB version: {}; latest version: {CURRENT_DB_VERSION}",
-                    evt.old_version()
-                )
-            },
-        ));
+                        evt.old_version()
+                    )
+                },
+            )
+            .build()?;
         db = db_req.await?;
     }
 
@@ -269,41 +280,45 @@ pub async fn upgrade_inner_db(
 /// Apply the given migration by upgrading the database with the given name to
 /// the given version.
 async fn apply_migration(
-    db: IdbDatabase,
+    db: Database,
     version: u32,
     migration: OngoingMigration,
-) -> Result<IdbDatabase> {
+) -> Result<Database> {
     let name = db.name();
     db.close();
 
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, version)?;
-    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        // Changing the format can only happen in the upgrade procedure
-        for store in &migration.drop_stores {
-            evt.db().delete_object_store(store)?;
-        }
-        for store in &migration.create_stores {
-            evt.db().create_object_store(store)?;
-        }
+    let db_req: OpenDbRequest = Database::open(&name)
+        .with_version(version)
+        .with_on_upgrade_needed(
+            move |_: VersionChangeEvent, tx: &Transaction<'_>| -> Result<(), Error> {
+                // Changing the format can only happen in the upgrade procedure
+                for store in &migration.drop_stores {
+                    tx.db().delete_object_store(store)?;
+                }
+                for store in &migration.create_stores {
+                    tx.db().create_object_store(store).build()?;
+                }
 
-        Ok(())
-    }));
+                Ok(())
+            },
+        )
+        .build()?;
 
     let db = db_req.await?;
 
     // Finally, we can add data to the newly created tables if needed.
     if !migration.data.is_empty() {
         let stores: Vec<_> = migration.data.keys().copied().collect();
-        let tx = db.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+        let tx = db.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
 
         for (name, data) in migration.data {
             let store = tx.object_store(name)?;
             for (key, value) in data {
-                store.put_key_val(&key, &value)?;
+                store.put(&value).with_key(key).await?;
             }
         }
 
-        tx.await.into_result()?;
+        tx.commit().await?;
     }
 
     Ok(db)
@@ -333,57 +348,61 @@ pub const V1_STORES: &[&str] = &[
     old_keys::SYNC_TOKEN,
 ];
 
-async fn backup_v1(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
+async fn backup_v1(source: &Database, meta: &Database) -> Result<()> {
     let now = JsDate::now();
     let backup_name = format!("backup-{}-{now}", source.name());
 
-    let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&backup_name, source.version())?;
-    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        // migrating to version 1
-        let db = evt.db();
-        for name in V1_STORES {
-            db.create_object_store(name)?;
-        }
-        Ok(())
-    }));
+    let db_req: OpenDbRequest = Database::open(&backup_name)
+        .with_version(source.version())
+        .with_on_upgrade_needed(
+            move |_: VersionChangeEvent, tx: &Transaction<'_>| -> Result<(), Error> {
+                // migrating to version 1
+                let db = tx.db();
+                for name in V1_STORES {
+                    db.create_object_store(name).build()?;
+                }
+                Ok(())
+            },
+        )
+        .build()?;
     let target = db_req.await?;
 
     for name in V1_STORES {
-        let source_tx = source.transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?;
+        let source_tx = source.transaction(*name).with_mode(TransactionMode::Readonly).build()?;
         let source_obj = source_tx.object_store(name)?;
-        let Some(curs) = source_obj.open_cursor()?.await? else {
+        let Some(mut curs) = source_obj.open_cursor().await? else {
             continue;
         };
 
-        let data = curs.into_vec(0).await?;
-
-        let target_tx = target.transaction_on_one_with_mode(name, IdbTransactionMode::Readwrite)?;
-        let target_obj = target_tx.object_store(name)?;
-
-        for kv in data {
-            target_obj.put_key_val(kv.key(), kv.value())?;
+        let mut data = vec![];
+        while let Some(value) = curs.next_record::<JsValue>().await? {
+            if let Some(key) = curs.key::<JsValue>()? {
+                data.push((key, value));
+            }
         }
 
-        target_tx.await.into_result()?;
+        let target_tx = target.transaction(*name).with_mode(TransactionMode::Readwrite).build()?;
+        let target_obj = target_tx.object_store(name)?;
+
+        for (key, value) in data {
+            target_obj.put(value).with_key(key).await?;
+        }
+
+        target_tx.commit().await?;
     }
 
-    let tx =
-        meta.transaction_on_one_with_mode(keys::BACKUPS_META, IdbTransactionMode::Readwrite)?;
+    let tx = meta.transaction(keys::BACKUPS_META).with_mode(TransactionMode::Readwrite).build()?;
     let backup_store = tx.object_store(keys::BACKUPS_META)?;
-    backup_store.put_key_val(&JsValue::from_f64(now), &JsValue::from_str(&backup_name))?;
+    backup_store.put(&backup_name).with_key(now).await?;
 
-    tx.await;
+    tx.commit().await?;
 
-    source.close();
     target.close();
 
     Ok(())
 }
 
-async fn v3_fix_store(
-    store: &IdbObjectStore<'_>,
-    store_cipher: Option<&StoreCipher>,
-) -> Result<()> {
+async fn v3_fix_store(store: &ObjectStore<'_>, store_cipher: Option<&StoreCipher>) -> Result<()> {
     fn maybe_fix_json(raw_json: &RawJsonValue) -> Result<Option<JsonValue>> {
         let json = raw_json.get();
 
@@ -400,18 +419,14 @@ async fn v3_fix_store(
         Ok(None)
     }
 
-    let cursor = store.open_cursor()?.await?;
+    let cursor = store.open_cursor().await?;
 
-    if let Some(cursor) = cursor {
-        loop {
-            let raw_json: Box<RawJsonValue> = deserialize_value(store_cipher, &cursor.value())?;
+    if let Some(mut cursor) = cursor {
+        while let Some(value) = cursor.next_record().await? {
+            let raw_json: Box<RawJsonValue> = deserialize_value(store_cipher, &value)?;
 
             if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
-                cursor.update(&serialize_value(store_cipher, &fixed_json)?)?.await?;
-            }
-
-            if !cursor.continue_cursor()?.await? {
-                break;
+                cursor.update(&serialize_value(store_cipher, &fixed_json)?).await?;
             }
         }
     }
@@ -420,35 +435,35 @@ async fn v3_fix_store(
 }
 
 /// Fix serialized redacted state events.
-async fn migrate_to_v3(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
-    let tx = db.transaction_on_multi_with_mode(
-        &[keys::ROOM_STATE, keys::ROOM_INFOS],
-        IdbTransactionMode::Readwrite,
-    )?;
+async fn migrate_to_v3(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
+    let tx = db
+        .transaction([keys::ROOM_STATE, keys::ROOM_INFOS])
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     v3_fix_store(&tx.object_store(keys::ROOM_STATE)?, store_cipher).await?;
     v3_fix_store(&tx.object_store(keys::ROOM_INFOS)?, store_cipher).await?;
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let name = db.name();
     db.close();
 
     // Update the version of the database.
-    Ok(IdbDatabase::open_u32(&name, 3)?.await?)
+    Ok(Database::open(&name).with_version(3u32).await?)
 }
 
 /// Move the content of the SYNC_TOKEN and SESSION stores to the new KV store.
-async fn migrate_to_v4(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
-    let tx = db.transaction_on_multi_with_mode(
-        &[old_keys::SYNC_TOKEN, old_keys::SESSION],
-        IdbTransactionMode::Readonly,
-    )?;
+async fn migrate_to_v4(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
+    let tx = db
+        .transaction([old_keys::SYNC_TOKEN, old_keys::SESSION])
+        .with_mode(TransactionMode::Readonly)
+        .build()?;
     let mut values = Vec::new();
 
     // Sync token
     let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
-    let sync_token = sync_token_store.get(&JsValue::from_str(old_keys::SYNC_TOKEN))?.await?;
+    let sync_token = sync_token_store.get(&JsValue::from_str(old_keys::SYNC_TOKEN)).await?;
 
     if let Some(sync_token) = sync_token {
         values.push((
@@ -459,17 +474,17 @@ async fn migrate_to_v4(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 
     // Filters
     let session_store = tx.object_store(old_keys::SESSION)?;
-    let range =
-        encode_to_range(store_cipher, StateStoreDataKey::FILTER, StateStoreDataKey::FILTER)?;
-    if let Some(cursor) = session_store.open_cursor_with_range(&range)?.await? {
-        while let Some(key) = cursor.key() {
-            let value = cursor.value();
+    let range = encode_to_range(store_cipher, StateStoreDataKey::FILTER, StateStoreDataKey::FILTER);
+    if let Some(mut cursor) = session_store.open_cursor().with_query(&range).await? {
+        while let Some(value) = cursor.next_record().await? {
+            let Some(key) = cursor.key()? else {
+                break;
+            };
             values.push((key, value));
-            cursor.continue_cursor()?.await?;
         }
     }
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let mut data = HashMap::new();
     if !values.is_empty() {
@@ -485,33 +500,34 @@ async fn migrate_to_v4(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 }
 
 /// Move the member events with other state events.
-async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
-    let tx = db.transaction_on_multi_with_mode(
-        &[
+async fn migrate_to_v5(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
+    let tx = db
+        .transaction([
             old_keys::MEMBERS,
             old_keys::STRIPPED_MEMBERS,
             keys::ROOM_STATE,
             keys::STRIPPED_ROOM_STATE,
             keys::ROOM_INFOS,
             old_keys::STRIPPED_ROOM_INFOS,
-        ],
-        IdbTransactionMode::Readwrite,
-    )?;
+        ])
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     let members_store = tx.object_store(old_keys::MEMBERS)?;
     let state_store = tx.object_store(keys::ROOM_STATE)?;
     let room_infos = tx
         .object_store(keys::ROOM_INFOS)?
-        .get_all()?
+        .get_all()
         .await?
-        .iter()
+        .filter_map(Result::ok)
         .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in room_infos {
         let room_id = room_info.room_id();
-        let range = encode_to_range(store_cipher, old_keys::MEMBERS, room_id)?;
-        for value in members_store.get_all_with_key(&range)?.await?.iter() {
+        let range = encode_to_range(store_cipher, old_keys::MEMBERS, room_id);
+        for result in members_store.get_all().with_query(&range).await? {
+            let value = result?;
             let raw_member_event =
                 deserialize_value::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
@@ -521,7 +537,7 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                 (room_id, StateEventType::RoomMember, state_key),
             );
 
-            state_store.add_key_val(&key, &value)?;
+            state_store.add(&value).with_key(key).build()?.await?;
         }
     }
 
@@ -529,16 +545,17 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
     let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
     let stripped_room_infos = tx
         .object_store(old_keys::STRIPPED_ROOM_INFOS)?
-        .get_all()?
+        .get_all()
         .await?
-        .iter()
+        .filter_map(Result::ok)
         .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in stripped_room_infos {
         let room_id = room_info.room_id();
-        let range = encode_to_range(store_cipher, old_keys::STRIPPED_MEMBERS, room_id)?;
-        for value in stripped_members_store.get_all_with_key(&range)?.await?.iter() {
+        let range = encode_to_range(store_cipher, old_keys::STRIPPED_MEMBERS, room_id);
+        for result in stripped_members_store.get_all().with_query(&range).await? {
+            let value = result?;
             let raw_member_event =
                 deserialize_value::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
@@ -548,11 +565,11 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                 (room_id, StateEventType::RoomMember, state_key),
             );
 
-            stripped_state_store.add_key_val(&key, &value)?;
+            stripped_state_store.add(&value).with_key(key).build()?.await?;
         }
     }
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let migration = OngoingMigration {
         drop_stores: [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS].into_iter().collect(),
@@ -563,25 +580,25 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 }
 
 /// Remove the old user IDs stores and populate the new ones.
-async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
+async fn migrate_to_v6(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
     // We only have joined and invited user IDs in the old store, so instead we will
     // use the room member events to populate the new store.
-    let tx = db.transaction_on_multi_with_mode(
-        &[
+    let tx = db
+        .transaction([
             keys::ROOM_STATE,
             keys::ROOM_INFOS,
             keys::STRIPPED_ROOM_STATE,
             old_keys::STRIPPED_ROOM_INFOS,
-        ],
-        IdbTransactionMode::Readonly,
-    )?;
+        ])
+        .with_mode(TransactionMode::Readonly)
+        .build()?;
 
     let state_store = tx.object_store(keys::ROOM_STATE)?;
     let room_infos = tx
         .object_store(keys::ROOM_INFOS)?
-        .get_all()?
+        .get_all()
         .await?
-        .iter()
+        .filter_map(Result::ok)
         .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut values = Vec::new();
@@ -589,8 +606,9 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
     for room_info in room_infos {
         let room_id = room_info.room_id();
         let range =
-            encode_to_range(store_cipher, keys::ROOM_STATE, (room_id, StateEventType::RoomMember))?;
-        for value in state_store.get_all_with_key(&range)?.await?.iter() {
+            encode_to_range(store_cipher, keys::ROOM_STATE, (room_id, StateEventType::RoomMember));
+        for result in state_store.get_all().with_query(&range).await? {
+            let value = result?;
             let member_event = deserialize_value::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
                 .deserialize()?;
             let key = encode_key(store_cipher, keys::USER_IDS, (room_id, member_event.state_key()));
@@ -603,9 +621,9 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
     let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
     let stripped_room_infos = tx
         .object_store(old_keys::STRIPPED_ROOM_INFOS)?
-        .get_all()?
+        .get_all()
         .await?
-        .iter()
+        .filter_map(Result::ok)
         .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut stripped_values = Vec::new();
@@ -616,8 +634,9 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
             store_cipher,
             keys::STRIPPED_ROOM_STATE,
             (room_id, StateEventType::RoomMember),
-        )?;
-        for value in stripped_state_store.get_all_with_key(&range)?.await?.iter() {
+        );
+        for result in stripped_state_store.get_all().with_query(&range).await? {
+            let value = result?;
             let stripped_member_event =
                 deserialize_value::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?
                     .deserialize()?;
@@ -632,7 +651,7 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         }
     }
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let mut data = HashMap::new();
     if !values.is_empty() {
@@ -657,17 +676,17 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 
 /// Remove the stripped room infos store and migrate the data with the other
 /// room infos, as well as .
-async fn migrate_to_v7(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
-    let tx = db.transaction_on_multi_with_mode(
-        &[old_keys::STRIPPED_ROOM_INFOS],
-        IdbTransactionMode::Readonly,
-    )?;
+async fn migrate_to_v7(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
+    let tx = db
+        .transaction([old_keys::STRIPPED_ROOM_INFOS])
+        .with_mode(TransactionMode::Readonly)
+        .build()?;
 
     let room_infos = tx
         .object_store(old_keys::STRIPPED_ROOM_INFOS)?
-        .get_all()?
+        .get_all()
         .await?
-        .iter()
+        .filter_map(Result::ok)
         .filter_map(|value| {
             deserialize_value::<RoomInfoV1>(store_cipher, &value)
                 .ok()
@@ -675,7 +694,7 @@ async fn migrate_to_v7(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         })
         .collect::<Vec<_>>();
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let mut data = HashMap::new();
     if !room_infos.is_empty() {
@@ -691,21 +710,21 @@ async fn migrate_to_v7(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 }
 
 /// Change the format of the room infos.
-async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> Result<IdbDatabase> {
-    let tx = db.transaction_on_multi_with_mode(
-        &[keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE, keys::ROOM_INFOS],
-        IdbTransactionMode::Readwrite,
-    )?;
+async fn migrate_to_v8(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
+    let tx = db
+        .transaction([keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE, keys::ROOM_INFOS])
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     let room_state_store = tx.object_store(keys::ROOM_STATE)?;
     let stripped_room_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
     let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
 
     let room_infos_v1 = room_infos_store
-        .get_all()?
+        .get_all()
+        .build()?
         .await?
-        .iter()
-        .map(|value| deserialize_value::<RoomInfoV1>(store_cipher, &value))
+        .map(|value| deserialize_value::<RoomInfoV1>(store_cipher, &value?))
         .collect::<Result<Vec<_>, _>>()?;
 
     for room_info_v1 in room_infos_v1 {
@@ -714,7 +733,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                 store_cipher,
                 keys::STRIPPED_ROOM_STATE,
                 (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
-            ))?
+            ))
             .await?
             .map(|f| deserialize_value(store_cipher, &f))
             .transpose()?
@@ -726,7 +745,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                     store_cipher,
                     keys::ROOM_STATE,
                     (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
-                ))?
+                ))
                 .await?
                 .map(|f| deserialize_value(store_cipher, &f))
                 .transpose()?
@@ -734,23 +753,23 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         };
 
         let room_info = room_info_v1.migrate(create.as_ref());
-        room_infos_store.put_key_val(
-            &encode_key(store_cipher, keys::ROOM_INFOS, room_info.room_id()),
-            &serialize_value(store_cipher, &room_info)?,
-        )?;
+        room_infos_store
+            .put(&serialize_value(store_cipher, &room_info)?)
+            .with_key(encode_key(store_cipher, keys::ROOM_INFOS, room_info.room_id()))
+            .build()?;
     }
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let name = db.name();
     db.close();
 
     // Update the version of the database.
-    Ok(IdbDatabase::open_u32(&name, 8)?.await?)
+    Ok(Database::open(&name).with_version(8u32).build()?.await?)
 }
 
 /// Add the new [`keys::ROOM_SEND_QUEUE`] table.
-async fn migrate_to_v9(db: IdbDatabase) -> Result<IdbDatabase> {
+async fn migrate_to_v9(db: Database) -> Result<Database> {
     let migration = OngoingMigration {
         drop_stores: [].into(),
         create_stores: [keys::ROOM_SEND_QUEUE].into_iter().collect(),
@@ -760,7 +779,7 @@ async fn migrate_to_v9(db: IdbDatabase) -> Result<IdbDatabase> {
 }
 
 /// Add the new [`keys::DEPENDENT_SEND_QUEUE`] table.
-async fn migrate_to_v10(db: IdbDatabase) -> Result<IdbDatabase> {
+async fn migrate_to_v10(db: Database) -> Result<Database> {
     let migration = OngoingMigration {
         drop_stores: [].into(),
         create_stores: [keys::DEPENDENT_SEND_QUEUE].into_iter().collect(),
@@ -770,7 +789,7 @@ async fn migrate_to_v10(db: IdbDatabase) -> Result<IdbDatabase> {
 }
 
 /// Drop the [`old_keys::MEDIA`] table.
-async fn migrate_to_v11(db: IdbDatabase) -> Result<IdbDatabase> {
+async fn migrate_to_v11(db: Database) -> Result<Database> {
     let migration = OngoingMigration {
         drop_stores: [old_keys::MEDIA].into(),
         create_stores: Default::default(),
@@ -781,26 +800,26 @@ async fn migrate_to_v11(db: IdbDatabase) -> Result<IdbDatabase> {
 
 /// The format of data serialized into the send queue and dependent send queue
 /// tables have changed, clear both.
-async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
-    let store_keys = &[keys::DEPENDENT_SEND_QUEUE, keys::ROOM_SEND_QUEUE];
-    let tx = db.transaction_on_multi_with_mode(store_keys, IdbTransactionMode::Readwrite)?;
+async fn migrate_to_v12(db: Database) -> Result<Database> {
+    let store_keys = [keys::DEPENDENT_SEND_QUEUE, keys::ROOM_SEND_QUEUE];
+    let tx = db.transaction(store_keys).with_mode(TransactionMode::Readwrite).build()?;
 
     for store_name in store_keys {
         let store = tx.object_store(store_name)?;
         store.clear()?;
     }
 
-    tx.await.into_result()?;
+    tx.commit().await?;
 
     let name = db.name();
     db.close();
 
     // Update the version of the database.
-    Ok(IdbDatabase::open_u32(&name, 12)?.await?)
+    Ok(Database::open(&name).with_version(12u32).build()?.await?)
 }
 
 /// Add the thread subscriptions table.
-async fn migrate_to_v13(db: IdbDatabase) -> Result<IdbDatabase> {
+async fn migrate_to_v13(db: Database) -> Result<Database> {
     let migration = OngoingMigration {
         drop_stores: [].into(),
         create_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
@@ -812,7 +831,7 @@ async fn migrate_to_v13(db: IdbDatabase) -> Result<IdbDatabase> {
 /// Empty the thread subscriptions table, because the serialized format has
 /// changed (from storing only the subscription to storing the
 /// `StoredThreadSubscription`).
-async fn migrate_to_v14(db: IdbDatabase) -> Result<IdbDatabase> {
+async fn migrate_to_v14(db: Database) -> Result<Database> {
     let migration = OngoingMigration {
         drop_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
         create_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
@@ -827,7 +846,13 @@ mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use indexed_db_futures::prelude::*;
+    use indexed_db_futures::{
+        database::{Database, VersionChangeEvent},
+        error::Error,
+        object_store::ObjectStore,
+        prelude::*,
+        transaction::{Transaction, TransactionMode},
+    };
     use matrix_sdk_base::{
         deserialized_responses::RawMemberEvent,
         store::{RoomLoadSettings, StateStoreExt},
@@ -861,70 +886,73 @@ mod tests {
     const CUSTOM_DATA_KEY: &[u8] = b"custom_data_key";
     const CUSTOM_DATA: &[u8] = b"some_custom_data";
 
-    pub async fn create_fake_db(name: &str, version: u32) -> Result<IdbDatabase> {
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
-        db_req.set_on_upgrade_needed(Some(
-            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-                let db = evt.db();
+    pub async fn create_fake_db(name: &str, version: u32) -> Result<Database> {
+        Database::open(name)
+            .with_version(version)
+            .with_on_upgrade_needed(
+                move |_: VersionChangeEvent, tx: &Transaction<'_>| -> Result<(), Error> {
+                    let db = tx.db();
 
-                // Stores common to all versions.
-                let common_stores = &[
-                    keys::ACCOUNT_DATA,
-                    keys::PROFILES,
-                    keys::DISPLAY_NAMES,
-                    keys::ROOM_STATE,
-                    keys::ROOM_INFOS,
-                    keys::PRESENCE,
-                    keys::ROOM_ACCOUNT_DATA,
-                    keys::STRIPPED_ROOM_STATE,
-                    keys::ROOM_USER_RECEIPTS,
-                    keys::ROOM_EVENT_RECEIPTS,
-                    keys::CUSTOM,
-                ];
+                    // Stores common to all versions.
+                    let common_stores = &[
+                        keys::ACCOUNT_DATA,
+                        keys::PROFILES,
+                        keys::DISPLAY_NAMES,
+                        keys::ROOM_STATE,
+                        keys::ROOM_INFOS,
+                        keys::PRESENCE,
+                        keys::ROOM_ACCOUNT_DATA,
+                        keys::STRIPPED_ROOM_STATE,
+                        keys::ROOM_USER_RECEIPTS,
+                        keys::ROOM_EVENT_RECEIPTS,
+                        keys::CUSTOM,
+                    ];
 
-                for name in common_stores {
-                    db.create_object_store(name)?;
-                }
+                    for name in common_stores {
+                        db.create_object_store(name).build()?;
+                    }
 
-                if version < 4 {
-                    for name in [old_keys::SYNC_TOKEN, old_keys::SESSION] {
-                        db.create_object_store(name)?;
+                    if version < 4 {
+                        for name in [old_keys::SYNC_TOKEN, old_keys::SESSION] {
+                            db.create_object_store(name).build()?;
+                        }
                     }
-                }
-                if version >= 4 {
-                    db.create_object_store(keys::KV)?;
-                }
-                if version < 5 {
-                    for name in [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS] {
-                        db.create_object_store(name)?;
+                    if version >= 4 {
+                        db.create_object_store(keys::KV).build()?;
                     }
-                }
-                if version < 6 {
-                    for name in [
-                        old_keys::INVITED_USER_IDS,
-                        old_keys::JOINED_USER_IDS,
-                        old_keys::STRIPPED_INVITED_USER_IDS,
-                        old_keys::STRIPPED_JOINED_USER_IDS,
-                    ] {
-                        db.create_object_store(name)?;
+                    if version < 5 {
+                        for name in [old_keys::MEMBERS, old_keys::STRIPPED_MEMBERS] {
+                            db.create_object_store(name).build()?;
+                        }
                     }
-                }
-                if version >= 6 {
-                    for name in [keys::USER_IDS, keys::STRIPPED_USER_IDS] {
-                        db.create_object_store(name)?;
+                    if version < 6 {
+                        for name in [
+                            old_keys::INVITED_USER_IDS,
+                            old_keys::JOINED_USER_IDS,
+                            old_keys::STRIPPED_INVITED_USER_IDS,
+                            old_keys::STRIPPED_JOINED_USER_IDS,
+                        ] {
+                            db.create_object_store(name).build()?;
+                        }
                     }
-                }
-                if version < 7 {
-                    db.create_object_store(old_keys::STRIPPED_ROOM_INFOS)?;
-                }
-                if version < 11 {
-                    db.create_object_store(old_keys::MEDIA)?;
-                }
+                    if version >= 6 {
+                        for name in [keys::USER_IDS, keys::STRIPPED_USER_IDS] {
+                            db.create_object_store(name).build()?;
+                        }
+                    }
+                    if version < 7 {
+                        db.create_object_store(old_keys::STRIPPED_ROOM_INFOS).build()?;
+                    }
+                    if version < 11 {
+                        db.create_object_store(old_keys::MEDIA).build()?;
+                    }
 
-                Ok(())
-            },
-        ));
-        db_req.await.map_err(Into::into)
+                    Ok(())
+                },
+            )
+            .build()?
+            .await
+            .map_err(Into::into)
     }
 
     fn room_info_v1_json(
@@ -996,14 +1024,13 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx =
-                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
-            tx.await.into_result()?;
+            custom.put(&serialize_value(None, &CUSTOM_DATA)?).with_key(jskey).await?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1031,14 +1058,13 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx =
-                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
-            tx.await.into_result()?;
+            custom.put(&serialize_value(None, &CUSTOM_DATA)?).with_key(jskey).await?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1069,14 +1095,13 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx =
-                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
-            tx.await.into_result()?;
+            custom.put(&serialize_value(None, &CUSTOM_DATA)?).with_key(jskey).await?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1110,14 +1135,13 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx =
-                db.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
+            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
-            tx.await.into_result()?;
+            custom.put(&serialize_value(None, &CUSTOM_DATA)?).with_key(jskey).await?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1167,11 +1191,11 @@ mod tests {
         {
             let db = create_fake_db(&name, 2).await?;
             let tx =
-                db.transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readwrite)?;
+                db.transaction(keys::ROOM_STATE).with_mode(TransactionMode::Readwrite).build()?;
             let state = tx.object_store(keys::ROOM_STATE)?;
             let key: JsValue = (room_id, StateEventType::RoomTopic, "").as_encoded_string().into();
-            state.put_key_val(&key, &serialize_value(None, &wrong_redacted_state_event)?)?;
-            tx.await.into_result()?;
+            state.put(&serialize_value(None, &wrong_redacted_state_event)?).with_key(key).await?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1201,28 +1225,36 @@ mod tests {
         // Populate DB with old table.
         {
             let db = create_fake_db(&name, 3).await?;
-            let tx = db.transaction_on_multi_with_mode(
-                &[old_keys::SYNC_TOKEN, old_keys::SESSION],
-                IdbTransactionMode::Readwrite,
-            )?;
+            let tx = db
+                .transaction([old_keys::SYNC_TOKEN, old_keys::SESSION])
+                .with_mode(TransactionMode::Readwrite)
+                .build()?;
 
             let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
-            sync_token_store.put_key_val(
-                &JsValue::from_str(old_keys::SYNC_TOKEN),
-                &serialize_value(None, &sync_token)?,
-            )?;
+            sync_token_store
+                .put(&serialize_value(None, &sync_token)?)
+                .with_key(JsValue::from_str(old_keys::SYNC_TOKEN))
+                .build()?;
 
             let session_store = tx.object_store(old_keys::SESSION)?;
-            session_store.put_key_val(
-                &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_1)),
-                &serialize_value(None, &filter_1_id)?,
-            )?;
-            session_store.put_key_val(
-                &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_2)),
-                &serialize_value(None, &filter_2_id)?,
-            )?;
+            session_store
+                .put(&serialize_value(None, &filter_1_id)?)
+                .with_key(encode_key(
+                    None,
+                    StateStoreDataKey::FILTER,
+                    (StateStoreDataKey::FILTER, filter_1),
+                ))
+                .build()?;
+            session_store
+                .put(&serialize_value(None, &filter_2_id)?)
+                .with_key(encode_key(
+                    None,
+                    StateStoreDataKey::FILTER,
+                    (StateStoreDataKey::FILTER, filter_2),
+                ))
+                .build()?;
 
-            tx.await.into_result()?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1274,42 +1306,46 @@ mod tests {
         // Populate DB with old table.
         {
             let db = create_fake_db(&name, 4).await?;
-            let tx = db.transaction_on_multi_with_mode(
-                &[
+            let tx = db
+                .transaction([
                     old_keys::MEMBERS,
                     keys::ROOM_INFOS,
                     old_keys::STRIPPED_MEMBERS,
                     old_keys::STRIPPED_ROOM_INFOS,
-                ],
-                IdbTransactionMode::Readwrite,
-            )?;
+                ])
+                .with_mode(TransactionMode::Readwrite)
+                .build()?;
 
             let members_store = tx.object_store(old_keys::MEMBERS)?;
-            members_store.put_key_val(
-                &encode_key(None, old_keys::MEMBERS, (room_id, user_id)),
-                &serialize_value(None, &member_event)?,
-            )?;
+            members_store
+                .put(&serialize_value(None, &member_event)?)
+                .with_key(encode_key(None, old_keys::MEMBERS, (room_id, user_id)))
+                .build()?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
-            room_infos_store.put_key_val(
-                &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_value(None, &room_info)?,
-            )?;
+            room_infos_store
+                .put(&serialize_value(None, &room_info)?)
+                .with_key(encode_key(None, keys::ROOM_INFOS, room_id))
+                .build()?;
 
             let stripped_members_store = tx.object_store(old_keys::STRIPPED_MEMBERS)?;
-            stripped_members_store.put_key_val(
-                &encode_key(None, old_keys::STRIPPED_MEMBERS, (stripped_room_id, stripped_user_id)),
-                &serialize_value(None, &stripped_member_event)?,
-            )?;
+            stripped_members_store
+                .put(&serialize_value(None, &stripped_member_event)?)
+                .with_key(encode_key(
+                    None,
+                    old_keys::STRIPPED_MEMBERS,
+                    (stripped_room_id, stripped_user_id),
+                ))
+                .build()?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info =
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
-            stripped_room_infos_store.put_key_val(
-                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_value(None, &stripped_room_info)?,
-            )?;
+            stripped_room_infos_store
+                .put(&serialize_value(None, &stripped_room_info)?)
+                .with_key(encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id))
+                .build()?;
 
-            tx.await.into_result()?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1352,8 +1388,8 @@ mod tests {
         // Populate DB with old table.
         {
             let db = create_fake_db(&name, 5).await?;
-            let tx = db.transaction_on_multi_with_mode(
-                &[
+            let tx = db
+                .transaction([
                     keys::ROOM_STATE,
                     keys::ROOM_INFOS,
                     keys::STRIPPED_ROOM_STATE,
@@ -1362,82 +1398,82 @@ mod tests {
                     old_keys::JOINED_USER_IDS,
                     old_keys::STRIPPED_INVITED_USER_IDS,
                     old_keys::STRIPPED_JOINED_USER_IDS,
-                ],
-                IdbTransactionMode::Readwrite,
-            )?;
+                ])
+                .with_mode(TransactionMode::Readwrite)
+                .build()?;
 
             let state_store = tx.object_store(keys::ROOM_STATE)?;
-            state_store.put_key_val(
-                &encode_key(
+            state_store
+                .put(&serialize_value(None, &invite_member_event)?)
+                .with_key(encode_key(
                     None,
                     keys::ROOM_STATE,
                     (room_id, StateEventType::RoomMember, invite_user_id),
-                ),
-                &serialize_value(None, &invite_member_event)?,
-            )?;
-            state_store.put_key_val(
-                &encode_key(
+                ))
+                .build()?;
+            state_store
+                .put(&serialize_value(None, &ban_member_event)?)
+                .with_key(encode_key(
                     None,
                     keys::ROOM_STATE,
                     (room_id, StateEventType::RoomMember, ban_user_id),
-                ),
-                &serialize_value(None, &ban_member_event)?,
-            )?;
+                ))
+                .build()?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
-            room_infos_store.put_key_val(
-                &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_value(None, &room_info)?,
-            )?;
+            room_infos_store
+                .put(&serialize_value(None, &room_info)?)
+                .with_key(encode_key(None, keys::ROOM_INFOS, room_id))
+                .build()?;
 
             let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
-            stripped_state_store.put_key_val(
-                &encode_key(
+            stripped_state_store
+                .put(&serialize_value(None, &stripped_member_event)?)
+                .with_key(encode_key(
                     None,
                     keys::STRIPPED_ROOM_STATE,
                     (stripped_room_id, StateEventType::RoomMember, stripped_user_id),
-                ),
-                &serialize_value(None, &stripped_member_event)?,
-            )?;
+                ))
+                .build()?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info =
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
-            stripped_room_infos_store.put_key_val(
-                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_value(None, &stripped_room_info)?,
-            )?;
+            stripped_room_infos_store
+                .put(&serialize_value(None, &stripped_room_info)?)
+                .with_key(encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id))
+                .build()?;
 
             // Populate the old user IDs stores to check the data is not reused.
             let joined_user_id = user_id!("@joined_user:localhost");
-            tx.object_store(old_keys::JOINED_USER_IDS)?.put_key_val(
-                &encode_key(None, old_keys::JOINED_USER_IDS, (room_id, joined_user_id)),
-                &serialize_value(None, &joined_user_id)?,
-            )?;
+            tx.object_store(old_keys::JOINED_USER_IDS)?
+                .put(&serialize_value(None, &joined_user_id)?)
+                .with_key(encode_key(None, old_keys::JOINED_USER_IDS, (room_id, joined_user_id)))
+                .build()?;
             let invited_user_id = user_id!("@invited_user:localhost");
-            tx.object_store(old_keys::INVITED_USER_IDS)?.put_key_val(
-                &encode_key(None, old_keys::INVITED_USER_IDS, (room_id, invited_user_id)),
-                &serialize_value(None, &invited_user_id)?,
-            )?;
+            tx.object_store(old_keys::INVITED_USER_IDS)?
+                .put(&serialize_value(None, &invited_user_id)?)
+                .with_key(encode_key(None, old_keys::INVITED_USER_IDS, (room_id, invited_user_id)))
+                .build()?;
             let stripped_joined_user_id = user_id!("@stripped_joined_user:localhost");
-            tx.object_store(old_keys::STRIPPED_JOINED_USER_IDS)?.put_key_val(
-                &encode_key(
+            tx.object_store(old_keys::STRIPPED_JOINED_USER_IDS)?
+                .put(&serialize_value(None, &stripped_joined_user_id)?)
+                .with_key(encode_key(
                     None,
                     old_keys::STRIPPED_JOINED_USER_IDS,
                     (room_id, stripped_joined_user_id),
-                ),
-                &serialize_value(None, &stripped_joined_user_id)?,
-            )?;
+                ))
+                .build()?;
             let stripped_invited_user_id = user_id!("@stripped_invited_user:localhost");
-            tx.object_store(old_keys::STRIPPED_INVITED_USER_IDS)?.put_key_val(
-                &encode_key(
+            tx.object_store(old_keys::STRIPPED_INVITED_USER_IDS)?
+                .put(&serialize_value(None, &stripped_invited_user_id)?)
+                .with_key(encode_key(
                     None,
                     old_keys::STRIPPED_INVITED_USER_IDS,
                     (room_id, stripped_invited_user_id),
-                ),
-                &serialize_value(None, &stripped_invited_user_id)?,
-            )?;
+                ))
+                .build()?;
 
-            tx.await.into_result()?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1484,27 +1520,27 @@ mod tests {
         // Populate DB with old table.
         {
             let db = create_fake_db(&name, 6).await?;
-            let tx = db.transaction_on_multi_with_mode(
-                &[keys::ROOM_INFOS, old_keys::STRIPPED_ROOM_INFOS],
-                IdbTransactionMode::Readwrite,
-            )?;
+            let tx = db
+                .transaction([keys::ROOM_INFOS, old_keys::STRIPPED_ROOM_INFOS])
+                .with_mode(TransactionMode::Readwrite)
+                .build()?;
 
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
-            room_infos_store.put_key_val(
-                &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_value(None, &room_info)?,
-            )?;
+            room_infos_store
+                .put(&serialize_value(None, &room_info)?)
+                .with_key(encode_key(None, keys::ROOM_INFOS, room_id))
+                .build()?;
 
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info =
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
-            stripped_room_infos_store.put_key_val(
-                &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_value(None, &stripped_room_info)?,
-            )?;
+            stripped_room_infos_store
+                .put(&serialize_value(None, &stripped_room_info)?)
+                .with_key(encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id))
+                .build()?;
 
-            tx.await.into_result()?;
+            tx.commit().await?;
             db.close();
         }
 
@@ -1518,8 +1554,8 @@ mod tests {
 
     // Add a room in version 7 format of the state store.
     fn add_room_v7(
-        room_infos_store: &IdbObjectStore<'_>,
-        room_state_store: &IdbObjectStore<'_>,
+        room_infos_store: &ObjectStore<'_>,
+        room_state_store: &ObjectStore<'_>,
         room_id: &RoomId,
         name: Option<&str>,
         create_creator: Option<OwnedUserId>,
@@ -1528,10 +1564,10 @@ mod tests {
         let room_info_json =
             room_info_v1_json(room_id, RoomState::Joined, name, create_creator.as_deref());
 
-        room_infos_store.put_key_val(
-            &encode_key(None, keys::ROOM_INFOS, room_id),
-            &serialize_value(None, &room_info_json)?,
-        )?;
+        room_infos_store
+            .put(&serialize_value(None, &room_info_json)?)
+            .with_key(encode_key(None, keys::ROOM_INFOS, room_id))
+            .build()?;
 
         // Test with or without `m.room.create` event in the room state.
         let Some(create_sender) = create_sender else {
@@ -1554,10 +1590,14 @@ mod tests {
             "unsigned": {},
         });
 
-        room_state_store.put_key_val(
-            &encode_key(None, keys::ROOM_STATE, (room_id, &StateEventType::RoomCreate, "")),
-            &serialize_value(None, &create_event)?,
-        )?;
+        room_state_store
+            .put(&serialize_value(None, &create_event)?)
+            .with_key(encode_key(
+                None,
+                keys::ROOM_STATE,
+                (room_id, &StateEventType::RoomCreate, ""),
+            ))
+            .build()?;
 
         Ok(())
     }
@@ -1584,10 +1624,10 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 6).await?;
-            let tx = db.transaction_on_multi_with_mode(
-                &[keys::ROOM_INFOS, keys::ROOM_STATE],
-                IdbTransactionMode::Readwrite,
-            )?;
+            let tx = db
+                .transaction([keys::ROOM_INFOS, keys::ROOM_STATE])
+                .with_mode(TransactionMode::Readwrite)
+                .build()?;
 
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_state_store = tx.object_store(keys::ROOM_STATE)?;
@@ -1610,7 +1650,7 @@ mod tests {
                 Some(&room_c_create_sender),
             )?;
 
-            tx.await.into_result()?;
+            tx.commit().await?;
             db.close();
         }
 

@@ -18,6 +18,7 @@ use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use matrix_sdk_base::media::store::MediaStoreError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::StoreError;
+#[cfg(any(feature = "event-cache-store", feature = "media-store"))]
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::CryptoStoreError;
@@ -26,8 +27,10 @@ use thiserror::Error;
 /// A trait that combines the necessary traits needed for asynchronous runtimes,
 /// but excludes them when running in a web environment - i.e., when
 /// `#[cfg(target_family = "wasm")]`.
+#[cfg(any(feature = "event-cache-store", feature = "media-store"))]
 pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static {}
 
+#[cfg(any(feature = "event-cache-store", feature = "media-store"))]
 impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
 {}
 
