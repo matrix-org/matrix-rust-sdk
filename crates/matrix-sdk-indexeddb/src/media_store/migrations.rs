@@ -13,12 +13,10 @@
 // limitations under the License
 
 use indexed_db_futures::{
-    idb_object_store::IdbObjectStoreParameters, request::IdbOpenDbRequestLike, IdbDatabase,
-    IdbVersionChangeEvent,
+    database::Database,
+    error::{DomException, Error, OpenDbError},
 };
 use thiserror::Error;
-use wasm_bindgen::JsValue;
-use web_sys::DomException;
 
 /// The current version and keys used in the database.
 pub mod current {
@@ -31,20 +29,20 @@ pub mod current {
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
 /// if necessary.
 #[allow(unused)]
-pub async fn open_and_upgrade_db(name: &str) -> Result<IdbDatabase, DomException> {
-    let mut request = IdbDatabase::open_u32(name, current::VERSION as u32)?;
-    request.set_on_upgrade_needed(Some(|event: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let mut version =
-            Version::try_from(event.old_version() as u32).map_err(DomException::from)?;
-        while version < current::VERSION {
-            version = match version.upgrade(event.db())? {
-                Some(next) => next,
-                None => current::VERSION, /* No more upgrades to apply, jump forward! */
-            };
-        }
-        Ok(())
-    }));
-    request.await
+pub async fn open_and_upgrade_db(name: &str) -> Result<Database, OpenDbError> {
+    Database::open(name)
+        .with_version(current::VERSION as u32)
+        .with_on_upgrade_needed(|event, transaction| {
+            let mut version = Version::try_from(event.old_version() as u32)?;
+            while version < current::VERSION {
+                version = match version.upgrade(transaction.db())? {
+                    Some(next) => next,
+                    None => current::VERSION, /* No more upgrades to apply, jump forward! */
+                };
+            }
+            Ok(())
+        })
+        .await
 }
 
 /// Represents the version of the IndexedDB database.
@@ -59,7 +57,7 @@ pub enum Version {
 
 impl Version {
     /// Upgrade the database to the next version, if one exists.
-    pub fn upgrade(self, db: &IdbDatabase) -> Result<Option<Self>, DomException> {
+    pub fn upgrade(self, db: &Database) -> Result<Option<Self>, Error> {
         match self {
             Self::V0 => v0::upgrade(db).map(Some),
             Self::V1 => Ok(None),
@@ -83,12 +81,12 @@ impl TryFrom<u32> for Version {
     }
 }
 
-impl From<UnknownVersionError> for DomException {
+impl From<UnknownVersionError> for Error {
     fn from(value: UnknownVersionError) -> Self {
         let message = format!("unknown version: {}", value.0);
         let name = "UnknownVersionError";
-        match DomException::new_with_message_and_name(&message, name) {
-            Ok(inner) => inner,
+        match web_sys::DomException::new_with_message_and_name(&message, name) {
+            Ok(inner) => Self::DomException(DomException::DataError(inner)),
             Err(err) => err.into(),
         }
     }
@@ -98,13 +96,15 @@ pub mod v0 {
     use super::*;
 
     /// Upgrade database from `v0` to `v1`
-    pub fn upgrade(db: &IdbDatabase) -> Result<Version, DomException> {
+    pub fn upgrade(db: &Database) -> Result<Version, Error> {
         v1::create_object_stores(db)?;
         Ok(Version::V1)
     }
 }
 
 pub mod v1 {
+    use indexed_db_futures::Build;
+
     use super::*;
 
     pub mod keys {
@@ -126,7 +126,7 @@ pub mod v1 {
     }
 
     /// Create all object stores and indices for v1 database
-    pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
+    pub fn create_object_stores(db: &Database) -> Result<(), Error> {
         create_core_object_store(db)?;
         create_lease_object_store(db)?;
         create_media_object_store(db)?;
@@ -136,18 +136,18 @@ pub mod v1 {
     /// Create an object store for tracking miscellaneous information
     ///
     /// * Primary Key - `id`
-    fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::CORE_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::CORE, &object_store_params)?;
+    fn create_core_object_store(db: &Database) -> Result<(), Error> {
+        let _ =
+            db.create_object_store(keys::CORE).with_key_path(keys::CORE_KEY_PATH.into()).build()?;
         Ok(())
     }
 
     /// Create an object store tracking leases on time-based locks
-    fn create_lease_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::LEASES_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::LEASES, &object_store_params)?;
+    fn create_lease_object_store(db: &Database) -> Result<(), Error> {
+        let _ = db
+            .create_object_store(keys::LEASES)
+            .with_key_path(keys::LEASES_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 
@@ -164,17 +164,24 @@ pub mod v1 {
     ///
     /// [1]: ruma::MxcUri
     /// [2]: matrix_sdk_base::media::store::MediaRetentionPolicy
-    fn create_media_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::MEDIA_KEY_PATH.into()));
-        let media = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
-        media.create_index(keys::MEDIA_URI, &keys::MEDIA_URI_KEY_PATH.into())?;
-        media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
-        media.create_index(keys::MEDIA_LAST_ACCESS, &keys::MEDIA_LAST_ACCESS_KEY_PATH.into())?;
-        media.create_index(
-            keys::MEDIA_RETENTION_METADATA,
-            &keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
-        )?;
+    fn create_media_object_store(db: &Database) -> Result<(), Error> {
+        let media = db
+            .create_object_store(keys::MEDIA)
+            .with_key_path(keys::MEDIA_KEY_PATH.into())
+            .build()?;
+        let _ = media.create_index(keys::MEDIA_URI, keys::MEDIA_URI_KEY_PATH.into()).build()?;
+        let _ = media
+            .create_index(keys::MEDIA_CONTENT_SIZE, keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())
+            .build()?;
+        let _ = media
+            .create_index(keys::MEDIA_LAST_ACCESS, keys::MEDIA_LAST_ACCESS_KEY_PATH.into())
+            .build()?;
+        let _ = media
+            .create_index(
+                keys::MEDIA_RETENTION_METADATA,
+                keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
+            )
+            .build()?;
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use web_sys::{DomException, IdbTransactionMode};
+use indexed_db_futures::{error::OpenDbError, transaction::TransactionMode, Build};
 
 use super::MigrationDb;
 use crate::{
@@ -24,25 +24,25 @@ use crate::{
 
 pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 14).await?;
-    let transaction = db.transaction_on_one_with_mode(
-        keys::RECEIVED_ROOM_KEY_BUNDLES,
-        IdbTransactionMode::Readwrite,
-    )?;
+    let transaction = db
+        .transaction(keys::RECEIVED_ROOM_KEY_BUNDLES)
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
     let store = transaction.object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?;
 
     // The schema didn't actually change, we just changed the objects that are
     // stored. So let us remove them.
     store.clear()?;
 
-    transaction.await.into_result()?;
+    transaction.commit().await?;
 
     Ok(())
 }
 
 /// Perform the schema upgrade v13 to v14, just bumping the schema version since
 /// the schema didn't actually change.
-pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
+pub(crate) async fn schema_bump(name: &str) -> Result<(), OpenDbError> {
     // Just bump the version number to 14 to demonstrate that we have run the data
     // changes from data_migrate.
-    do_schema_upgrade(name, 14, |_, _, _| Ok(())).await
+    do_schema_upgrade(name, 14, |_, _| Ok(())).await
 }

@@ -442,6 +442,10 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         cmd!(sh, "wasm-pack test --firefox --headless --")
             .args(arg_set.split_whitespace())
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+            .run()?;
+        cmd!(sh, "wasm-pack test --chrome --headless --")
+            .args(arg_set.split_whitespace())
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()
     };
 

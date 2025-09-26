@@ -15,8 +15,11 @@
 //! Schema-only migrations adding various stores and indices, notably
 //! the first version of `inbound_group_sessions`.
 
-use indexed_db_futures::IdbDatabase;
-use web_sys::DomException;
+use indexed_db_futures::{
+    database::Database,
+    error::{Error, OpenDbError},
+    Build,
+};
 
 use crate::crypto_store::{
     keys,
@@ -25,11 +28,12 @@ use crate::crypto_store::{
 };
 
 /// Perform schema migrations as needed, up to schema version 5.
-pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 5, |db, _, old_version| {
+pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 5, |tx, old_version| {
+        let db = tx.db();
         // An old_version of 1 could either mean actually the first version of the
         // schema, or a completely empty schema that has been created with a
-        // call to `IdbDatabase::open` with no explicit "version". So, to determine
+        // call to `Database::open` with no explicit "version". So, to determine
         // if we need to create the V1 stores, we actually check if the schema is empty.
         if db.object_store_names().next().is_none() {
             schema_add_v1(db)?;
@@ -56,57 +60,57 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
     .await
 }
 
-fn schema_add_v1(db: &IdbDatabase) -> Result<(), DomException> {
-    db.create_object_store(keys::CORE)?;
-    db.create_object_store(keys::SESSION)?;
+fn schema_add_v1(db: &Database) -> Result<(), Error> {
+    db.create_object_store(keys::CORE).build()?;
+    db.create_object_store(keys::SESSION).build()?;
 
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-    db.create_object_store(keys::TRACKED_USERS)?;
-    db.create_object_store(keys::OLM_HASHES)?;
-    db.create_object_store(keys::DEVICES)?;
+    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).build()?;
+    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS).build()?;
+    db.create_object_store(keys::TRACKED_USERS).build()?;
+    db.create_object_store(keys::OLM_HASHES).build()?;
+    db.create_object_store(keys::DEVICES).build()?;
 
-    db.create_object_store(keys::IDENTITIES)?;
-    db.create_object_store(keys::BACKUP_KEYS)?;
+    db.create_object_store(keys::IDENTITIES).build()?;
+    db.create_object_store(keys::BACKUP_KEYS).build()?;
 
     Ok(())
 }
 
-fn schema_add_v2(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v2(db: &Database) -> Result<(), Error> {
     // We changed how we store inbound group sessions, the key used to
     // be a tuple of `(room_id, sender_key, session_id)` now it's a
     // tuple of `(room_id, session_id)`
     //
     // Let's just drop the whole object store.
     db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
-    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
+    db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).build()?;
 
-    db.create_object_store(keys::ROOM_SETTINGS)?;
+    db.create_object_store(keys::ROOM_SETTINGS).build()?;
 
     Ok(())
 }
 
-fn schema_add_v3(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v3(db: &Database) -> Result<(), Error> {
     // We changed the way we store outbound session.
     // ShareInfo changed from a struct to an enum with struct variant.
     // Let's just discard the existing outbounds
     db.delete_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
-    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
+    db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS).build()?;
 
     // Support for MSC2399 withheld codes
-    db.create_object_store(keys::DIRECT_WITHHELD_INFO)?;
+    db.create_object_store(keys::DIRECT_WITHHELD_INFO).build()?;
 
     Ok(())
 }
 
-fn schema_add_v4(db: &IdbDatabase) -> Result<(), DomException> {
-    db.create_object_store(keys::SECRETS_INBOX)?;
+fn schema_add_v4(db: &Database) -> Result<(), Error> {
+    db.create_object_store(keys::SECRETS_INBOX).build()?;
     Ok(())
 }
 
-fn schema_add_v5(db: &IdbDatabase) -> Result<(), DomException> {
+fn schema_add_v5(db: &Database) -> Result<(), Error> {
     // Create a new store for outgoing secret requests
-    let object_store = db.create_object_store(keys::GOSSIP_REQUESTS)?;
+    let object_store = db.create_object_store(keys::GOSSIP_REQUESTS).build()?;
 
     add_nonunique_index(&object_store, keys::GOSSIP_REQUESTS_UNSENT_INDEX, "unsent")?;
 

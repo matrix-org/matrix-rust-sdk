@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use indexed_db_futures::prelude::IdbTransaction;
+use indexed_db_futures::transaction as inner;
 use matrix_sdk_base::{
     event_cache::{Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
@@ -54,7 +54,7 @@ impl<'a> Deref for IndexeddbEventCacheStoreTransaction<'a> {
 }
 
 impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
-    pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
+    pub fn new(transaction: inner::Transaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
         Self { transaction: Transaction::new(transaction, serializer) }
     }
 

@@ -16,7 +16,7 @@
 
 use std::{rc::Rc, time::Duration};
 
-use indexed_db_futures::IdbDatabase;
+use indexed_db_futures::{database::Database, Build};
 use matrix_sdk_base::{
     event_cache::{store::EventCacheStore, Event, Gap},
     linked_chunk::{
@@ -61,7 +61,7 @@ pub use error::IndexeddbEventCacheStoreError;
 #[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
-    inner: Rc<IdbDatabase>,
+    inner: Rc<Database>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
     serializer: IndexedTypeSerializer,
 }
@@ -82,7 +82,11 @@ impl IndexeddbEventCacheStore {
         mode: IdbTransactionMode,
     ) -> Result<IndexeddbEventCacheStoreTransaction<'a>, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStoreTransaction::new(
-            self.inner.transaction_on_multi_with_mode(stores, mode)?,
+            self.inner
+                .transaction(stores)
+                .with_mode(mode)
+                .build()
+                .map_err(TransactionError::from)?,
             &self.serializer,
         ))
     }
@@ -120,7 +124,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 expiration: now + Duration::from_millis(lease_duration_ms.into()),
             })
             .await?;
-
+        transaction.commit().await?;
         Ok(true)
     }
 

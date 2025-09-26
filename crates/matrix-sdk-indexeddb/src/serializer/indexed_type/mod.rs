@@ -23,12 +23,12 @@ pub mod range;
 pub mod traits;
 
 use gloo_utils::format::JsValueSerdeExt;
+use indexed_db_futures::KeyRange;
 use range::IndexedKeyRange;
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 use traits::{Indexed, IndexedKey};
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
 
 use crate::serializer::SafeEncodeSerializer;
 
@@ -99,21 +99,15 @@ impl IndexedTypeSerializer {
     ///
     /// Note that the particular key which is encoded is defined by the type
     /// `K`.
-    pub fn encode_key_range<T, K>(
-        &self,
-        range: impl Into<IndexedKeyRange<K>>,
-    ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
+    pub fn encode_key_range<T, K>(&self, range: impl Into<IndexedKeyRange<K>>) -> KeyRange<K>
     where
         T: Indexed,
         K: Serialize,
     {
-        use serde_wasm_bindgen::to_value;
-        Ok(match range.into() {
-            IndexedKeyRange::Only(key) => IdbKeyRange::only(&to_value(&key)?)?,
-            IndexedKeyRange::Bound(lower, upper) => {
-                IdbKeyRange::bound(&to_value(&lower)?, &to_value(&upper)?)?
-            }
-        })
+        match range.into() {
+            IndexedKeyRange::Only(key) => KeyRange::Only(key),
+            IndexedKeyRange::Bound(lower, upper) => KeyRange::Bound(lower, false, upper, false),
+        }
     }
 
     /// Encodes a key component range for an [`Indexed`] type.
@@ -123,7 +117,7 @@ impl IndexedTypeSerializer {
     pub fn encode_key_component_range<'a, T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'a>>>,
-    ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
+    ) -> KeyRange<K>
     where
         T: Indexed,
         K: IndexedKey<T> + Serialize,

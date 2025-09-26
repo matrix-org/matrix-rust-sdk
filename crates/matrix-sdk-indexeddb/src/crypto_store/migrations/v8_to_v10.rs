@@ -15,10 +15,12 @@
 //! Migration code that moves from inbound_group_sessions2 to
 //! inbound_group_sessions3, shrinking the values stored in each record.
 
-use indexed_db_futures::IdbQuerySource;
+use indexed_db_futures::{
+    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use web_sys::{DomException, IdbTransactionMode};
+use wasm_bindgen::JsValue;
 
 use crate::{
     crypto_store::{
@@ -34,9 +36,10 @@ use crate::{
 };
 
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
-pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 9, |db, _, _| {
-        let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 9, |tx, _| {
+        let db = tx.db();
+        let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3).build()?;
 
         add_nonunique_index(
             &object_store,
@@ -62,21 +65,21 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
 pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 10).await?;
 
-    let txn = db.transaction_on_multi_with_mode(
-        &[old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3],
-        IdbTransactionMode::Readwrite,
-    )?;
+    let txn = db
+        .transaction([old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3])
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     let inbound_group_sessions2 = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
     let inbound_group_sessions3 = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
-    let row_count = inbound_group_sessions2.count()?.await?;
+    let row_count = inbound_group_sessions2.count().await?;
     info!(row_count, "Shrinking inbound_group_session records");
 
     // Iterate through all rows
-    if let Some(cursor) = inbound_group_sessions2.open_cursor()?.await? {
+    if let Some(mut cursor) = inbound_group_sessions2.open_cursor().await? {
         let mut idx = 0;
-        loop {
+        while let Some(value) = cursor.next_record::<JsValue>().await? {
             idx += 1;
 
             if idx % 100 == 0 {
@@ -85,7 +88,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
 
             // Deserialize the session from the old store
             let old_value: InboundGroupSessionIndexedDbObject2 =
-                serde_wasm_bindgen::from_value(cursor.value())?;
+                serde_wasm_bindgen::from_value(value)?;
 
             let session = InboundGroupSession::from_pickle(
                 serializer.deserialize_value_from_bytes(&old_value.pickled_session)?,
@@ -104,17 +107,16 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
 
             // Write it to the new store
             inbound_group_sessions3
-                .add_key_val(&new_key, &serde_wasm_bindgen::to_value(&new_value)?)?;
+                .add(&serde_wasm_bindgen::to_value(&new_value)?)
+                .with_key(new_key)
+                .build()?;
 
             // We are done with the original data, so delete it now.
             cursor.delete()?;
-
-            // Continue to the next record, or stop if we're done
-            if !cursor.continue_cursor()?.await? {
-                debug!("Migrated {idx} sessions.");
-                break;
-            }
         }
+
+        // Continue to the next record, or stop if we're done
+        debug!("Migrated {idx} sessions.");
     }
 
     // We have finished with the old store. Clear it, since it is faster to
@@ -122,14 +124,14 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     // for more details.
     inbound_group_sessions2.clear()?.await?;
 
-    txn.await.into_result()?;
+    txn.commit().await?;
     Ok(())
 }
 
 /// Perform the schema upgrade v8 to v10, deleting `inbound_group_sessions2`.
-pub(crate) async fn schema_delete(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 10, |db, _, _| {
-        db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+pub(crate) async fn schema_delete(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 10, |tx, _| {
+        tx.db().delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
         Ok(())
     })
     .await

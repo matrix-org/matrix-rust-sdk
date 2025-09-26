@@ -5,6 +5,7 @@ use base64::{
     engine::{general_purpose, GeneralPurpose},
     Engine,
 };
+use indexed_db_futures::KeyRange;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::{
@@ -14,7 +15,6 @@ use ruma::{
     UserId,
 };
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
 
 /// ASCII Group Separator, for elements in the keys
 pub const KEY_SEPARATOR: &str = "\u{001D}";
@@ -53,26 +53,28 @@ pub trait SafeEncode {
     /// Encode self into a IdbKeyRange for searching all keys that are
     /// prefixed with this key, followed by `KEY_SEPARATOR`. Internally
     /// uses `as_encoded_string` to ensure the given key is escaped properly.
-    fn encode_to_range(&self) -> Result<IdbKeyRange, String> {
+    fn encode_to_range(&self) -> KeyRange<JsValue> {
         let key = self.as_encoded_string();
-        IdbKeyRange::bound(
-            &JsValue::from([&key, KEY_SEPARATOR].concat()),
-            &JsValue::from([&key, RANGE_END].concat()),
+        KeyRange::Bound(
+            JsValue::from([&key, KEY_SEPARATOR].concat()),
+            false,
+            JsValue::from([&key, RANGE_END].concat()),
+            false,
         )
-        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
     }
 
     fn encode_to_range_secure(
         &self,
         table_name: &str,
         store_cipher: &StoreCipher,
-    ) -> Result<IdbKeyRange, String> {
+    ) -> KeyRange<JsValue> {
         let key = self.as_secure_string(table_name, store_cipher);
-        IdbKeyRange::bound(
-            &JsValue::from([&key, KEY_SEPARATOR].concat()),
-            &JsValue::from([&key, RANGE_END].concat()),
+        KeyRange::Bound(
+            JsValue::from([&key, KEY_SEPARATOR].concat()),
+            false,
+            JsValue::from([&key, RANGE_END].concat()),
+            false,
         )
-        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
     }
 }
 

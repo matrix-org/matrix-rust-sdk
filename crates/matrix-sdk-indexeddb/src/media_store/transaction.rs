@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use indexed_db_futures::prelude::IdbTransaction;
+use indexed_db_futures::transaction as inner;
 use matrix_sdk_base::media::{store::MediaRetentionPolicy, MediaRequestParameters};
 use ruma::MxcUri;
 
@@ -45,7 +45,7 @@ impl<'a> Deref for IndexeddbMediaStoreTransaction<'a> {
 }
 
 impl<'a> IndexeddbMediaStoreTransaction<'a> {
-    pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
+    pub fn new(transaction: inner::Transaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
         Self { transaction: Transaction::new(transaction, serializer) }
     }
 

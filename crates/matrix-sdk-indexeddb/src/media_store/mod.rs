@@ -28,7 +28,7 @@ use std::{rc::Rc, time::Duration};
 
 pub use builder::IndexeddbMediaStoreBuilder;
 pub use error::IndexeddbMediaStoreError;
-use indexed_db_futures::IdbDatabase;
+use indexed_db_futures::{database::Database, Build};
 use matrix_sdk_base::{
     media::{
         store::{
@@ -49,6 +49,7 @@ use crate::{
         types::{Lease, Media, MediaMetadata},
     },
     serializer::{Indexed, IndexedTypeSerializer},
+    transaction::TransactionError,
 };
 
 /// A type for providing an IndexedDB implementation of [`MediaStore`][1].
@@ -59,7 +60,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct IndexeddbMediaStore {
     // A handle to the IndexedDB database
-    inner: Rc<IdbDatabase>,
+    inner: Rc<Database>,
     // A serializer with functionality tailored to `IndexeddbMediaStore`
     serializer: IndexedTypeSerializer,
     // A service for conveniently delegating media-related queries to an `MediaStoreInner`
@@ -89,7 +90,11 @@ impl IndexeddbMediaStore {
         mode: IdbTransactionMode,
     ) -> Result<IndexeddbMediaStoreTransaction<'a>, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStoreTransaction::new(
-            self.inner.transaction_on_multi_with_mode(stores, mode)?,
+            self.inner
+                .transaction(stores)
+                .with_mode(mode)
+                .build()
+                .map_err(TransactionError::from)?,
             &self.serializer,
         ))
     }
@@ -127,7 +132,7 @@ impl MediaStore for IndexeddbMediaStore {
                 expiration: now + Duration::from_millis(lease_duration_ms.into()),
             })
             .await?;
-
+        transaction.commit().await?;
         Ok(true)
     }
 

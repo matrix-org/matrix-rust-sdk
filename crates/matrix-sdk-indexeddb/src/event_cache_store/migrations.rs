@@ -13,12 +13,10 @@
 // limitations under the License
 
 use indexed_db_futures::{
-    idb_object_store::IdbObjectStoreParameters, request::IdbOpenDbRequestLike, IdbDatabase,
-    IdbVersionChangeEvent,
+    database::Database,
+    error::{DomException, Error, OpenDbError},
 };
 use thiserror::Error;
-use wasm_bindgen::JsValue;
-use web_sys::{DomException, IdbIndexParameters};
 
 /// The current version and keys used in the database.
 pub mod current {
@@ -31,20 +29,20 @@ pub mod current {
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
 /// if necessary.
 #[allow(unused)]
-pub async fn open_and_upgrade_db(name: &str) -> Result<IdbDatabase, DomException> {
-    let mut request = IdbDatabase::open_u32(name, current::VERSION as u32)?;
-    request.set_on_upgrade_needed(Some(|event: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let mut version =
-            Version::try_from(event.old_version() as u32).map_err(DomException::from)?;
-        while version < current::VERSION {
-            version = match version.upgrade(event.db())? {
-                Some(next) => next,
-                None => current::VERSION, /* No more upgrades to apply, jump forward! */
-            };
-        }
-        Ok(())
-    }));
-    request.await
+pub async fn open_and_upgrade_db(name: &str) -> Result<Database, OpenDbError> {
+    Database::open(name)
+        .with_version(current::VERSION as u32)
+        .with_on_upgrade_needed(|event, transaction| {
+            let mut version = Version::try_from(event.old_version() as u32)?;
+            while version < current::VERSION {
+                version = match version.upgrade(transaction.db())? {
+                    Some(next) => next,
+                    None => current::VERSION, /* No more upgrades to apply, jump forward! */
+                };
+            }
+            Ok(())
+        })
+        .await
 }
 
 /// Represents the version of the IndexedDB database.
@@ -59,7 +57,7 @@ pub enum Version {
 
 impl Version {
     /// Upgrade the database to the next version, if one exists.
-    pub fn upgrade(self, db: &IdbDatabase) -> Result<Option<Self>, DomException> {
+    pub fn upgrade(self, db: &Database) -> Result<Option<Self>, Error> {
         match self {
             Self::V0 => v0::upgrade(db).map(Some),
             Self::V1 => Ok(None),
@@ -83,12 +81,12 @@ impl TryFrom<u32> for Version {
     }
 }
 
-impl From<UnknownVersionError> for DomException {
+impl From<UnknownVersionError> for Error {
     fn from(value: UnknownVersionError) -> Self {
         let message = format!("unknown version: {}", value.0);
         let name = "UnknownVersionError";
-        match DomException::new_with_message_and_name(&message, name) {
-            Ok(inner) => inner,
+        match web_sys::DomException::new_with_message_and_name(&message, name) {
+            Ok(inner) => Self::DomException(DomException::DataError(inner)),
             Err(err) => err.into(),
         }
     }
@@ -98,13 +96,15 @@ pub mod v0 {
     use super::*;
 
     /// Upgrade database from `v0` to `v1`
-    pub fn upgrade(db: &IdbDatabase) -> Result<Version, DomException> {
+    pub fn upgrade(db: &Database) -> Result<Version, Error> {
         v1::create_object_stores(db)?;
         Ok(Version::V1)
     }
 }
 
 pub mod v1 {
+    use indexed_db_futures::Build;
+
     use super::*;
 
     pub mod keys {
@@ -131,7 +131,7 @@ pub mod v1 {
     }
 
     /// Create all object stores and indices for v1 database
-    pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
+    pub fn create_object_stores(db: &Database) -> Result<(), Error> {
         create_lease_object_store(db)?;
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
@@ -140,10 +140,11 @@ pub mod v1 {
     }
 
     /// Create an object store tracking leases on time-based locks
-    fn create_lease_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::LEASES_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::LEASES, &object_store_params)?;
+    fn create_lease_object_store(db: &Database) -> Result<(), Error> {
+        let _ = db
+            .create_object_store(keys::LEASES)
+            .with_key_path(keys::LEASES_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 
@@ -151,13 +152,13 @@ pub mod v1 {
     ///
     /// * Primary Key - `id`
     /// * Index - `is_last` - tracks the last chunk in linked chunks
-    fn create_linked_chunks_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::LINKED_CHUNKS_KEY_PATH.into()));
-        let linked_chunks =
-            db.create_object_store_with_params(keys::LINKED_CHUNKS, &object_store_params)?;
-        linked_chunks
-            .create_index(keys::LINKED_CHUNKS_NEXT, &keys::LINKED_CHUNKS_NEXT_KEY_PATH.into())?;
+    fn create_linked_chunks_object_store(db: &Database) -> Result<(), Error> {
+        let _ = db
+            .create_object_store(keys::LINKED_CHUNKS)
+            .with_key_path(keys::LINKED_CHUNKS_KEY_PATH.into())
+            .build()?
+            .create_index(keys::LINKED_CHUNKS_NEXT, keys::LINKED_CHUNKS_NEXT_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 
@@ -169,39 +170,31 @@ pub mod v1 {
     ///   chunks
     /// * Index - `relation` - tracks any event to which the given event is
     ///   related
-    fn create_events_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::EVENTS_KEY_PATH.into()));
-        let events = db.create_object_store_with_params(keys::EVENTS, &object_store_params)?;
-
-        let events_room_params = IdbIndexParameters::new();
-        events_room_params.set_unique(true);
-        events.create_index_with_params(
-            keys::EVENTS_ROOM,
-            &keys::EVENTS_ROOM_KEY_PATH.into(),
-            &events_room_params,
-        )?;
-
-        let events_position_params = IdbIndexParameters::new();
-        events_position_params.set_unique(true);
-        events.create_index_with_params(
-            keys::EVENTS_POSITION,
-            &keys::EVENTS_POSITION_KEY_PATH.into(),
-            &events_position_params,
-        )?;
-
-        events.create_index(keys::EVENTS_RELATION, &keys::EVENTS_RELATION_KEY_PATH.into())?;
-
+    fn create_events_object_store(db: &Database) -> Result<(), Error> {
+        let events = db
+            .create_object_store(keys::EVENTS)
+            .with_key_path(keys::EVENTS_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_ROOM, keys::EVENTS_ROOM_KEY_PATH.into())
+            .with_unique(true)
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_POSITION, keys::EVENTS_POSITION_KEY_PATH.into())
+            .with_unique(true)
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 
     /// Create an object store for tracking information about gaps.
     ///
     /// * Primary Key - `id`
-    fn create_gaps_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::GAPS_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::GAPS, &object_store_params)?;
+    fn create_gaps_object_store(db: &Database) -> Result<(), Error> {
+        let _ =
+            db.create_object_store(keys::GAPS).with_key_path(keys::GAPS_KEY_PATH.into()).build()?;
         Ok(())
     }
 }

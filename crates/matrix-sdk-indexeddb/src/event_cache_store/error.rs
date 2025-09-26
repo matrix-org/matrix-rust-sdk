@@ -16,10 +16,12 @@ use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use serde::de::Error;
 use thiserror::Error;
 
-use crate::transaction::TransactionError;
+use crate::{error::GenericError, transaction::TransactionError};
 
 #[derive(Debug, Error)]
 pub enum IndexeddbEventCacheStoreError {
+    #[error("unable to open database: {0}")]
+    UnableToOpenDatabase(String),
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
     #[error("chunks contain disjoint lists")]
@@ -44,11 +46,24 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
     }
 }
 
+impl From<indexed_db_futures::error::OpenDbError> for IndexeddbEventCacheStoreError {
+    fn from(value: indexed_db_futures::error::OpenDbError) -> Self {
+        use indexed_db_futures::error::OpenDbError::*;
+        match value {
+            VersionZero | UnsupportedEnvironment | NullFactory => {
+                Self::UnableToOpenDatabase(value.to_string())
+            }
+            Base(e) => TransactionError::from(e).into(),
+        }
+    }
+}
+
 impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
     fn from(value: IndexeddbEventCacheStoreError) -> Self {
         use IndexeddbEventCacheStoreError::*;
 
         match value {
+            UnableToOpenDatabase(e) => GenericError::from(e).into(),
             DomException { .. }
             | ChunksContainCycle
             | ChunksContainDisjointLists
@@ -67,6 +82,7 @@ impl From<TransactionError> for EventCacheStoreError {
             DomException { .. } => Self::InvalidData { details: value.to_string() },
             Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
             ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
+            Backend(e) => GenericError::from(e.to_string()).into(),
         }
     }
 }

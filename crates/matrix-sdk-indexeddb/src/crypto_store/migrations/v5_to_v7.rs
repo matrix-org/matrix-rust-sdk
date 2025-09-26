@@ -19,10 +19,12 @@
 //! Then we move the data into the new store.
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
-use indexed_db_futures::IdbQuerySource;
+use indexed_db_futures::{
+    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use web_sys::{DomException, IdbTransactionMode};
+use wasm_bindgen::JsValue;
 
 use crate::{
     crypto_store::{
@@ -35,9 +37,10 @@ use crate::{
 };
 
 /// Perform the schema upgrade v5 to v6, creating `inbound_group_sessions2`.
-pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 6, |db, _, _| {
-        let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
+pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 6, |tx, _| {
+        let db = tx.db();
+        let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2).build()?;
 
         add_nonunique_index(
             &object_store,
@@ -55,25 +58,25 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     let db = MigrationDb::new(name, 7).await?;
 
     // The new store has been made for inbound group sessions; time to populate it.
-    let txn = db.transaction_on_multi_with_mode(
-        &[old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2],
-        IdbTransactionMode::Readwrite,
-    )?;
+    let txn = db
+        .transaction([old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2])
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     let old_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
     let new_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
-    let row_count = old_store.count()?.await?;
+    let row_count = old_store.count().await?;
     info!(row_count, "Migrating inbound group session data from v1 to v2");
 
-    if let Some(cursor) = old_store.open_cursor()?.await? {
+    if let Some(mut cursor) = old_store.open_cursor().await? {
         let mut idx = 0;
-        loop {
+        while let Some(value) = cursor.next_record::<JsValue>().await? {
             idx += 1;
-            let key = cursor.key().ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
-                "inbound_group_sessions v1 cursor has no key".into(),
-            ))?;
-            let value = cursor.value();
+            let key =
+                cursor.key::<JsValue>()?.ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
+                    "inbound_group_sessions v1 cursor has no key".into(),
+                ))?;
 
             if idx % 100 == 0 {
                 debug!("Migrating session {idx} of {row_count}");
@@ -88,14 +91,10 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
                     needs_backup: !igs.backed_up(),
                 })?;
 
-            new_store.add_key_val(&key, &new_data)?;
+            new_store.add(&new_data).with_key(key).build()?;
 
             // We are done with the original data, so delete it now.
             cursor.delete()?;
-
-            if !cursor.continue_cursor()?.await? {
-                break;
-            }
         }
     }
 
@@ -104,13 +103,13 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     // for more details.
     old_store.clear()?.await?;
 
-    Ok(txn.await.into_result()?)
+    Ok(txn.commit().await?)
 }
 
 /// Perform the schema upgrade v6 to v7, deleting `inbound_group_sessions`.
-pub(crate) async fn schema_delete(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 7, |db, _, _| {
-        db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
+pub(crate) async fn schema_delete(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 7, |tx, _| {
+        tx.db().delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
         Ok(())
     })
     .await

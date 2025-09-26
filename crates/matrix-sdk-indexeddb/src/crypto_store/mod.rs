@@ -20,7 +20,15 @@ use std::{
 use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
-use indexed_db_futures::prelude::*;
+use indexed_db_futures::{
+    cursor::Cursor,
+    database::Database,
+    internals::SystemRepr,
+    object_store::ObjectStore,
+    prelude::*,
+    transaction::{Transaction, TransactionMode},
+    KeyRange,
+};
 use js_sys::Array;
 use matrix_sdk_crypto::{
     olm::{
@@ -48,10 +56,10 @@ use sha2::Sha256;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
 
 use crate::{
     crypto_store::migrations::open_and_upgrade_db,
+    error::GenericError,
     serializer::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError},
 };
 
@@ -120,7 +128,7 @@ mod keys {
 pub struct IndexeddbCryptoStore {
     static_account: RwLock<Option<StaticAccountData>>,
     name: String,
-    pub(crate) inner: IdbDatabase,
+    pub(crate) inner: Database,
 
     serializer: SafeEncodeSerializer,
     save_changes_lock: Arc<Mutex<()>>,
@@ -195,6 +203,58 @@ impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
     }
 }
 
+impl From<indexed_db_futures::error::DomException> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::DomException) -> Self {
+        web_sys::DomException::from(value).into()
+    }
+}
+
+impl From<indexed_db_futures::error::SerialisationError> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::SerialisationError) -> Self {
+        Self::Serialization(serde::de::Error::custom(value.to_string()))
+    }
+}
+
+impl From<indexed_db_futures::error::UnexpectedDataError> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::UnexpectedDataError) -> Self {
+        Self::CryptoStoreError(CryptoStoreError::backend(value))
+    }
+}
+
+impl From<GenericError> for IndexeddbCryptoStoreError {
+    fn from(value: GenericError) -> Self {
+        Self::CryptoStoreError(value.into())
+    }
+}
+
+impl From<indexed_db_futures::error::JSError> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::JSError) -> Self {
+        GenericError::from(value.to_string()).into()
+    }
+}
+
+impl From<indexed_db_futures::error::Error> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::Error) -> Self {
+        use indexed_db_futures::error::Error;
+        match value {
+            Error::DomException(e) => e.into(),
+            Error::Serialisation(e) => e.into(),
+            Error::MissingData(e) => e.into(),
+            Error::Unknown(e) => e.into(),
+        }
+    }
+}
+
+impl From<indexed_db_futures::error::OpenDbError> for IndexeddbCryptoStoreError {
+    fn from(value: indexed_db_futures::error::OpenDbError) -> Self {
+        use indexed_db_futures::error::OpenDbError;
+        match value {
+            OpenDbError::Base(error) => error.into(),
+            _ => GenericError::from(value.to_string()).into(),
+        }
+    }
+}
+
 type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
 /// Defines an operation to perform on the database.
@@ -259,7 +319,7 @@ impl PendingIndexeddbChanges {
     }
 
     /// Applies all the pending operations to the store.
-    fn apply(self, tx: &IdbTransaction<'_>) -> Result<()> {
+    fn apply(self, tx: &Transaction<'_>) -> Result<()> {
         for (store, operations) in self.store_to_key_values {
             if operations.is_empty() {
                 continue;
@@ -268,10 +328,10 @@ impl PendingIndexeddbChanges {
             for op in operations {
                 match op {
                     PendingOperation::Put { key, value } => {
-                        object_store.put_key_val(&key, &value)?;
+                        object_store.put(&value).with_key(key).build()?;
                     }
                     PendingOperation::Delete(key) => {
-                        object_store.delete(&key)?;
+                        object_store.delete(&key).build()?;
                     }
                 }
             }
@@ -410,8 +470,8 @@ impl IndexeddbCryptoStore {
     /// Delete the IndexedDB databases for the given name.
     #[cfg(test)]
     pub fn delete_stores(prefix: &str) -> Result<()> {
-        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto-meta"))?;
-        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto"))?;
+        Database::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto-meta"))?;
+        Database::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto"))?;
         Ok(())
     }
 
@@ -719,20 +779,17 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let stores: Vec<&str> = [
-            (changes.account.is_some() , keys::CORE),
-        ]
-        .iter()
-        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
-        .collect();
+        let stores: Vec<&str> = [(changes.account.is_some(), keys::CORE)]
+            .iter()
+            .filter_map(|(id, key)| if *id { Some(*key) } else { None })
+            .collect();
 
         if stores.is_empty() {
             // nothing to do, quit early
             return Ok(());
         }
 
-        let tx =
-            self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
 
         let account_pickle = if let Some(account) = changes.account {
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
@@ -743,10 +800,12 @@ impl_crypto_store! {
 
         if let Some(a) = &account_pickle {
             tx.object_store(keys::CORE)?
-                .put_key_val(&JsValue::from_str(keys::ACCOUNT), &self.serializer.serialize_value(&a)?)?;
+                .put(&self.serializer.serialize_value(&a)?)
+                .with_key(JsValue::from_str(keys::ACCOUNT))
+                .build()?;
         }
 
-        tx.await.into_result()?;
+        tx.commit().await?;
 
         Ok(())
     }
@@ -767,12 +826,11 @@ impl_crypto_store! {
             return Ok(());
         }
 
-        let tx =
-            self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
 
         indexeddb_changes.apply(&tx)?;
 
-        tx.await.into_result()?;
+        tx.commit().await?;
 
         Ok(())
     }
@@ -787,7 +845,8 @@ impl_crypto_store! {
             let backed_up = s.backed_up();
             if backed_up != backed_up_to_version.is_some() {
                 warn!(
-                    backed_up, backed_up_to_version,
+                    backed_up,
+                    backed_up_to_version,
                     "Session backed-up flag does not correspond to backup version setting",
                 );
             }
@@ -801,15 +860,20 @@ impl_crypto_store! {
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(keys::TRACKED_USERS, IdbTransactionMode::Readonly)?;
+            .transaction(keys::TRACKED_USERS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
         let os = tx.object_store(keys::TRACKED_USERS)?;
-        let user_ids = os.get_all_keys()?.await?;
+        let user_ids = os.get_all_keys::<JsValue>().await?;
 
         let mut users = Vec::new();
 
-        for user_id in user_ids.iter() {
-            let dirty: bool =
-                !matches!(os.get(&user_id)?.await?.map(|v| v.into_serde()), Some(Ok(false)));
+        for result in user_ids {
+            let user_id = result?;
+            let dirty: bool = !matches!(
+                os.get(&user_id).await?.map(|v: JsValue| v.into_serde()),
+                Some(Ok(false))
+            );
             let Some(Ok(user_id)) = user_id.as_string().map(UserId::parse) else { continue };
 
             users.push(TrackedUser { user_id, dirty });
@@ -825,12 +889,11 @@ impl_crypto_store! {
         let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         if let Some(value) = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::OUTBOUND_GROUP_SESSIONS,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::OUTBOUND_GROUP_SESSIONS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::OUTBOUND_GROUP_SESSIONS)?
-            .get(&self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))?
+            .get(&self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))
             .await?
         {
             Ok(Some(
@@ -851,11 +914,12 @@ impl_crypto_store! {
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
         let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::GOSSIP_REQUESTS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::GOSSIP_REQUESTS)?
-            .get_owned(jskey)?
+            .get(jskey)
             .await?
             .map(|val| self.deserialize_gossip_request(val))
             .transpose()
@@ -864,9 +928,11 @@ impl_crypto_store! {
     async fn load_account(&self) -> Result<Option<Account>> {
         if let Some(pickle) = self
             .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::ACCOUNT))?
+            .get(&JsValue::from_str(keys::ACCOUNT))
             .await?
         {
             let pickle = self.serializer.deserialize_value(pickle)?;
@@ -884,9 +950,11 @@ impl_crypto_store! {
     async fn next_batch_token(&self) -> Result<Option<String>> {
         if let Some(serialized) = self
             .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))?
+            .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))
             .await?
         {
             let token = self.serializer.deserialize_value(serialized)?;
@@ -899,9 +967,11 @@ impl_crypto_store! {
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         if let Some(pickle) = self
             .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::PRIVATE_IDENTITY))?
+            .get(&JsValue::from_str(keys::PRIVATE_IDENTITY))
             .await?
         {
             let pickle = self.serializer.deserialize_value(pickle)?;
@@ -916,27 +986,27 @@ impl_crypto_store! {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>> {
-            let device_keys = self.get_own_device()
-                .await?
-                .as_device_keys()
-                .clone();
+        let device_keys = self.get_own_device().await?.as_device_keys().clone();
 
-        let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
+        let range = self.serializer.encode_to_range(keys::SESSION, sender_key);
         let sessions: Vec<Session> = self
-                .inner
-                .transaction_on_one_with_mode(keys::SESSION, IdbTransactionMode::Readonly)?
-                .object_store(keys::SESSION)?
-                .get_all_with_key(&range)?
-                .await?
-                .iter()
-                .filter_map(|f| self.serializer.deserialize_value(f).ok().map(|p| {
-                    Session::from_pickle(
-                        device_keys.clone(),
-                        p,
-                    )
-                        .map_err(|_| IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::AccountUnset))
-                }))
-                .collect::<Result<Vec<Session>>>()?;
+            .inner
+            .transaction(keys::SESSION)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::SESSION)?
+            .get_all()
+            .with_query(&range)
+            .await?
+            .filter_map(Result::ok)
+            .filter_map(|f| {
+                self.serializer.deserialize_value(f).ok().map(|p| {
+                    Session::from_pickle(device_keys.clone(), p).map_err(|_| {
+                        IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::AccountUnset)
+                    })
+                })
+            })
+            .collect::<Result<Vec<Session>>>()?;
 
         if sessions.is_empty() {
             Ok(None)
@@ -950,15 +1020,15 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+        let key =
+            self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
         if let Some(value) = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
-            .get(&key)?
+            .get(&key)
             .await?
         {
             Ok(Some(self.deserialize_inbound_group_session(value)?))
@@ -972,35 +1042,35 @@ impl_crypto_store! {
 
         let transaction = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?;
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
 
         let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
         fetch_from_object_store_batched(
             object_store,
             |value| self.deserialize_inbound_group_session(value),
-            INBOUND_GROUP_SESSIONS_BATCH_SIZE
-        ).await
+            INBOUND_GROUP_SESSIONS_BATCH_SIZE,
+        )
+        .await
     }
 
     async fn get_inbound_group_sessions_by_room_id(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<InboundGroupSession>> {
-        let range = self.serializer.encode_to_range(keys::INBOUND_GROUP_SESSIONS_V3, room_id)?;
+        let range = self.serializer.encode_to_range(keys::INBOUND_GROUP_SESSIONS_V3, room_id);
         Ok(self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
-            .get_all_with_key(&range)?
+            .get_all()
+            .with_query(&range)
             .await?
-            .into_iter()
+            .filter_map(Result::ok)
             .filter_map(|v| match self.deserialize_inbound_group_session(v) {
                 Ok(session) => Some(session),
                 Err(e) => {
@@ -1018,32 +1088,38 @@ impl_crypto_store! {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        let sender_key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, sender_key.to_base64());
+        let sender_key =
+            self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, sender_key.to_base64());
 
         // The empty string is before all keys in Indexed DB - first batch starts there.
-        let after_session_id = after_session_id.map(|s| self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, s)).unwrap_or("".into());
+        let after_session_id = after_session_id
+            .map(|s| self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, s))
+            .unwrap_or("".into());
 
-        let lower_bound: Array = [sender_key.clone(), (sender_data_type as u8).into(), after_session_id].iter().collect();
-        let upper_bound: Array = [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
-        let key = IdbKeyRange::bound_with_lower_open_and_upper_open(
-            &lower_bound,
-            &upper_bound,
-            true, true
-        ).expect("Key was not valid!");
+        let lower_bound: Array =
+            [sender_key.clone(), (sender_data_type as u8).into(), after_session_id]
+                .iter()
+                .collect();
+        let upper_bound: Array =
+            [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
+        let key = KeyRange::Bound(
+            lower_bound, true,
+            upper_bound, true);
 
         let tx = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?;
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
 
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX)?;
-        let serialized_sessions = idx.get_all_with_key_and_limit_owned(key, limit as u32)?.await?;
+        let serialized_sessions =
+            idx.get_all().with_query::<Array, _>(key).with_limit(limit as u32).await?;
 
         // Deserialize and decrypt after the transaction is complete.
-        let result = serialized_sessions.into_iter()
+        let result = serialized_sessions
+            .filter_map(Result::ok)
             .filter_map(|v| match self.deserialize_inbound_group_session(v) {
                 Ok(session) => Some(session),
                 Err(e) => {
@@ -1056,17 +1132,20 @@ impl_crypto_store! {
         Ok(result)
     }
 
-    async fn inbound_group_session_counts(&self, _backup_version: Option<&str>) -> Result<RoomKeyCounts> {
+    async fn inbound_group_session_counts(
+        &self,
+        _backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?;
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-        let all = store.count()?.await? as usize;
-        let not_backed_up = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count()?.await? as usize;
-        tx.await.into_result()?;
+        let all = store.count().await? as usize;
+        let not_backed_up =
+            store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count().await? as usize;
+        tx.commit().await?;
         Ok(RoomKeyCounts { total: all, backed_up: all - not_backed_up })
     }
 
@@ -1077,11 +1156,9 @@ impl_crypto_store! {
     ) -> Result<Vec<InboundGroupSession>> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?;
-
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
 
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
@@ -1089,22 +1166,23 @@ impl_crypto_store! {
         // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
         //   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
         //   the behaviour with a cursor.
-        let Some(cursor) = idx.open_cursor()?.await? else {
+        let Some(mut cursor) = idx.open_cursor().await? else {
             return Ok(vec![]);
         };
 
         let mut serialized_sessions = Vec::with_capacity(limit);
         for _ in 0..limit {
-            serialized_sessions.push(cursor.value());
-            if !cursor.continue_cursor()?.await? {
+            let Some(value) = cursor.next_record().await? else {
                 break;
-            }
+            };
+            serialized_sessions.push(value)
         }
 
-        tx.await.into_result()?;
+        tx.commit().await?;
 
         // Deserialize and decrypt after the transaction is complete.
-        let result = serialized_sessions.into_iter()
+        let result = serialized_sessions
+            .into_iter()
             .filter_map(|v| match self.deserialize_inbound_group_session(v) {
                 Ok(session) => Some(session),
                 Err(e) => {
@@ -1117,73 +1195,78 @@ impl_crypto_store! {
         Ok(result)
     }
 
-    async fn mark_inbound_group_sessions_as_backed_up(&self,
+    async fn mark_inbound_group_sessions_as_backed_up(
+        &self,
         _backup_version: &str,
-        room_and_session_ids: &[(&RoomId, &str)]
+        room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readwrite,
-            )?;
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
 
         let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
         for (room_id, session_id) in room_and_session_ids {
-            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
-            if let Some(idb_object_js) = object_store.get(&key)?.await? {
-                let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(idb_object_js)?;
+            let key =
+                self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+            if let Some(idb_object_js) = object_store.get(&key).await? {
+                let mut idb_object: InboundGroupSessionIndexedDbObject =
+                    serde_wasm_bindgen::from_value(idb_object_js)?;
                 idb_object.needs_backup = false;
-                object_store.put_key_val(&key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+                object_store
+                    .put(&serde_wasm_bindgen::to_value(&idb_object)?)
+                    .with_key(key)
+                    .build()?;
             } else {
                 warn!(?key, "Could not find inbound group session to mark it as backed up.");
             }
         }
 
-        Ok(tx.await.into_result()?)
+        Ok(tx.commit().await?)
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readwrite,
-            )?;
+            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
 
-        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor()?.await? {
-            loop {
-                let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(cursor.value())?;
+        if let Some(mut cursor) =
+            tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor().await?
+        {
+            while let Some(value) = cursor.next_record().await? {
+                let mut idb_object: InboundGroupSessionIndexedDbObject =
+                    serde_wasm_bindgen::from_value(value)?;
                 if !idb_object.needs_backup {
                     idb_object.needs_backup = true;
                     // We don't bother to update the encrypted `InboundGroupSession` object stored
                     // inside `idb_object.data`, since that would require decryption and encryption.
                     // Instead, it will be patched up by `deserialize_inbound_group_session`.
                     let idb_object = serde_wasm_bindgen::to_value(&idb_object)?;
-                    cursor.update(&idb_object)?.await?;
-                }
-
-                if !cursor.continue_cursor()?.await? {
-                    break;
+                    cursor.update(&idb_object).await?;
                 }
             }
         }
 
-        Ok(tx.await.into_result()?)
+        Ok(tx.commit().await?)
     }
 
     async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
         let tx = self
             .inner
-            .transaction_on_one_with_mode(keys::TRACKED_USERS, IdbTransactionMode::Readwrite)?;
+            .transaction(keys::TRACKED_USERS)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
         let os = tx.object_store(keys::TRACKED_USERS)?;
 
         for (user, dirty) in users {
-            os.put_key_val(&JsValue::from_str(user.as_str()), &JsValue::from(*dirty))?;
+            os.put(&JsValue::from(*dirty)).with_key(JsValue::from_str(user.as_str())).build()?;
         }
 
-        tx.await.into_result()?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1193,11 +1276,12 @@ impl_crypto_store! {
         device_id: &DeviceId,
     ) -> Result<Option<DeviceData>> {
         let key = self.serializer.encode_key(keys::DEVICES, (user_id, device_id));
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::DEVICES, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::DEVICES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::DEVICES)?
-            .get(&key)?
+            .get(&key)
             .await?
             .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
@@ -1207,14 +1291,17 @@ impl_crypto_store! {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
-        let range = self.serializer.encode_to_range(keys::DEVICES, user_id)?;
+        let range = self.serializer.encode_to_range(keys::DEVICES, user_id);
         Ok(self
             .inner
-            .transaction_on_one_with_mode(keys::DEVICES, IdbTransactionMode::Readonly)?
+            .transaction(keys::DEVICES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::DEVICES)?
-            .get_all_with_key(&range)?
+            .get_all()
+            .with_query(&range)
             .await?
-            .iter()
+            .filter_map(Result::ok)
             .filter_map(|d| {
                 let d: DeviceData = self.serializer.deserialize_value(d).ok()?;
                 Some((d.device_id().to_owned(), d))
@@ -1224,17 +1311,16 @@ impl_crypto_store! {
 
     async fn get_own_device(&self) -> Result<DeviceData> {
         let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
-        Ok(self.get_device(&account_info.user_id, &account_info.device_id)
-           .await?
-           .unwrap())
+        Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::IDENTITIES, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::IDENTITIES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::IDENTITIES)?
-            .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))?
+            .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))
             .await?
             .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
@@ -1243,9 +1329,11 @@ impl_crypto_store! {
     async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool> {
         Ok(self
             .inner
-            .transaction_on_one_with_mode(keys::OLM_HASHES, IdbTransactionMode::Readonly)?
+            .transaction(keys::OLM_HASHES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::OLM_HASHES)?
-            .get(&self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))?
+            .get::<JsValue, _, _>(&self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))
             .await?
             .is_some())
     }
@@ -1253,34 +1341,38 @@ impl_crypto_store! {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-        ) -> Result<Vec<GossippedSecret>> {
-        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+    ) -> Result<Vec<GossippedSecret>> {
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
 
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::SECRETS_INBOX)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::SECRETS_INBOX)?
-            .get_all_with_key(&range)?
+            .get_all()
+            .with_query(&range)
             .await?
-            .iter()
-            .map(|d| {
+            .map(|result| {
+                let d = result?;
                 let secret = self.serializer.deserialize_value(d)?;
                 Ok(secret)
-            }).collect()
+            })
+            .collect()
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
-    async fn delete_secrets_from_inbox(
-        &self,
-        secret_name: &SecretName,
-    ) -> Result<()> {
-        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str())?;
+    async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
 
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::SECRETS_INBOX, IdbTransactionMode::Readwrite)?
+        let transaction = self.inner
+            .transaction(keys::SECRETS_INBOX)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        transaction
             .object_store(keys::SECRETS_INBOX)?
-            .delete(&range)?;
+            .delete(&range)
+            .build()?;
+        transaction.commit().await?;
 
         Ok(())
     }
@@ -1293,13 +1385,10 @@ impl_crypto_store! {
 
         let val = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::GOSSIP_REQUESTS,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::GOSSIP_REQUESTS).with_mode( TransactionMode::Readonly).build()?
             .object_store(keys::GOSSIP_REQUESTS)?
             .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
-            .get_owned(key)?
+            .get(key)
             .await?;
 
         if let Some(val) = val {
@@ -1313,15 +1402,14 @@ impl_crypto_store! {
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         let results = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::GOSSIP_REQUESTS,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::GOSSIP_REQUESTS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::GOSSIP_REQUESTS)?
             .index(keys::GOSSIP_REQUESTS_UNSENT_INDEX)?
-            .get_all()?
+            .get_all()
             .await?
-            .iter()
+            .filter_map(Result::ok)
             .filter_map(|val| self.deserialize_gossip_request(val).ok())
             .collect();
 
@@ -1330,26 +1418,32 @@ impl_crypto_store! {
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id);
-        let tx = self.inner.transaction_on_one_with_mode(keys::GOSSIP_REQUESTS, IdbTransactionMode::Readwrite)?;
-        tx.object_store(keys::GOSSIP_REQUESTS)?.delete_owned(jskey)?;
-        tx.await.into_result().map_err(|e| e.into())
+        let tx = self
+            .inner
+            .transaction(keys::GOSSIP_REQUESTS)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        tx.object_store(keys::GOSSIP_REQUESTS)?.delete(jskey).build()?;
+        tx.commit().await.map_err(|e| e.into())
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         let key = {
             let tx = self
                 .inner
-                .transaction_on_one_with_mode(keys::BACKUP_KEYS, IdbTransactionMode::Readonly)?;
+                .transaction(keys::BACKUP_KEYS)
+                .with_mode(TransactionMode::Readonly)
+                .build()?;
             let store = tx.object_store(keys::BACKUP_KEYS)?;
 
             let backup_version = store
-                .get(&JsValue::from_str(keys::BACKUP_VERSION_V1))?
+                .get(&JsValue::from_str(keys::BACKUP_VERSION_V1))
                 .await?
                 .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;
 
             let decryption_key = store
-                .get(&JsValue::from_str(keys::RECOVERY_KEY_V1))?
+                .get(&JsValue::from_str(keys::RECOVERY_KEY_V1))
                 .await?
                 .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;
@@ -1360,13 +1454,14 @@ impl_crypto_store! {
         Ok(key)
     }
 
-
-     async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
-       if let Some(pickle) = self
+    async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
+        if let Some(pickle) = self
             .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY))?
+            .get(&JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY))
             .await?
         {
             let pickle: DehydratedDeviceKey = self.serializer.deserialize_value(pickle)?;
@@ -1390,12 +1485,9 @@ impl_crypto_store! {
         let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner
-            .transaction_on_one_with_mode(
-                keys::DIRECT_WITHHELD_INFO,
-                IdbTransactionMode::Readonly,
-            )?
+            .transaction(keys::DIRECT_WITHHELD_INFO).with_mode( TransactionMode::Readonly).build()?
             .object_store(keys::DIRECT_WITHHELD_INFO)?
-            .get(&key)?
+            .get(&key)
             .await?
         {
             let info = self.serializer.deserialize_value(pickle)?;
@@ -1407,23 +1499,30 @@ impl_crypto_store! {
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::ROOM_SETTINGS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::ROOM_SETTINGS)?
-            .get(&key)?
+            .get(&key)
             .await?
             .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
     }
 
-    async fn get_received_room_key_bundle_data(&self, room_id: &RoomId, user_id: &UserId) -> Result<Option<StoredRoomKeyBundleData>> {
+    async fn get_received_room_key_bundle_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>> {
         let key = self.serializer.encode_key(keys::RECEIVED_ROOM_KEY_BUNDLES, (room_id, user_id));
         let result = self
             .inner
-            .transaction_on_one_with_mode(keys::RECEIVED_ROOM_KEY_BUNDLES, IdbTransactionMode::Readonly)?
+            .transaction(keys::RECEIVED_ROOM_KEY_BUNDLES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?
-            .get(&key)?
+            .get(&key)
             .await?
             .map(|v| self.serializer.deserialize_value(v))
             .transpose()?;
@@ -1432,11 +1531,12 @@ impl_crypto_store! {
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+        self.inner
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::CORE)?
-            .get(&JsValue::from_str(key))?
+            .get(&JsValue::from_str(key))
             .await?
             .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
@@ -1444,21 +1544,30 @@ impl_crypto_store! {
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
+        let transaction = self.inner
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        transaction
             .object_store(keys::CORE)?
-            .put_key_val(&JsValue::from_str(key), &self.serializer.serialize_value(&value)?)?;
+            .put(&self.serializer.serialize_value(&value)?)
+            .with_key(JsValue::from_str(key))
+            .build()?;
+        transaction.commit().await?;
         Ok(())
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
-        self
-            .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?
+        let transaction = self.inner
+            .transaction(keys::CORE)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        transaction
             .object_store(keys::CORE)?
-            .delete(&JsValue::from_str(key))?;
+            .delete(&JsValue::from_str(key))
+            .build()?;
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -1470,11 +1579,9 @@ impl_crypto_store! {
     ) -> Result<bool> {
         // As of 2023-06-23, the code below hasn't been tested yet.
         let key = JsValue::from_str(key);
-        let txn = self
-            .inner
-            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readwrite)?;
-        let object_store = txn
-            .object_store(keys::CORE)?;
+        let txn =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+        let object_store = txn.object_store(keys::CORE)?;
 
         #[derive(serde::Deserialize, serde::Serialize)]
         struct Lease {
@@ -1485,19 +1592,34 @@ impl_crypto_store! {
         let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
         let expiration_ts = now_ts + lease_duration_ms as u64;
 
-        let prev = object_store.get(&key)?.await?;
+        let prev = object_store.get(&key).await?;
         match prev {
             Some(prev) => {
                 let lease: Lease = self.serializer.deserialize_value(prev)?;
                 if lease.holder == holder || lease.expiration_ts < now_ts {
-                    object_store.put_key_val(&key, &self.serializer.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                    object_store
+                        .put(
+                            &self.serializer.serialize_value(&Lease {
+                                holder: holder.to_owned(),
+                                expiration_ts,
+                            })?,
+                        )
+                        .with_key(key)
+                        .build()?;
                     Ok(true)
                 } else {
                     Ok(false)
                 }
             }
             None => {
-                object_store.put_key_val(&key, &self.serializer.serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?)?;
+                object_store
+                    .put(
+                        &self
+                            .serializer
+                            .serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?,
+                    )
+                    .with_key(key)
+                    .build()?;
                 Ok(true)
             }
         }
@@ -1508,30 +1630,29 @@ impl Drop for IndexeddbCryptoStore {
     fn drop(&mut self) {
         // Must release the database access manually as it's not done when
         // dropping it.
-        self.inner.close();
+        self.inner.as_sys().close();
     }
 }
 
 /// Open the meta store.
 ///
 /// The meta store contains details about the encryption of the main store.
-async fn open_meta_db(prefix: &str) -> Result<IdbDatabase, IndexeddbCryptoStoreError> {
+async fn open_meta_db(prefix: &str) -> Result<Database, IndexeddbCryptoStoreError> {
     let name = format!("{prefix:0}::matrix-sdk-crypto-meta");
 
     debug!("IndexedDbCryptoStore: Opening meta-store {name}");
-    let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
-    db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let old_version = evt.old_version() as u32;
-        if old_version < 1 {
-            // migrating to version 1
-            let db = evt.db();
-
-            db.create_object_store("matrix-sdk-crypto")?;
-        }
-        Ok(())
-    }));
-
-    Ok(db_req.await?)
+    Database::open(&name)
+        .with_version(1u32)
+        .with_on_upgrade_needed(|evt, tx| {
+            let old_version = evt.old_version() as u32;
+            if old_version < 1 {
+                // migrating to version 1
+                tx.db().create_object_store("matrix-sdk-crypto").build()?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(Into::into)
 }
 
 /// Load the serialised store cipher from the meta store.
@@ -1544,16 +1665,16 @@ async fn open_meta_db(prefix: &str) -> Result<IdbDatabase, IndexeddbCryptoStoreE
 ///
 /// The serialised `StoreCipher` object.
 async fn load_store_cipher(
-    meta_db: &IdbDatabase,
+    meta_db: &Database,
 ) -> Result<Option<Vec<u8>>, IndexeddbCryptoStoreError> {
-    let tx: IdbTransaction<'_> =
-        meta_db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readonly)?;
+    let tx: Transaction<'_> =
+        meta_db.transaction("matrix-sdk-crypto").with_mode(TransactionMode::Readonly).build()?;
     let ob = tx.object_store("matrix-sdk-crypto")?;
 
     let store_cipher: Option<Vec<u8>> = ob
-        .get(&JsValue::from_str(keys::STORE_CIPHER))?
+        .get(&JsValue::from_str(keys::STORE_CIPHER))
         .await?
-        .map(|k| k.into_serde())
+        .map(|k: JsValue| k.into_serde())
         .transpose()?;
     Ok(store_cipher)
 }
@@ -1565,15 +1686,17 @@ async fn load_store_cipher(
 /// * `meta_db`: Connection to the meta store, as returned by [`open_meta_db`].
 /// * `store_cipher`: The serialised `StoreCipher` object.
 async fn save_store_cipher(
-    db: &IdbDatabase,
+    db: &Database,
     export: &Vec<u8>,
 ) -> Result<(), IndexeddbCryptoStoreError> {
-    let tx: IdbTransaction<'_> =
-        db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readwrite)?;
+    let tx: Transaction<'_> =
+        db.transaction("matrix-sdk-crypto").with_mode(TransactionMode::Readwrite).build()?;
     let ob = tx.object_store("matrix-sdk-crypto")?;
 
-    ob.put_key_val(&JsValue::from_str(keys::STORE_CIPHER), &JsValue::from_serde(&export)?)?;
-    tx.await.into_result()?;
+    ob.put(&JsValue::from_serde(&export)?)
+        .with_key(JsValue::from_str(keys::STORE_CIPHER))
+        .build()?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1594,7 +1717,7 @@ async fn import_store_cipher_with_key(
     chacha_key: &[u8; 32],
     original_key: &[u8],
     serialised_cipher: &[u8],
-    db: &IdbDatabase,
+    db: &Database,
 ) -> Result<StoreCipher, IndexeddbCryptoStoreError> {
     let cipher = match StoreCipher::import_with_key(chacha_key, serialised_cipher) {
         Ok(cipher) => cipher,
@@ -1626,7 +1749,7 @@ async fn import_store_cipher_with_key(
 /// the supplied function, and stuff the transformed items into a single
 /// vector to return.
 async fn fetch_from_object_store_batched<R, F>(
-    object_store: IdbObjectStore<'_>,
+    object_store: ObjectStore<'_>,
     f: F,
     batch_size: usize,
 ) -> Result<Vec<R>>
@@ -1649,9 +1772,8 @@ where
         // Get hold of a cursor for this batch. (This should not panic in expect()
         // because we always use "", or the result of cursor.key(), both of
         // which are valid keys.)
-        let after_latest_key =
-            IdbKeyRange::lower_bound_with_open(&latest_key, true).expect("Key was not valid!");
-        let cursor = object_store.open_cursor_with_range(&after_latest_key)?.await?;
+        let after_latest_key = KeyRange::LowerBound(&latest_key, true);
+        let cursor = object_store.open_cursor().with_query(&after_latest_key).await?;
 
         // Fetch batch_size records into result
         let next_key = fetch_batch(cursor, batch_size, &f, &mut result).await?;
@@ -1671,16 +1793,16 @@ where
 /// and return the last key we processed, or None if
 /// we reached the end of the cursor.
 async fn fetch_batch<R, F, Q>(
-    cursor: Option<IdbCursorWithValue<'_, Q>>,
+    cursor: Option<Cursor<'_, Q>>,
     batch_size: usize,
     f: &F,
     result: &mut Vec<R>,
 ) -> Result<Option<JsValue>>
 where
     F: Fn(JsValue) -> Result<R>,
-    Q: IdbQuerySource,
+    Q: QuerySource,
 {
-    let Some(cursor) = cursor else {
+    let Some(mut cursor) = cursor else {
         // Cursor was None - there are no more records
         return Ok(None);
     };
@@ -1688,8 +1810,12 @@ where
     let mut latest_key = None;
 
     for _ in 0..batch_size {
+        let Some(value) = cursor.next_record().await? else {
+            return Ok(None);
+        };
+
         // Process the record
-        let processed = f(cursor.value());
+        let processed = f(value);
         if let Ok(processed) = processed {
             result.push(processed);
         }
@@ -1697,14 +1823,8 @@ where
 
         // Remember that we have processed this record, so if we hit
         // the end of the batch, the next batch can start after this one
-        if let Some(key) = cursor.key() {
+        if let Some(key) = cursor.key()? {
             latest_key = Some(key);
-        }
-
-        // Move on to the next record
-        let more_records = cursor.continue_cursor()?.await?;
-        if !more_records {
-            return Ok(None);
         }
     }
 
