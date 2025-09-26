@@ -103,7 +103,7 @@ pub struct SpaceRoomList {
 
     space_id: OwnedRoomId,
 
-    space: Arc<SharedObservable<Option<SpaceRoom>>>,
+    space: SharedObservable<Option<SpaceRoom>>,
 
     via_parameters: Mutex<Option<HashMap<OwnedRoomId, Vec<OwnedServerName>>>>,
 
@@ -166,7 +166,7 @@ impl SpaceRoomList {
             }
         });
 
-        let space_observable = Arc::new(SharedObservable::new(None));
+        let space_observable = SharedObservable::new(None);
 
         let (space_room, space_update_handle) = if let Some(parent) = client.get_room(&space_id) {
             let children_count = parent
