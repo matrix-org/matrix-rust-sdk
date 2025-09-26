@@ -492,15 +492,23 @@ struct StoreInner {
 #[derive(Debug, Error)]
 pub enum SecretImportError {
     /// The key that we tried to import was invalid.
-    #[error(transparent)]
-    Key(#[from] vodozemac::KeyError),
-    /// The public key of the imported private key doesn't match to the public
+    #[error("Error while importing {name}: {error}")]
+    Key {
+        /// The name of the secret that was being imported.
+        name: SecretName,
+        /// The key error that occurred.
+        error: vodozemac::KeyError,
+    },
+    /// The public key of the imported private key doesn't match the public
     /// key that was uploaded to the server.
     #[error(
-        "The public key of the imported private key doesn't match to the \
-            public key that was uploaded to the server"
+        "Error while importing {name}: The public key of the imported private \
+            key doesn't match the public key that was uploaded to the server"
     )]
-    MismatchedPublicKeys,
+    MismatchedPublicKeys {
+        /// The name of the secret that was being imported.
+        name: SecretName,
+    },
     /// The new version of the identity couldn't be stored.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),

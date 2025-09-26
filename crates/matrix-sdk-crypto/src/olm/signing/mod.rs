@@ -235,36 +235,53 @@ impl PrivateCrossSigningIdentity {
         user_signing_key: Option<&str>,
     ) -> Result<(), SecretImportError> {
         let master = if let Some(master_key) = master_key {
-            let master = MasterSigning::from_base64(self.user_id().to_owned(), master_key)?;
+            let master =
+                MasterSigning::from_base64(self.user_id().to_owned(), master_key).map_err(|e| {
+                    SecretImportError::Key { name: SecretName::CrossSigningMasterKey, error: e }
+                })?;
 
             if public_identity.master_key() == master.public_key() {
                 Some(master)
             } else {
-                return Err(SecretImportError::MismatchedPublicKeys);
+                return Err(SecretImportError::MismatchedPublicKeys {
+                    name: SecretName::CrossSigningMasterKey,
+                });
             }
         } else {
             None
         };
 
         let user_signing = if let Some(user_signing_key) = user_signing_key {
-            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
+            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)
+                .map_err(|e| SecretImportError::Key {
+                    name: SecretName::CrossSigningUserSigningKey,
+                    error: e,
+                })?;
 
             if public_identity.user_signing_key() == subkey.public_key() {
                 Ok(Some(subkey))
             } else {
-                Err(SecretImportError::MismatchedPublicKeys)
+                Err(SecretImportError::MismatchedPublicKeys {
+                    name: SecretName::CrossSigningUserSigningKey,
+                })
             }
         } else {
             Ok(None)
         }?;
 
         let self_signing = if let Some(self_signing_key) = self_signing_key {
-            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)?;
+            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)
+                .map_err(|e| SecretImportError::Key {
+                    name: SecretName::CrossSigningSelfSigningKey,
+                    error: e,
+                })?;
 
             if public_identity.self_signing_key() == subkey.public_key() {
                 Ok(Some(subkey))
             } else {
-                Err(SecretImportError::MismatchedPublicKeys)
+                Err(SecretImportError::MismatchedPublicKeys {
+                    name: SecretName::CrossSigningSelfSigningKey,
+                })
             }
         } else {
             Ok(None)
@@ -299,17 +316,28 @@ impl PrivateCrossSigningIdentity {
         user_signing_key: Option<&str>,
     ) -> Result<(), SecretImportError> {
         if let Some(master_key) = master_key {
-            let master = MasterSigning::from_base64(self.user_id().to_owned(), master_key)?;
+            let master =
+                MasterSigning::from_base64(self.user_id().to_owned(), master_key).map_err(|e| {
+                    SecretImportError::Key { name: SecretName::CrossSigningMasterKey, error: e }
+                })?;
             *self.master_key.lock().await = Some(master);
         }
 
         if let Some(user_signing_key) = user_signing_key {
-            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
+            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)
+                .map_err(|e| SecretImportError::Key {
+                    name: SecretName::CrossSigningUserSigningKey,
+                    error: e,
+                })?;
             *self.user_signing_key.lock().await = Some(subkey);
         }
 
         if let Some(self_signing_key) = self_signing_key {
-            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)?;
+            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)
+                .map_err(|e| SecretImportError::Key {
+                    name: SecretName::CrossSigningSelfSigningKey,
+                    error: e,
+                })?;
             *self.self_signing_key.lock().await = Some(subkey);
         }
 

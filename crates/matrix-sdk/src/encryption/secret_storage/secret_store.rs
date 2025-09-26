@@ -30,7 +30,7 @@ use tracing::{
 };
 use zeroize::Zeroize;
 
-use super::{DecryptionError, Result};
+use super::{DecryptionError, Result, SecretStorageError};
 use crate::Client;
 
 #[cfg_attr(doc, aquamarine::aquamarine)]
@@ -151,9 +151,16 @@ impl SecretStore {
         let secret_name = secret_name.into();
         let event_type = GlobalAccountDataEventType::from(secret_name.to_owned());
 
-        if let Some(secret_content) = self.client.account().fetch_account_data(event_type).await? {
-            let mut secret_content =
-                secret_content.deserialize_as_unchecked::<SecretEventContent>()?;
+        if let Some(secret_content) = self
+            .client
+            .account()
+            .fetch_account_data(event_type)
+            .await
+            .map_err(|e| SecretStorageError::into_import_error(secret_name.clone(), e))?
+        {
+            let mut secret_content = secret_content
+                .deserialize_as_unchecked::<SecretEventContent>()
+                .map_err(|e| SecretStorageError::into_import_error(secret_name.clone(), e))?;
 
             // The `SecretEventContent` contains a map from the secret storage key ID to the
             // ciphertext. Let's try to find a secret which was encrypted using our
@@ -162,10 +169,18 @@ impl SecretStore {
                 // We found a secret we should be able to decrypt, let's try to do so.
                 let decrypted = self
                     .key
-                    .decrypt(&secret_content.try_into()?, &secret_name)
-                    .map_err(DecryptionError::from)?;
+                    .decrypt(
+                        &secret_content.try_into().map_err(|e| {
+                            SecretStorageError::into_import_error(secret_name.clone(), e)
+                        })?,
+                        &secret_name,
+                    )
+                    .map_err(DecryptionError::from)
+                    .map_err(|e| SecretStorageError::into_import_error(secret_name.clone(), e))?;
 
-                let secret = String::from_utf8(decrypted).map_err(DecryptionError::from)?;
+                let secret = String::from_utf8(decrypted)
+                    .map_err(DecryptionError::from)
+                    .map_err(|e| SecretStorageError::into_import_error(secret_name.clone(), e))?;
 
                 Ok(Some(secret))
             } else {
@@ -295,20 +310,31 @@ impl SecretStore {
     }
 
     async fn maybe_enable_backups(&self) -> Result<()> {
-        if let Some(mut secret) = self.get_secret(SecretName::RecoveryKey).await? {
-            let ret = self.client.encryption().backups().maybe_enable_backups(&secret).await;
+        match self.get_secret(SecretName::RecoveryKey).await {
+            Ok(Some(mut secret)) => {
+                let ret =
+                    self.client.encryption().backups().maybe_enable_backups(&secret).await.map_err(
+                        |e| SecretStorageError::into_import_error(SecretName::RecoveryKey, e),
+                    );
 
-            if let Err(e) = &ret {
-                warn!("Could not enable backups from secret storage: {e:?}");
+                if let Err(e) = &ret {
+                    warn!("Could not enable backups from secret storage: {e:?}");
+                }
+
+                secret.zeroize();
+
+                Ok(ret.map(|_| ())?)
             }
+            Err(e) => {
+                warn!("Could not enable backups from secret storage: {e:?}");
 
-            secret.zeroize();
+                Err(e)
+            }
+            _ => {
+                info!("No backup recovery key found.");
 
-            Ok(ret.map(|_| ())?)
-        } else {
-            info!("No backup recovery key found.");
-
-            Ok(())
+                Ok(())
+            }
         }
     }
 
@@ -388,7 +414,10 @@ impl SecretStore {
         self.client.keys_query(&request_id, request.device_keys).await?;
 
         // Let's now try to import our private cross-signing keys.
-        let status = olm_machine.import_cross_signing_keys(export).await?;
+        let status = olm_machine
+            .import_cross_signing_keys(export)
+            .await
+            .map_err(SecretStorageError::from_secret_import_error)?;
 
         Span::current().record("cross_signing_status", debug(&status));
 

@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
+  an error that occurred when importing a secret from secret storage.
+  ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
+
 ### Refactor
 - The Matrix SDK crate now uses the 2024 edition of Rust.
   ([#5677](https://github.com/matrix-org/matrix-rust-sdk/pull/5677))

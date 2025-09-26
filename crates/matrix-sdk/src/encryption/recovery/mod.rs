@@ -728,3 +728,173 @@ impl IdentityResetHandle {
         self.cross_signing_reset_handle.cancel().await;
     }
 }
+
+// The http mocking library is not supported for wasm32
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        events::{secret::request::SecretName, secret_storage::key},
+        serde::Base64,
+    };
+    use serde_json::json;
+
+    use super::Recovery;
+    use crate::{
+        encryption::{recovery::types::RecoveryError, secret_storage::SecretStorageError},
+        test_utils::mocks::MatrixMockServer,
+    };
+
+    // If recovery fails due when importing a secret from secret storage, we
+    // should get the `ImportError` variant of `SecretStorageError`.  The
+    // following tests test different import failures.
+    #[async_test]
+    async fn test_recover_with_no_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_get_secret_storage_key()
+            .ok(
+                client.user_id().unwrap(),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            .mount()
+            .await;
+        server
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
+            .mount()
+            .await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
+    }
+
+    #[async_test]
+    async fn test_recover_with_invalid_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_get_secret_storage_key()
+            .ok(
+                client.user_id().unwrap(),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            .mount()
+            .await;
+        server
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
+            .mount()
+            .await;
+        server.mock_get_master_signing_key().ok(client.user_id().unwrap(), json!({})).mount().await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
+    }
+
+    #[async_test]
+    async fn test_recover_with_undecryptable_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_get_secret_storage_key()
+            .ok(
+                client.user_id().unwrap(),
+                &key::SecretStorageKeyEventContent::new(
+                    "abc".into(),
+                    key::SecretStorageEncryptionAlgorithm::V1AesHmacSha2(
+                        key::SecretStorageV1AesHmacSha2Properties::new(
+                            Some(Base64::parse("xv5b6/p3ExEw++wTyfSHEg==").unwrap()),
+                            Some(
+                                Base64::parse("ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=")
+                                    .unwrap(),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            .mount()
+            .await;
+        server
+            .mock_get_default_secret_storage_key()
+            .ok(client.user_id().unwrap(), "abc")
+            .mount()
+            .await;
+        server
+            .mock_get_master_signing_key()
+            .ok(
+                client.user_id().unwrap(),
+                json!({
+                    "encrypted": {
+                        "abc": {
+                            "iv": "xv5b6/p3ExEw++wTyfSHEg==",
+                            "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=",
+                            "ciphertext": "abcd"
+                        }
+                    }
+                }),
+            )
+            .mount()
+            .await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(
+            ret,
+            Err(RecoveryError::SecretStorage(SecretStorageError::ImportError {
+                name: SecretName::CrossSigningMasterKey,
+                error: _
+            }))
+        );
+    }
+}
