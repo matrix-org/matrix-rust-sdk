@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
+    authentication::oauth::qrcode::{
+        self, DeviceCodeErrorResponseType, LoginFailureReason, QrProgress,
+    },
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
@@ -103,7 +105,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
-                | SecureChannelError::InvalidCheckCode => HumanQrLoginError::ConnectionInsecure,
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::CannotReceiveCheckCode => {
+                    HumanQrLoginError::ConnectionInsecure
+                }
                 SecureChannelError::InvalidIntent => HumanQrLoginError::OtherDeviceNotSignedIn,
             },
 
@@ -136,6 +141,8 @@ pub enum QrLoginProgress {
     /// We are waiting for the login and for the OAuth 2.0 authorization server
     /// to give us an access token.
     WaitingForToken { user_code: String },
+    /// We are syncing secrets.
+    SyncingSecrets,
     /// The login has successfully finished.
     Done,
 }
@@ -145,13 +152,13 @@ pub trait QrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, state: QrLoginProgress);
 }
 
-impl From<qrcode::LoginProgress> for QrLoginProgress {
-    fn from(value: qrcode::LoginProgress) -> Self {
+impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
+    fn from(value: qrcode::LoginProgress<QrProgress>) -> Self {
         use qrcode::LoginProgress;
 
         match value {
             LoginProgress::Starting => Self::Starting,
-            LoginProgress::EstablishingSecureChannel { check_code } => {
+            LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                 let check_code = check_code.to_digit();
 
                 Self::EstablishingSecureChannel {
@@ -160,6 +167,7 @@ impl From<qrcode::LoginProgress> for QrLoginProgress {
                 }
             }
             LoginProgress::WaitingForToken { user_code } => Self::WaitingForToken { user_code },
+            LoginProgress::SyncingSecrets => Self::SyncingSecrets,
             LoginProgress::Done => Self::Done,
         }
     }
