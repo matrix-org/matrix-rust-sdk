@@ -72,6 +72,11 @@ impl SpaceGraph {
         self.nodes.entry(node_id.clone()).or_insert(SpaceGraphNode::new(node_id));
     }
 
+    /// Returns whether a node exists in the graph.
+    pub(super) fn has_node(&self, node_id: &RoomId) -> bool {
+        self.nodes.contains_key(node_id)
+    }
+
     /// Adds a directed edge from `parent_id` to `child_id`, creating nodes if
     /// they do not already exist in the graph.
     pub(super) fn add_edge(&mut self, parent_id: OwnedRoomId, child_id: OwnedRoomId) {
@@ -82,6 +87,31 @@ impl SpaceGraph {
         let child_entry =
             self.nodes.entry(child_id.clone()).or_insert(SpaceGraphNode::new(child_id));
         child_entry.parents.insert(parent_id);
+    }
+
+    /// Returns the subtree of the given node in a bottom-up order.
+    ///
+    /// Does a BFS starting from the given node tracking the visited nodes
+    /// and returning them in the reverse order.
+    pub(super) fn flattened_bottom_up_subtree(&self, node_id: &RoomId) -> Vec<OwnedRoomId> {
+        if !self.has_node(node_id) {
+            return Vec::new();
+        }
+
+        let mut stack = vec![node_id.to_owned()];
+        let mut result = Vec::new();
+
+        while let Some(node) = stack.pop() {
+            result.insert(0, node.clone());
+
+            if let Some(node) = self.nodes.get(&node) {
+                for child in &node.children {
+                    stack.push(child.to_owned());
+                }
+            }
+        }
+
+        result
     }
 
     /// Removes cycles in the graph by performing a depth-first search (DFS) and
@@ -137,7 +167,7 @@ impl SpaceGraph {
 
 #[cfg(test)]
 mod tests {
-    use ruma::room_id;
+    use ruma::{owned_room_id, room_id};
 
     use super::*;
 
@@ -221,5 +251,77 @@ mod tests {
         let c_parents = &graph.nodes[&c].parents;
         assert!(c_parents.contains(&a));
         assert!(c_parents.contains(&b));
+    }
+
+    #[test]
+    fn test_flattened_bottom_up_subtree() {
+        let graph = vehicle_graph();
+
+        let children = graph.flattened_bottom_up_subtree(room_id!("!personal:x.y"));
+        let expected = vec![
+            owned_room_id!("!gravel:x.y"),
+            owned_room_id!("!mountain:x.y"),
+            owned_room_id!("!road:x.y"),
+            owned_room_id!("!bicycle:x.y"),
+            owned_room_id!("!car:x.y"),
+            owned_room_id!("!helicopter:x.y"),
+            owned_room_id!("!personal:x.y"),
+        ];
+
+        assert_eq!(children, expected);
+
+        let children = graph.flattened_bottom_up_subtree(room_id!("!shared:x.y"));
+        let expected = vec![
+            owned_room_id!("!bus:x.y"),
+            owned_room_id!("!train:x.y"),
+            owned_room_id!("!shared:x.y"),
+        ];
+
+        assert_eq!(children, expected);
+
+        let children = graph.flattened_bottom_up_subtree(room_id!("!plane:x.y"));
+        let expected = vec![owned_room_id!("!plane:x.y")];
+
+        assert_eq!(children, expected);
+
+        let children = graph.flattened_bottom_up_subtree(room_id!("!floo_powder:x.y"));
+        assert!(children.is_empty());
+    }
+
+    fn vehicle_graph() -> SpaceGraph {
+        // Vehicles
+        // ├── Shared
+        // │   ├── Bus
+        // │   └── Train
+        // ├── Personal
+        // │   ├── Car
+        // │   ├── Bicycle
+        // │   │   ├── Road
+        // │   │   ├── Gravel
+        // │   │   └── Mountain
+        // │   └── Helicopter
+        // └── Cargo
+        //     └── Plane
+
+        let mut graph = SpaceGraph::new();
+
+        graph.add_edge(owned_room_id!("!vehicles:x.y"), owned_room_id!("!shared:x.y"));
+        graph.add_edge(owned_room_id!("!shared:x.y"), owned_room_id!("!bus:x.y"));
+        graph.add_edge(owned_room_id!("!shared:x.y"), owned_room_id!("!train:x.y"));
+
+        graph.add_edge(owned_room_id!("!vehicles:x.y"), owned_room_id!("!personal:x.y"));
+        graph.add_edge(owned_room_id!("!personal:x.y"), owned_room_id!("!car:x.y"));
+
+        graph.add_edge(owned_room_id!("!personal:x.y"), owned_room_id!("!bicycle:x.y"));
+        graph.add_edge(owned_room_id!("!bicycle:x.y"), owned_room_id!("!road:x.y"));
+        graph.add_edge(owned_room_id!("!bicycle:x.y"), owned_room_id!("!gravel:x.y"));
+        graph.add_edge(owned_room_id!("!bicycle:x.y"), owned_room_id!("!mountain:x.y"));
+
+        graph.add_edge(owned_room_id!("!personal:x.y"), owned_room_id!("!helicopter:x.y"));
+
+        graph.add_edge(owned_room_id!("!vehicles:x.y"), owned_room_id!("!cargo:x.y"));
+        graph.add_edge(owned_room_id!("!cargo:x.y"), owned_room_id!("!plane:x.y"));
+
+        graph
     }
 }
