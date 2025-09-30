@@ -1539,6 +1539,7 @@ mod private {
                 }
 
                 // Trigger an update to observers.
+                trace!(%thread_root, "updating thread summary: {new_summary:?}");
                 target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
                 self.replace_event_at(location, target_event).await?;
             }
