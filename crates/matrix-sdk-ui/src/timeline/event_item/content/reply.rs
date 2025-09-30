@@ -133,15 +133,24 @@ impl EmbeddedEvent {
         )
         .await;
 
-        let Some(TimelineAction::AddItem { content }) = action else {
-            // The event can't be represented as a standalone timeline item.
-            return Ok(None);
-        };
+        match action {
+            Some(TimelineAction::AddItem { content }) => {
+                let sender_profile = TimelineDetails::from_initial_value(
+                    room_data_provider.profile_from_user_id(&sender).await,
+                );
+                Ok(Some(Self { content, sender, sender_profile, timestamp, identifier }))
+            }
 
-        let sender_profile = TimelineDetails::from_initial_value(
-            room_data_provider.profile_from_user_id(&sender).await,
-        );
+            Some(TimelineAction::HandleAggregation { kind, .. }) => {
+                // The event can't be represented as a standalone timeline item.
+                warn!("embedded event is an aggregation: {}", kind.debug_string());
+                Ok(None)
+            }
 
-        Ok(Some(Self { content, sender, sender_profile, timestamp, identifier }))
+            None => {
+                warn!("embedded event lead to no action (neither an aggregation nor a new item)");
+                Ok(None)
+            }
+        }
     }
 }

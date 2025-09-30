@@ -194,8 +194,7 @@ impl TimelineAction {
 
     /// Create a new [`TimelineAction`] from a given remote event.
     ///
-    /// The return value may be `None` if handling the event (be it a new item
-    /// or an aggregation) is not supported for this event type.
+    /// The return value may be `None` if the event was a redacted reaction.
     #[allow(clippy::too_many_arguments)]
     pub async fn from_event<P: RoomDataProvider>(
         event: AnySyncTimelineEvent,
