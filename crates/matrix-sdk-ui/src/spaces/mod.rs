@@ -33,25 +33,48 @@ use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
 use matrix_sdk::{
-    Client, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop, locks::Mutex,
+    Client, Error as SDKError, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop,
+    locks::Mutex,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    OwnedRoomId,
+    OwnedRoomId, RoomId,
     events::{
         SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
+use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
-use crate::spaces::graph::SpaceGraph;
+use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
 
 pub mod graph;
+pub mod leave;
 pub mod room;
 pub mod room_list;
+
+/// Possible [`SpaceService`] errors.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Unknown error.
+    #[error("Unknown error")]
+    Unknown,
+
+    /// The requested room was not found.
+    #[error("Room `{0}` not found")]
+    RoomNotFound(OwnedRoomId),
+
+    /// Failed to leave a space.
+    #[error("Failed to leave space")]
+    LeaveSpace(SDKError),
+
+    /// Failed to load members.
+    #[error("Failed to load members")]
+    LoadRoomMembers(SDKError),
+}
 
 /// The main entry point into the Spaces facilities.
 ///
@@ -183,6 +206,27 @@ impl SpaceService {
     /// Returns a `SpaceRoomList` for the given space ID.
     pub async fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id).await
+    }
+
+    /// Start a space leave process returning a [`LeaveSpaceHandle`] from which
+    /// rooms can be retrieved in reversed BFS order starting from the requested
+    /// `space_id` graph node. If the room is unknown then an error will be
+    /// returned.
+    ///
+    /// Once the rooms to be left are chosen the handle can be used to leave
+    /// them.
+    pub fn leave_space(&self, space_id: &RoomId) -> Result<LeaveSpaceHandle, Error> {
+        let space_graph = self.space_graph.lock();
+
+        if !space_graph.has_node(space_id) {
+            return Err(Error::RoomNotFound(space_id.to_owned()));
+        }
+
+        let room_ids = space_graph.flattened_bottom_up_subtree(space_id);
+
+        let handle = LeaveSpaceHandle::new(self.client.clone(), room_ids);
+
+        Ok(handle)
     }
 
     fn update_joined_spaces_if_needed(
