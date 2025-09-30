@@ -10,7 +10,7 @@ use matrix_sdk::{
     HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
-use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
+use matrix_sdk_ui::{encryption_sync_service, notification_client, spaces, sync_service, timeline};
 use ruma::{
     api::client::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter},
     MilliSecondsSinceUnixEpoch,
@@ -213,6 +213,12 @@ impl From<FocusEventError> for ClientError {
 
 impl From<RequestVerificationError> for ClientError {
     fn from(e: RequestVerificationError) -> Self {
+        Self::from_err(e)
+    }
+}
+
+impl From<spaces::Error> for ClientError {
+    fn from(e: spaces::Error) -> Self {
         Self::from_err(e)
     }
 }
