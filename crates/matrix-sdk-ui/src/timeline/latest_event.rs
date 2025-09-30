@@ -15,6 +15,7 @@
 use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
 use matrix_sdk_base::latest_event::LatestEventValue as BaseLatestEventValue;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId};
+use tracing::trace;
 
 use crate::timeline::{
     Profile, TimelineDetails, TimelineItemContent, event_handler::TimelineAction,
@@ -121,6 +122,9 @@ impl LatestEventValue {
                     }
 
                     TimelineAction::HandleAggregation { kind, .. } => {
+                        // Add some debug logging here to help diagnose issues with the latest
+                        // event.
+                        trace!("latest event is an aggregation: {}", kind.debug_string());
                         Self::None
                     }
                 }

@@ -145,6 +145,20 @@ pub(super) enum HandleAggregationKind {
     PollEnd,
 }
 
+impl HandleAggregationKind {
+    /// Returns a small string describing this aggregation, for debug purposes.
+    pub fn debug_string(&self) -> &'static str {
+        match self {
+            HandleAggregationKind::Reaction { .. } => "a reaction",
+            HandleAggregationKind::Redaction => "a redaction",
+            HandleAggregationKind::Edit { .. } => "an edit",
+            HandleAggregationKind::PollResponse { .. } => "a poll response",
+            HandleAggregationKind::PollEdit { .. } => "a poll edit",
+            HandleAggregationKind::PollEnd => "a poll end",
+        }
+    }
+}
+
 /// An action that we want to cause on the timeline.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
