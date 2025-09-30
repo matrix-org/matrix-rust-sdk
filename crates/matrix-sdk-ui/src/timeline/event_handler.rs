@@ -245,17 +245,17 @@ impl TimelineAction {
                         // `TimelineEvent` containing an `m.room.encrypted` event without
                         // decrypting it. Possibly this means that encryption has not been
                         // configured. We treat it the same as any other message-like event.
-                        return Self::from_content(
+                        Self::from_content(
                             AnyMessageLikeEventContent::RoomEncrypted(content),
                             in_reply_to,
                             thread_root,
                             thread_summary,
-                        );
+                        )
                     }
                 }
 
                 Some(content) => {
-                    return Self::from_content(content, in_reply_to, thread_root, thread_summary);
+                    Self::from_content(content, in_reply_to, thread_root, thread_summary)
                 }
 
                 None => Self::add_item(redacted_message_or_none(ev.event_type())?),
@@ -302,8 +302,8 @@ impl TimelineAction {
         in_reply_to: Option<InReplyToDetails>,
         thread_root: Option<OwnedEventId>,
         thread_summary: Option<ThreadSummary>,
-    ) -> Option<Self> {
-        Some(match content {
+    ) -> Self {
+        match content {
             AnyMessageLikeEventContent::Reaction(c) => {
                 // This is a reaction to a message.
                 Self::HandleAggregation {
@@ -395,7 +395,7 @@ impl TimelineAction {
                     }),
                 }
             }
-        })
+        }
     }
 
     pub(super) fn failed_to_parse(event: FailedToParseEvent, error: serde_json::Error) -> Self {

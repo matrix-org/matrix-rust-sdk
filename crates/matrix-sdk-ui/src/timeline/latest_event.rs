@@ -115,13 +115,15 @@ impl LatestEventValue {
 
                 let is_sending = matches!(value, BaseLatestEventValue::LocalIsSending(_));
 
-                let Some(TimelineAction::AddItem { content }) =
-                    TimelineAction::from_content(message_like_event_content, None, None, None)
-                else {
-                    return Self::None;
-                };
+                match TimelineAction::from_content(message_like_event_content, None, None, None) {
+                    TimelineAction::AddItem { content } => {
+                        Self::Local { timestamp, content, is_sending }
+                    }
 
-                Self::Local { timestamp, content, is_sending }
+                    TimelineAction::HandleAggregation { kind, .. } => {
+                        Self::None
+                    }
+                }
             }
         }
     }
