@@ -558,6 +558,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
     // Attempt to load a thread's latest reply as an embedded timeline item, either
     // using the event cache or the storage.
+    #[instrument(skip(self, room_data_provider))]
     async fn fetch_latest_thread_reply(
         &mut self,
         event_id: &EventId,
