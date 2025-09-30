@@ -301,10 +301,6 @@ impl RoomEventCache {
                     // TODO: implement :)
                     unimplemented!("loading from disk for threads is not implemented yet");
                 }
-
-                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
-                    unreachable!("unused for threads")
-                }
             }
         }
     }
@@ -595,9 +591,6 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 
     /// Events have been inserted.
     Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
-
-    /// The caller must wait for the initial previous-batch token, and retry.
-    WaitForInitialPrevToken,
 }
 
 // Use a private module to hide `events` to this parent module.
@@ -946,23 +939,15 @@ mod private {
                     // sync for that room, because every room must have *at least* a room creation
                     // event. Otherwise, we have reached the start of the timeline.
 
-                    let result = if self.room_linked_chunk.events().next().is_some() {
+                    if self.room_linked_chunk.events().next().is_some() {
                         // If there's at least one event, this means we've reached the start of the
                         // timeline, since the chunk is fully loaded.
                         trace!("chunk is fully loaded and non-empty: reached_start=true");
-                        LoadMoreEventsBackwardsOutcome::StartOfTimeline
-                    } else if !self.waited_for_initial_prev_token {
-                        // There no events. Since we haven't yet, wait for an initial
-                        // previous-token.
-                        LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken
-                    } else {
-                        // Otherwise, we've already waited, *and* received no previous-batch token
-                        // from the sync, *and* there are still no events in the fully-loaded
-                        // chunk: start back-pagination from the end of the room.
-                        LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
-                    };
+                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                    }
 
-                    return Ok(result);
+                    // Otherwise, start back-pagination from the end of the room.
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None });
                 }
 
                 Err(err) => {
