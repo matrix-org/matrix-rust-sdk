@@ -28,7 +28,9 @@ use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
     event_factory::EventFactory,
 };
-use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
+use matrix_sdk_ui::timeline::{
+    RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventItemId, TimelineFocus,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -42,7 +44,10 @@ use ruma::{
         receipt::{ReceiptThread, ReceiptType},
         room::{
             ImageInfo,
-            message::{Relation, ReplacementMetadata, RoomMessageEventContent},
+            message::{
+                Relation, ReplacementMetadata, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         sticker::{StickerEventContent, StickerMediaSource},
     },
@@ -448,6 +453,132 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
 
     // The number of replies has been updated.
     assert_eq!(summary.num_replies, 2);
+}
+
+#[async_test]
+async fn test_thread_edit_reflects_in_summary() {
+    // A new edit of a threaded reply received in sync will cause the thread root's
+    // thread summary to be updated with the latest content.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+    assert!(initial_items.is_empty());
+
+    // Start with a message (with no bundled thread info), and a threaded reply to
+    // it.
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let reply_event_id = event_id!("$thread_reply");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("thready thread mcthreadface").event_id(thread_event_id),
+                )
+                .add_timeline_event(
+                    f.text_msg("threaded reply")
+                        .sender(&BOB)
+                        .in_thread(thread_event_id, thread_event_id)
+                        .event_id(reply_event_id),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Thread root + new implicit read receipt + new thread summary + day divider.
+    // TODO: could we optimize this, to have only a single timeline update?
+    assert_eq!(timeline_updates.len(), 4);
+
+    // Sanity check the timeline diffs.
+    {
+        assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        // At first, the summary isn't here.
+        assert!(event_item.content().thread_summary().is_none());
+        // And it only has the read receipt of its author.
+        assert_eq!(event_item.read_receipts().len(), 1);
+
+        // Then, a read-receipt "set" because Bob having sent a reply means he's seen
+        // the thread root.
+        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        assert!(event_item.content().thread_summary().is_none());
+        // Now, with Bob's read receipt.
+        assert_eq!(event_item.read_receipts().len(), 2);
+
+        // Eventually the summary comes in.
+        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        // Now there is a summary!
+        assert_let!(Some(summary) = event_item.content().thread_summary());
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(
+            latest_event.identifier,
+            TimelineEventItemId::EventId(reply_event_id.to_owned())
+        );
+        assert_eq!(latest_event.content.as_message().unwrap().body(), "threaded reply");
+        assert_eq!(summary.num_replies, 1);
+
+        // And finally, the day divider.
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+        assert!(value.is_date_divider());
+    }
+
+    // When I receive an edit to that event, via sync,
+    let edit_reply_event_id = event_id!("$thread_reply_edit");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("*edited* threaded reply")
+                    .edit(
+                        reply_event_id,
+                        RoomMessageEventContentWithoutRelation::text_plain("edited threaded reply"),
+                    )
+                    .sender(&BOB)
+                    .event_id(edit_reply_event_id),
+            ),
+        )
+        .await;
+
+    // The root message is updated.
+    // TODO: not happening, fix here!
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+
+    // The latest event has been updated.
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(latest_event.identifier, TimelineEventItemId::EventId(reply_event_id.to_owned()));
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "*edited* threaded reply");
+
+    // Still only one reply; it's been edited.
+    assert_eq!(summary.num_replies, 1);
+
+    // That's all, folks!
+    assert_pending!(stream);
 }
 
 #[async_test]
