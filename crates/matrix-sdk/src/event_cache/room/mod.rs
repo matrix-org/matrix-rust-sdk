@@ -909,29 +909,6 @@ mod private {
             Ok(Some(all_chunks))
         }
 
-        /// Given a fully-loaded linked chunk with no gaps, return the
-        /// [`LoadMoreEventsBackwardsOutcome`] expected for this room's cache.
-        fn conclude_load_more_for_fully_loaded_chunk(&mut self) -> LoadMoreEventsBackwardsOutcome {
-            // If we never received events for this room, this means we've never
-            // received a sync for that room, because every room must have at least a
-            // room creation event. Otherwise, we have reached the start of the
-            // timeline.
-            if self.room_linked_chunk.events().next().is_some() {
-                // If there's at least one event, this means we've reached the start of the
-                // timeline, since the chunk is fully loaded.
-                trace!("chunk is fully loaded and non-empty: reached_start=true");
-                LoadMoreEventsBackwardsOutcome::StartOfTimeline
-            } else if !self.waited_for_initial_prev_token {
-                // There's no events. Since we haven't yet, wait for an initial previous-token.
-                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken
-            } else {
-                // Otherwise, we've already waited, *and* received no previous-batch token from
-                // the sync, *and* there are still no events in the fully-loaded
-                // chunk: start back-pagination from the end of the room.
-                LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
-            }
-        }
-
         /// Load more events backwards if the last chunk is **not** a gap.
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
@@ -965,8 +942,27 @@ mod private {
                 }
 
                 Ok(None) => {
-                    // There's no previous chunk. The chunk is now fully-loaded. Conclude.
-                    return Ok(self.conclude_load_more_for_fully_loaded_chunk());
+                    // If we never received events for this room, this means we've never received a
+                    // sync for that room, because every room must have *at least* a room creation
+                    // event. Otherwise, we have reached the start of the timeline.
+
+                    let result = if self.room_linked_chunk.events().next().is_some() {
+                        // If there's at least one event, this means we've reached the start of the
+                        // timeline, since the chunk is fully loaded.
+                        trace!("chunk is fully loaded and non-empty: reached_start=true");
+                        LoadMoreEventsBackwardsOutcome::StartOfTimeline
+                    } else if !self.waited_for_initial_prev_token {
+                        // There no events. Since we haven't yet, wait for an initial
+                        // previous-token.
+                        LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken
+                    } else {
+                        // Otherwise, we've already waited, *and* received no previous-batch token
+                        // from the sync, *and* there are still no events in the fully-loaded
+                        // chunk: start back-pagination from the end of the room.
+                        LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
+                    };
+
+                    return Ok(result);
                 }
 
                 Err(err) => {
