@@ -912,21 +912,15 @@ mod private {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
             }
 
-            // Because `first_chunk` is `not `Send`, get this information before the
-            // `.await` point, so that this `Future` can implement `Send`.
-            let first_chunk_identifier = self
-                .room_linked_chunk
-                .chunks()
-                .next()
-                .expect("a linked chunk is never empty")
-                .identifier();
-
             let store = self.store.lock().await?;
+
+            let prev_first_chunk =
+                self.room_linked_chunk.chunks().next().expect("a linked chunk is never empty");
 
             // The first chunk is not a gap, we can load its previous chunk.
             let linked_chunk_id = LinkedChunkId::Room(&self.room);
             let new_first_chunk = match store
-                .load_previous_chunk(linked_chunk_id, first_chunk_identifier)
+                .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
                 .await
             {
                 Ok(Some(new_first_chunk)) => {
