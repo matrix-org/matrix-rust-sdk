@@ -185,35 +185,39 @@ impl RoomPagination {
             let mut state_guard = self.inner.state.write().await;
 
             match state_guard.load_more_events_backwards().await? {
-                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
-                    const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
-
-                    // Release the state guard while waiting, to not deadlock the sync task.
-                    drop(state_guard);
-
-                    // Otherwise, wait for a notification that we received a previous-batch token.
-                    trace!("waiting for a pagination token…");
-                    let _ = timeout(
-                        self.inner.pagination_batch_token_notifier.notified(),
-                        DEFAULT_WAIT_FOR_TOKEN_DURATION,
-                    )
-                    .await;
-                    trace!("done waiting");
-
-                    self.inner.state.write().await.waited_for_initial_prev_token = true;
-
-                    // Retry!
-                    //
-                    // Note: the next call to `load_more_events_backwards` can't return
-                    // `WaitForInitialPrevToken` because we've just set to
-                    // `waited_for_initial_prev_token`, so this is not an infinite loop.
-                    //
-                    // Note 2: not a recursive call, because recursive and async have a bad time
-                    // together.
-                    continue;
-                }
-
                 LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                    if prev_token.is_none() && !state_guard.waited_for_initial_prev_token {
+                        // We didn't reload a pagination token, and we haven't waited for one; wait
+                        // and start over.
+
+                        const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
+
+                        // Release the state guard while waiting, to not deadlock the sync task.
+                        drop(state_guard);
+
+                        // Otherwise, wait for a notification that we received a previous-batch
+                        // token.
+                        trace!("waiting for a pagination token…");
+                        let _ = timeout(
+                            self.inner.pagination_batch_token_notifier.notified(),
+                            DEFAULT_WAIT_FOR_TOKEN_DURATION,
+                        )
+                        .await;
+                        trace!("done waiting");
+
+                        self.inner.state.write().await.waited_for_initial_prev_token = true;
+
+                        // Retry!
+                        //
+                        // Note: the next call to `load_more_events_backwards` can't return
+                        // `WaitForInitialPrevToken` because we've just set to
+                        // `waited_for_initial_prev_token`, so this is not an infinite loop.
+                        //
+                        // Note 2: not a recursive call, because recursive and async have a bad time
+                        // together.
+                        continue;
+                    }
+
                     // We have a gap, so resolve it with a network back-pagination.
                     drop(state_guard);
                     return self.paginate_backwards_with_network(batch_size, prev_token).await;
