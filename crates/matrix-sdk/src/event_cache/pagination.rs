@@ -129,6 +129,10 @@ impl RoomPagination {
 
     /// Paginate from either the storage or the network, and let pagination
     /// status observers know about updates.
+    ///
+    /// Returns `Ok(None)` if the pagination token used during a network
+    /// pagination has disappeared from the in-memory linked chunk after
+    /// handling the response.
     async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
         // There is at least one gap that must be resolved; reach the network.
         // First, ensure there's no other ongoing back-pagination.
@@ -157,11 +161,7 @@ impl RoomPagination {
                 Ok(Some(outcome))
             }
 
-            None => {
-                // We keep the previous status value, because we haven't obtained more
-                // information about the pagination.
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 
@@ -169,6 +169,10 @@ impl RoomPagination {
     ///
     /// This method isn't concerned with setting the pagination status; only the
     /// caller is.
+    ///
+    /// Returns `Ok(None)` if the pagination token used during a network
+    /// pagination has disappeared from the in-memory linked chunk after
+    /// handling the response.
     async fn paginate_backwards_impl(
         &self,
         batch_size: u16,
@@ -255,6 +259,10 @@ impl RoomPagination {
     /// while to get one, or if it's already done so or if it's seen a
     /// previous-batch token before, it will immediately indicate it's
     /// reached the end of the timeline.
+    ///
+    /// Returns `Ok(None)` if the pagination token used during the request has
+    /// disappeared from the in-memory linked chunk after handling the
+    /// response.
     async fn paginate_backwards_with_network(
         &self,
         batch_size: u16,
