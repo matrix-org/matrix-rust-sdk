@@ -190,14 +190,11 @@ impl<P: RoomDataProvider> TimelineState<P> {
             should_add_new_items,
         };
 
-        if let Some(timeline_action) =
-            TimelineAction::from_content(content, in_reply_to, thread_root, None)
-        {
-            TimelineEventHandler::new(&mut txn, ctx)
-                .handle_event(&mut date_divider_adjuster, timeline_action)
-                .await;
-            txn.adjust_date_dividers(date_divider_adjuster);
-        }
+        let timeline_action = TimelineAction::from_content(content, in_reply_to, thread_root, None);
+        TimelineEventHandler::new(&mut txn, ctx)
+            .handle_event(&mut date_divider_adjuster, timeline_action)
+            .await;
+        txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();
     }
