@@ -21,7 +21,7 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
-        store::{compute_filters_string, extract_event_relation, EventCacheStore},
+        store::{extract_event_relation, EventCacheStore},
         Event, Gap,
     },
     linked_chunk::{
@@ -1390,7 +1390,7 @@ fn find_event_relations_transaction(
         Ok(related)
     };
 
-    let related = if let Some(filters) = compute_filters_string(filters.as_deref()) {
+    let related = if let Some(filters) = filters {
         let question_marks = repeat_vars(filters.len());
         let query = format!(
             "SELECT events.content, event_chunks.chunk_id, event_chunks.position
@@ -1399,7 +1399,16 @@ fn find_event_relations_transaction(
             WHERE relates_to = ? AND room_id = ? AND rel_type IN ({question_marks})"
         );
 
-        let filters: Vec<_> = filters.iter().map(|f| f.to_sql().unwrap()).collect();
+        // First the filters need to be stringified; because `.to_sql()` will borrow
+        // from them, they also need to be stringified onto the stack, so as to
+        // get a stable address (to avoid returning a temporary reference in the
+        // map closure below).
+        let filter_strings: Vec<_> = filters.iter().map(|f| f.to_string()).collect();
+        let filters_params: Vec<_> = filter_strings
+            .iter()
+            .map(|f| f.to_sql().expect("converting a string to SQL should work"))
+            .collect();
+
         let parameters = params_from_iter(
             [
                 hashed_linked_chunk_id.to_sql().expect(
@@ -1414,7 +1423,7 @@ fn find_event_relations_transaction(
                     .expect("We should be able to convert a room ID to a SQLite value"),
             ]
             .into_iter()
-            .chain(filters),
+            .chain(filters_params),
         );
 
         let mut transaction = txn.prepare(&query)?;

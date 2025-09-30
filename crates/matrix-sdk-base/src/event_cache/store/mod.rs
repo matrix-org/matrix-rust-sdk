@@ -31,11 +31,7 @@ use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
-use ruma::{
-    OwnedEventId,
-    events::{AnySyncTimelineEvent, relation::RelationType},
-    serde::Raw,
-};
+use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
 use tracing::trace;
 
 #[cfg(any(test, feature = "testing"))]
@@ -224,19 +220,4 @@ pub fn extract_event_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(Owne
             None
         }
     }
-}
-
-/// Compute the list of string filters to be applied when looking for an event's
-/// relations.
-// TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052, and get rid of this function
-// then.
-pub fn compute_filters_string(filters: Option<&[RelationType]>) -> Option<Vec<String>> {
-    filters.map(|filter| {
-        filter
-            .iter()
-            .map(|f| {
-                if *f == RelationType::Replacement { "m.replace".to_owned() } else { f.to_string() }
-            })
-            .collect()
-    })
 }
