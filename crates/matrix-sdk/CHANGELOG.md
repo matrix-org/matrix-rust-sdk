@@ -17,6 +17,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: The `waveform` field was moved from `AttachmentInfo::Voice` to `BaseAudioInfo`,
+  allowing to set it for any audio message. Its format also changed, and it is now a list of `f32`
+  between 0 and 1.
+  ([#5732](https://github.com/matrix-org/matrix-rust-sdk/pull/5732))
 - [**breaking**] The `caption` and `formatted_caption` fields and methods of `AttachmentConfig`,
   `GalleryConfig` and `GalleryItemInfo` have been merged into a single field that uses
   `TextMessageEventContent`.
