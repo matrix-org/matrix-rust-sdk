@@ -1267,6 +1267,21 @@ mod tests_latest_event_content {
             is not a candidate
         );
     }
+
+    #[test]
+    fn test_invite() {
+        use ruma::events::room::member::MembershipState;
+
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt.io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
 }
 
 #[cfg(test)]
