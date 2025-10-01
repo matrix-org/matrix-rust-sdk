@@ -19,6 +19,7 @@ use crate::spaces::{Error, SpaceRoom};
 
 /// Space leaving specific room that groups normal [`SpaceRoom`] details with
 /// information about the leaving user's role.
+#[derive(Debug, Clone)]
 pub struct LeaveSpaceRoom {
     /// The underlying [`SpaceRoom`]
     pub space_room: SpaceRoom,
@@ -36,21 +37,15 @@ pub struct LeaveSpaceRoom {
 /// handle provides a method to execute that too.
 pub struct LeaveSpaceHandle {
     client: Client,
-    room_ids: Vec<OwnedRoomId>,
+    rooms: Vec<LeaveSpaceRoom>,
 }
 
 impl LeaveSpaceHandle {
-    pub(crate) fn new(client: Client, room_ids: Vec<OwnedRoomId>) -> Self {
-        Self { client, room_ids }
-    }
-
-    /// A list of rooms to be left which next to normal [`SpaceRoom`] data also
-    /// include leave specific information.
-    pub async fn rooms(&self) -> Result<Vec<LeaveSpaceRoom>, Error> {
+    pub(crate) async fn new(client: Client, room_ids: Vec<OwnedRoomId>) -> Self {
         let mut rooms = Vec::new();
 
-        for room_id in &self.room_ids {
-            if let Some(room) = self.client.get_room(room_id) {
+        for room_id in &room_ids {
+            if let Some(room) = client.get_room(room_id) {
                 let users_to_power_levels = room.users_with_power_levels().await;
 
                 let is_last_admin = users_to_power_levels
@@ -74,14 +69,18 @@ impl LeaveSpaceHandle {
             }
         }
 
-        Ok(rooms)
+        Self { client, rooms }
+    }
+
+    /// A list of rooms to be left which next to normal [`SpaceRoom`] data also
+    /// include leave specific information.
+    pub fn rooms(&self) -> Vec<LeaveSpaceRoom> {
+        self.rooms.clone()
     }
 
     /// Bulk leave the given rooms. Stops when encountering an error.
     pub async fn leave(&self, filter: impl FnMut(&LeaveSpaceRoom) -> bool) -> Result<(), Error> {
-        let rooms = self.rooms().await?;
-
-        for room in rooms.into_iter().filter(filter) {
+        for room in self.rooms().into_iter().filter(filter) {
             if let Some(room) = self.client.get_room(&room.space_room.room_id) {
                 room.leave().await.map_err(Error::LeaveSpace)?;
             } else {
@@ -179,9 +178,9 @@ mod tests {
 
         assert!(!space_service.joined_spaces().await.is_empty());
 
-        let handle = space_service.leave_space(parent_space_id).unwrap();
+        let handle = space_service.leave_space(parent_space_id).await.unwrap();
 
-        let rooms = handle.rooms().await.unwrap();
+        let rooms = handle.rooms();
 
         let child_room_1 = &rooms[0];
         assert!(child_room_1.is_last_admin);
