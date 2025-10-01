@@ -35,7 +35,7 @@ use ruma::{
             MediaSource,
             message::{
                 ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
-                RoomMessageEventContent,
+                RoomMessageEventContent, TextMessageEventContent,
             },
         },
     },
@@ -1936,7 +1936,7 @@ async fn test_media_uploads() {
     let config = AttachmentConfig::new()
         .thumbnail(Some(thumbnail))
         .txn_id(transaction_id.clone())
-        .caption(Some("caption".to_owned()))
+        .caption(Some(TextMessageEventContent::plain("caption")))
         .mentions(Some(mentions.clone()))
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),
@@ -2230,8 +2230,7 @@ async fn test_gallery_uploads() {
             filename: filename1.into(),
             data: data1,
             thumbnail: Some(thumbnail1),
-            caption: Some("caption1".to_owned()),
-            formatted_caption: None,
+            caption: Some(TextMessageEventContent::plain("caption1")),
         })
         .add_item(GalleryItemInfo {
             attachment_info: attachment_info2,
@@ -2239,10 +2238,9 @@ async fn test_gallery_uploads() {
             filename: filename2.into(),
             data: data2,
             thumbnail: Some(thumbnail2),
-            caption: Some("caption2".to_owned()),
-            formatted_caption: None,
+            caption: Some(TextMessageEventContent::plain("caption2")),
         })
-        .caption(Some("caption".to_owned()))
+        .caption(Some(TextMessageEventContent::plain("caption")))
         .mentions(Some(mentions.clone()))
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),

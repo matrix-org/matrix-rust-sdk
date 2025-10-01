@@ -4,7 +4,9 @@ use matrix_sdk::{
     Client, Room, RoomState,
     attachment::AttachmentConfig,
     config::SyncSettings,
-    ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
+    ruma::events::room::message::{
+        MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent,
+    },
 };
 use url::Url;
 
@@ -20,7 +22,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image:
             "cat.jpg",
             &mime::IMAGE_JPEG,
             image,
-            AttachmentConfig::new().caption(Some("my pretty cat".to_owned())),
+            AttachmentConfig::new().caption(Some(TextMessageEventContent::plain("my pretty cat"))),
         )
         .await
         .unwrap();
