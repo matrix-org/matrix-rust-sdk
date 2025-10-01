@@ -736,7 +736,7 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
         let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
             .map_err(|_| MediaInfoError::InvalidField)?;
 
-        Ok(BaseAudioInfo { duration: Some(duration), size: Some(size) })
+        Ok(BaseAudioInfo { duration: Some(duration), size: Some(size), waveform: None })
     }
 }
 
