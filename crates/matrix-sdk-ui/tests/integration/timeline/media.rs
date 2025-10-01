@@ -37,7 +37,10 @@ use ruma::events::room::message::GalleryItemType;
 use ruma::owned_mxc_uri;
 use ruma::{
     event_id,
-    events::room::{MediaSource, message::MessageType},
+    events::room::{
+        MediaSource,
+        message::{MessageType, TextMessageEventContent},
+    },
     room_id,
 };
 use serde_json::json;
@@ -119,7 +122,10 @@ async fn test_send_attachment_from_file() -> TestResult {
         .with_focus(TimelineFocus::Thread { root_event_id: event_id.to_owned() })
         .build()
         .await?;
-    let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
+    let config = AttachmentConfig {
+        caption: Some(TextMessageEventContent::plain("caption")),
+        ..Default::default()
+    };
     thread_timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await?;
 
     {
@@ -256,7 +262,10 @@ async fn test_send_attachment_from_bytes() -> TestResult {
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
     // Queue sending of an attachment.
-    let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
+    let config = AttachmentConfig {
+        caption: Some(TextMessageEventContent::plain("caption")),
+        ..Default::default()
+    };
     timeline.send_attachment(source, mime::TEXT_PLAIN, config).use_send_queue().await?;
 
     {
@@ -392,13 +401,13 @@ async fn test_send_gallery_from_bytes() -> TestResult {
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
     // Queue sending of a gallery.
-    let gallery =
-        GalleryConfig::new().caption(Some("caption".to_owned())).add_item(GalleryItemInfo {
+    let gallery = GalleryConfig::new()
+        .caption(Some(TextMessageEventContent::plain("caption")))
+        .add_item(GalleryItemInfo {
             source: AttachmentSource::Data { bytes: data, filename: filename.to_owned() },
             content_type: mime::TEXT_PLAIN,
             attachment_info: AttachmentInfo::File(BaseFileInfo { size: None }),
-            caption: Some("item caption".to_owned()),
-            formatted_caption: None,
+            caption: Some(TextMessageEventContent::plain("item caption")),
             thumbnail: None,
         });
     timeline.send_gallery(gallery).await?;

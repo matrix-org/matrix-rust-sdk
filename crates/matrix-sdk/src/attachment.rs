@@ -22,7 +22,7 @@ use ruma::{
         Mentions,
         room::{
             ImageInfo, ThumbnailInfo,
-            message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
+            message::{AudioInfo, FileInfo, TextMessageEventContent, VideoInfo},
         },
     },
 };
@@ -195,10 +195,7 @@ pub struct AttachmentConfig {
     pub thumbnail: Option<Thumbnail>,
 
     /// An optional caption for the attachment.
-    pub caption: Option<String>,
-
-    /// An optional formatted caption for the attachment.
-    pub formatted_caption: Option<FormattedBody>,
+    pub caption: Option<TextMessageEventContent>,
 
     /// Intentional mentions to be included in the media event.
     pub mentions: Option<Mentions>,
@@ -256,18 +253,8 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `caption` - The optional caption.
-    pub fn caption(mut self, caption: Option<String>) -> Self {
+    pub fn caption(mut self, caption: Option<TextMessageEventContent>) -> Self {
         self.caption = caption;
-        self
-    }
-
-    /// Set the optional formatted caption.
-    ///
-    /// # Arguments
-    ///
-    /// * `formatted_caption` - The optional formatted caption.
-    pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
-        self.formatted_caption = formatted_caption;
         self
     }
 
@@ -298,8 +285,7 @@ impl AttachmentConfig {
 pub struct GalleryConfig {
     pub(crate) txn_id: Option<OwnedTransactionId>,
     pub(crate) items: Vec<GalleryItemInfo>,
-    pub(crate) caption: Option<String>,
-    pub(crate) formatted_caption: Option<FormattedBody>,
+    pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
     pub(crate) reply: Option<Reply>,
 }
@@ -340,18 +326,8 @@ impl GalleryConfig {
     /// # Arguments
     ///
     /// * `caption` - The optional caption.
-    pub fn caption(mut self, caption: Option<String>) -> Self {
+    pub fn caption(mut self, caption: Option<TextMessageEventContent>) -> Self {
         self.caption = caption;
-        self
-    }
-
-    /// Set the optional formatted caption.
-    ///
-    /// # Arguments
-    ///
-    /// * `formatted_caption` - The optional formatted caption.
-    pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
-        self.formatted_caption = formatted_caption;
         self
     }
 
@@ -399,9 +375,7 @@ pub struct GalleryItemInfo {
     /// The attachment info.
     pub attachment_info: AttachmentInfo,
     /// The caption.
-    pub caption: Option<String>,
-    /// The formatted caption.
-    pub formatted_caption: Option<FormattedBody>,
+    pub caption: Option<TextMessageEventContent>,
     /// The thumbnail.
     pub thumbnail: Option<Thumbnail>,
 }

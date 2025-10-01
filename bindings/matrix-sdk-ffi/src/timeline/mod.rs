@@ -37,6 +37,7 @@ use matrix_sdk_ui::timeline::{
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
 use ruma::{
+    assign,
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
@@ -49,6 +50,7 @@ use ruma::{
         },
         room::message::{
             LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
+            TextMessageEventContent,
         },
         AnyMessageLikeEventContent,
     },
@@ -111,16 +113,16 @@ impl Timeline {
             .transpose()
             .map_err(|_| RoomError::InvalidRepliedToEventId)?;
 
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
-        );
+        let caption = params.caption.map(|caption| {
+            let formatted =
+                formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
+            assign!(TextMessageEventContent::plain(caption), { formatted })
+        });
 
         let attachment_config = AttachmentConfig {
             info: Some(attachment_info),
             thumbnail,
-            caption: params.caption,
-            formatted_caption,
+            caption,
             mentions: params.mentions.map(Into::into),
             in_reply_to: in_reply_to_event_id,
             ..Default::default()
@@ -1337,7 +1339,7 @@ mod galleries {
     use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
     use matrix_sdk_ui::timeline::GalleryConfig;
     use mime::Mime;
-    use ruma::EventId;
+    use ruma::{assign, events::room::message::TextMessageEventContent, EventId};
     use tokio::sync::Mutex;
     use tracing::error;
 
@@ -1476,15 +1478,18 @@ mod galleries {
             let mime_str = self.mimetype().as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
             let mime_type =
                 mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+            let caption = self.caption().as_ref().map(|caption| {
+                let formatted = formatted_body_from(
+                    Some(caption),
+                    self.formatted_caption().clone().map(Into::into),
+                );
+                assign!(TextMessageEventContent::plain(caption), { formatted })
+            });
             Ok(matrix_sdk_ui::timeline::GalleryItemInfo {
                 source: self.source().clone().into(),
                 content_type: mime_type,
                 attachment_info: self.attachment_info()?,
-                caption: self.caption().clone(),
-                formatted_caption: self
-                    .formatted_caption()
-                    .clone()
-                    .map(ruma::events::room::message::FormattedBody::from),
+                caption,
                 thumbnail: self.thumbnail()?,
             })
         }
@@ -1543,10 +1548,11 @@ mod galleries {
             params: GalleryUploadParameters,
             item_infos: Vec<GalleryItemInfo>,
         ) -> Result<Arc<SendGalleryJoinHandle>, RoomError> {
-            let formatted_caption = formatted_body_from(
-                params.caption.as_deref(),
-                params.formatted_caption.map(Into::into),
-            );
+            let caption = params.caption.map(|caption| {
+                let formatted =
+                    formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
+                assign!(TextMessageEventContent::plain(caption), { formatted })
+            });
 
             let in_reply_to = params
                 .in_reply_to
@@ -1556,8 +1562,7 @@ mod galleries {
                 .map_err(|_| RoomError::InvalidRepliedToEventId)?;
 
             let mut gallery_config = GalleryConfig::new()
-                .caption(params.caption)
-                .formatted_caption(formatted_caption)
+                .caption(caption)
                 .mentions(params.mentions.map(Into::into))
                 .in_reply_to(in_reply_to);
 

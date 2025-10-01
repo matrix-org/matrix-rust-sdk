@@ -79,7 +79,6 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 info: config.info,
                 thumbnail: config.thumbnail,
                 caption: config.caption,
-                formatted_caption: config.formatted_caption,
                 mentions: config.mentions,
                 reply,
             };
@@ -153,11 +152,7 @@ mod galleries {
                     config = config.add_item(item.try_into()?);
                 }
 
-                config = config
-                    .caption(gallery.caption)
-                    .formatted_caption(gallery.formatted_caption)
-                    .mentions(gallery.mentions)
-                    .reply(reply);
+                config = config.caption(gallery.caption).mentions(gallery.mentions).reply(reply);
 
                 timeline
                     .room()

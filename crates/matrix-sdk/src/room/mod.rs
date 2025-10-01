@@ -115,9 +115,9 @@ use ruma::{
             member::{MembershipChange, SyncRoomMemberEvent},
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-                FormattedBody, ImageMessageEventContent, MessageType, RoomMessageEventContent,
-                UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
-                VideoMessageEventContent,
+                ImageMessageEventContent, MessageType, RoomMessageEventContent,
+                TextMessageEventContent, UnstableAudioDetailsContentBlock,
+                UnstableVoiceContentBlock, VideoInfo, VideoMessageEventContent,
             },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
@@ -292,13 +292,13 @@ impl PushContext {
 }
 
 macro_rules! make_media_type {
-    ($t:ty, $content_type: ident, $filename: ident, $source: ident, $caption: ident, $formatted_caption: ident, $info: ident, $thumbnail: ident) => {{
+    ($t:ty, $content_type: ident, $filename: ident, $source: ident, $caption: ident, $info: ident, $thumbnail: ident) => {{
         // If caption is set, use it as body, and filename as the file name; otherwise,
         // body is the filename, and the filename is not set.
         // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
-        let (body, filename) = match $caption {
-            Some(caption) => (caption, Some($filename)),
-            None => ($filename, None),
+        let (body, formatted, filename) = match $caption {
+            Some(TextMessageEventContent { body, formatted, .. }) => (body, formatted, Some($filename)),
+            None => ($filename, None, None),
         };
 
         let (thumbnail_source, thumbnail_info) = $thumbnail.unzip();
@@ -312,7 +312,7 @@ macro_rules! make_media_type {
                 });
                 let content = assign!(ImageMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
-                    formatted: $formatted_caption,
+                    formatted,
                     filename
                 });
                 <$t>::Image(content)
@@ -320,7 +320,7 @@ macro_rules! make_media_type {
 
             mime::AUDIO => {
                 let mut content = assign!(AudioMessageEventContent::new(body, $source), {
-                    formatted: $formatted_caption,
+                    formatted,
                     filename
                 });
 
@@ -350,7 +350,7 @@ macro_rules! make_media_type {
                 });
                 let content = assign!(VideoMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
-                    formatted: $formatted_caption,
+                    formatted,
                     filename
                 });
                 <$t>::Video(content)
@@ -364,7 +364,7 @@ macro_rules! make_media_type {
                 });
                 let content = assign!(FileMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
-                    formatted: $formatted_caption,
+                    formatted,
                     filename,
                 });
                 <$t>::File(content)
@@ -2625,7 +2625,6 @@ impl Room {
                     filename,
                     media_source,
                     config.caption,
-                    config.formatted_caption,
                     config.info,
                     thumbnail,
                 ),
@@ -2648,21 +2647,11 @@ impl Room {
         content_type: &Mime,
         filename: String,
         source: MediaSource,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
+        caption: Option<TextMessageEventContent>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> MessageType {
-        make_media_type!(
-            MessageType,
-            content_type,
-            filename,
-            source,
-            caption,
-            formatted_caption,
-            info,
-            thumbnail
-        )
+        make_media_type!(MessageType, content_type, filename, source, caption, info, thumbnail)
     }
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
@@ -2693,21 +2682,11 @@ impl Room {
         content_type: &Mime,
         filename: String,
         source: MediaSource,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
+        caption: Option<TextMessageEventContent>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> GalleryItemType {
-        make_media_type!(
-            GalleryItemType,
-            content_type,
-            filename,
-            source,
-            caption,
-            formatted_caption,
-            info,
-            thumbnail
-        )
+        make_media_type!(GalleryItemType, content_type, filename, source, caption, info, thumbnail)
     }
 
     /// Update the power levels of a select set of users of this room.

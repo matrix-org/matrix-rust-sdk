@@ -229,7 +229,6 @@ impl RoomSendQueue {
                     filename,
                     file_media_request.source.clone(),
                     config.caption,
-                    config.formatted_caption,
                     config.info,
                     event_thumbnail_info,
                 ),
@@ -346,7 +345,6 @@ impl RoomSendQueue {
                 filename,
                 file_media_request.source.clone(),
                 item_info.caption,
-                item_info.formatted_caption,
                 Some(item_info.attachment_info),
                 event_thumbnail_info,
             ));
@@ -362,13 +360,11 @@ impl RoomSendQueue {
         }
 
         // Create the content for the gallery event.
+        let (body, formatted) =
+            gallery.caption.map(|caption| (caption.body, caption.formatted)).unwrap_or_default();
         let event_content = room
             .make_media_event(
-                MessageType::Gallery(GalleryMessageEventContent::new(
-                    gallery.caption.unwrap_or_default(),
-                    gallery.formatted_caption,
-                    item_types,
-                )),
+                MessageType::Gallery(GalleryMessageEventContent::new(body, formatted, item_types)),
                 gallery.mentions,
                 gallery.reply,
             )
