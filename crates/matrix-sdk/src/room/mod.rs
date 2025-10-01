@@ -116,8 +116,8 @@ use ruma::{
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
                 FormattedBody, ImageMessageEventContent, MessageType, RoomMessageEventContent,
-                UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
-                VideoMessageEventContent,
+                UnstableAmplitude, UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock,
+                VideoInfo, VideoMessageEventContent,
             },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
@@ -326,7 +326,11 @@ macro_rules! make_media_type {
 
                 if let Some(AttachmentInfo::Audio(audio_info) | AttachmentInfo::Voice(audio_info)) = &$info &&
                  let Some(duration) = audio_info.duration && let Some(waveform_vec) = &audio_info.waveform {
-                    let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                    let waveform = waveform_vec
+                        .iter()
+                        .map(|v| ((*v).clamp(0.0, 1.0) * UnstableAmplitude::MAX as f32) as u16)
+                        .map(Into::into)
+                        .collect();
                     content.audio =
                         Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
                 }
