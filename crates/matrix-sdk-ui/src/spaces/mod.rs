@@ -59,10 +59,6 @@ pub mod room_list;
 /// Possible [`SpaceService`] errors.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Unknown error.
-    #[error("Unknown error")]
-    Unknown,
-
     /// The requested room was not found.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
