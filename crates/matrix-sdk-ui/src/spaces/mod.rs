@@ -72,6 +72,11 @@ pub enum Error {
     LoadRoomMembers(SDKError),
 }
 
+struct SpaceState {
+    graph: SpaceGraph,
+    joined_rooms: ObservableVector<SpaceRoom>,
+}
+
 /// The main entry point into the Spaces facilities.
 ///
 /// The spaces service is responsible for retrieving one's joined rooms,
@@ -114,9 +119,7 @@ pub enum Error {
 pub struct SpaceService {
     client: Client,
 
-    space_graph: Arc<Mutex<SpaceGraph>>,
-
-    joined_spaces: Arc<Mutex<ObservableVector<SpaceRoom>>>,
+    space_state: Arc<Mutex<SpaceState>>,
 
     room_update_handle: AsyncMutex<Option<AbortOnDrop<()>>>,
 }
@@ -126,8 +129,10 @@ impl SpaceService {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            space_graph: Arc::new(Mutex::new(SpaceGraph::new())),
-            joined_spaces: Arc::new(Mutex::new(ObservableVector::new())),
+            space_state: Arc::new(Mutex::new(SpaceState {
+                graph: SpaceGraph::new(),
+                joined_rooms: ObservableVector::new(),
+            })),
             room_update_handle: AsyncMutex::new(None),
         }
     }
@@ -141,8 +146,7 @@ impl SpaceService {
 
         if room_update_handle.is_none() {
             let client = self.client.clone();
-            let joined_spaces = Arc::clone(&self.joined_spaces);
-            let space_graph = Arc::clone(&self.space_graph);
+            let space_state = Arc::clone(&self.space_state);
             let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
 
             *room_update_handle = Some(AbortOnDrop::new(spawn(async move {
@@ -158,9 +162,8 @@ impl SpaceService {
                             let (spaces, graph) = Self::joined_spaces_for(&client).await;
                             Self::update_joined_spaces_if_needed(
                                 Vector::from(spaces),
-                                &joined_spaces,
                                 graph,
-                                &space_graph,
+                                &space_state,
                             );
                         }
                         Err(err) => {
@@ -172,15 +175,10 @@ impl SpaceService {
 
             // Make sure to also update the currently joined spaces for the initial values.
             let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
-            Self::update_joined_spaces_if_needed(
-                Vector::from(spaces),
-                &self.joined_spaces,
-                graph,
-                &self.space_graph,
-            );
+            Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state);
         }
 
-        self.joined_spaces.lock().subscribe().into_values_and_batched_stream()
+        self.space_state.lock().joined_rooms.subscribe().into_values_and_batched_stream()
     }
 
     /// Returns a list of all the top-level joined spaces. It will eagerly
@@ -191,9 +189,8 @@ impl SpaceService {
 
         Self::update_joined_spaces_if_needed(
             Vector::from(spaces.clone()),
-            &self.joined_spaces,
             graph,
-            &self.space_graph,
+            &self.space_state,
         );
 
         spaces
@@ -212,13 +209,13 @@ impl SpaceService {
     /// Once the rooms to be left are chosen the handle can be used to leave
     /// them.
     pub fn leave_space(&self, space_id: &RoomId) -> Result<LeaveSpaceHandle, Error> {
-        let space_graph = self.space_graph.lock();
+        let space_state = self.space_state.lock();
 
-        if !space_graph.has_node(space_id) {
+        if !space_state.graph.has_node(space_id) {
             return Err(Error::RoomNotFound(space_id.to_owned()));
         }
 
-        let room_ids = space_graph.flattened_bottom_up_subtree(space_id);
+        let room_ids = space_state.graph.flattened_bottom_up_subtree(space_id);
 
         let handle = LeaveSpaceHandle::new(self.client.clone(), room_ids);
 
@@ -227,18 +224,17 @@ impl SpaceService {
 
     fn update_joined_spaces_if_needed(
         new_spaces: Vector<SpaceRoom>,
-        joined_spaces: &Arc<Mutex<ObservableVector<SpaceRoom>>>,
         new_graph: SpaceGraph,
-        space_graph: &Arc<Mutex<SpaceGraph>>,
+        space_state: &Arc<Mutex<SpaceState>>,
     ) {
-        let old_spaces = joined_spaces.lock().clone();
+        let mut space_state = space_state.lock();
 
-        if new_spaces != old_spaces {
-            joined_spaces.lock().clear();
-            joined_spaces.lock().append(new_spaces);
+        if new_spaces != space_state.joined_rooms.clone() {
+            space_state.joined_rooms.clear();
+            space_state.joined_rooms.append(new_spaces);
         }
 
-        *space_graph.lock() = new_graph;
+        space_state.graph = new_graph;
     }
 
     async fn joined_spaces_for(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
