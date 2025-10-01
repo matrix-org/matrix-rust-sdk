@@ -11,6 +11,7 @@ version = 2
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "Unmaintained paste crate, not critical." },
     { id = "RUSTSEC-2025-0056", reason = "Unmaintained adler crate, not a direct dependency" },
+    { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
 ]
 
 [licenses]
