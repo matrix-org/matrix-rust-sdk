@@ -869,9 +869,18 @@ impl OlmMachine {
     ///
     /// * `room_id` - The unique id of the room where the event was sent to.
     ///
+    /// * `handle_verification_events` - if the supplied event is a verification
+    ///   event, use it to update the verification state. **Note**: it is
+    ///   recommended to avoid setting this flag to true and use the explicit
+    ///   [`OlmMachine::receive_verification_event`] method instead:
+    ///   verification events sometimes need preparation before we can handle
+    ///   them: see the documentation for
+    ///   [`OlmMachine::receive_verification_event`].
+    ///
     /// * `strict_shields` - If `true`, messages will be decorated with strict
     ///   warnings (use `false` to match legacy behaviour where unsafe keys have
     ///   lower severity warnings and unverified identities are not decorated).
+    ///
     /// * `decryption_settings` - The setting for decrypting messages.
     pub fn decrypt_room_event(
         &self,
@@ -1100,6 +1109,14 @@ impl OlmMachine {
     ///
     /// This method can be used to pass verification events that are happening
     /// in rooms to the `OlmMachine`. The event should be in the decrypted form.
+    ///
+    /// **Note**: If the supplied event is an `m.room.message` event with
+    /// `msgtype: m.key.verification.request`, then the device information for
+    /// the sending user must be up-to-date before calling this method
+    /// (otherwise, the request will be ignored). It is hard to guarantee this
+    /// is the case, but you can maximize your chances by explicitly making a
+    /// request to /keys/query for the user's device info, and processing the
+    /// response with [`OlmMachine::mark_request_as_sent`].
     pub fn receive_verification_event(
         &self,
         event: String,

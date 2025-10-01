@@ -25,6 +25,15 @@ use crate::Result;
 
 /// Process the given event as a verification event if it is a candidate. The
 /// event must be decrypted.
+///
+/// **Note**: If the supplied event is an `m.room.message` event with
+/// `msgtype: m.key.verification.request`, then the device information for
+/// the sending user must be up-to-date before calling this method
+/// (otherwise, the request will be ignored). It is hard to guarantee this
+/// is the case, but you can maximize your chances by explicitly making a
+/// request for this user's device info by calling
+/// [`OlmMachine::query_keys_for_users`], sending the request, and
+/// processing the response with [`OlmMachine::mark_request_as_sent`].
 pub async fn process_if_relevant(
     event: &AnySyncTimelineEvent,
     e2ee: E2EE<'_>,
