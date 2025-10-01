@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk::{Client, room::RoomMemberRole};
-use ruma::{Int, OwnedRoomId, RoomId};
+use ruma::{Int, OwnedRoomId};
 
 use crate::spaces::{Error, SpaceRoom};
 
@@ -78,12 +78,14 @@ impl LeaveSpaceHandle {
     }
 
     /// Bulk leave the given rooms. Stops when encountering an error.
-    pub async fn leave(&self, rooms_ids: Vec<&RoomId>) -> Result<(), Error> {
-        for room_id in rooms_ids {
-            if let Some(room) = self.client.get_room(room_id) {
+    pub async fn leave(&self, filter: impl FnMut(&LeaveSpaceRoom) -> bool) -> Result<(), Error> {
+        let rooms = self.rooms().await?;
+
+        for room in rooms.into_iter().filter(filter) {
+            if let Some(room) = self.client.get_room(&room.space_room.room_id) {
                 room.leave().await.map_err(Error::LeaveSpace)?;
             } else {
-                return Err(Error::RoomNotFound(room_id.to_owned()));
+                return Err(Error::RoomNotFound(room.space_room.room_id));
             }
         }
 
@@ -187,9 +189,11 @@ mod tests {
         let child_room_2 = &rooms[1];
         assert!(!child_room_2.is_last_admin);
 
-        let room_ids = rooms.iter().map(|r| r.space_room.room_id.as_ref()).collect::<Vec<_>>();
+        let room_ids = rooms.iter().map(|r| r.space_room.room_id.clone()).collect::<Vec<_>>();
         assert_eq!(room_ids, vec![child_space_id_1, child_space_id_2, parent_space_id]);
 
-        handle.leave(room_ids).await.unwrap()
+        handle.leave(|room| room_ids.contains(&room.space_room.room_id)).await.unwrap();
+
+        assert!(space_service.joined_spaces().await.is_empty());
     }
 }

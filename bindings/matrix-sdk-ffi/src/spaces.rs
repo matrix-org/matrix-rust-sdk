@@ -343,8 +343,10 @@ impl LeaveSpaceHandle {
     pub async fn leave(&self, room_ids: Vec<String>) -> Result<(), ClientError> {
         let room_ids = room_ids.iter().map(RoomId::parse).collect::<Result<Vec<_>, _>>()?;
 
-        let ids = room_ids.iter().map(|id| id.as_ref()).collect();
-        self.inner.leave(ids).await.map_err(ClientError::from)
+        self.inner
+            .leave(|room| room_ids.contains(&room.space_room.room_id))
+            .await
+            .map_err(ClientError::from)
     }
 }
 
