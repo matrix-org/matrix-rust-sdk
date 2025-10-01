@@ -324,14 +324,14 @@ macro_rules! make_media_type {
                     filename
                 });
 
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &$info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
+                if let Some(AttachmentInfo::Audio(audio_info) | AttachmentInfo::Voice(audio_info)) = &$info &&
+                 let Some(duration) = audio_info.duration && let Some(waveform_vec) = &audio_info.waveform {
+                    let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                    content.audio =
+                        Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                }
+
+                if matches!($info, Some(AttachmentInfo::Voice(_))) {
                     content.voice = Some(UnstableVoiceContentBlock::new());
                 }
 

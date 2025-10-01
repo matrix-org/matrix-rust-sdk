@@ -66,6 +66,8 @@ pub struct BaseAudioInfo {
     pub duration: Option<Duration>,
     /// The file size of the audio clip in bytes.
     pub size: Option<UInt>,
+    /// The waveform of the audio clip.
+    pub waveform: Option<Vec<u16>>,
 }
 
 /// Base metadata about a file.
@@ -87,12 +89,7 @@ pub enum AttachmentInfo {
     /// The metadata of a file.
     File(BaseFileInfo),
     /// The metadata of a voice message
-    Voice {
-        /// The audio info
-        audio_info: BaseAudioInfo,
-        /// The waveform of the voice message
-        waveform: Option<Vec<u16>>,
-    },
+    Voice(BaseAudioInfo),
 }
 
 impl From<AttachmentInfo> for ImageInfo {
@@ -128,14 +125,12 @@ impl From<AttachmentInfo> for VideoInfo {
 impl From<AttachmentInfo> for AudioInfo {
     fn from(info: AttachmentInfo) -> Self {
         match info {
-            AttachmentInfo::Audio(info) => assign!(AudioInfo::new(), {
-                duration: info.duration,
-                size: info.size,
-            }),
-            AttachmentInfo::Voice { audio_info, .. } => assign!(AudioInfo::new(), {
-                duration: audio_info.duration,
-                size: audio_info.size,
-            }),
+            AttachmentInfo::Audio(info) | AttachmentInfo::Voice(info) => {
+                assign!(AudioInfo::new(), {
+                    duration: info.duration,
+                    size: info.size,
+                })
+            }
             _ => AudioInfo::new(),
         }
     }
