@@ -424,7 +424,7 @@ impl Timeline {
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
-        waveform: Vec<u16>,
+        waveform: Vec<f32>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let mut info =
             BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
