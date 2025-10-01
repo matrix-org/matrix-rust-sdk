@@ -17,6 +17,16 @@ use ruma::{Int, OwnedRoomId, RoomId};
 
 use crate::spaces::{Error, SpaceRoom};
 
+/// Space leaving specific room that groups normal [`SpaceRoom`] details with
+/// information about the leaving user's role.
+pub struct LeaveSpaceRoom {
+    /// The underlying [`SpaceRoom`]
+    pub space_room: SpaceRoom,
+    /// Whether the user is the last admin in the room. This helps clients
+    /// better inform the user about the consequences of leaving the room.
+    pub is_last_admin: bool,
+}
+
 /// The `LeaveSpaceHandle` processes rooms to be left in the order they were
 /// provided by the [`crate::spaces::SpaceService`] and annotates them with
 /// extra data to inform the leave process e.g. if the current user is the last
@@ -79,16 +89,6 @@ impl LeaveSpaceHandle {
 
         Ok(())
     }
-}
-
-/// Space leaving specific room that groups normal [`SpaceRoom`] details with
-/// information about the leaving user's role.
-pub struct LeaveSpaceRoom {
-    /// The underlying [`SpaceRoom`]
-    pub space_room: SpaceRoom,
-    /// Whether the user is the last admin in the room. This helps clients
-    /// better inform the user about the consequences of leaving the room.
-    pub is_last_admin: bool,
 }
 
 #[cfg(test)]
