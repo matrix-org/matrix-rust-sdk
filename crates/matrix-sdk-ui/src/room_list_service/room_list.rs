@@ -431,7 +431,7 @@ impl RoomListItem {
         self.cached_latest_event_is_local = self.inner.new_latest_event_is_local();
         self.cached_recency_stamp = self.inner.recency_stamp();
         self.cached_display_name = self.inner.cached_display_name().map(|name| name.to_string());
-        // no need to refresh `Self::is_space`.
+        self.cached_is_space = self.inner.is_space();
         self.cached_state = self.inner.state();
     }
 }
