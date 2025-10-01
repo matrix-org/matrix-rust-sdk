@@ -35,7 +35,7 @@ use matrix_sdk_crypto::{
         },
         CryptoStore, CryptoStoreError,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEvent,
+    types::events::room_key_withheld::RoomKeyWithheldEntry,
     vodozemac::base64_encode,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
@@ -1386,7 +1386,7 @@ impl_crypto_store! {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<RoomKeyWithheldEvent>> {
+    ) -> Result<Option<RoomKeyWithheldEntry>> {
         let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner

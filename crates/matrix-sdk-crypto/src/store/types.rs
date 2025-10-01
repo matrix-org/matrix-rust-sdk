@@ -34,7 +34,7 @@ use crate::{
         SenderData,
     },
     types::{
-        events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldEvent},
+        events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldEntry},
         EventEncryptionAlgorithm,
     },
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
@@ -75,7 +75,7 @@ pub struct Changes {
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
     /// Stores when a `m.room_key.withheld` is received
-    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
+    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
     pub next_batch_token: Option<String>,
@@ -486,7 +486,7 @@ pub struct RoomKeyWithheldInfo {
 
     /// The `m.room_key.withheld` event that notified us that the key is being
     /// withheld.
-    pub withheld_event: RoomKeyWithheldEvent,
+    pub withheld_event: RoomKeyWithheldEntry,
 }
 
 /// Information about a received historic room key bundle.

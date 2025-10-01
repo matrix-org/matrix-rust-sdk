@@ -66,6 +66,7 @@ macro_rules! cryptostore_integration_tests {
                         room_key_withheld::{
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent,
+                            RoomKeyWithheldEntry,
                         },
                         room_key_bundle::RoomKeyBundleContent,
                         secret_send::SecretSendContent,
@@ -1138,7 +1139,7 @@ macro_rules! cryptostore_integration_tests {
             async fn test_withheld_info_storage() {
                 let (account, store) = get_loaded_store("withheld_info_storage").await;
 
-                let mut info_list: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+                let mut info_list: BTreeMap<_, BTreeMap<_, RoomKeyWithheldEntry>> = BTreeMap::new();
 
                 let user_id = account.user_id().to_owned();
                 let room_id = room_id!("!DwLygpkclUAfQNnfva:example.com");
@@ -1163,7 +1164,7 @@ macro_rules! cryptostore_integration_tests {
                 info_list
                     .entry(room_id.to_owned())
                     .or_default()
-                    .insert(session_id_1.to_owned(), event);
+                    .insert(session_id_1.to_owned(), event.into());
 
                 let content = RoomKeyWithheldContent::MegolmV1AesSha2(
                     MegolmV1AesSha2WithheldContent::BlackListed(
@@ -1183,7 +1184,7 @@ macro_rules! cryptostore_integration_tests {
                 info_list
                     .entry(room_id.to_owned())
                     .or_default()
-                    .insert(session_id_2.to_owned(), event);
+                    .insert(session_id_2.to_owned(), event.into());
 
                 let changes = Changes { withheld_session_info: info_list, ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -1192,16 +1193,16 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_matches!(
                     is_withheld, Some(event)
-                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
-                    event.content.withheld_code() == WithheldCode::Unverified
+                    if event.content().algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content().withheld_code() == WithheldCode::Unverified
                 );
 
                 let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
 
                 assert_matches!(
                     is_withheld, Some(event)
-                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
-                    event.content.withheld_code() == WithheldCode::Blacklisted
+                    if event.content().algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content().withheld_code() == WithheldCode::Blacklisted
                 );
 
                 let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");
