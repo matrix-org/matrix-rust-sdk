@@ -2034,7 +2034,7 @@ mod tests {
             .receive_room_key_bundle(
                 &StoredRoomKeyBundleData {
                     sender_user: alice.user_id().to_owned(),
-                    sender_key: alice_key.clone(),
+                    sender_key: alice_key,
                     sender_data: SenderData::sender_verified(
                         alice.user_id(),
                         device_id!("ALICE"),
@@ -2048,18 +2048,18 @@ mod tests {
                         file: EncryptedFileInit {
                             url: owned_mxc_uri!("mxc://example.com/0"),
                             key: JsonWebKeyInit {
-                                kty: "oct".to_string(),
-                                key_ops: vec!["encrypt".to_string(), "decrypt".to_string()],
-                                alg: "A256CTR.".to_string(),
+                                kty: "oct".to_owned(),
+                                key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
+                                alg: "A256CTR.".to_owned(),
                                 k: Base64::new(vec![0u8; 128]),
                                 ext: true,
                             }
                             .into(),
                             iv: Base64::new(vec![0u8; 128]),
-                            hashes: vec![("sha256".to_string(), Base64::new(vec![0u8; 128]))]
+                            hashes: vec![("sha256".to_owned(), Base64::new(vec![0u8; 128]))]
                                 .into_iter()
                                 .collect(),
-                            v: "v2".to_string(),
+                            v: "v2".to_owned(),
                         }
                         .into(),
                     },
