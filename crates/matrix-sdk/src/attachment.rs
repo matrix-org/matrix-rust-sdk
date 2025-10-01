@@ -67,7 +67,9 @@ pub struct BaseAudioInfo {
     /// The file size of the audio clip in bytes.
     pub size: Option<UInt>,
     /// The waveform of the audio clip.
-    pub waveform: Option<Vec<u16>>,
+    ///
+    /// Must only include values between 0 and 1.
+    pub waveform: Option<Vec<f32>>,
 }
 
 /// Base metadata about a file.
