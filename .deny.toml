@@ -54,4 +54,6 @@ allow-git = [
     # We can release vodozemac whenever we need but let's not block development
     # on releases.
     "https://github.com/matrix-org/vodozemac",
+    # A patch override for the bindings: https://github.com/Alorel/rust-indexed-db/pull/72
+    "https://github.com/matrix-org/rust-indexed-db",
 ]
