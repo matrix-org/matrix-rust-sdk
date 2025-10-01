@@ -1010,7 +1010,7 @@ impl OlmMachine {
                 .withheld_session_info
                 .entry(c.room_id.to_owned())
                 .or_default()
-                .insert(c.session_id.to_owned(), event.to_owned());
+                .insert(c.session_id.to_owned(), event.to_owned().into());
         }
     }
 
