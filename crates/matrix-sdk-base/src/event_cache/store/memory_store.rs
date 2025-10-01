@@ -28,9 +28,7 @@ use matrix_sdk_common::{
 use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType, time::Instant};
 use tracing::error;
 
-use super::{
-    EventCacheStore, EventCacheStoreError, Result, compute_filters_string, extract_event_relation,
-};
+use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
 use crate::event_cache::{Event, Gap};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
@@ -194,14 +192,13 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let filters = compute_filters_string(filters);
-
         let related_events = inner
             .events
             .items(room_id)
             .filter_map(|(event, pos)| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
+                let rel_type = RelationType::from(rel_type.as_str());
 
                 // Must relate to the target item.
                 if related_to != event_id {
