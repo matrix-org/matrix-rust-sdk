@@ -34,7 +34,6 @@ use futures_util::pin_mut;
 use imbl::Vector;
 use matrix_sdk::{
     Client, Error as SDKError, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop,
-    locks::Mutex,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -119,7 +118,7 @@ struct SpaceState {
 pub struct SpaceService {
     client: Client,
 
-    space_state: Arc<Mutex<SpaceState>>,
+    space_state: Arc<AsyncMutex<SpaceState>>,
 
     room_update_handle: AsyncMutex<Option<AbortOnDrop<()>>>,
 }
@@ -129,7 +128,7 @@ impl SpaceService {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            space_state: Arc::new(Mutex::new(SpaceState {
+            space_state: Arc::new(AsyncMutex::new(SpaceState {
                 graph: SpaceGraph::new(),
                 joined_rooms: ObservableVector::new(),
             })),
@@ -164,7 +163,8 @@ impl SpaceService {
                                 Vector::from(spaces),
                                 graph,
                                 &space_state,
-                            );
+                            )
+                            .await;
                         }
                         Err(err) => {
                             error!("error when listening to room updates: {err}");
@@ -175,10 +175,11 @@ impl SpaceService {
 
             // Make sure to also update the currently joined spaces for the initial values.
             let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
-            Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state);
+            Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state)
+                .await;
         }
 
-        self.space_state.lock().joined_rooms.subscribe().into_values_and_batched_stream()
+        self.space_state.lock().await.joined_rooms.subscribe().into_values_and_batched_stream()
     }
 
     /// Returns a list of all the top-level joined spaces. It will eagerly
@@ -191,7 +192,8 @@ impl SpaceService {
             Vector::from(spaces.clone()),
             graph,
             &self.space_state,
-        );
+        )
+        .await;
 
         spaces
     }
@@ -208,8 +210,8 @@ impl SpaceService {
     ///
     /// Once the rooms to be left are chosen the handle can be used to leave
     /// them.
-    pub fn leave_space(&self, space_id: &RoomId) -> Result<LeaveSpaceHandle, Error> {
-        let space_state = self.space_state.lock();
+    pub async fn leave_space(&self, space_id: &RoomId) -> Result<LeaveSpaceHandle, Error> {
+        let space_state = self.space_state.lock().await;
 
         if !space_state.graph.has_node(space_id) {
             return Err(Error::RoomNotFound(space_id.to_owned()));
@@ -217,17 +219,17 @@ impl SpaceService {
 
         let room_ids = space_state.graph.flattened_bottom_up_subtree(space_id);
 
-        let handle = LeaveSpaceHandle::new(self.client.clone(), room_ids);
+        let handle = LeaveSpaceHandle::new(self.client.clone(), room_ids).await;
 
         Ok(handle)
     }
 
-    fn update_joined_spaces_if_needed(
+    async fn update_joined_spaces_if_needed(
         new_spaces: Vector<SpaceRoom>,
         new_graph: SpaceGraph,
-        space_state: &Arc<Mutex<SpaceState>>,
+        space_state: &Arc<AsyncMutex<SpaceState>>,
     ) {
-        let mut space_state = space_state.lock();
+        let mut space_state = space_state.lock().await;
 
         if new_spaces != space_state.joined_rooms.clone() {
             space_state.joined_rooms.clear();

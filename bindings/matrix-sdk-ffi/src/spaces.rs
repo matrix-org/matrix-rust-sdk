@@ -94,10 +94,15 @@ impl SpaceService {
     ///
     /// Once the rooms to be left are chosen the handle can be used to leave
     /// them.
-    pub fn leave_space(&self, space_id: String) -> Result<LeaveSpaceHandle, ClientError> {
+    pub async fn leave_space(
+        &self,
+        space_id: String,
+    ) -> Result<Arc<LeaveSpaceHandle>, ClientError> {
         let space_id = RoomId::parse(space_id)?;
 
-        Ok(self.inner.leave_space(&space_id).map_err(ClientError::from)?.into())
+        let handle = self.inner.leave_space(&space_id).await.map_err(ClientError::from)?;
+
+        Ok(Arc::new(handle.into()))
     }
 }
 
@@ -334,9 +339,9 @@ pub struct LeaveSpaceHandle {
 impl LeaveSpaceHandle {
     /// A list of rooms to be left which next to normal [`SpaceRoom`] data also
     /// include leave specific information.
-    pub async fn rooms(&self) -> Result<Vec<LeaveSpaceRoom>, ClientError> {
-        let rooms = self.inner.rooms().await.map_err(ClientError::from)?;
-        Ok(rooms.into_iter().map(|room| room.into()).collect())
+    pub fn rooms(&self) -> Vec<LeaveSpaceRoom> {
+        let rooms = self.inner.rooms();
+        rooms.into_iter().map(|room| room.into()).collect()
     }
 
     /// Bulk leave the given rooms. Stops when encountering an error.
