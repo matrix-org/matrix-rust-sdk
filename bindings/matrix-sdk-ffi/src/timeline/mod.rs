@@ -426,12 +426,10 @@ impl Timeline {
         audio_info: AudioInfo,
         waveform: Vec<u16>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Voice {
-            audio_info: BaseAudioInfo::try_from(&audio_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?,
-            waveform: Some(waveform),
-        };
-        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
+        let mut info =
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+        info.waveform = Some(waveform);
+        self.send_attachment(params, AttachmentInfo::Voice(info), audio_info.mimetype, None)
     }
 
     pub fn send_file(
