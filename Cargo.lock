@@ -2713,7 +2713,7 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 [[package]]
 name = "indexed_db_futures"
 version = "0.6.4"
-source = "git+https://github.com/mgoldenberg/rust-indexed-db?rev=2ac8f0bc1c53f8d8654efcdf9e32b6d359457398#2ac8f0bc1c53f8d8654efcdf9e32b6d359457398"
+source = "git+https://github.com/matrix-org/rust-indexed-db?rev=201caac274e38756c6e523ba7cf84ffb625b7c48#201caac274e38756c6e523ba7cf84ffb625b7c48"
 dependencies = [
  "accessory",
  "cfg-if",
@@ -2739,7 +2739,7 @@ dependencies = [
 [[package]]
 name = "indexed_db_futures_macros_internal"
 version = "1.0.0"
-source = "git+https://github.com/mgoldenberg/rust-indexed-db?rev=2ac8f0bc1c53f8d8654efcdf9e32b6d359457398#2ac8f0bc1c53f8d8654efcdf9e32b6d359457398"
+source = "git+https://github.com/matrix-org/rust-indexed-db?rev=201caac274e38756c6e523ba7cf84ffb625b7c48#201caac274e38756c6e523ba7cf84ffb625b7c48"
 dependencies = [
  "macroific",
  "proc-macro2",

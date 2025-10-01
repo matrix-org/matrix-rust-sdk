@@ -201,7 +201,7 @@ lto = false
 [patch.crates-io]
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
-indexed_db_futures = { git = "https://github.com/mgoldenberg/rust-indexed-db", rev = "2ac8f0bc1c53f8d8654efcdf9e32b6d359457398" }
+indexed_db_futures = { git = "https://github.com/matrix-org/rust-indexed-db", rev = "201caac274e38756c6e523ba7cf84ffb625b7c48" }
 # Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
 tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
