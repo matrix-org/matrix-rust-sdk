@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- The `waveform` parameter in `Timeline::send_voice_message` format changed to a list of `f32`
+  between 0 and 1.
+  ([#5732](https://github.com/matrix-org/matrix-rust-sdk/pull/5732))
+
 - The `normalized_power_level` field has been removed from the `RoomMember`
   struct.
   ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
@@ -30,8 +34,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
-- Add `LowPriority` and `NonLowPriority` variants to `RoomListEntriesDynamicFilterKind` for filtering 
-  rooms based on their low priority status. These filters allow clients to show only low priority rooms 
+- Add `LowPriority` and `NonLowPriority` variants to `RoomListEntriesDynamicFilterKind` for filtering
+  rooms based on their low priority status. These filters allow clients to show only low priority rooms
   or exclude low priority rooms from the room list.
   ([#5508](https://github.com/matrix-org/matrix-rust-sdk/pull/5508))
 - Add `room_version` and `privileged_creators_role` to `RoomInfo` ([#5449](https://github.com/matrix-org/matrix-rust-sdk/pull/5449)).
