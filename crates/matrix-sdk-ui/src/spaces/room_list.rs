@@ -22,8 +22,10 @@ use itertools::Itertools;
 use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    OwnedRoomId, OwnedServerName, api::client::space::get_hierarchy,
-    events::space::child::SpaceChildEventContent, uint,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedServerName, OwnedSpaceChildOrder, RoomId,
+    api::client::space::get_hierarchy,
+    events::space::child::{HierarchySpaceChildEvent, SpaceChildEventContent},
+    uint,
 };
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, warn};
@@ -105,7 +107,7 @@ pub struct SpaceRoomList {
 
     space: SharedObservable<Option<SpaceRoom>>,
 
-    via_parameters: Mutex<Option<HashMap<OwnedRoomId, Vec<OwnedServerName>>>>,
+    children_state: Mutex<Option<HashMap<OwnedRoomId, HierarchySpaceChildEvent>>>,
 
     token: AsyncMutex<PaginationToken>,
 
@@ -203,7 +205,7 @@ impl SpaceRoomList {
             client,
             space_id,
             space: space_observable,
-            via_parameters: Mutex::new(None),
+            children_state: Mutex::new(None),
             token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
@@ -291,19 +293,19 @@ impl SpaceRoomList {
                     result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
 
                 if let Some(room) = space.first() {
-                    let mut via_parameters = self.via_parameters.lock();
-                    *via_parameters = Some(
-                        room.children_state
-                            .iter()
-                            .filter_map(|event| match event.deserialize() {
-                                Ok(child) => Some((child.state_key, child.content.via)),
-                                Err(error) => {
-                                    warn!("Failed deserializing space child event: {error}");
-                                    None
-                                }
-                            })
-                            .collect::<HashMap<_, _>>(),
-                    );
+                    let mut children_state =
+                        HashMap::<OwnedRoomId, HierarchySpaceChildEvent>::new();
+                    for child_state in &room.children_state {
+                        match child_state.deserialize() {
+                            Ok(child) => {
+                                children_state.insert(child.state_key.clone(), child.clone());
+                            }
+                            Err(error) => {
+                                warn!("Failed deserializing space child event: {error}");
+                            }
+                        }
+                    }
+                    *self.children_state.lock() = Some(children_state);
 
                     let mut space = self.space.write();
                     if space.is_none() {
@@ -319,16 +321,20 @@ impl SpaceRoomList {
                     }
                 }
 
-                let via = (*self.via_parameters.lock()).clone().unwrap_or_default();
+                let children_state = (*self.children_state.lock()).clone().unwrap_or_default();
 
                 children
                     .iter()
                     .map(|room| {
+                        let via = children_state
+                            .get(&room.summary.room_id)
+                            .and_then(|state| Some(state.content.via.clone()));
+
                         SpaceRoom::new_from_summary(
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
                             room.children_state.len() as u64,
-                            via.get(&room.summary.room_id).cloned().unwrap_or(Default::default()),
+                            via.unwrap_or(Default::default()),
                         )
                     })
                     .for_each(|room| rooms.push_back(room));
