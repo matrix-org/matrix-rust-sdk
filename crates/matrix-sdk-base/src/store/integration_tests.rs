@@ -129,7 +129,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         changes.add_presence_event(presence_event, presence_raw);
 
         let pushrules_raw: Raw<AnyGlobalAccountDataEvent> =
-            f.push_rules(Ruleset::server_default(user_id)).into_raw();
+            f.push_rules(Ruleset::server_default(user_id)).into();
         let pushrules_event = pushrules_raw.deserialize()?;
         changes.account_data.insert(pushrules_event.event_type(), pushrules_raw);
 

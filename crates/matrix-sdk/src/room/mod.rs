@@ -4892,7 +4892,7 @@ mod tests {
 
         let f = EventFactory::new().room(room_id);
         let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
-            f.member(user_id).membership(MembershipState::Knock).event_id(event_id).into_raw(),
+            f.member(user_id).membership(MembershipState::Knock).event_id(event_id).into(),
         ]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
@@ -4939,7 +4939,7 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@alice:b.c"));
         let joined_room_builder =
-            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into_raw()]);
+            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into()]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
         // When we load the membership details
@@ -4964,7 +4964,7 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(user_id);
         let joined_room_builder =
-            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into_raw()]);
+            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into()]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
         // When we load the membership details
@@ -4991,9 +4991,9 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(sender_id);
         let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
-            f.member(user_id).into_raw(),
+            f.member(user_id).into(),
             // The sender info comes from the sync
-            f.member(sender_id).into_raw(),
+            f.member(sender_id).into(),
         ]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
@@ -5021,7 +5021,7 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(sender_id);
         let joined_room_builder =
-            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into_raw()]);
+            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f.member(user_id).into()]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
         // We'll receive the member info through the /members endpoint
@@ -5223,16 +5223,13 @@ mod tests {
         let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
 
         // Computing the power levels will need these 3 state events:
-        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into_raw();
-        let power_levels_event = f.power_levels(&mut user_map).state_key("").into_raw();
-        let room_member_event = f.member(sender_id).into_raw();
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into();
+        let power_levels_event = f.power_levels(&mut user_map).state_key("").into();
+        let room_member_event = f.member(sender_id).into();
 
         // With only the room member event
         let room = server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(room_id).add_state_bulk([room_member_event.clone()]),
-            )
+            .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk([room_member_event]))
             .await;
         let ctx = room
             .push_condition_room_ctx()
@@ -5245,10 +5242,7 @@ mod tests {
 
         // Adding the room creation event
         let room = server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(room_id).add_state_bulk([room_create_event.clone()]),
-            )
+            .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk([room_create_event]))
             .await;
         let ctx = room
             .push_condition_room_ctx()

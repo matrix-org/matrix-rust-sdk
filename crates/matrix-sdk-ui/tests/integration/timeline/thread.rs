@@ -266,7 +266,7 @@ async fn test_extract_bundled_thread_summary() {
     let event = f
         .text_msg("thready thread mcthreadface")
         .with_bundled_thread_summary(
-            f.text_msg("the last one!").event_id(latest_event_id).into_raw(),
+            f.text_msg("the last one!").event_id(latest_event_id).into(),
             42,
             false,
         )

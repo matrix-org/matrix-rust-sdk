@@ -1210,9 +1210,8 @@ mod tests {
         server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(&room_id).add_timeline_event(
-                    event_factory.text_msg("raclette !").event_id(event_id_2).into_raw(),
-                ),
+                JoinedRoomBuilder::new(&room_id)
+                    .add_timeline_event(event_factory.text_msg("raclette !").event_id(event_id_2)),
             )
             .await;
 

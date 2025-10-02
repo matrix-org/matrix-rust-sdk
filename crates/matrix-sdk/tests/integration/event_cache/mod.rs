@@ -2597,15 +2597,13 @@ async fn test_relations_ordering() {
     let ev3 = f
         .text_msg("* ciao mondo")
         .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("ciao mondo"))
-        .event_id(edit3)
-        .into_raw();
+        .event_id(edit3);
 
     let edit4 = event_id!("$edit4");
     let ev4 = f
         .text_msg("* hello world")
         .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hello world"))
-        .event_id(edit4)
-        .into_raw();
+        .event_id(edit4);
 
     // We receive two edit events via sync, as well as a gap; this will shrink the
     // linked chunk.
@@ -2613,8 +2611,8 @@ async fn test_relations_ordering() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(ev3.clone())
-                .add_timeline_event(ev4.clone())
+                .add_timeline_event(ev3)
+                .add_timeline_event(ev4)
                 .set_timeline_limited()
                 .set_timeline_prev_batch("prev_batch"),
         )

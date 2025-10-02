@@ -384,15 +384,14 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(user_id!("@user_id:localhost"));
 
         // Indexable dummy message required because RoomIndex is initialised lazily.
-        let dummy = f.text_msg("dummy").event_id(dummy_id).into_raw();
+        let dummy = f.text_msg("dummy").event_id(dummy_id);
 
-        let original = f.text_msg("This is a message").event_id(original_id).into_raw();
+        let original = f.text_msg("This is a message").event_id(original_id);
 
         let edit1 = f
             .text_msg("* A new message")
             .edit(original_id, RoomMessageEventContentWithoutRelation::text_plain("A new message"))
-            .event_id(edit1_id)
-            .into_raw();
+            .event_id(edit1_id);
 
         let edit2 = f
             .text_msg("* An even newer message")
@@ -400,8 +399,7 @@ mod tests {
                 original_id,
                 RoomMessageEventContentWithoutRelation::text_plain("An even newer message"),
             )
-            .event_id(edit2_id)
-            .into_raw();
+            .event_id(edit2_id);
 
         let edit3 = f
             .text_msg("* The newest message")
@@ -409,16 +407,15 @@ mod tests {
                 original_id,
                 RoomMessageEventContentWithoutRelation::text_plain("The newest message"),
             )
-            .event_id(edit3_id)
-            .into_raw();
+            .event_id(edit3_id);
 
         server
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(room_id)
-                    .add_timeline_event(dummy.clone())
-                    .add_timeline_event(edit1.clone())
-                    .add_timeline_event(edit2.clone()),
+                    .add_timeline_event(dummy)
+                    .add_timeline_event(edit1)
+                    .add_timeline_event(edit2),
             )
             .await;
 

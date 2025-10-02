@@ -552,10 +552,10 @@ async fn test_timeline_reset_while_paginating() {
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    let alice_event = f.text_msg("live event!").sender(&ALICE).room(room_id).into_raw();
+    let alice_event = f.text_msg("live event!").sender(&ALICE).room(room_id).into_raw_timeline();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(alice_event.clone())
+            .add_timeline_event(alice_event.clone().cast())
             .set_timeline_prev_batch("pagination_1".to_owned())
             .set_timeline_limited(),
     );

@@ -1147,7 +1147,7 @@ async fn test_subscribe_to_knock_requests() {
 
     // If we then receive a new member event for Alice that's not 'knock'
     let joined_room_builder = JoinedRoomBuilder::new(room_id)
-        .add_state_bulk(vec![f.member(user_id).membership(MembershipState::Invite).into_raw()]);
+        .add_state_bulk(vec![f.member(user_id).membership(MembershipState::Invite).into()]);
     server.sync_room(&client, joined_room_builder).await;
 
     // The knock requests are now empty because we have new member events
@@ -1230,7 +1230,7 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
-        f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into_raw();
+        f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into();
 
     // When syncing the room, we'll have a knock request coming from alice
     let room = server
@@ -1275,7 +1275,7 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
-        f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into_raw();
+        f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into();
 
     // When syncing the room, we'll have a knock request coming from alice
     let room = server
@@ -1421,11 +1421,8 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
 
     // When loading a few room member updates
     let user_id = user_id!("@alice:b.c");
-    let joined_event = EventFactory::new()
-        .room(room_id)
-        .member(user_id)
-        .membership(MembershipState::Join)
-        .into_raw();
+    let joined_event =
+        EventFactory::new().room(room_id).member(user_id).membership(MembershipState::Join).into();
     server
         .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![joined_event]))
         .await;

@@ -126,7 +126,7 @@ mod tests {
 
         let f = EventFactory::new().room(room_id);
         let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
-            f.member(user_id).membership(MembershipState::Knock).event_id(event_id).into_raw(),
+            f.member(user_id).membership(MembershipState::Knock).event_id(event_id).into(),
         ]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
