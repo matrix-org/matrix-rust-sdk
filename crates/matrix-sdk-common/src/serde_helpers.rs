@@ -31,6 +31,8 @@ use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 enum RelationsType {
     #[serde(rename = "m.thread")]
     Thread,
+    #[serde(rename = "m.replace")]
+    Edit,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +63,7 @@ pub fn extract_thread_root_from_content(
     let relates_to = content.deserialize_as_unchecked::<SimplifiedContent>().ok()?.relates_to?;
     match relates_to.rel_type {
         RelationsType::Thread => relates_to.event_id,
+        RelationsType::Edit => None,
     }
 }
 
@@ -72,9 +75,23 @@ pub fn extract_thread_root_from_content(
 /// Returns `None` if we couldn't find a thread root, or if there was an issue
 /// during deserialization.
 pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
+    extract_thread_root_from_content(event.get_field("content").ok().flatten()?)
+}
+
+/// Try to extract the target of an edit event, from a raw timeline event, if
+/// provided.
+///
+/// The target event is the field located at
+/// `content`.`m.relates_to`.`event_id`, if the field at
+/// `content`.`m.relates_to`.`rel_type` is `m.replace`.
+///
+/// Returns `None` if we couldn't find it, or if there was an issue
+/// during deserialization.
+pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     match relates_to.rel_type {
-        RelationsType::Thread => relates_to.event_id,
+        RelationsType::Edit => relates_to.event_id,
+        RelationsType::Thread => None,
     }
 }
 
