@@ -23,7 +23,7 @@ use super::TimelineItemContent;
 use crate::timeline::{
     Error as TimelineError, TimelineEventItemId, TimelineItem,
     controller::TimelineMetadata,
-    event_handler::TimelineAction,
+    event_handler::{HandleAggregationKind, TimelineAction},
     event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
 };
@@ -142,6 +142,40 @@ impl EmbeddedEvent {
             }
 
             Some(TimelineAction::HandleAggregation { kind, .. }) => {
+                // As an exception, edits are allowed to be embedded events.
+                if let HandleAggregationKind::Edit { replacement } = kind {
+                    let msg = replacement.new_content;
+
+                    // For an embedded event, we don't need to fill a few fields; it's in an
+                    // embedded view context, so there's no strong need to show all detailed
+                    // information about it.
+                    let reactions = Default::default();
+                    let thread_root = None;
+                    let in_reply_to = None;
+                    let thread_summary = None;
+
+                    let content = TimelineItemContent::message(
+                        msg.msgtype,
+                        msg.mentions,
+                        reactions,
+                        thread_root,
+                        in_reply_to,
+                        thread_summary,
+                    );
+
+                    let sender_profile = TimelineDetails::from_initial_value(
+                        room_data_provider.profile_from_user_id(&sender).await,
+                    );
+
+                    return Ok(Some(Self {
+                        content,
+                        sender,
+                        sender_profile,
+                        timestamp,
+                        identifier,
+                    }));
+                }
+
                 // The event can't be represented as a standalone timeline item.
                 warn!("embedded event is an aggregation: {}", kind.debug_string());
                 Ok(None)
