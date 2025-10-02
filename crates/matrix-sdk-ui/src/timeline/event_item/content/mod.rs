@@ -27,10 +27,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        poll::unstable_start::{
-            NewUnstablePollStartEventContent, SyncUnstablePollStartEvent,
-            UnstablePollStartEventContent,
-        },
+        poll::unstable_start::{SyncUnstablePollStartEvent, UnstablePollStartEventContent},
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -294,9 +291,7 @@ impl TimelineItemContent {
                 }
             });
 
-        let mut poll = PollState::new(NewUnstablePollStartEventContent::new(
-            event.content.poll_start().clone(),
-        ));
+        let mut poll = PollState::new(event.content.poll_start().clone(), None);
         if let Some(edit) = edit {
             poll = poll.edit(edit).expect("the poll can't be ended yet!"); // TODO or can it?
         }

@@ -53,10 +53,13 @@ pub(in crate::timeline) struct ResponseData {
 }
 
 impl PollState {
-    pub(crate) fn new(content: NewUnstablePollStartEventContent) -> Self {
+    pub(crate) fn new(
+        poll_start: UnstablePollStartContentBlock,
+        fallback_text: Option<String>,
+    ) -> Self {
         Self {
-            fallback_text: content.text,
-            poll_start: content.poll_start,
+            fallback_text,
+            poll_start,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
