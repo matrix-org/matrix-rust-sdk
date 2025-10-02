@@ -25,11 +25,11 @@ use crate::{
     media_store::{
         serializer::indexed_types::{
             IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentSizeKey, IndexedMediaIdKey,
-            IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
+            IndexedMediaLastAccessKey, IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
         types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
-    serializer::{IndexedKeyRange, IndexedTypeSerializer},
+    serializer::{IndexedKeyRange, IndexedPrefixKeyComponentBounds, IndexedTypeSerializer},
     transaction::{Transaction, TransactionError},
 };
 
@@ -255,5 +255,79 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// from IndexedDB
     pub async fn delete_media_by_uri(&self, source: &MxcUri) -> Result<(), TransactionError> {
         self.delete_item_by_key::<Media, IndexedMediaUriKey>(source).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and the given content size range from IndexedDB
+    pub async fn delete_media_by_content_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        content_size: impl Into<IndexedKeyRange<usize>>,
+    ) -> Result<(), TransactionError> {
+        let range = content_size.into().map(|size| (ignore_policy, size));
+        self.delete_items_by_key_components::<Media, IndexedMediaContentSizeKey>(range).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and is strictly larger than the given content size from IndexedDB
+    pub async fn delete_media_by_content_size_greater_than(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        content_size: usize,
+    ) -> Result<(), TransactionError> {
+        let (_, upper) =
+            IndexedMediaContentSizeKey::upper_key_components_with_prefix(ignore_policy);
+        self.delete_media_by_content_size(ignore_policy, (content_size + 1, upper)).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and the given last access time range from IndexedDB
+    pub async fn delete_media_by_last_access(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        last_access: impl Into<IndexedKeyRange<UnixTime>>,
+    ) -> Result<(), TransactionError> {
+        let range = last_access.into().map(|last_access| (ignore_policy, last_access));
+        self.delete_items_by_key_components::<Media, IndexedMediaLastAccessKey>(range).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and is earlier than the given last access time from IndexedDB
+    pub async fn delete_media_by_last_access_earlier_than(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        time: UnixTime,
+    ) -> Result<(), TransactionError> {
+        let (_, lower) = IndexedMediaLastAccessKey::lower_key_components_with_prefix(ignore_policy);
+        self.delete_media_by_last_access(ignore_policy, (lower, time)).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and the given last access time and content size range from IndexedDB
+    pub async fn delete_media_by_retention_metadata(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        range: impl Into<IndexedKeyRange<(UnixTime, usize)>>,
+    ) -> Result<(), TransactionError> {
+        let range = range
+            .into()
+            .map(|(last_access, content_size)| (ignore_policy, last_access, content_size));
+        self.delete_items_by_key_components::<Media, IndexedMediaRetentionMetadataKey>(range).await
+    }
+
+    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
+    /// and is sorted before the given last access time and content size
+    /// from IndexedDB
+    pub async fn delete_media_by_retention_metadata_to(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        last_access: UnixTime,
+        content_size: usize,
+    ) -> Result<(), TransactionError> {
+        let (_, lower_last_access, lower_content_size) =
+            IndexedMediaRetentionMetadataKey::lower_key_components_with_prefix(ignore_policy);
+        let lower = (lower_last_access, lower_content_size);
+        self.delete_media_by_retention_metadata(ignore_policy, (lower, (last_access, content_size)))
+            .await
     }
 }
