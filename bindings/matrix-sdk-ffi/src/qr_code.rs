@@ -5,7 +5,6 @@ use matrix_sdk::{
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
-use tracing::error;
 
 /// Data for the QR code login mechanism.
 ///

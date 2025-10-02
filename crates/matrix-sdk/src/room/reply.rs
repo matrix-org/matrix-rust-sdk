@@ -29,7 +29,7 @@ use ruma::{
     },
 };
 use thiserror::Error;
-use tracing::{error, instrument};
+use tracing::instrument;
 
 use super::{EventSource, Room};
 

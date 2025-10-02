@@ -14,8 +14,6 @@
 
 use std::marker::PhantomData;
 
-use tracing::error;
-
 use super::{
     Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Ends, LinkedChunk,
     ObservableUpdates, RawChunk, Update,
