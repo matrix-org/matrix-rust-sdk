@@ -202,6 +202,23 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         .await
     }
 
+    /// Query IndexedDB for the accumulated size of all [`Media`] which match
+    /// the given [`IgnoreMediaRetentionPolicy`]. Returns [`None`] if the size
+    /// of the cache overflows [`usize::MAX`].
+    ///
+    /// Note that this operation is not constant, but rather iterates over all
+    /// keys and extracts the content size from each key.
+    pub async fn get_cache_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<Option<usize>, TransactionError> {
+        Ok(self
+            .get_media_keys_by_content_size(ignore_policy)
+            .await?
+            .iter()
+            .try_fold(0usize, |size, key| size.checked_add(key.content_size())))
+    }
+
     /// Adds [`Media`] to IndexedDB. If an item with the same key already
     /// exists, it will be rejected.
     pub async fn add_media(&self, media: &Media) -> Result<(), TransactionError> {
