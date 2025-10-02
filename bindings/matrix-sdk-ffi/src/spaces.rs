@@ -341,7 +341,7 @@ impl LeaveSpaceHandle {
     /// include leave specific information.
     pub fn rooms(&self) -> Vec<LeaveSpaceRoom> {
         let rooms = self.inner.rooms();
-        rooms.into_iter().map(|room| room.into()).collect()
+        rooms.iter().map(|room| room.clone().into()).collect()
     }
 
     /// Bulk leave the given rooms. Stops when encountering an error.
