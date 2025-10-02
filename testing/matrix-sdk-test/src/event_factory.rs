@@ -29,10 +29,13 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyGlobalAccountDataEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False,
-        GlobalAccountDataEventContent, Mentions, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, StateEventContent, StaticEventContent,
+        AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyStateEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
+        EphemeralRoomEventContent, False, GlobalAccountDataEventContent, Mentions,
+        MessageLikeEvent, MessageLikeEventContent, RedactContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEvent, StateEventContent, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
@@ -152,15 +155,46 @@ impl<C: StaticEventContent> Default for Unsigned<C> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EventFormat {
+    /// An event that can be received in the timeline, via `/messages` for
+    /// example.
+    #[default]
+    Timeline,
+    /// An event that can be received in the timeline, via `/sync`.
+    SyncTimeline,
+    /// An event that is received in stripped state.
+    StrippedState,
+    /// An ephemeral event, like a read receipt.
+    Ephemeral,
+    /// A global account data.
+    GlobalAccountData,
+}
+
+impl EventFormat {
+    /// Whether this format has a `sender` field.
+    fn has_sender(self) -> bool {
+        matches!(self, Self::Timeline | Self::SyncTimeline | Self::StrippedState)
+    }
+
+    /// Whether this format has an `event_id` field.
+    fn has_event_id(self) -> bool {
+        matches!(self, Self::Timeline | Self::SyncTimeline)
+    }
+
+    /// Whether this format ha an `room_id` field.
+    fn has_room_id(self) -> bool {
+        matches!(self, Self::Timeline)
+    }
+}
+
 #[derive(Debug)]
 pub struct EventBuilder<C: StaticEventContent<IsPrefix = False>> {
+    /// The format of the event.
+    ///
+    /// It will decide which fields are added to the JSON.
+    format: EventFormat,
     sender: Option<OwnedUserId>,
-    /// Whether the event is an ephemeral one. As such, it doesn't require a
-    /// room id or a sender.
-    is_ephemeral: bool,
-    /// Whether the event is global account data. As such, it doesn't require a
-    /// room id.
-    is_global: bool,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
     /// Whether the event should *not* have an event id. False by default.
@@ -173,6 +207,11 @@ pub struct EventBuilder<C: StaticEventContent<IsPrefix = False>> {
 }
 
 impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
+    fn format(mut self, format: EventFormat) -> Self {
+        self.format = format;
+        self
+    }
+
     pub fn room(mut self, room_id: &RoomId) -> Self {
         self.room = Some(room_id.to_owned());
         self
@@ -259,13 +298,7 @@ where
     E: StaticEventContent<IsPrefix = False> + Serialize,
 {
     #[inline(always)]
-    fn construct_json(self, requires_room: bool) -> serde_json::Value {
-        // Use the `sender` preferably, or resort to the `redacted_because` sender if
-        // none has been set.
-        let sender = self
-            .sender
-            .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()));
-
+    fn construct_json(self) -> serde_json::Value {
         let mut json = json!({
             "type": E::TYPE,
             "content": self.content,
@@ -274,28 +307,30 @@ where
 
         let map = json.as_object_mut().unwrap();
 
-        if let Some(sender) = sender {
-            if !self.is_ephemeral && !self.is_global {
-                map.insert("sender".to_owned(), json!(sender));
-            }
-        } else {
-            assert!(
-                self.is_ephemeral || self.is_global,
-                "the sender must be known when building the JSON for a non read-receipt or global event"
-            );
+        if self.format.has_sender() {
+            // Use the `sender` preferably, or resort to the `redacted_because` sender if
+            // none has been set.
+            let sender = self
+                .sender
+                .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone())).expect("the sender must be known when building the JSON for a non read-receipt or global event");
+            map.insert("sender".to_owned(), json!(sender));
         }
 
-        let event_id = self
-            .event_id
-            .or_else(|| {
-                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
-            })
-            .or_else(|| (!self.no_event_id).then(|| EventId::new(server_name!("dummy.org"))));
-        if let Some(event_id) = event_id {
+        if self.format.has_event_id() && !self.no_event_id {
+            let event_id = self.event_id.unwrap_or_else(|| {
+                let server_name = self
+                    .room
+                    .as_ref()
+                    .and_then(|room_id| room_id.server_name())
+                    .unwrap_or(server_name!("dummy.org"));
+
+                EventId::new(server_name)
+            });
+
             map.insert("event_id".to_owned(), json!(event_id));
         }
 
-        if requires_room && !self.is_ephemeral && !self.is_global {
+        if self.format.has_room_id() {
             let room_id = self.room.expect("TimelineEvent requires a room id");
             map.insert("room_id".to_owned(), json!(room_id));
         }
@@ -321,7 +356,7 @@ where
     /// The generic argument `T` allows you to automatically cast the [`Raw`]
     /// event into any desired type.
     pub fn into_raw<T>(self) -> Raw<T> {
-        Raw::new(&self.construct_json(true)).unwrap().cast_unchecked()
+        Raw::new(&self.construct_json()).unwrap().cast_unchecked()
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
@@ -329,15 +364,25 @@ where
     }
 
     pub fn into_any_sync_message_like_event(self) -> AnySyncMessageLikeEvent {
-        self.into_raw().deserialize().expect("expected message like event")
+        self.format(EventFormat::SyncTimeline)
+            .into_raw()
+            .deserialize()
+            .expect("expected message like event")
     }
 
     pub fn into_original_sync_room_message_event(self) -> OriginalSyncRoomMessageEvent {
-        self.into_raw().deserialize().expect("expected original sync room message event")
+        self.format(EventFormat::SyncTimeline)
+            .into_raw()
+            .deserialize()
+            .expect("expected original sync room message event")
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
-        Raw::new(&self.construct_json(false)).unwrap().cast_unchecked()
+        self.format(EventFormat::SyncTimeline).into_raw()
+    }
+
+    pub fn into_raw_sync_state(self) -> Raw<AnySyncStateEvent> {
+        self.format(EventFormat::SyncTimeline).into_raw()
     }
 
     pub fn into_event(self) -> TimelineEvent {
@@ -512,7 +557,7 @@ where
     E: Serialize,
 {
     fn from(val: EventBuilder<E>) -> Self {
-        val.into_raw()
+        val.format(EventFormat::GlobalAccountData).into_raw()
     }
 }
 
@@ -529,7 +574,18 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
     for Raw<AnySyncStateEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(false)).unwrap().cast_unchecked()
+        val.format(EventFormat::SyncTimeline).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for Raw<SyncStateEvent<E>>
+where
+    E: StaticStateEventContent + RedactContent,
+    E::Redacted: RedactedStateEventContent,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::SyncTimeline).into_raw()
     }
 }
 
@@ -537,7 +593,82 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
     for Raw<AnyStateEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(true)).unwrap().cast_unchecked()
+        val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for Raw<StateEvent<E>>
+where
+    E: StaticStateEventContent + RedactContent,
+    E::Redacted: RedactedStateEventContent,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for Raw<AnyStrippedStateEvent>
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::StrippedState).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for Raw<StrippedStateEvent<E::PossiblyRedacted>>
+where
+    E: StaticStateEventContent,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::StrippedState).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + EphemeralRoomEventContent> From<EventBuilder<E>>
+    for Raw<AnySyncEphemeralRoomEvent>
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::Ephemeral).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for Raw<AnySyncMessageLikeEvent>
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::SyncTimeline).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for Raw<SyncMessageLikeEvent<E>>
+where
+    E: RedactContent,
+    E::Redacted: RedactedMessageLikeEventContent,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::SyncTimeline).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for Raw<AnyMessageLikeEvent>
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for Raw<MessageLikeEvent<E>>
+where
+    E: RedactContent,
+    E::Redacted: RedactedMessageLikeEventContent,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw()
     }
 }
 
@@ -580,9 +711,8 @@ impl EventFactory {
     /// Create an event from any event content.
     pub fn event<E: StaticEventContent<IsPrefix = False>>(&self, content: E) -> EventBuilder<E> {
         EventBuilder {
+            format: EventFormat::Timeline,
             sender: self.sender.clone(),
-            is_ephemeral: false,
-            is_global: false,
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
@@ -888,10 +1018,8 @@ impl EventFactory {
 
     /// Create a typing notification event.
     pub fn typing(&self, user_ids: Vec<&UserId>) -> EventBuilder<TypingEventContent> {
-        let mut builder = self
-            .event(TypingEventContent::new(user_ids.into_iter().map(ToOwned::to_owned).collect()));
-        builder.is_ephemeral = true;
-        builder
+        self.event(TypingEventContent::new(user_ids.into_iter().map(ToOwned::to_owned).collect()))
+            .format(EventFormat::Ephemeral)
     }
 
     /// Create a read receipt event.
@@ -1031,9 +1159,7 @@ impl EventFactory {
 
     /// Create a new `m.direct` global account data event.
     pub fn direct(&self) -> EventBuilder<DirectEventContent> {
-        let mut builder = self.event(DirectEventContent::default());
-        builder.is_global = true;
-        builder
+        self.global_account_data(DirectEventContent::default())
     }
 
     /// Create a new `m.ignored_user_list` global account data event.
@@ -1041,16 +1167,12 @@ impl EventFactory {
         &self,
         users: impl IntoIterator<Item = OwnedUserId>,
     ) -> EventBuilder<IgnoredUserListEventContent> {
-        let mut builder = self.event(IgnoredUserListEventContent::users(users));
-        builder.is_global = true;
-        builder
+        self.global_account_data(IgnoredUserListEventContent::users(users))
     }
 
     /// Create a new `m.push_rules` global account data event.
     pub fn push_rules(&self, rules: Ruleset) -> EventBuilder<PushRulesEventContent> {
-        let mut builder = self.event(PushRulesEventContent::new(rules));
-        builder.is_global = true;
-        builder
+        self.global_account_data(PushRulesEventContent::new(rules))
     }
 
     /// Create a new `m.space.child` state event.
@@ -1094,9 +1216,7 @@ impl EventFactory {
     where
         C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
     {
-        let mut event = self.event(content);
-        event.is_global = true;
-        event
+        self.event(content).format(EventFormat::GlobalAccountData)
     }
 }
 
@@ -1270,9 +1390,7 @@ impl ReadReceiptBuilder<'_> {
 
     /// Finalize the builder into an event builder.
     pub fn into_event(self) -> EventBuilder<ReceiptEventContent> {
-        let mut builder = self.factory.event(self.into_content());
-        builder.is_ephemeral = true;
-        builder
+        self.factory.event(self.into_content()).format(EventFormat::Ephemeral)
     }
 }
 
