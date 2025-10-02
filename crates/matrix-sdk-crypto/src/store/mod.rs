@@ -1717,17 +1717,22 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 mod tests {
     use std::pin::pin;
 
+    use assert_matches2::assert_matches;
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, RoomId};
+    use ruma::{device_id, owned_device_id, room_id, user_id, RoomId};
+    use serde_json::json;
     use vodozemac::megolm::SessionKey;
 
     use crate::{
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
-        store::types::DehydratedDeviceKey,
-        types::EventEncryptionAlgorithm,
+        store::types::{DehydratedDeviceKey, RoomKeyWithheldEntry},
+        types::{
+            events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
+            EventEncryptionAlgorithm,
+        },
         OlmMachine,
     };
 
@@ -1967,6 +1972,50 @@ mod tests {
                 ".room_keys[].sender_claimed_keys.ed25519" => insta::dynamic_redaction(map_alice_ed25519_key),
             });
         });
+    }
+
+    /// Tests that the new store format introduced in [#5737][#5737] does not
+    /// conflict with items already in the store that were serialised with the
+    /// older format.
+    ///
+    /// [#5737]: https://github.com/matrix-org/matrix-rust-sdk/pull/5737
+    #[async_test]
+    async fn test_deserialize_room_key_withheld_entry_from_to_device_event() {
+        let entry: RoomKeyWithheldEntry = serde_json::from_value(json!(
+            {
+              "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "code": "m.unauthorised",
+                "from_device": "ALICE",
+                "reason": "You are not authorised to read the message.",
+                "room_id": "!roomid:s.co",
+                "sender_key": "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0",
+                "session_id": "session123"
+              },
+              "sender": "@alice:s.co",
+              "type": "m.room_key.withheld"
+            }
+        ))
+        .unwrap();
+
+        assert_matches!(
+            entry,
+            RoomKeyWithheldEntry {
+                sender,
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content,)
+                ),
+            }
+        );
+
+        assert_eq!(sender, "@alice:s.co");
+        assert_eq!(withheld_content.room_id, "!roomid:s.co");
+        assert_eq!(withheld_content.session_id, "session123");
+        assert_eq!(
+            withheld_content.sender_key.to_base64(),
+            "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0"
+        );
+        assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
     }
 
     /// Create an inbound Megolm session for the given room.
