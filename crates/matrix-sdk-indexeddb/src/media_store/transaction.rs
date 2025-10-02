@@ -14,18 +14,22 @@
 
 use std::ops::Deref;
 
-use indexed_db_futures::transaction as inner;
-use matrix_sdk_base::media::{store::MediaRetentionPolicy, MediaRequestParameters};
+use indexed_db_futures::{cursor::CursorDirection, transaction as inner};
+use matrix_sdk_base::media::{
+    store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
+    MediaRequestParameters,
+};
 use ruma::MxcUri;
 
 use crate::{
     media_store::{
         serializer::indexed_types::{
-            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaIdKey, IndexedMediaUriKey,
+            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentSizeKey, IndexedMediaIdKey,
+            IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
         types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
-    serializer::IndexedTypeSerializer,
+    serializer::{IndexedKeyRange, IndexedTypeSerializer},
     transaction::{Transaction, TransactionError},
 };
 
@@ -151,6 +155,51 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
             medias.push(media);
         }
         Ok(medias)
+    }
+
+    /// Query IndexedDB for all [content size](IndexedMediaContentSizeKey) keys
+    /// whose associated [`Media`] matches the given
+    /// [`IgnoreMediaRetentionPolicy`].
+    pub async fn get_media_keys_by_content_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<Vec<IndexedMediaContentSizeKey>, TransactionError> {
+        self.get_keys::<Media, IndexedMediaContentSizeKey>(IndexedKeyRange::all_with_prefix(
+            ignore_policy,
+            self.serializer().inner(),
+        ))
+        .await
+    }
+
+    /// Query IndexedDB for [retention metadata][1] keys that match the given
+    /// key range. Iterate over the keys in the given
+    /// [`direction`](CursorDirection) using a cursor and fold them into an
+    /// accumulator while the given function `f` returns [`Some`].
+    ///
+    /// This function returns the final value of the accumulator and the key, if
+    /// any, which caused the fold to short circuit.
+    ///
+    /// Note that the use of cursor means that keys are read lazily from
+    /// IndexedDB.
+    ///
+    /// [1]: IndexedMediaRetentionMetadataKey
+    pub async fn fold_media_keys_by_retention_metadata_while<Acc, F>(
+        &self,
+        direction: CursorDirection,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        init: Acc,
+        f: F,
+    ) -> Result<(Acc, Option<IndexedMediaRetentionMetadataKey>), TransactionError>
+    where
+        F: FnMut(&Acc, &IndexedMediaRetentionMetadataKey) -> Option<Acc>,
+    {
+        self.fold_keys_while::<Media, IndexedMediaRetentionMetadataKey, Acc, F>(
+            direction,
+            IndexedKeyRange::all_with_prefix(ignore_policy, self.serializer().inner()),
+            init,
+            f,
+        )
+        .await
     }
 
     /// Adds [`Media`] to IndexedDB. If an item with the same key already
