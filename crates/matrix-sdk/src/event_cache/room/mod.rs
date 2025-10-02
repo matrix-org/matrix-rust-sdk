@@ -265,19 +265,24 @@ impl RoomEventCache {
 
                     // Because the state lock is taken again in `load_or_fetch_event`, we need
                     // to do this *before* we take the state lock again.
-                    if reached_start {
-                        // Prepend the thread root event to the results.
-                        let root_event = room
-                            .load_or_fetch_event(&thread_root, None)
-                            .await
-                            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
-
-                        // Note: the events are still in the reversed order at this point, so
-                        // pushing will eventually make it so that the root event is the first.
-                        result.chunk.push(root_event);
-                    }
+                    let root_event =
+                        if reached_start {
+                            // Prepend the thread root event to the results.
+                            Some(room.load_or_fetch_event(&thread_root, None).await.map_err(
+                                |err| EventCacheError::BackpaginationError(Box::new(err)),
+                            )?)
+                        } else {
+                            None
+                        };
 
                     let mut state = self.inner.state.write().await;
+
+                    // Save all the events (but the thread root) in the store.
+                    state.save_event(result.chunk.iter().cloned()).await?;
+
+                    // Note: the events are still in the reversed order at this point, so
+                    // pushing will eventually make it so that the root event is the first.
+                    result.chunk.extend(root_event);
 
                     if let Some(outcome) = state.finish_thread_network_pagination(
                         thread_root.clone(),
