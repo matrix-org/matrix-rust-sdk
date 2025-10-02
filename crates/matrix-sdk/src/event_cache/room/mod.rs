@@ -278,7 +278,7 @@ impl RoomEventCache {
                     let mut state = self.inner.state.write().await;
 
                     // Save all the events (but the thread root) in the store.
-                    state.save_event(result.chunk.iter().cloned()).await?;
+                    state.save_events(result.chunk.iter().cloned()).await?;
 
                     // Note: the events are still in the reversed order at this point, so
                     // pushing will eventually make it so that the root event is the first.
@@ -397,7 +397,7 @@ impl RoomEventCache {
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
-        if let Err(err) = self.inner.state.write().await.save_event(events).await {
+        if let Err(err) = self.inner.state.write().await.save_events(events).await {
             warn!("couldn't save event in the event cache: {err}");
         }
     }
@@ -1459,7 +1459,7 @@ mod private {
 
                 // Save a bundled thread event, if there was one.
                 if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                    self.save_event([*bundled_thread]).await?;
+                    self.save_events([*bundled_thread]).await?;
                 }
             }
 
@@ -1573,7 +1573,7 @@ mod private {
                     self.propagate_changes().await?;
                 }
                 EventLocation::Store => {
-                    self.save_event([event]).await?;
+                    self.save_events([event]).await?;
                 }
             }
 
@@ -1651,13 +1651,8 @@ mod private {
             Ok(())
         }
 
-        /// Save a single event into the database, without notifying observers.
-        ///
-        /// Note: if the event was already saved as part of a linked chunk, and
-        /// its event id may have changed, it's not safe to use this
-        /// method because it may break the link between the chunk and
-        /// the event. Instead, an update to the linked chunk must be used.
-        pub async fn save_event(
+        /// Save events into the database, without notifying observers.
+        pub async fn save_events(
             &self,
             events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
