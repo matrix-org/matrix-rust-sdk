@@ -46,7 +46,7 @@ use web_sys::IdbTransactionMode;
 use crate::{
     media_store::{
         transaction::IndexeddbMediaStoreTransaction,
-        types::{Lease, Media, MediaMetadata},
+        types::{Lease, Media, MediaCleanupTime, MediaMetadata},
     },
     serializer::{Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
@@ -359,10 +359,11 @@ impl MediaStoreInner for IndexeddbMediaStore {
         &self,
     ) -> Result<Option<SystemTime>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .last_media_cleanup_time_inner()
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+        let time = self
+            .transaction(&[MediaCleanupTime::OBJECT_STORE], IdbTransactionMode::Readonly)?
+            .get_media_cleanup_time()
+            .await?;
+        Ok(time.map(Into::into))
     }
 }
 
