@@ -560,7 +560,6 @@ async fn test_thread_edit_reflects_in_summary() {
         .await;
 
     // The root message is updated.
-    // TODO: not happening, fix here!
     assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
@@ -571,8 +570,11 @@ async fn test_thread_edit_reflects_in_summary() {
 
     // The latest event has been updated.
     assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-    assert_eq!(latest_event.identifier, TimelineEventItemId::EventId(reply_event_id.to_owned()));
-    assert_eq!(latest_event.content.as_message().unwrap().body(), "*edited* threaded reply");
+    assert_eq!(
+        latest_event.identifier,
+        TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
+    );
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "edited threaded reply");
 
     // Still only one reply; it's been edited.
     assert_eq!(summary.num_replies, 1);
