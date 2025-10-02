@@ -1015,7 +1015,7 @@ mod tests {
         let poll = timeline_item.content().as_poll().unwrap();
         assert!(poll.has_been_edited);
         assert_eq!(
-            poll.start_event_content.poll_start.question.text,
+            poll.poll_start.question.text,
             "It's one banana, Michael, how much could it cost?"
         );
     }
