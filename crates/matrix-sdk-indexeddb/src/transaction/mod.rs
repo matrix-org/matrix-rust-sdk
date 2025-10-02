@@ -18,6 +18,7 @@
 // clean up any dead code.
 #![allow(dead_code)]
 
+use futures_util::TryStreamExt;
 use indexed_db_futures::{
     internals::SystemRepr, query_source::QuerySource, transaction as inner, BuildSerde,
 };
@@ -262,6 +263,85 @@ impl<'a> Transaction<'a> {
             }
         }
         Ok(None)
+    }
+
+    /// Query IndexedDB for keys that match the given key range.
+    pub async fn get_keys<T, K>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<Vec<K>, TransactionError>
+    where
+        T: Indexed,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(range);
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        if let Some(index) = K::INDEX {
+            let index = object_store.index(index)?;
+            if let Some(cursor) = index.open_key_cursor().with_query(range).serde()?.await? {
+                return cursor.key_stream_ser().try_collect().await.map_err(Into::into);
+            }
+        } else if let Some(cursor) =
+            object_store.open_key_cursor().with_query(range).serde()?.await?
+        {
+            return cursor.key_stream_ser().try_collect().await.map_err(Into::into);
+        }
+        Ok(Vec::new())
+    }
+
+    /// Query IndexedDB for keys that match the given key range. Iterate over
+    /// the keys in the given [`direction`](CursorDirection) using a cursor and
+    /// fold them into an accumulator while the given function `f` returns
+    /// [`Some`].
+    ///
+    /// This function returns the final value of the accumulator and the key, if
+    /// any, which caused the fold to short circuit.
+    ///
+    /// Note that the use of cursor means that keys are read lazily from
+    /// IndexedDB.
+    pub async fn fold_keys_while<T, K, Acc, F>(
+        &self,
+        direction: IdbCursorDirection,
+        range: impl Into<IndexedKeyRange<K>>,
+        init: Acc,
+        mut f: F,
+    ) -> Result<(Acc, Option<K>), TransactionError>
+    where
+        T: Indexed,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
+        F: FnMut(&Acc, &K) -> Option<Acc>,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(range);
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+
+        let mut state = init;
+        if let Some(index) = K::INDEX {
+            let index = object_store.index(index)?;
+            if let Some(mut cursor) =
+                index.open_key_cursor().with_query(range).with_direction(direction).serde()?.await?
+            {
+                while let Some(key) = cursor.next_key_ser().await? {
+                    match f(&state, &key) {
+                        Some(s) => state = s,
+                        None => return Ok((state, Some(key))),
+                    }
+                }
+            }
+        } else if let Some(mut cursor) = object_store
+            .open_key_cursor()
+            .with_query(range)
+            .with_direction(direction)
+            .serde()?
+            .await?
+        {
+            while let Some(key) = cursor.next_key_ser().await? {
+                match f(&state, &key) {
+                    Some(s) => state = s,
+                    None => return Ok((state, Some(key))),
+                }
+            }
+        }
+        Ok((state, None))
     }
 
     /// Adds an item to the corresponding IndexedDB object

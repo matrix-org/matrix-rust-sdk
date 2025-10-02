@@ -3482,6 +3482,7 @@ dependencies = [
  "assert_matches2",
  "async-trait",
  "base64",
+ "futures-util",
  "getrandom 0.2.15",
  "gloo-timers",
  "gloo-utils",
