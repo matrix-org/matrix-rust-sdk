@@ -371,7 +371,7 @@ impl TimelineAction {
             AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
                 c,
             )) => {
-                let poll_state = PollState::new(c);
+                let poll_state = PollState::new(c.poll_start, c.text);
 
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
