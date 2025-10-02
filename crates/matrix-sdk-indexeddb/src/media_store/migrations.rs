@@ -113,6 +113,7 @@ pub mod v1 {
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
         pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
+        pub const MEDIA_CLEANUP_TIME_KEY: &str = "media_cleanup_time";
         pub const MEDIA: &str = "media";
         pub const MEDIA_KEY_PATH: &str = "id";
         pub const MEDIA_URI: &str = "media_uri";

@@ -46,7 +46,7 @@ use crate::{
             },
             foreign::{ignore_media_retention_policy, unix_time},
         },
-        types::{Lease, Media, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
     serializer::{
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
@@ -66,6 +66,10 @@ pub type IndexedLeaseContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`MediaRetentionPolicy`]
 pub type IndexedMediaRetentionPolicyContent = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of the last time the store was
+/// cleaned - i.e., as a [`UnixTime`]
+pub type IndexedMediaCleanupTimeContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`MediaMetadata`][1]
 ///
@@ -186,6 +190,49 @@ impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
 
     fn encode(_components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
         serializer.encode_key_as_string(keys::CORE, keys::MEDIA_RETENTION_POLICY_KEY)
+    }
+}
+
+/// Represents the [`MediaCleanupTime`] record in the [`CORE`][1] object store.
+///
+/// [1]: crate::media_store::migrations::v1::create_core_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaCleanupTime {
+    /// The primary key of the object store.
+    pub id: IndexedCoreIdKey,
+    /// The (possibly) encrypted content - i.e., a [`MediaCleanupTime`]
+    pub content: IndexedMediaCleanupTimeContent,
+}
+
+impl Indexed for MediaCleanupTime {
+    const OBJECT_STORE: &'static str = keys::CORE;
+
+    type IndexedType = IndexedMediaCleanupTime;
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(Self::IndexedType {
+            id: <IndexedCoreIdKey as IndexedKey<Self>>::encode((), serializer),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+impl IndexedKey<MediaCleanupTime> for IndexedCoreIdKey {
+    type KeyComponents<'a> = ();
+
+    fn encode(_components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        serializer.encode_key_as_string(keys::CORE, keys::MEDIA_CLEANUP_TIME_KEY)
     }
 }
 
