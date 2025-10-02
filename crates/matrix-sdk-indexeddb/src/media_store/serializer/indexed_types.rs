@@ -385,6 +385,8 @@ impl IndexedMediaContentSizeKey {
 }
 
 impl IndexedKey<Media> for IndexedMediaContentSizeKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_CONTENT_SIZE);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, IndexedMediaContentSize);
 
     fn encode(
@@ -436,6 +438,8 @@ pub struct IndexedMediaLastAccessKey(
 );
 
 impl IndexedKey<Media> for IndexedMediaLastAccessKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_LAST_ACCESS);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime);
 
     fn encode(
@@ -490,6 +494,8 @@ pub struct IndexedMediaRetentionMetadataKey(
 );
 
 impl IndexedKey<Media> for IndexedMediaRetentionMetadataKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_RETENTION_METADATA);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime, IndexedMediaContentSize);
 
     fn encode(
