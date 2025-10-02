@@ -21,7 +21,8 @@ use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
-    Error as TimelineError, MsgLikeContent, PollState, TimelineEventItemId, TimelineItem,
+    Error as TimelineError, MsgLikeContent, MsgLikeKind, PollState, TimelineEventItemId,
+    TimelineItem,
     controller::TimelineMetadata,
     event_handler::{HandleAggregationKind, TimelineAction},
     event_item::{EventTimelineItem, Profile, TimelineDetails},
@@ -167,38 +168,31 @@ impl EmbeddedEvent {
 
                     HandleAggregationKind::PollEdit { replacement } => {
                         let msg = replacement.new_content;
-                        // TODO: we need the initial poll start event! unless i refactor this code
-                        // right now
-                        //let poll_state = PollState::new(content);
-                        //Some(TimelineItemContent::MsgLike(MsgLikeContent {
-                        //kind: MsgLikeKind::Poll(poll_state),
-                        //reactions: Default::default(),
-                        //thread_root,
-                        //in_reply_to,
-                        //thread_summary,
-                        //}))
-                        None
+                        let poll_state = PollState::new(msg.poll_start, msg.text);
+                        Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Poll(poll_state),
+                            reactions: Default::default(),
+                            thread_root,
+                            in_reply_to,
+                            thread_summary,
+                        }))
                     }
 
-                    _ => None,
+                    _ => {
+                        // The event can't be represented as a standalone timeline item.
+                        warn!("embedded event is an aggregation: {}", kind.debug_string());
+                        None
+                    }
                 };
 
                 if let Some(content) = content {
                     let sender_profile = TimelineDetails::from_initial_value(
                         room_data_provider.profile_from_user_id(&sender).await,
                     );
-                    return Ok(Some(Self {
-                        content,
-                        sender,
-                        sender_profile,
-                        timestamp,
-                        identifier,
-                    }));
+                    Ok(Some(Self { content, sender, sender_profile, timestamp, identifier }))
+                } else {
+                    Ok(None)
                 }
-
-                // The event can't be represented as a standalone timeline item.
-                warn!("embedded event is an aggregation: {}", kind.debug_string());
-                Ok(None)
             }
 
             None => {
