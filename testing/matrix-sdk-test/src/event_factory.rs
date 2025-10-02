@@ -1062,7 +1062,7 @@ impl EventFactory {
     /// answers.
     pub fn poll_start(
         &self,
-        content: impl Into<String>,
+        fallback_text: impl Into<String>,
         poll_question: impl Into<String>,
         answers: Vec<impl Into<String>>,
     ) -> EventBuilder<UnstablePollStartEventContent> {
@@ -1075,7 +1075,7 @@ impl EventFactory {
         let poll_answers = answers.try_into().unwrap();
         let poll_start_content =
             UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::plain_text(
-                content,
+                fallback_text,
                 UnstablePollStartContentBlock::new(poll_question, poll_answers),
             ));
         self.event(poll_start_content)
