@@ -1446,7 +1446,11 @@ mod private {
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
-                if self.enabled_thread_support {
+                // Only add the event to a thread if:
+                // - thread support is enabled,
+                // - and if this is a sync (we can't know where to insert backpaginated events
+                //   in threads).
+                if self.enabled_thread_support && is_sync {
                     if let Some(thread_root) = extract_thread_root(event.raw()) {
                         new_events_by_thread.entry(thread_root).or_default().push(event.clone());
                     } else if let Some(event_id) = event.event_id() {
@@ -1463,7 +1467,9 @@ mod private {
                 }
             }
 
-            self.update_threads(new_events_by_thread, is_sync).await?;
+            if self.enabled_thread_support && !new_events_by_thread.is_empty() {
+                self.update_threads(new_events_by_thread).await?;
+            }
 
             Ok(())
         }
@@ -1484,18 +1490,11 @@ mod private {
         async fn update_threads(
             &mut self,
             new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
-            is_sync: bool,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
                 let thread_cache = self.get_or_reload_thread(thread_root.clone());
 
-                // If we're not in sync mode, we're receiving events from a room pagination: as
-                // we don't know where they should be put in a thread linked
-                // chunk, we don't try to be smart and include them. That's for
-                // the best.
-                if is_sync {
-                    thread_cache.add_live_events(new_events);
-                }
+                thread_cache.add_live_events(new_events);
 
                 // Add a thread summary to the (room) event which has the thread root, if we
                 // knew about it.
