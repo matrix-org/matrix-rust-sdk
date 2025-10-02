@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::time::Duration;
+use std::{
+    ops::{Add, Sub},
+    time::Duration,
+};
 
 use matrix_sdk_base::media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters};
 use ruma::time::{SystemTime, UNIX_EPOCH};
@@ -80,6 +83,67 @@ impl From<SystemTime> for UnixTime {
         match value.duration_since(UNIX_EPOCH) {
             Ok(duration) => Self::AfterEpoch(duration),
             Err(e) => Self::BeforeEpoch(e.duration()),
+        }
+    }
+}
+
+impl From<UnixTime> for SystemTime {
+    fn from(value: UnixTime) -> Self {
+        match value {
+            UnixTime::BeforeEpoch(duration) => UNIX_EPOCH - duration,
+            UnixTime::AfterEpoch(duration) => UNIX_EPOCH + duration,
+        }
+    }
+}
+
+impl Add<Duration> for UnixTime {
+    type Output = Self;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        match self {
+            Self::BeforeEpoch(duration) => {
+                // When a time is before the Unix Epoch, adding a duration
+                // means moving towards the epoch, and possibly crossing it.
+                if rhs > duration {
+                    // If we are adding a duration larger than the internal
+                    // duration, then we are crossing the Unix Epoch
+                    Self::AfterEpoch(rhs - duration)
+                } else {
+                    // Otherwise, we are simply moving towards the epoch.
+                    Self::BeforeEpoch(duration - rhs)
+                }
+            }
+            Self::AfterEpoch(duration) => {
+                // Once we have crossed the Unix Epoch, we can move forward
+                // by adding time without concern for the epoch.
+                Self::AfterEpoch(duration + rhs)
+            }
+        }
+    }
+}
+
+impl Sub<Duration> for UnixTime {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        match self {
+            Self::AfterEpoch(duration) => {
+                // When a time is after the Unix Epoch, subtracting a duration
+                // means moving towards the epoch, and possibly crossing it.
+                if rhs > duration {
+                    // If we are subtracting a duration larger than the internal
+                    // duration, then we are crossing the Unix Epoch
+                    Self::BeforeEpoch(rhs - duration)
+                } else {
+                    // Otherwise, we are simply moving towards the epoch.
+                    Self::AfterEpoch(duration - rhs)
+                }
+            }
+            Self::BeforeEpoch(duration) => {
+                // Once we have crossed the Unix Epoch, we can move backward
+                // by adding time without concern for the epoch.
+                Self::BeforeEpoch(duration + rhs)
+            }
         }
     }
 }
