@@ -456,9 +456,10 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
 }
 
 #[async_test]
-async fn test_thread_edit_reflects_in_summary() {
-    // A new edit of a threaded reply received in sync will cause the thread root's
-    // thread summary to be updated with the latest content.
+async fn test_thread_msg_edit_reflects_in_summary() {
+    // A new message edit of a threaded reply received in sync (but after we already
+    // had a thread) will cause the thread root's thread summary to be updated
+    // with the latest content.
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
@@ -578,6 +579,113 @@ async fn test_thread_edit_reflects_in_summary() {
 
     // Still only one reply; it's been edited.
     assert_eq!(summary.num_replies, 1);
+
+    // That's all, folks!
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_thread_poll_edit_reflects_in_summary() {
+    // A new poll edit of a threaded reply received in sync (at the same time as the
+    // original poll) will cause the thread root's thread summary to be updated
+    // with the latest content.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+    assert!(initial_items.is_empty());
+
+    // Have all the events, including the edit, arrive in the same sync.
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let reply_event_id = event_id!("$thread_reply");
+    let edit_reply_event_id = event_id!("$thread_reply_edit");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("thready thread mcthreadface").event_id(thread_event_id),
+                )
+                .add_timeline_event(
+                    f.poll_start(
+                        "What's your favorite colour? Red, green, or blue?",
+                        "What's your favorite colour?",
+                        vec!["Red", "Green", "Blue"],
+                    )
+                    .sender(&BOB)
+                    .in_thread(thread_event_id, thread_event_id)
+                    .event_id(reply_event_id),
+                )
+                .add_timeline_event(
+                    f.poll_edit(
+                        reply_event_id,
+                        // TODO: allow changing the fallback text too, in the event factory?
+                        //"What's your favourite colour? Red, green, blue, or yellow?",
+                        "What's your favourite colour?",
+                        vec!["Red", "Green", "Blue", "Yellow"],
+                    )
+                    .sender(&BOB)
+                    .event_id(edit_reply_event_id),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Thread root + new implicit read receipt + new thread summary + day divider.
+    // TODO: could we optimize this, to have only a single timeline update?
+    assert_eq!(timeline_updates.len(), 4);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    // At first, the summary isn't here.
+    assert!(event_item.content().thread_summary().is_none());
+    // And it only has the read receipt of its author.
+    assert_eq!(event_item.read_receipts().len(), 1);
+
+    // Then, a read-receipt "set" because Bob having sent a reply means he's seen
+    // the thread root.
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert!(event_item.content().thread_summary().is_none());
+    // Now, with Bob's read receipt.
+    assert_eq!(event_item.read_receipts().len(), 2);
+
+    // Eventually the summary comes in.
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    // Now there is a summary!
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(
+        latest_event.identifier,
+        TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
+    );
+
+    let poll_results = latest_event.content.as_poll().unwrap().results();
+    assert_eq!(poll_results.question, "What's your favourite colour?");
+    assert_eq!(poll_results.answers.len(), 4);
+
+    assert_eq!(summary.num_replies, 1);
+
+    // And finally, the day divider.
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    assert!(value.is_date_divider());
 
     // That's all, folks!
     assert_pending!(stream);
