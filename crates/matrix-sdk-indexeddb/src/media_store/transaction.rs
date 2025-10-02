@@ -23,7 +23,7 @@ use crate::{
         serializer::indexed_types::{
             IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaIdKey, IndexedMediaUriKey,
         },
-        types::{Lease, Media, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
     serializer::IndexedTypeSerializer,
     transaction::{Transaction, TransactionError},
@@ -78,6 +78,23 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.transaction
             .get_item_by_key_components::<MediaRetentionPolicy, IndexedCoreIdKey>(())
             .await
+    }
+
+    /// Query IndexedDB for the stored [`MediaCleanupTime`]
+    pub async fn get_media_cleanup_time(
+        &self,
+    ) -> Result<Option<MediaCleanupTime>, TransactionError> {
+        self.transaction.get_item_by_key_components::<MediaCleanupTime, IndexedCoreIdKey>(()).await
+    }
+
+    /// Puts a media clean up time into IndexedDB. If one already exists, it
+    /// will be overwritten.
+    pub async fn put_media_cleanup_time(
+        &self,
+        time: impl Into<MediaCleanupTime>,
+    ) -> Result<(), TransactionError> {
+        let time: MediaCleanupTime = time.into();
+        self.transaction.put_item(&time).await
     }
 
     /// Query IndexedDB for [`Media`] that matches the given
