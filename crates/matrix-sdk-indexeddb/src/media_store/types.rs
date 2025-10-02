@@ -13,7 +13,7 @@
 // limitations under the License
 
 use std::{
-    ops::{Add, Sub},
+    ops::{Add, Deref, Sub},
     time::Duration,
 };
 
@@ -145,5 +145,49 @@ impl Sub<Duration> for UnixTime {
                 Self::BeforeEpoch(duration + rhs)
             }
         }
+    }
+}
+
+/// A newtype-style wrapper around [`UnixTime`] which represents a time at which
+/// the media store was cleaned.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MediaCleanupTime(UnixTime);
+
+impl Deref for MediaCleanupTime {
+    type Target = UnixTime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<UnixTime> for MediaCleanupTime {
+    fn as_ref(&self) -> &UnixTime {
+        self.deref()
+    }
+}
+
+impl From<SystemTime> for MediaCleanupTime {
+    fn from(value: SystemTime) -> Self {
+        Self::from(UnixTime::from(value))
+    }
+}
+
+impl From<MediaCleanupTime> for SystemTime {
+    fn from(value: MediaCleanupTime) -> Self {
+        Self::from(UnixTime::from(value))
+    }
+}
+
+impl From<UnixTime> for MediaCleanupTime {
+    fn from(value: UnixTime) -> Self {
+        Self(value)
+    }
+}
+
+impl From<MediaCleanupTime> for UnixTime {
+    fn from(value: MediaCleanupTime) -> Self {
+        value.0
     }
 }
