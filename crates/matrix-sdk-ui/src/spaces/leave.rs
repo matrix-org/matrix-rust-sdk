@@ -74,13 +74,13 @@ impl LeaveSpaceHandle {
 
     /// A list of rooms to be left which next to normal [`SpaceRoom`] data also
     /// include leave specific information.
-    pub fn rooms(&self) -> Vec<LeaveSpaceRoom> {
-        self.rooms.clone()
+    pub fn rooms(&self) -> &Vec<LeaveSpaceRoom> {
+        &self.rooms
     }
 
     /// Bulk leave the given rooms. Stops when encountering an error.
     pub async fn leave(&self, filter: impl FnMut(&LeaveSpaceRoom) -> bool) -> Result<(), Error> {
-        for room in self.rooms().into_iter().filter(filter) {
+        for room in self.rooms.clone().into_iter().filter(filter) {
             if let Some(room) = self.client.get_room(&room.space_room.room_id) {
                 room.leave().await.map_err(Error::LeaveSpace)?;
             } else {
