@@ -165,14 +165,14 @@ impl RoomLatestEventsWriteGuard {
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
         let room = self.inner.weak_room.get();
-        let power_levels = match &room {
+        let (own_user_id, power_levels) = match &room {
             Some(room) => {
                 let power_levels = room.power_levels().await.ok();
 
-                Some(room.own_user_id()).zip(power_levels)
+                (Some(room.own_user_id()), power_levels)
             }
 
-            None => None,
+            None => (None, None),
         };
 
         let inner = &mut *self.inner;
@@ -180,10 +180,14 @@ impl RoomLatestEventsWriteGuard {
         let per_thread = &mut inner.per_thread;
         let room_event_cache = &inner.room_event_cache;
 
-        for_the_room.update_with_event_cache(room_event_cache, &power_levels).await;
+        for_the_room
+            .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+            .await;
 
         for latest_event in per_thread.values_mut() {
-            latest_event.update_with_event_cache(room_event_cache, &power_levels).await;
+            latest_event
+                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+                .await;
         }
     }
 
@@ -196,14 +200,14 @@ impl RoomLatestEventsWriteGuard {
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
         let room = self.inner.weak_room.get();
-        let power_levels = match &room {
+        let (own_user_id, power_levels) = match &room {
             Some(room) => {
                 let power_levels = room.power_levels().await.ok();
 
-                Some(room.own_user_id()).zip(power_levels)
+                (Some(room.own_user_id()), power_levels)
             }
 
-            None => None,
+            None => (None, None),
         };
 
         let inner = &mut *self.inner;
@@ -212,12 +216,22 @@ impl RoomLatestEventsWriteGuard {
         let room_event_cache = &inner.room_event_cache;
 
         for_the_room
-            .update_with_send_queue(send_queue_update, room_event_cache, &power_levels)
+            .update_with_send_queue(
+                send_queue_update,
+                room_event_cache,
+                own_user_id,
+                power_levels.as_ref(),
+            )
             .await;
 
         for latest_event in per_thread.values_mut() {
             latest_event
-                .update_with_send_queue(send_queue_update, room_event_cache, &power_levels)
+                .update_with_send_queue(
+                    send_queue_update,
+                    room_event_cache,
+                    own_user_id,
+                    power_levels.as_ref(),
+                )
                 .await;
         }
     }
