@@ -15,7 +15,7 @@ use matrix_sdk::{
     RumaApiError, SqliteStoreConfig, ThreadingSupport,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
-use tracing::{debug, error};
+use tracing::debug;
 use zeroize::Zeroizing;
 
 use super::client::Client;

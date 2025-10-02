@@ -59,7 +59,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{info, instrument, trace, warn};
 use types::{RoomKeyBundleInfo, StoredRoomKeyBundleData};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
