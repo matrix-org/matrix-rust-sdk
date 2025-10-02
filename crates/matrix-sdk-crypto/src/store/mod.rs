@@ -1744,7 +1744,7 @@ mod tests {
     use ruma::{
         device_id,
         events::room::{EncryptedFileInit, JsonWebKeyInit},
-        owned_mxc_uri, room_id,
+        owned_device_id, owned_mxc_uri, owned_room_id, owned_user_id, room_id,
         serde::Base64,
         user_id, RoomId,
     };
@@ -1757,7 +1757,11 @@ mod tests {
         types::{
             events::{
                 room_key_bundle::RoomKeyBundleContent,
-                room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
+                room_key_withheld::{
+                    CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
+                    RoomKeyWithheldContent,
+                },
+                ToDeviceEvent,
             },
             EventEncryptionAlgorithm,
         },
@@ -2089,6 +2093,39 @@ mod tests {
         );
     }
 
+    #[async_test]
+    async fn test_deserialize_room_key_withheld_entry_from_to_device_event() {
+        let alice = OlmMachine::new(user_id!("@alice:s.co"), device_id!("ALICE")).await;
+
+        let content = RoomKeyWithheldContent::MegolmV1AesSha2(
+            MegolmV1AesSha2WithheldContent::Unauthorised(Box::new(CommonWithheldCodeContent::new(
+                owned_room_id!("!roomid:s.co"),
+                "session123".into(),
+                alice.identity_keys().curve25519,
+                owned_device_id!("ALICE"),
+            ))),
+        );
+
+        let event = ToDeviceEvent::new(owned_user_id!("@alice:s.co"), content);
+        let entry: RoomKeyWithheldEntry =
+            serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
+
+        assert_matches!(
+            entry,
+            RoomKeyWithheldEntry {
+                sender,
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content,)
+                ),
+            }
+        );
+
+        assert_eq!(sender, "@alice:s.co");
+        assert_eq!(withheld_content.room_id, "!roomid:s.co");
+        assert_eq!(withheld_content.session_id, "session123");
+        assert_eq!(withheld_content.sender_key, alice.identity_keys().curve25519);
+        assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
+    }
     /// Create an inbound Megolm session for the given room.
     ///
     /// `olm_machine` is used to set the `sender_key` and `signing_key`
