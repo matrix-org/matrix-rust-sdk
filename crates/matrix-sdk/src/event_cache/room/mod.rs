@@ -1496,8 +1496,8 @@ mod private {
 
                 thread_cache.add_live_events(new_events);
 
-                let last_event_id = thread_cache.latest_event_id();
-                self.maybe_update_thread_summary(thread_root, last_event_id).await?;
+                let latest_event_id = thread_cache.latest_event_id();
+                self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
             }
 
             Ok(())
@@ -1507,7 +1507,7 @@ mod private {
         async fn maybe_update_thread_summary(
             &mut self,
             thread_root: OwnedEventId,
-            last_event_id: Option<OwnedEventId>,
+            latest_event_id: Option<OwnedEventId>,
         ) -> Result<(), EventCacheError> {
             // Add a thread summary to the (room) event which has the thread root, if we
             // knew about it.
@@ -1537,8 +1537,8 @@ mod private {
                 related_thread_events.len().try_into().unwrap_or(u32::MAX)
             };
 
-            if let Some(last_event_id) = last_event_id {
-                latest_reply = Some(last_event_id);
+            if let Some(latest_event_id) = latest_event_id {
+                latest_reply = Some(latest_event_id);
             }
 
             let new_summary = ThreadSummary { num_replies, latest_reply };
