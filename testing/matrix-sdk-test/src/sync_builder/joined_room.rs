@@ -97,13 +97,13 @@ impl JoinedRoomBuilder {
 
     /// Add a single read receipt to the joined room's ephemeral events.
     pub fn add_receipt(mut self, f: EventBuilder<ReceiptEventContent>) -> Self {
-        self.inner.ephemeral.events.push(f.into_raw());
+        self.inner.ephemeral.events.push(f.into());
         self
     }
 
     /// Add a typing notification event for this sync.
     pub fn add_typing(mut self, f: EventBuilder<TypingEventContent>) -> Self {
-        self.inner.ephemeral.events.push(f.into_raw());
+        self.inner.ephemeral.events.push(f.into());
         self
     }
 

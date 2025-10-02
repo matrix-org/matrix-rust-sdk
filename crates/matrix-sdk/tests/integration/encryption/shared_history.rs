@@ -117,7 +117,7 @@ async fn test_shared_history_out_of_order() {
             builder.add_invited_room(
                 InvitedRoomBuilder::new(room_id)
                     .add_state_event(alice_member_event.cast())
-                    .add_state_event(bob_member_event.into_raw()),
+                    .add_state_event(bob_member_event),
             );
         })
         .await;

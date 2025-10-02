@@ -814,13 +814,13 @@ async fn test_notification_client_mixed() {
         .display_name(sender_display_name)
         .avatar_url(sender_avatar_url)
         .membership(MembershipState::Join)
-        .into_raw();
+        .into_raw_sync_state();
 
     let own_member_event = event_factory
         .member(&my_user_id)
         .display_name("My self")
         .membership(MembershipState::Join)
-        .into_raw();
+        .into_raw_sync_state();
 
     let power_levels_event =
         event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();

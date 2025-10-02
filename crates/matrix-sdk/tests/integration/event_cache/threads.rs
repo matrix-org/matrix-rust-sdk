@@ -519,7 +519,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .text_msg("hey there")
         .in_thread(thread_root, thread_root)
         .event_id(first_reply_event_id)
-        .into_raw();
+        .into();
 
     let second_reply_event_id = event_id!("$second_reply");
     let second_reply = f
@@ -527,14 +527,14 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .mentions(Mentions::with_user_ids([own_user_id.to_owned()]))
         .in_thread(thread_root, first_reply_event_id)
         .event_id(second_reply_event_id)
-        .into_raw();
+        .into();
 
     let third_reply_event_id = event_id!("$third_reply");
     let third_reply = f
         .text_msg("ciao!")
         .in_thread(thread_root, second_reply_event_id)
         .event_id(third_reply_event_id)
-        .into_raw();
+        .into();
 
     ThreadSubscriptionTestSetup {
         server,

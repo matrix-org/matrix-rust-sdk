@@ -606,9 +606,8 @@ mod test {
             .await;
 
         let event_factory = EventFactory::new().room(invited_rom_id);
-        let bob_member_event = event_factory.member(bob_user_id).into_raw();
-        let alice_member_event =
-            event_factory.member(bob_user_id).invited(alice_user_id).into_raw();
+        let bob_member_event = event_factory.member(bob_user_id);
+        let alice_member_event = event_factory.member(bob_user_id).invited(alice_user_id);
 
         server
             .mock_sync()

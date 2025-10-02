@@ -715,7 +715,7 @@ impl PinnedEventsSync {
                 .event(RoomPinnedEventsEventContent::new(pinned_event_ids))
                 .sender(user_id!("@example:localhost"))
                 .state_key("")
-                .into_raw();
+                .into();
 
             joined_room_builder = joined_room_builder.add_state_bulk(vec![pinned_events_event]);
         }

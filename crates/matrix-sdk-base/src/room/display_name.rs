@@ -720,8 +720,8 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
 
         store.save_changes(&changes).await.unwrap();
 
@@ -755,12 +755,12 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
-        members.insert(bot.into(), f.member(bot).display_name("Bot").into_raw());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
+        members.insert(bot.into(), f.member(bot).display_name("Bot").into());
 
         let member_hints_content =
-            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into_raw();
+            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into();
         changes
             .state
             .entry(room_id.to_owned())
@@ -801,11 +801,11 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
-        members.insert(bot.into(), f.member(bot).display_name("Bot").into_raw());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
+        members.insert(bot.into(), f.member(bot).display_name("Bot").into());
 
         let member_hints_content =
-            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into_raw();
+            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into();
         changes
             .state
             .entry(room_id.to_owned())
@@ -837,8 +837,8 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
 
         store.save_changes(&changes).await.unwrap();
 
@@ -867,12 +867,12 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
-        members.insert(bot.into(), f.member(bot).display_name("Bot").into_raw());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
+        members.insert(bot.into(), f.member(bot).display_name("Bot").into());
 
         let member_hints_content =
-            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into_raw();
+            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into();
         changes
             .state
             .entry(room_id.to_owned())
@@ -914,10 +914,10 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(carol.into(), f.member(carol).display_name("Carol").into_raw());
-            members.insert(bob.into(), f.member(bob).display_name("Bob").into_raw());
-            members.insert(fred.into(), f.member(fred).display_name("Fred").into_raw());
-            members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into());
+            members.insert(bob.into(), f.member(bob).display_name("Bob").into());
+            members.insert(fred.into(), f.member(fred).display_name("Fred").into());
+            members.insert(me.into(), f.member(me).display_name("Me").into());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -928,9 +928,9 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(alice.into(), f.member(alice).display_name("Alice").into_raw());
-            members.insert(erica.into(), f.member(erica).display_name("Erica").into_raw());
-            members.insert(denis.into(), f.member(denis).display_name("Denis").into_raw());
+            members.insert(alice.into(), f.member(alice).display_name("Alice").into());
+            members.insert(erica.into(), f.member(erica).display_name("Erica").into());
+            members.insert(denis.into(), f.member(denis).display_name("Denis").into());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -971,10 +971,10 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(carol.into(), f.member(carol).display_name("Carol").into_raw());
-            members.insert(bob.into(), f.member(bob).display_name("Bob").into_raw());
-            members.insert(fred.into(), f.member(fred).display_name("Fred").into_raw());
-            members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into());
+            members.insert(bob.into(), f.member(bob).display_name("Bob").into());
+            members.insert(fred.into(), f.member(fred).display_name("Fred").into());
+            members.insert(me.into(), f.member(me).display_name("Me").into());
 
             store.save_changes(&changes).await.unwrap();
         }
@@ -986,9 +986,9 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(alice.into(), f.member(alice).display_name("Alice").into_raw());
-            members.insert(erica.into(), f.member(erica).display_name("Erica").into_raw());
-            members.insert(denis.into(), f.member(denis).display_name("Denis").into_raw());
+            members.insert(alice.into(), f.member(alice).display_name("Alice").into());
+            members.insert(erica.into(), f.member(erica).display_name("Erica").into());
+            members.insert(denis.into(), f.member(denis).display_name("Denis").into());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -1018,8 +1018,8 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
-        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into());
+        members.insert(me.into(), f.member(me).display_name("Me").into());
 
         store.save_changes(&changes).await.unwrap();
 
