@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter::once, ops::Not};
+use std::{
+    iter::once,
+    ops::{Deref, Not},
+};
 
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
@@ -1015,8 +1018,16 @@ fn filter_any_sync_state_event(
                 }
 
                 MembershipState::Invite => {
-                    // We can only decide whether the user is invited if the event isn't redacted.
-                    matches!(member, SyncStateEvent::Original(_))
+                    // The current _is_ invited (not someone else).
+                    match member {
+                        // We can only decide whether the user is invited if the event isn't
+                        // redacted.
+                        SyncStateEvent::Original(state) => {
+                            Some(state.state_key.deref()) == own_user_id
+                        }
+
+                        _ => false,
+                    }
                 }
 
                 _ => false,
@@ -1279,6 +1290,38 @@ mod tests_latest_event_content {
     }
 
     #[test]
+    fn test_invite_state_event() {
+        use ruma::events::room::member::MembershipState;
+
+        // The current user is receiving an invite.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_invite_state_event_for_someone_else() {
+        use ruma::events::room::member::MembershipState;
+
+        // The current user sees an invite but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Invite)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
     fn test_room_message_verification_request() {
         use ruma::{OwnedDeviceId, events::room::message};
 
@@ -1296,21 +1339,6 @@ mod tests_latest_event_content {
                     .into_event()
             }
             is not a candidate
-        );
-    }
-
-    #[test]
-    fn test_invite() {
-        use ruma::events::room::member::MembershipState;
-
-        assert_latest_event_content!(
-            event | event_factory | {
-                event_factory
-                    .member(user_id!("@mnt_io:matrix.org"))
-                    .membership(MembershipState::Invite)
-                    .into_event()
-            }
-            is a candidate
         );
     }
 }
