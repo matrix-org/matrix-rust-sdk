@@ -36,6 +36,7 @@ use ruma::{
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        do_not_disturb::DoNotDisturbEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         macros::EventContent,
         member_hints::MemberHintsEventContent,
@@ -1042,6 +1043,16 @@ impl EventFactory {
         users: impl IntoIterator<Item = OwnedUserId>,
     ) -> EventBuilder<IgnoredUserListEventContent> {
         let mut builder = self.event(IgnoredUserListEventContent::users(users));
+        builder.is_global = true;
+        builder
+    }
+
+    /// Create a new `dm.filament.do_not_disturb` global account data event.
+    pub fn do_not_disturb_room_list(
+        &self,
+        rooms: impl IntoIterator<Item = OwnedRoomId>,
+    ) -> EventBuilder<DoNotDisturbEventContent> {
+        let mut builder = self.event(rooms.into_iter().collect());
         builder.is_global = true;
         builder
     }

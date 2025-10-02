@@ -25,6 +25,12 @@ All notable changes to this project will be documented in this file.
   `RoomListItem`.
   ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
 
+### Features
+
+- Apply "Do not Disturb" room list when filtering notifications as
+  per MSC4359
+  ([#5687](https://github.com/matrix-org/matrix-rust-sdk/pull/5687))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features

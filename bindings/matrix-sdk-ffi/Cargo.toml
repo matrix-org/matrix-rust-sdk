@@ -27,6 +27,7 @@ crate-type = [
 default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
+unstable-msc4359 = ["matrix-sdk-ui/unstable-msc4359"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
 # Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.

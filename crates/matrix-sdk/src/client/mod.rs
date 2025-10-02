@@ -2876,6 +2876,13 @@ impl Client {
         self.base_client().is_user_ignored(user_id).await
     }
 
+    /// Checks whether the provided `room_id` belongs to a room in "Do not
+    /// Disturb" mode.
+    #[cfg(feature = "unstable-msc4359")]
+    pub async fn is_room_in_do_not_disturb_mode(&self, room_id: &RoomId) -> bool {
+        self.base_client().is_room_in_do_not_disturb_mode(room_id).await
+    }
+
     /// Gets the `max_upload_size` value from the homeserver, getting either a
     /// cached value or with a `/_matrix/client/v1/media/config` request if it's
     /// missing.
