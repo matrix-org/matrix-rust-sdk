@@ -20,7 +20,8 @@
 
 use futures_util::TryStreamExt;
 use indexed_db_futures::{
-    internals::SystemRepr, query_source::QuerySource, transaction as inner, BuildSerde,
+    cursor::CursorDirection, internals::SystemRepr, query_source::QuerySource,
+    transaction as inner, BuildSerde,
 };
 use serde::{
     de::{DeserializeOwned, Error},
@@ -28,7 +29,6 @@ use serde::{
 };
 use thiserror::Error;
 use wasm_bindgen::JsValue;
-use web_sys::IdbCursorDirection;
 
 use crate::{
     error::{AsyncErrorDeps, GenericError},
@@ -240,7 +240,7 @@ impl<'a> Transaction<'a> {
         K: IndexedKey<T> + Serialize,
     {
         let range = self.serializer.encode_key_range::<T, K>(range);
-        let direction = IdbCursorDirection::Prev;
+        let direction = CursorDirection::Prev;
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
         if let Some(index) = K::INDEX {
             let index = object_store.index(index)?;
@@ -301,7 +301,7 @@ impl<'a> Transaction<'a> {
     /// IndexedDB.
     pub async fn fold_keys_while<T, K, Acc, F>(
         &self,
-        direction: IdbCursorDirection,
+        direction: CursorDirection,
         range: impl Into<IndexedKeyRange<K>>,
         init: Acc,
         mut f: F,
