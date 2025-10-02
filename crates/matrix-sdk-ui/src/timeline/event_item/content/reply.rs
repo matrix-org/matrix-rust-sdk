@@ -21,7 +21,7 @@ use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
-    Error as TimelineError, TimelineEventItemId, TimelineItem,
+    Error as TimelineError, MsgLikeContent, PollState, TimelineEventItemId, TimelineItem,
     controller::TimelineMetadata,
     event_handler::{HandleAggregationKind, TimelineAction},
     event_item::{EventTimelineItem, Profile, TimelineDetails},
@@ -143,30 +143,50 @@ impl EmbeddedEvent {
 
             Some(TimelineAction::HandleAggregation { kind, .. }) => {
                 // As an exception, edits are allowed to be embedded events.
-                if let HandleAggregationKind::Edit { replacement } = kind {
-                    let msg = replacement.new_content;
 
-                    // For an embedded event, we don't need to fill a few fields; it's in an
-                    // embedded view context, so there's no strong need to show all detailed
-                    // information about it.
-                    let reactions = Default::default();
-                    let thread_root = None;
-                    let in_reply_to = None;
-                    let thread_summary = None;
+                // For an embedded event, we don't need to fill a few fields; it's in an
+                // embedded view context, so there's no strong need to show all detailed
+                // information about it.
+                let reactions = Default::default();
+                let thread_root = None;
+                let in_reply_to = None;
+                let thread_summary = None;
 
-                    let content = TimelineItemContent::message(
-                        msg.msgtype,
-                        msg.mentions,
-                        reactions,
-                        thread_root,
-                        in_reply_to,
-                        thread_summary,
-                    );
+                let content = match kind {
+                    HandleAggregationKind::Edit { replacement } => {
+                        let msg = replacement.new_content;
+                        Some(TimelineItemContent::message(
+                            msg.msgtype,
+                            msg.mentions,
+                            reactions,
+                            thread_root,
+                            in_reply_to,
+                            thread_summary,
+                        ))
+                    }
 
+                    HandleAggregationKind::PollEdit { replacement } => {
+                        let msg = replacement.new_content;
+                        // TODO: we need the initial poll start event! unless i refactor this code
+                        // right now
+                        //let poll_state = PollState::new(content);
+                        //Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                        //kind: MsgLikeKind::Poll(poll_state),
+                        //reactions: Default::default(),
+                        //thread_root,
+                        //in_reply_to,
+                        //thread_summary,
+                        //}))
+                        None
+                    }
+
+                    _ => None,
+                };
+
+                if let Some(content) = content {
                     let sender_profile = TimelineDetails::from_initial_value(
                         room_data_provider.profile_from_user_id(&sender).await,
                     );
-
                     return Ok(Some(Self {
                         content,
                         sender,
