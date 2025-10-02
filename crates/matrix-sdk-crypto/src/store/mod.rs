@@ -77,8 +77,9 @@ use crate::{
         Session, StaticAccountData,
     },
     types::{
-        events::room_key_withheld::MegolmV1AesSha2WithheldContent, BackupSecrets,
-        CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport, SecretsBundle,
+        events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldEntry},
+        BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
+        SecretsBundle,
     },
     verification::VerificationMachine,
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -1692,11 +1693,13 @@ impl Store {
                 | MegolmV1AesSha2WithheldContent::Unavailable(c),
             ) = withheld
             {
-                changes
-                    .withheld_session_info
-                    .entry(c.room_id.to_owned())
-                    .or_default()
-                    .insert(c.session_id.to_owned(), withheld.to_owned().into());
+                changes.withheld_session_info.entry(c.room_id.to_owned()).or_default().insert(
+                    c.session_id.to_owned(),
+                    RoomKeyWithheldEntry::Bundle {
+                        sender: bundle_info.sender_user.clone(),
+                        content: withheld.to_owned(),
+                    },
+                );
             }
         }
         self.save_changes(changes).await?;
@@ -2079,9 +2082,12 @@ mod tests {
 
         assert_matches!(
             bob.store().get_withheld_info(room_id, sessions[1].session_id()).await.unwrap(),
-            Some(RoomKeyWithheldEntry::Bundle(RoomKeyWithheldContent::MegolmV1AesSha2(
-                MegolmV1AesSha2WithheldContent::Unauthorised(_)
-            )))
+            Some(RoomKeyWithheldEntry::Bundle {
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                ),
+                ..
+            })
         );
     }
 
