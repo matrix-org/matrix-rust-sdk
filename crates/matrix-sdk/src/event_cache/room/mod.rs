@@ -1496,59 +1496,62 @@ mod private {
 
                 thread_cache.add_live_events(new_events);
 
-                // Add a thread summary to the (room) event which has the thread root, if we
-                // knew about it.
-
                 let last_event_id = thread_cache.latest_event_id();
-
-                let Some((location, mut target_event)) = self.find_event(&thread_root).await?
-                else {
-                    trace!(%thread_root, "thread root event is missing from the linked chunk");
-                    continue;
-                };
-
-                let prev_summary = target_event.thread_summary.summary();
-                let mut latest_reply =
-                    prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
-
-                // Recompute the thread summary, if needs be.
-
-                // Read the latest number of thread replies from the store.
-                //
-                // Implementation note: since this is based on the `m.relates_to` field, and
-                // that field can only be present on room messages, we don't have to
-                // worry about filtering out aggregation events (like
-                // reactions/edits/etc.). Pretty neat, huh?
-                let num_replies = {
-                    let store_guard = &*self.store.lock().await?;
-                    let related_thread_events = store_guard
-                        .find_event_relations(
-                            &self.room,
-                            &thread_root,
-                            Some(&[RelationType::Thread]),
-                        )
-                        .await?;
-                    related_thread_events.len().try_into().unwrap_or(u32::MAX)
-                };
-
-                if let Some(last_event_id) = last_event_id {
-                    latest_reply = Some(last_event_id);
-                }
-
-                let new_summary = ThreadSummary { num_replies, latest_reply };
-
-                if prev_summary == Some(&new_summary) {
-                    trace!(%thread_root, "thread summary is already up-to-date");
-                    continue;
-                }
-
-                // Trigger an update to observers.
-                trace!(%thread_root, "updating thread summary: {new_summary:?}");
-                target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
-                self.replace_event_at(location, target_event).await?;
+                self.maybe_update_thread_summary(thread_root, last_event_id).await?;
             }
 
             Ok(())
+        }
+
+        /// Update a thread summary on the given thread root, if needs be.
+        async fn maybe_update_thread_summary(
+            &mut self,
+            thread_root: OwnedEventId,
+            last_event_id: Option<OwnedEventId>,
+        ) -> Result<(), EventCacheError> {
+            // Add a thread summary to the (room) event which has the thread root, if we
+            // knew about it.
+
+            let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
+                trace!(%thread_root, "thread root event is missing from the linked chunk");
+                return Ok(());
+            };
+
+            let prev_summary = target_event.thread_summary.summary();
+            let mut latest_reply =
+                prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
+
+            // Recompute the thread summary, if needs be.
+
+            // Read the latest number of thread replies from the store.
+            //
+            // Implementation note: since this is based on the `m.relates_to` field, and
+            // that field can only be present on room messages, we don't have to
+            // worry about filtering out aggregation events (like
+            // reactions/edits/etc.). Pretty neat, huh?
+            let num_replies = {
+                let store_guard = &*self.store.lock().await?;
+                let related_thread_events = store_guard
+                    .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
+                    .await?;
+                related_thread_events.len().try_into().unwrap_or(u32::MAX)
+            };
+
+            if let Some(last_event_id) = last_event_id {
+                latest_reply = Some(last_event_id);
+            }
+
+            let new_summary = ThreadSummary { num_replies, latest_reply };
+
+            if prev_summary == Some(&new_summary) {
+                trace!(%thread_root, "thread summary is already up-to-date");
+                return Ok(());
+            }
+
+            // Trigger an update to observers.
+            trace!(%thread_root, "updating thread summary: {new_summary:?}");
+            target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
+            self.replace_event_at(location, target_event).await
         }
 
         /// Replaces a single event, be it saved in memory or in the store.
