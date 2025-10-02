@@ -619,7 +619,7 @@ mod private {
             OwnedLinkedChunkId, Position, Update,
             lazy_loader::{self},
         },
-        serde_helpers::extract_thread_root,
+        serde_helpers::{extract_edit_target, extract_thread_root},
         sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
@@ -1446,17 +1446,38 @@ mod private {
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
-                // Only add the event to a thread if:
-                // - thread support is enabled,
-                // - and if this is a sync (we can't know where to insert backpaginated events
-                //   in threads).
-                if self.enabled_thread_support && is_sync {
-                    if let Some(thread_root) = extract_thread_root(event.raw()) {
-                        new_events_by_thread.entry(thread_root).or_default().push(event.clone());
-                    } else if let Some(event_id) = event.event_id() {
-                        // If we spot the root of a thread, add it to its linked chunk.
-                        if self.threads.contains_key(&event_id) {
-                            new_events_by_thread.entry(event_id).or_default().push(event.clone());
+                if self.enabled_thread_support {
+                    // Only add the event to a thread if:
+                    // - thread support is enabled,
+                    // - and if this is a sync (we can't know where to insert backpaginated events
+                    //   in threads).
+                    if is_sync {
+                        if let Some(thread_root) = extract_thread_root(event.raw()) {
+                            new_events_by_thread
+                                .entry(thread_root)
+                                .or_default()
+                                .push(event.clone());
+                        } else if let Some(event_id) = event.event_id() {
+                            // If we spot the root of a thread, add it to its linked chunk.
+                            if self.threads.contains_key(&event_id) {
+                                new_events_by_thread
+                                    .entry(event_id)
+                                    .or_default()
+                                    .push(event.clone());
+                            }
+                        }
+                    }
+
+                    // Look for edits that may apply to a thread; we'll process them later.
+                    if let Some(edit_target) = extract_edit_target(event.raw()) {
+                        // If the edited event is known, and part of a thread,
+                        if let Some((_location, edit_target_event)) =
+                            self.find_event(&edit_target).await?
+                            && let Some(thread_root) = extract_thread_root(edit_target_event.raw())
+                        {
+                            // Mark the thread for processing, unless it was already marked as
+                            // such.
+                            new_events_by_thread.entry(thread_root).or_default();
                         }
                     }
                 }
@@ -1467,7 +1488,7 @@ mod private {
                 }
             }
 
-            if self.enabled_thread_support && !new_events_by_thread.is_empty() {
+            if self.enabled_thread_support {
                 self.update_threads(new_events_by_thread).await?;
             }
 
@@ -1496,7 +1517,19 @@ mod private {
 
                 thread_cache.add_live_events(new_events);
 
-                let latest_event_id = thread_cache.latest_event_id();
+                let mut latest_event_id = thread_cache.latest_event_id();
+
+                // If there's an edit to the latest event in the thread, use the latest edit
+                // event id as the latest event id for the thread summary.
+                if let Some(event_id) = latest_event_id.as_ref()
+                    && let Some((_, edits)) = self
+                        .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+                        .await?
+                    && let Some(latest_edit) = edits.last()
+                {
+                    latest_event_id = latest_edit.event_id();
+                }
+
                 self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
             }
 
