@@ -34,7 +34,10 @@ use crate::{
         SenderData,
     },
     types::{
-        events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldEntry},
+        events::{
+            room_key_bundle::RoomKeyBundleContent,
+            room_key_withheld::{RoomKeyWithheldContent, RoomKeyWithheldEvent},
+        },
         EventEncryptionAlgorithm,
     },
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
@@ -487,6 +490,22 @@ pub struct RoomKeyWithheldInfo {
     /// The `m.room_key.withheld` event that notified us that the key is being
     /// withheld.
     pub withheld_event: RoomKeyWithheldEntry,
+}
+
+/// Represents an entry for a withheld room key event, which can be either a
+/// to-device event or a bundle entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoomKeyWithheldEntry {
+    /// The ID of the user who sent the bundle.
+    pub sender: OwnedUserId,
+    /// The contents of a single withheld entry in the bundle.
+    pub content: RoomKeyWithheldContent,
+}
+
+impl From<RoomKeyWithheldEvent> for RoomKeyWithheldEntry {
+    fn from(value: RoomKeyWithheldEvent) -> Self {
+        Self { sender: value.sender, content: value.content }
+    }
 }
 
 /// Information about a received historic room key bundle.

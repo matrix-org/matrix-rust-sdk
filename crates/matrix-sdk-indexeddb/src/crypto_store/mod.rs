@@ -30,12 +30,11 @@ use matrix_sdk_crypto::{
     },
     store::{
         types::{
-            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
-            StoredRoomKeyBundleData,
+            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
+            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
         CryptoStore, CryptoStoreError,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEntry,
     vodozemac::base64_encode,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };

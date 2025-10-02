@@ -35,7 +35,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         SenderDataType, Session,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEntry,
+    store::types::RoomKeyWithheldEntry,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, UserIdentityData,
 };
 

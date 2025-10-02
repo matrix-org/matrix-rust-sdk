@@ -76,10 +76,10 @@ use crate::{
         Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
         Session, StaticAccountData,
     },
+    store::types::RoomKeyWithheldEntry,
     types::{
-        events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldEntry},
-        BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
-        SecretsBundle,
+        events::room_key_withheld::MegolmV1AesSha2WithheldContent, BackupSecrets,
+        CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport, SecretsBundle,
     },
     verification::VerificationMachine,
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -1695,7 +1695,7 @@ impl Store {
             {
                 changes.withheld_session_info.entry(c.room_id.to_owned()).or_default().insert(
                     c.session_id.to_owned(),
-                    RoomKeyWithheldEntry::Bundle {
+                    RoomKeyWithheldEntry {
                         sender: bundle_info.sender_user.clone(),
                         content: withheld.to_owned(),
                     },
@@ -1753,13 +1753,11 @@ mod tests {
     use crate::{
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
-        store::types::{DehydratedDeviceKey, StoredRoomKeyBundleData},
+        store::types::{DehydratedDeviceKey, RoomKeyWithheldEntry, StoredRoomKeyBundleData},
         types::{
             events::{
                 room_key_bundle::RoomKeyBundleContent,
-                room_key_withheld::{
-                    MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEntry,
-                },
+                room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
             },
             EventEncryptionAlgorithm,
         },
@@ -2082,7 +2080,7 @@ mod tests {
 
         assert_matches!(
             bob.store().get_withheld_info(room_id, sessions[1].session_id()).await.unwrap(),
-            Some(RoomKeyWithheldEntry::Bundle {
+            Some(RoomKeyWithheldEntry {
                 content: RoomKeyWithheldContent::MegolmV1AesSha2(
                     MegolmV1AesSha2WithheldContent::Unauthorised(_)
                 ),

@@ -45,7 +45,7 @@ use crate::{
         OutboundGroupSession, PickledAccount, PickledInboundGroupSession, PickledSession,
         PrivateCrossSigningIdentity, SenderDataType, StaticAccountData,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEntry,
+    store::types::RoomKeyWithheldEntry,
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
@@ -1272,11 +1272,10 @@ mod integration_tests {
         store::{
             types::{
                 BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-                RoomSettings, StoredRoomKeyBundleData, TrackedUser,
+                RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData, TrackedUser,
             },
             CryptoStore,
         },
-        types::events::room_key_withheld::RoomKeyWithheldEntry,
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
     };
 

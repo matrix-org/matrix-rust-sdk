@@ -17,56 +17,13 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{
-    events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId, OwnedUserId,
-    UserId,
-};
+use ruma::{events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
 use crate::types::{deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm};
-
-/// Represents an entry for a withheld room key event, which can be either a
-/// to-device event or a bundle entry.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RoomKeyWithheldEntry {
-    /// A to-device event containing withheld room key information.
-    ToDevice(RoomKeyWithheldEvent),
-    /// Content held within a room key bundle.
-    Bundle {
-        /// The ID of the user who sent the bundle.
-        sender: OwnedUserId,
-        /// The contents of a single withheld entry in the bundle.
-        content: RoomKeyWithheldContent,
-    },
-}
-
-impl RoomKeyWithheldEntry {
-    /// Returns a reference to the underlying `RoomKeyWithheldContent`.
-    pub fn content(&self) -> &RoomKeyWithheldContent {
-        match self {
-            RoomKeyWithheldEntry::ToDevice(ev) => &ev.content,
-            RoomKeyWithheldEntry::Bundle { content, .. } => content,
-        }
-    }
-
-    /// Returns the sender's user ID, if available.
-    pub fn sender(&self) -> &UserId {
-        match self {
-            RoomKeyWithheldEntry::ToDevice(ev) => &ev.sender,
-            RoomKeyWithheldEntry::Bundle { sender, .. } => sender,
-        }
-    }
-}
-
-impl From<RoomKeyWithheldEvent> for RoomKeyWithheldEntry {
-    fn from(value: RoomKeyWithheldEvent) -> Self {
-        Self::ToDevice(value)
-    }
-}
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;

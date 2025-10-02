@@ -28,12 +28,11 @@ use matrix_sdk_crypto::{
     },
     store::{
         types::{
-            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
-            StoredRoomKeyBundleData,
+            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
+            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
         CryptoStore,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEntry,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -1894,7 +1893,7 @@ mod tests {
             .expect("This session should be withheld")
             .unwrap();
 
-        assert_eq!(withheld_info.content().withheld_code(), WithheldCode::Unverified);
+        assert_eq!(withheld_info.content.withheld_code(), WithheldCode::Unverified);
 
         let backup_keys = database.load_backup_keys().await.expect("backup key should be cached");
         assert_eq!(backup_keys.backup_version.unwrap(), "6");

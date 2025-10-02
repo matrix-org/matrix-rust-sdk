@@ -53,7 +53,8 @@ macro_rules! cryptostore_integration_tests {
                 store::{
                     types::{
                         BackupDecryptionKey, Changes, DehydratedDeviceKey, DeviceChanges,
-                        IdentityChanges, PendingChanges, StoredRoomKeyBundleData, RoomSettings,
+                        IdentityChanges, PendingChanges, StoredRoomKeyBundleData, RoomKeyWithheldEntry,
+                        RoomSettings
                     },
                     CryptoStore, GossipRequest,
                 },
@@ -66,7 +67,6 @@ macro_rules! cryptostore_integration_tests {
                         room_key_withheld::{
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent,
-                            RoomKeyWithheldEntry,
                         },
                         room_key_bundle::RoomKeyBundleContent,
                         secret_send::SecretSendContent,
@@ -1193,16 +1193,16 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_matches!(
                     is_withheld, Some(event)
-                    if event.content().algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
-                    event.content().withheld_code() == WithheldCode::Unverified
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Unverified
                 );
 
                 let is_withheld = store.get_withheld_info(room_id, session_id_2).await.unwrap();
 
                 assert_matches!(
                     is_withheld, Some(event)
-                    if event.content().algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
-                    event.content().withheld_code() == WithheldCode::Blacklisted
+                    if event.content.algorithm() == EventEncryptionAlgorithm::MegolmV1AesSha2 &&
+                    event.content.withheld_code() == WithheldCode::Blacklisted
                 );
 
                 let other_room_id = room_id!("!nQRyiRFuyUhXeaQfiR:example.com");

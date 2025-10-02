@@ -2029,7 +2029,7 @@ impl OlmMachine {
                         .store
                         .get_withheld_info(room_id, content.session_id())
                         .await?
-                        .map(|e| e.content().withheld_code());
+                        .map(|e| e.content.withheld_code());
 
                     if withheld_code.is_some() {
                         // Partially withheld, report with a withheld code if we have one.
@@ -2145,7 +2145,7 @@ impl OlmMachine {
                     .store
                     .get_withheld_info(room_id, session_id)
                     .await?
-                    .map(|e| e.content().withheld_code());
+                    .map(|e| e.content.withheld_code());
                 Err(MegolmError::MissingRoomKey(withheld_code))
             }
         }
