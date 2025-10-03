@@ -237,6 +237,7 @@ impl EventCacheStore for MemoryStore {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)] // There seems to be a false positive when importing the test macros.
 mod tests {
     use super::{MemoryStore, Result};
     use crate::{event_cache_store_integration_tests, event_cache_store_integration_tests_time};
