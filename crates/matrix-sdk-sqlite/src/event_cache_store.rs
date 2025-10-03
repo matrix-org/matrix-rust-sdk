@@ -165,7 +165,7 @@ impl SqliteEventCacheStore {
         })
     }
 
-    // Acquire a connection for executing read operations.
+    /// Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         trace!("Taking a `read` connection");
@@ -182,7 +182,7 @@ impl SqliteEventCacheStore {
         Ok(connection)
     }
 
-    // Acquire a connection for executing write operations.
+    /// Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         trace!("Taking a `write` connection");
