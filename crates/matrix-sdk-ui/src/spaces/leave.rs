@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{Client, room::RoomMemberRole};
+use matrix_sdk::{Client, RoomState, room::RoomMemberRole};
 use ruma::{Int, OwnedRoomId};
 
 use crate::spaces::{Error, SpaceRoom};
@@ -45,28 +45,34 @@ impl LeaveSpaceHandle {
         let mut rooms = Vec::new();
 
         for room_id in &room_ids {
-            if let Some(room) = client.get_room(room_id) {
-                let users_to_power_levels = room.users_with_power_levels().await;
+            let Some(room) = client.get_room(room_id) else {
+                continue;
+            };
 
-                let is_last_admin = users_to_power_levels
-                    .iter()
-                    .filter(|(_, power_level)| {
-                        let Some(power_level) = Int::new(**power_level) else {
-                            return false;
-                        };
-
-                        RoomMemberRole::suggested_role_for_power_level(power_level.into())
-                            == RoomMemberRole::Administrator
-                    })
-                    .map(|p| p.0)
-                    .collect::<Vec<_>>()
-                    == vec![room.own_user_id()];
-
-                rooms.push(LeaveSpaceRoom {
-                    space_room: SpaceRoom::new_from_known(&room, 0),
-                    is_last_admin,
-                });
+            if room.state() != RoomState::Joined {
+                continue;
             }
+
+            let users_to_power_levels = room.users_with_power_levels().await;
+
+            let is_last_admin = users_to_power_levels
+                .iter()
+                .filter(|(_, power_level)| {
+                    let Some(power_level) = Int::new(**power_level) else {
+                        return false;
+                    };
+
+                    RoomMemberRole::suggested_role_for_power_level(power_level.into())
+                        == RoomMemberRole::Administrator
+                })
+                .map(|p| p.0)
+                .collect::<Vec<_>>()
+                == vec![room.own_user_id()];
+
+            rooms.push(LeaveSpaceRoom {
+                space_room: SpaceRoom::new_from_known(&room, 0),
+                is_last_admin,
+            });
         }
 
         Self { client, rooms }
@@ -97,7 +103,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{
+        InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, async_test,
+        event_factory::EventFactory,
+    };
     use ruma::{RoomVersionId, owned_user_id, room_id};
 
     use crate::spaces::SpaceService;
@@ -108,7 +117,7 @@ mod tests {
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
         let space_service = SpaceService::new(client.clone());
-        let factory = EventFactory::new();
+        let factory = EventFactory::new().sender(user_id);
 
         server.mock_room_state_encryption().plain().mount().await;
 
@@ -117,6 +126,8 @@ mod tests {
         let parent_space_id = room_id!("!parent_space:example.org");
         let child_space_id_1 = room_id!("!child_space_1:example.org");
         let child_space_id_2 = room_id!("!child_space_2:example.org");
+        let left_room_id = room_id!("!left_room:example.org");
+        let invited_room_id = room_id!("!invited_room:example.org");
 
         let mut power_levels = BTreeMap::from([
             (user_id.to_owned(), 100.into()),
@@ -130,8 +141,7 @@ mod tests {
                     .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
                     .add_state_event(
                         factory
-                            .space_parent(parent_space_id.to_owned(), child_space_id_1.to_owned())
-                            .sender(user_id),
+                            .space_parent(parent_space_id.to_owned(), child_space_id_1.to_owned()),
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
@@ -148,14 +158,17 @@ mod tests {
                     .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
                     .add_state_event(
                         factory
-                            .space_parent(parent_space_id.to_owned(), child_space_id_2.to_owned())
-                            .sender(user_id),
+                            .space_parent(parent_space_id.to_owned(), child_space_id_2.to_owned()),
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
                     ),
             )
             .await;
+
+        server.sync_room(&client, LeftRoomBuilder::new(invited_room_id)).await;
+        server.sync_room(&client, InvitedRoomBuilder::new(invited_room_id)).await;
+
         server
             .sync_room(
                 &client,
@@ -163,13 +176,17 @@ mod tests {
                     .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
                     .add_state_event(
                         factory
-                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned())
-                            .sender(user_id),
+                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned()),
                     )
                     .add_state_event(
                         factory
-                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned())
-                            .sender(user_id),
+                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned()),
+                    )
+                    .add_state_event(
+                        factory.space_child(parent_space_id.to_owned(), left_room_id.to_owned()),
+                    )
+                    .add_state_event(
+                        factory.space_child(parent_space_id.to_owned(), invited_room_id.to_owned()),
                     ),
             )
             .await;
