@@ -1001,7 +1001,8 @@ fn filter_any_sync_state_event(
                     let can_accept_or_decline_knocks = match (own_user_id, power_levels) {
                         (Some(own_user_id), Some(room_power_levels)) => {
                             room_power_levels.user_can_invite(own_user_id)
-                                || room_power_levels.user_can_kick(own_user_id)
+                                || room_power_levels
+                                    .user_can_kick_user(own_user_id, member.state_key())
                         }
                         _ => false,
                     };
@@ -1246,7 +1247,8 @@ mod tests_latest_event_content {
 
         let mut room_power_levels =
             RoomPowerLevels::new(RoomPowerLevelsSource::None, &AuthorizationRules::V1, []);
-        room_power_levels.users_default = 5.into();
+        room_power_levels.users.insert(user_id.to_owned(), 5.into());
+        room_power_levels.users.insert(other_user_id.to_owned(), 4.into());
 
         // Cannot accept. Cannot decline.
         {
@@ -1285,6 +1287,22 @@ mod tests_latest_event_content {
             assert!(
                 filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)),
                 "can accept, can decline",
+            );
+        }
+
+        // Cannot accept. Can decline. But with an other user ID with at least the same
+        // levels, i.e. the current user cannot kick another user with the same
+        // or higher levels.
+        {
+            room_power_levels.users.insert(user_id.to_owned(), 5.into());
+            room_power_levels.users.insert(other_user_id.to_owned(), 5.into());
+
+            room_power_levels.invite = 10.into();
+            room_power_levels.kick = 0.into();
+
+            assert!(
+                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)).not(),
+                "cannot accept, can decline, at least same user levels",
             );
         }
     }
