@@ -32,10 +32,11 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyStateEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
-        EphemeralRoomEventContent, False, GlobalAccountDataEventContent, Mentions,
-        MessageLikeEvent, MessageLikeEventContent, RedactContent, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, StateEvent, StateEventContent, StaticEventContent,
-        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        EphemeralRoomEventContent, EventContentFromType, False, GlobalAccountDataEventContent,
+        Mentions, MessageLikeEvent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
+        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent, StateEvent,
+        StateEventContent, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
+        SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
@@ -542,12 +543,30 @@ where
     }
 }
 
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for AnySyncTimelineEvent
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnySyncTimelineEvent>::from(val).deserialize().expect("expected sync timeline event")
+    }
+}
+
 impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for Raw<AnyTimelineEvent>
 where
     E: Serialize,
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_timeline()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for AnyTimelineEvent
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyTimelineEvent>::from(val).deserialize().expect("expected timeline event")
     }
 }
 
@@ -558,6 +577,17 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.format(EventFormat::GlobalAccountData).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for AnyGlobalAccountDataEvent
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyGlobalAccountDataEvent>::from(val)
+            .deserialize()
+            .expect("expected global account data")
     }
 }
 
@@ -579,6 +609,14 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for AnySyncStateEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnySyncStateEvent>::from(val).deserialize().expect("expected sync state")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for Raw<SyncStateEvent<E>>
 where
     E: StaticStateEventContent + RedactContent,
@@ -590,10 +628,30 @@ where
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for SyncStateEvent<E>
+where
+    E: StaticStateEventContent + RedactContent + EventContentFromType,
+    E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
+        + EventContentFromType,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<SyncStateEvent<E>>::from(val).deserialize().expect("expected sync state")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for Raw<AnyStateEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for AnyStateEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyStateEvent>::from(val).deserialize().expect("expected state")
     }
 }
 
@@ -609,10 +667,30 @@ where
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for StateEvent<E>
+where
+    E: StaticStateEventContent + RedactContent + EventContentFromType,
+    E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
+        + EventContentFromType,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<StateEvent<E>>::from(val).deserialize().expect("expected state")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for Raw<AnyStrippedStateEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.format(EventFormat::StrippedState).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for AnyStrippedStateEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyStrippedStateEvent>::from(val).deserialize().expect("expected stripped state")
     }
 }
 
@@ -626,6 +704,19 @@ where
     }
 }
 
+impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
+    for StrippedStateEvent<E::PossiblyRedacted>
+where
+    E: StaticStateEventContent,
+    E::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<StrippedStateEvent<E::PossiblyRedacted>>::from(val)
+            .deserialize()
+            .expect("expected stripped state")
+    }
+}
+
 impl<E: StaticEventContent<IsPrefix = False> + EphemeralRoomEventContent> From<EventBuilder<E>>
     for Raw<AnySyncEphemeralRoomEvent>
 {
@@ -634,11 +725,27 @@ impl<E: StaticEventContent<IsPrefix = False> + EphemeralRoomEventContent> From<E
     }
 }
 
+impl<E: StaticEventContent<IsPrefix = False> + EphemeralRoomEventContent> From<EventBuilder<E>>
+    for AnySyncEphemeralRoomEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnySyncEphemeralRoomEvent>::from(val).deserialize().expect("expected ephemeral")
+    }
+}
+
 impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
     for Raw<AnySyncMessageLikeEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.format(EventFormat::SyncTimeline).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for AnySyncMessageLikeEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnySyncMessageLikeEvent>::from(val).deserialize().expect("expected sync message-like")
     }
 }
 
@@ -654,10 +761,29 @@ where
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for SyncMessageLikeEvent<E>
+where
+    E: RedactContent + EventContentFromType,
+    E::Redacted: RedactedMessageLikeEventContent + EventContentFromType,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<SyncMessageLikeEvent<E>>::from(val).deserialize().expect("expected sync message-like")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
     for Raw<AnyMessageLikeEvent>
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for AnyMessageLikeEvent
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyMessageLikeEvent>::from(val).deserialize().expect("expected message-like")
     }
 }
 
@@ -669,6 +795,17 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False> + MessageLikeEventContent> From<EventBuilder<E>>
+    for MessageLikeEvent<E>
+where
+    E: RedactContent + EventContentFromType,
+    E::Redacted: RedactedMessageLikeEventContent + EventContentFromType,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<MessageLikeEvent<E>>::from(val).deserialize().expect("expected message-like")
     }
 }
 
