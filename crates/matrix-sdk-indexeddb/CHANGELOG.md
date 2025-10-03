@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>, ...>`
+  ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
+
 ## [0.14.0] - 2025-09-04
 
 No notable changes in this release.

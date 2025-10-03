@@ -28,12 +28,11 @@ use matrix_sdk_crypto::{
     },
     store::{
         types::{
-            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
-            StoredRoomKeyBundleData,
+            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
+            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
         CryptoStore,
     },
-    types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -1379,7 +1378,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         room_id: &RoomId,
         session_id: &str,
-    ) -> Result<Option<RoomKeyWithheldEvent>> {
+    ) -> Result<Option<RoomKeyWithheldEntry>> {
         let room_id = self.encode_key("direct_withheld_info", room_id);
         let session_id = self.encode_key("direct_withheld_info", session_id);
 
@@ -1388,7 +1387,7 @@ impl CryptoStore for SqliteCryptoStore {
             .get_direct_withheld_info(session_id, room_id)
             .await?
             .map(|value| {
-                let info = self.deserialize_json::<RoomKeyWithheldEvent>(&value)?;
+                let info = self.deserialize_json::<RoomKeyWithheldEntry>(&value)?;
                 Ok(info)
             })
             .transpose()

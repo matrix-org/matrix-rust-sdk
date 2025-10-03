@@ -76,9 +76,10 @@ use crate::{
         Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
         Session, StaticAccountData,
     },
+    store::types::RoomKeyWithheldEntry,
     types::{
-        BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
-        SecretsBundle,
+        events::room_key_withheld::MegolmV1AesSha2WithheldContent, BackupSecrets,
+        CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport, SecretsBundle,
     },
     verification::VerificationMachine,
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -1640,12 +1641,11 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        match sender_data {
+        match &sender_data {
             SenderData::UnknownDevice { .. }
             | SenderData::VerificationViolation(_)
             | SenderData::DeviceInfo { .. } => {
                 warn!("Not accepting a historic room key bundle due to insufficient trust in the sender");
-                Ok(())
             }
             SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => {
                 let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
@@ -1689,10 +1689,30 @@ impl Store {
                         self.import_sessions_impl(good, None, progress_listener).await?;
                     }
                 }
-
-                Ok(())
             }
         }
+
+        let mut changes = Changes::default();
+        for withheld in &bundle.withheld {
+            if let RoomKeyWithheldContent::MegolmV1AesSha2(
+                MegolmV1AesSha2WithheldContent::BlackListed(c)
+                | MegolmV1AesSha2WithheldContent::Unverified(c)
+                | MegolmV1AesSha2WithheldContent::Unauthorised(c)
+                | MegolmV1AesSha2WithheldContent::Unavailable(c),
+            ) = withheld
+            {
+                changes.withheld_session_info.entry(c.room_id.to_owned()).or_default().insert(
+                    c.session_id.to_owned(),
+                    RoomKeyWithheldEntry {
+                        sender: bundle_info.sender_user.clone(),
+                        content: withheld.to_owned(),
+                    },
+                );
+            }
+        }
+        self.save_changes(changes).await?;
+
+        Ok(())
     }
 }
 
@@ -1725,17 +1745,31 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 mod tests {
     use std::pin::pin;
 
+    use assert_matches2::assert_matches;
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, RoomId};
+    use ruma::{
+        device_id,
+        events::room::{EncryptedFileInit, JsonWebKeyInit},
+        owned_device_id, owned_mxc_uri, room_id,
+        serde::Base64,
+        user_id, RoomId,
+    };
+    use serde_json::json;
     use vodozemac::megolm::SessionKey;
 
     use crate::{
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
-        store::types::DehydratedDeviceKey,
-        types::EventEncryptionAlgorithm,
+        store::types::{DehydratedDeviceKey, RoomKeyWithheldEntry, StoredRoomKeyBundleData},
+        types::{
+            events::{
+                room_key_bundle::RoomKeyBundleContent,
+                room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
+            },
+            EventEncryptionAlgorithm,
+        },
         OlmMachine,
     };
 
@@ -1977,6 +2011,136 @@ mod tests {
         });
     }
 
+    #[async_test]
+    async fn test_receive_room_key_bundle() {
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let alice_key = alice.identity_keys().curve25519;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
+
+        let room_id = room_id!("!room1:localhost");
+
+        let session_key1 = "AgAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFSya8DO/VxC9m5+/mF+WwYqdpKn9g4Y05Yw4uz7cdjTc3rXm7xK+8E7hI//5QD1nHPvuKYbjjM9u2JSL+Bzp61Cw";
+        let session_key2 = "AgAAAAC1BXreFTUQQSBGekTEuYxhdytRKyv4JgDGcG+VOBYdPNGgs807SdibCGJky4lJ3I+7ZDGHoUzZPZP/4ogGu4kxni0PWdtWuN7+5zsuamgoFF/BkaGeUUGv6kgIkx8pyPpM5SASTUEP9bN2loDSpUPYwfiIqz74DgC4WQ4435sTBctYvKz8n+TDJwdLXpyT6zKljuqADAioud+s/iqx9LYn9HpbBfezZcvbg67GtE113pLrvde3IcPI5s6dNHK2onGO2B2eoaobcen18bbEDnlUGPeIivArLya7Da6us14jBQ";
+
+        let sessions = [
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room_id,
+                &SessionKey::from_base64(session_key1).unwrap(),
+                true,
+            ),
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room_id,
+                &SessionKey::from_base64(session_key2).unwrap(),
+                false,
+            ),
+        ];
+
+        alice.store().save_inbound_group_sessions(&sessions).await.unwrap();
+        let bundle = alice.store().build_room_key_bundle(room_id).await.unwrap();
+
+        bob.store()
+            .receive_room_key_bundle(
+                &StoredRoomKeyBundleData {
+                    sender_user: alice.user_id().to_owned(),
+                    sender_key: alice_key,
+                    sender_data: SenderData::sender_verified(
+                        alice.user_id(),
+                        device_id!("ALICE"),
+                        alice.identity_keys().ed25519,
+                    ),
+
+                    bundle_data: RoomKeyBundleContent {
+                        room_id: room_id.to_owned(),
+                        // This isn't used at all in the method call, so we can fill it with
+                        // garbage.
+                        file: EncryptedFileInit {
+                            url: owned_mxc_uri!("mxc://example.com/0"),
+                            key: JsonWebKeyInit {
+                                kty: "oct".to_owned(),
+                                key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
+                                alg: "A256CTR.".to_owned(),
+                                k: Base64::new(vec![0u8; 128]),
+                                ext: true,
+                            }
+                            .into(),
+                            iv: Base64::new(vec![0u8; 128]),
+                            hashes: vec![("sha256".to_owned(), Base64::new(vec![0u8; 128]))]
+                                .into_iter()
+                                .collect(),
+                            v: "v2".to_owned(),
+                        }
+                        .into(),
+                    },
+                },
+                bundle,
+                |_, _| {},
+            )
+            .await
+            .unwrap();
+
+        // The room key should be imported successfully
+        let imported_sessions =
+            bob.store().get_inbound_group_sessions_by_room_id(room_id).await.unwrap();
+
+        assert_eq!(imported_sessions.len(), 1);
+        assert_eq!(imported_sessions[0].room_id(), room_id);
+
+        assert_matches!(
+            bob.store().get_withheld_info(room_id, sessions[1].session_id()).await.unwrap(),
+            Some(RoomKeyWithheldEntry {
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                ),
+                ..
+            })
+        );
+    }
+
+    /// Tests that the new store format introduced in [#5737][#5737] does not
+    /// conflict with items already in the store that were serialised with the
+    /// older format.
+    ///
+    /// [#5737]: https://github.com/matrix-org/matrix-rust-sdk/pull/5737
+    #[async_test]
+    async fn test_deserialize_room_key_withheld_entry_from_to_device_event() {
+        let entry: RoomKeyWithheldEntry = serde_json::from_value(json!(
+            {
+              "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "code": "m.unauthorised",
+                "from_device": "ALICE",
+                "reason": "You are not authorised to read the message.",
+                "room_id": "!roomid:s.co",
+                "sender_key": "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0",
+                "session_id": "session123"
+              },
+              "sender": "@alice:s.co",
+              "type": "m.room_key.withheld"
+            }
+        ))
+        .unwrap();
+
+        assert_matches!(
+            entry,
+            RoomKeyWithheldEntry {
+                sender,
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content,)
+                ),
+            }
+        );
+
+        assert_eq!(sender, "@alice:s.co");
+        assert_eq!(withheld_content.room_id, "!roomid:s.co");
+        assert_eq!(withheld_content.session_id, "session123");
+        assert_eq!(
+            withheld_content.sender_key.to_base64(),
+            "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0"
+        );
+        assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
+    }
     /// Create an inbound Megolm session for the given room.
     ///
     /// `olm_machine` is used to set the `sender_key` and `signing_key`

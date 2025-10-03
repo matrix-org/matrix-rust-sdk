@@ -998,7 +998,7 @@ impl OlmMachine {
         Ok(())
     }
 
-    fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
+    pub(crate) fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
         debug!(?event.content, "Processing `m.room_key.withheld` event");
 
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
@@ -1010,7 +1010,7 @@ impl OlmMachine {
                 .withheld_session_info
                 .entry(c.room_id.to_owned())
                 .or_default()
-                .insert(c.session_id.to_owned(), event.to_owned());
+                .insert(c.session_id.to_owned(), event.to_owned().into());
         }
     }
 
