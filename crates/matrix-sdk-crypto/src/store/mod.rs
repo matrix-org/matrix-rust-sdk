@@ -1744,10 +1744,11 @@ mod tests {
     use ruma::{
         device_id,
         events::room::{EncryptedFileInit, JsonWebKeyInit},
-        owned_device_id, owned_mxc_uri, owned_room_id, owned_user_id, room_id,
+        owned_device_id, owned_mxc_uri, room_id,
         serde::Base64,
         user_id, RoomId,
     };
+    use serde_json::json;
     use vodozemac::megolm::SessionKey;
 
     use crate::{
@@ -1757,11 +1758,7 @@ mod tests {
         types::{
             events::{
                 room_key_bundle::RoomKeyBundleContent,
-                room_key_withheld::{
-                    CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
-                    RoomKeyWithheldContent,
-                },
-                ToDeviceEvent,
+                room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
             },
             EventEncryptionAlgorithm,
         },
@@ -2093,22 +2090,29 @@ mod tests {
         );
     }
 
+    /// Tests that the new store format introduced in [#5737][#5737] does not
+    /// conflict with items already in the store that were serialised with the
+    /// older format.
+    ///
+    /// [#5737]: https://github.com/matrix-org/matrix-rust-sdk/pull/5737
     #[async_test]
     async fn test_deserialize_room_key_withheld_entry_from_to_device_event() {
-        let alice = OlmMachine::new(user_id!("@alice:s.co"), device_id!("ALICE")).await;
-
-        let content = RoomKeyWithheldContent::MegolmV1AesSha2(
-            MegolmV1AesSha2WithheldContent::Unauthorised(Box::new(CommonWithheldCodeContent::new(
-                owned_room_id!("!roomid:s.co"),
-                "session123".into(),
-                alice.identity_keys().curve25519,
-                owned_device_id!("ALICE"),
-            ))),
-        );
-
-        let event = ToDeviceEvent::new(owned_user_id!("@alice:s.co"), content);
-        let entry: RoomKeyWithheldEntry =
-            serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
+        let entry: RoomKeyWithheldEntry = serde_json::from_value(json!(
+            {
+              "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "code": "m.unauthorised",
+                "from_device": "ALICE",
+                "reason": "You are not authorised to read the message.",
+                "room_id": "!roomid:s.co",
+                "sender_key": "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0",
+                "session_id": "session123"
+              },
+              "sender": "@alice:s.co",
+              "type": "m.room_key.withheld"
+            }
+        ))
+        .unwrap();
 
         assert_matches!(
             entry,
@@ -2123,7 +2127,10 @@ mod tests {
         assert_eq!(sender, "@alice:s.co");
         assert_eq!(withheld_content.room_id, "!roomid:s.co");
         assert_eq!(withheld_content.session_id, "session123");
-        assert_eq!(withheld_content.sender_key, alice.identity_keys().curve25519);
+        assert_eq!(
+            withheld_content.sender_key.to_base64(),
+            "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0"
+        );
         assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
     }
     /// Create an inbound Megolm session for the given room.
