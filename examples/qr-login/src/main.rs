@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     Client,
     authentication::oauth::{
-        qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+        qrcode::{LoginProgress, QrCodeData, QrCodeModeData, QrProgress},
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
     ruma::serde::Raw,
@@ -121,8 +121,8 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let task = tokio::spawn(async move {
         while let Some(state) = subscriber.next().await {
             match state {
-                LoginProgress::Starting => (),
-                LoginProgress::EstablishingSecureChannel { check_code } => {
+                LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
+                LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
                     let code = check_code.to_digit();
                     println!("Please enter the following code into the other device {code:02}");
                 }
