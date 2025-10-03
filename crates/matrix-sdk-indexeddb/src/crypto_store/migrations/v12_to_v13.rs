@@ -14,15 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use web_sys::DomException;
+use indexed_db_futures::{error::OpenDbError, Build};
 
 use crate::crypto_store::{keys, migrations::do_schema_upgrade, Result};
 
 /// Perform the schema upgrade v12 to v13, adding the
 /// `received_room_key_bundles` store.
-pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 13, |db, _, _| {
-        db.create_object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?;
+pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 13, |tx, _| {
+        tx.db().create_object_store(keys::RECEIVED_ROOM_KEY_BUNDLES).build()?;
         Ok(())
     })
     .await

@@ -15,10 +15,12 @@
 //! Migration code that modifies the data inside inbound_group_sessions2,
 //! ensuring that the keys are correctly encoded for this new store name.
 
-use indexed_db_futures::IdbQuerySource;
+use indexed_db_futures::{
+    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
-use web_sys::{DomException, IdbTransactionMode};
+use wasm_bindgen::JsValue;
 
 use crate::{
     crypto_store::{
@@ -36,32 +38,33 @@ use crate::{
 pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 8).await?;
 
-    let txn = db.transaction_on_one_with_mode(
-        old_keys::INBOUND_GROUP_SESSIONS_V2,
-        IdbTransactionMode::Readwrite,
-    )?;
+    let txn = db
+        .transaction(old_keys::INBOUND_GROUP_SESSIONS_V2)
+        .with_mode(TransactionMode::Readwrite)
+        .build()?;
 
     let store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 
-    let row_count = store.count()?.await?;
+    let row_count = store.count().await?;
     info!(row_count, "Fixing inbound group session data keys");
 
     // Iterate through all rows
-    if let Some(cursor) = store.open_cursor()?.await? {
+    if let Some(mut cursor) = store.open_cursor().await? {
         let mut idx = 0;
         let mut updated = 0;
         let mut deleted = 0;
-        loop {
+        while let Some(value) = cursor.next_record::<JsValue>().await? {
             idx += 1;
 
             // Get the old key and session
 
-            let old_key = cursor.key().ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
-                "inbound_group_sessions2 cursor has no key".into(),
-            ))?;
+            let old_key =
+                cursor.key::<JsValue>()?.ok_or(matrix_sdk_crypto::CryptoStoreError::Backend(
+                    "inbound_group_sessions2 cursor has no key".into(),
+                ))?;
 
             let idb_object: v7::InboundGroupSessionIndexedDbObject2 =
-                serde_wasm_bindgen::from_value(cursor.value())?;
+                serde_wasm_bindgen::from_value(value)?;
             let pickled_session =
                 serializer.deserialize_value_from_bytes(&idb_object.pickled_session)?;
             let session = InboundGroupSession::from_pickle(pickled_session)
@@ -86,37 +89,37 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
                 cursor.delete()?;
 
                 // Check for an existing entry with the new key
-                let new_value = store.get(&new_key)?.await?;
+                let new_value = store.get::<JsValue, _, _>(&new_key).await?;
 
                 // If we found an existing entry, it is more up-to-date, so we don't need to do
                 // anything more.
 
                 // If we didn't find an existing entry, we must create one with the correct key
                 if new_value.is_none() {
-                    store.add_key_val(&new_key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
+                    store
+                        .add(&serde_wasm_bindgen::to_value(&idb_object)?)
+                        .with_key(new_key)
+                        .build()?;
                     updated += 1;
                 } else {
                     deleted += 1;
                 }
             }
-
-            if !cursor.continue_cursor()?.await? {
-                debug!(
-                    "Migrated {row_count} sessions: {updated} keys updated \
-                     and {deleted} obsolete entries deleted."
-                );
-                break;
-            }
         }
+
+        debug!(
+            "Migrated {row_count} sessions: {updated} keys updated \
+                     and {deleted} obsolete entries deleted."
+        );
     }
 
-    txn.await.into_result()?;
+    txn.commit().await?;
     Ok(())
 }
 
 /// Perform the schema upgrade v7 to v8, Just bumping the schema version.
-pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 8, |_, _, _| {
+pub(crate) async fn schema_bump(name: &str) -> Result<(), OpenDbError> {
+    do_schema_upgrade(name, 8, |_, _| {
         // Just bump the version number to 8 to demonstrate that we have run the data
         // changes from prepare_data_for_v8.
         Ok(())
