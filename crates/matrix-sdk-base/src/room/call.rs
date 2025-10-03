@@ -41,15 +41,15 @@ mod tests {
     use std::{ops::Sub, sync::Arc, time::Duration};
 
     use assign::assign;
-    use matrix_sdk_test::{ALICE, BOB, CAROL};
+    use matrix_sdk_test::{ALICE, BOB, CAROL, event_factory::EventFactory};
     use ruma::{
         DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
         events::{
-            AnySyncStateEvent, StateUnsigned, SyncStateEvent,
+            AnySyncStateEvent,
             call::member::{
                 ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
                 CallMemberEventContent, CallMemberStateKey, Focus, LegacyMembershipData,
-                LegacyMembershipDataInit, LivekitFocus, OriginalSyncCallMemberEvent,
+                LegacyMembershipDataInit, LivekitFocus,
             },
         },
         room_id,
@@ -101,17 +101,15 @@ mod tests {
         user_id: &UserId,
     ) -> AnySyncStateEvent {
         let content = CallMemberEventContent::new_legacy(memberships);
-
-        AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
-            content,
-            event_id: ev_id.to_owned(),
-            sender: user_id.to_owned(),
+        EventFactory::new()
+            .sender(user_id)
+            .event(content)
+            .state_key(CallMemberStateKey::new(user_id.to_owned(), None, false).as_ref())
+            .event_id(ev_id)
             // we can simply use now here since this will be dropped when using a MinimalStateEvent
             // in the roomInfo
-            origin_server_ts: timestamp(0),
-            state_key: CallMemberStateKey::new(user_id.to_owned(), None, false),
-            unsigned: StateUnsigned::new(),
-        }))
+            .server_ts(timestamp(0))
+            .into()
     }
 
     struct InitData<'a> {
@@ -156,16 +154,15 @@ mod tests {
             ),
         };
 
-        AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
-            content,
-            event_id: ev_id.to_owned(),
-            sender: user_id.to_owned(),
+        EventFactory::new()
+            .sender(user_id)
+            .event(content)
+            .state_key(state_key.as_ref())
+            .event_id(ev_id)
             // we can simply use now here since this will be dropped when using a MinimalStateEvent
             // in the roomInfo
-            origin_server_ts: timestamp(0),
-            state_key,
-            unsigned: StateUnsigned::new(),
-        }))
+            .server_ts(timestamp(0))
+            .into()
     }
 
     fn foci_and_application() -> (Application, Vec<Focus>) {

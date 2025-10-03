@@ -80,19 +80,15 @@ impl EncryptionState {
 mod tests {
     use std::{
         ops::{Not, Sub},
-        str::FromStr,
         sync::Arc,
         time::Duration,
     };
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::ALICE;
+    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
-        EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId,
-        events::{
-            AnySyncStateEvent, EmptyStateKey, StateUnsigned, SyncStateEvent,
-            room::encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
-        },
+        EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, event_id,
+        events::{AnySyncStateEvent, room::encryption::RoomEncryptionEventContent},
         room_id,
         time::SystemTime,
         user_id,
@@ -135,18 +131,15 @@ mod tests {
 
         let encryption_content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let encryption_event = AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(
-            OriginalSyncRoomEncryptionEvent {
-                content: encryption_content,
-                event_id: OwnedEventId::from_str("$1234_1").unwrap(),
-                sender: ALICE.to_owned(),
-                // we can simply use now here since this will be dropped when using a
-                // MinimalStateEvent in the roomInfo
-                origin_server_ts: timestamp(0),
-                state_key: EmptyStateKey,
-                unsigned: StateUnsigned::new(),
-            },
-        ));
+        let encryption_event = EventFactory::new()
+            .sender(*ALICE)
+            .event(encryption_content)
+            .state_key("")
+            .event_id(event_id!("$1234_1"))
+            // we can simply use now here since this will be dropped when using a MinimalStateEvent
+            // in the roomInfo
+            .server_ts(timestamp(0))
+            .into();
         receive_state_events(&room, vec![&encryption_event]);
 
         assert_matches!(room.encryption_state(), EncryptionState::Encrypted);

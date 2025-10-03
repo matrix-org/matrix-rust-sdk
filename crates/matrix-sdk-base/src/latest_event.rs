@@ -450,23 +450,18 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     #[cfg(feature = "e2e-encryption")]
+    use matrix_sdk_test::event_factory::EventFactory;
+    #[cfg(feature = "e2e-encryption")]
     use ruma::{
         MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
         events::{
-            AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
-            MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
-            RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
-            call::{
-                SessionDescription,
-                invite::{CallInviteEventContent, SyncCallInviteEvent},
-            },
+            SyncMessageLikeEvent,
+            call::{SessionDescription, invite::CallInviteEventContent},
             poll::{
-                unstable_response::{
-                    SyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
-                },
+                unstable_response::UnstablePollResponseEventContent,
                 unstable_start::{
-                    NewUnstablePollStartEventContent, SyncUnstablePollStartEvent,
-                    UnstablePollAnswer, UnstablePollStartContentBlock,
+                    NewUnstablePollStartEventContent, UnstablePollAnswer,
+                    UnstablePollStartContentBlock,
                 },
             },
             relation::Replacement,
@@ -474,22 +469,19 @@ mod tests {
                 ImageInfo, MediaSource,
                 encrypted::{
                     EncryptedEventScheme, OlmV1Curve25519AesSha2Content, RoomEncryptedEventContent,
-                    SyncRoomEncryptedEvent,
                 },
                 message::{
                     ImageMessageEventContent, MessageType, RedactedRoomMessageEventContent,
-                    Relation, RoomMessageEventContent, SyncRoomMessageEvent,
+                    Relation, RoomMessageEventContent,
                 },
-                topic::{RoomTopicEventContent, SyncRoomTopicEvent},
+                topic::RoomTopicEventContent,
             },
             sticker::{StickerEventContent, SyncStickerEvent},
         },
-        owned_event_id, owned_mxc_uri, owned_user_id,
+        owned_event_id, owned_mxc_uri, user_id,
     };
     use ruma::{
-        events::rtc::notification::{
-            NotificationType, RtcNotificationEventContent, SyncRtcNotificationEvent,
-        },
+        events::rtc::notification::{NotificationType, RtcNotificationEventContent},
         serde::Raw,
     };
     use serde_json::json;
@@ -501,20 +493,13 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_room_messages_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
-                content: RoomMessageEventContent::new(MessageType::Image(
-                    ImageMessageEventContent::new(
-                        "".to_owned(),
-                        MediaSource::Plain(owned_mxc_uri!("mxc://example.com/1")),
-                    ),
-                )),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(RoomMessageEventContent::new(MessageType::Image(ImageMessageEventContent::new(
+                "".to_owned(),
+                MediaSource::Plain(owned_mxc_uri!("mxc://example.com/1")),
+            ))))
+            .into();
         assert_let!(
             PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) =
                 is_suitable_for_latest_event(&event, None)
@@ -526,19 +511,13 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_polls_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
-            SyncUnstablePollStartEvent::Original(OriginalSyncMessageLikeEvent {
-                content: NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
-                    "do you like rust?",
-                    vec![UnstablePollAnswer::new("id", "yes")].try_into().unwrap(),
-                ))
-                .into(),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
+                "do you like rust?",
+                vec![UnstablePollAnswer::new("id", "yes")].try_into().unwrap(),
+            )))
+            .into();
         assert_let!(
             PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) =
                 is_suitable_for_latest_event(&event, None)
@@ -550,20 +529,15 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_invites_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallInvite(
-            SyncCallInviteEvent::Original(OriginalSyncMessageLikeEvent {
-                content: CallInviteEventContent::new(
-                    "call_id".into(),
-                    UInt::new(123).unwrap(),
-                    SessionDescription::new("".into(), "".into()),
-                    VoipVersionId::V1,
-                ),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(CallInviteEventContent::new(
+                "call_id".into(),
+                UInt::new(123).unwrap(),
+                SessionDescription::new("".into(), "".into()),
+                VoipVersionId::V1,
+            ))
+            .into();
         assert_let!(
             PossibleLatestEvent::YesCallInvite(SyncMessageLikeEvent::Original(_)) =
                 is_suitable_for_latest_event(&event, None)
@@ -573,19 +547,14 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_notifications_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(
-            SyncRtcNotificationEvent::Original(OriginalSyncMessageLikeEvent {
-                content: RtcNotificationEventContent::new(
-                    MilliSecondsSinceUnixEpoch::now(),
-                    Duration::new(30, 0),
-                    NotificationType::Ring,
-                ),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(RtcNotificationEventContent::new(
+                MilliSecondsSinceUnixEpoch::now(),
+                Duration::new(30, 0),
+                NotificationType::Ring,
+            ))
+            .into();
         assert_let!(
             PossibleLatestEvent::YesRtcNotification(SyncMessageLikeEvent::Original(_)) =
                 is_suitable_for_latest_event(&event, None)
@@ -595,19 +564,14 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_stickers_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(
-            SyncStickerEvent::Original(OriginalSyncMessageLikeEvent {
-                content: StickerEventContent::new(
-                    "sticker!".to_owned(),
-                    ImageInfo::new(),
-                    owned_mxc_uri!("mxc://example.com/1"),
-                ),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(StickerEventContent::new(
+                "sticker!".to_owned(),
+                ImageInfo::new(),
+                owned_mxc_uri!("mxc://example.com/1"),
+            ))
+            .into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -618,19 +582,13 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_different_types_of_messagelike_are_unsuitable() {
-        let event =
-            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollResponse(
-                SyncUnstablePollResponseEvent::Original(OriginalSyncMessageLikeEvent {
-                    content: UnstablePollResponseEventContent::new(
-                        vec![String::from("option1")],
-                        owned_event_id!("$1"),
-                    ),
-                    event_id: owned_event_id!("$2"),
-                    sender: owned_user_id!("@a:b.c"),
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                    unsigned: MessageLikeUnsigned::new(),
-                }),
-            ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(UnstablePollResponseEventContent::new(
+                vec![String::from("option1")],
+                owned_event_id!("$1"),
+            ))
+            .into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -641,25 +599,10 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_redacted_messages_are_suitable() {
-        // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
-        let room_redaction_event = serde_json::from_value(json!({
-            "content": {},
-            "event_id": "$redaction",
-            "sender": "@x:y.za",
-            "origin_server_ts": 223543,
-            "unsigned": { "reason": "foo" }
-        }))
-        .unwrap();
-
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncRoomMessageEvent::Redacted(RedactedSyncMessageLikeEvent {
-                content: RedactedRoomMessageEventContent::new(),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: RedactedUnsigned::new(room_redaction_event),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .redacted(user_id!("@x:y.za"), RedactedRoomMessageEventContent::new())
+            .into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -670,20 +613,16 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_encrypted_messages_are_unsuitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncRoomEncryptedEvent::Original(OriginalSyncMessageLikeEvent {
-                content: RoomEncryptedEventContent::new(
-                    EncryptedEventScheme::OlmV1Curve25519AesSha2(
-                        OlmV1Curve25519AesSha2Content::new(BTreeMap::new(), "".to_owned()),
-                    ),
-                    None,
-                ),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(RoomEncryptedEventContent::new(
+                EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
+                    BTreeMap::new(),
+                    "".to_owned(),
+                )),
+                None,
+            ))
+            .into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -694,16 +633,11 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_state_events_are_unsuitable() {
-        let event = AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTopic(
-            SyncRoomTopicEvent::Original(OriginalSyncStateEvent {
-                content: RoomTopicEventContent::new("".to_owned()),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: StateUnsigned::new(),
-                state_key: EmptyStateKey,
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(RoomTopicEventContent::new("".to_owned()))
+            .state_key("")
+            .into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -720,15 +654,7 @@ mod tests {
             RoomMessageEventContent::text_plain("Hello, world!").into(),
         )));
 
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
-                content: event_content,
-                event_id: owned_event_id!("$2"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new().sender(user_id!("@a:b.c")).event(event_content).into();
 
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
@@ -741,22 +667,17 @@ mod tests {
     fn test_verification_requests_are_unsuitable() {
         use ruma::{device_id, events::room::message::KeyVerificationRequestEventContent, user_id};
 
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
-                content: RoomMessageEventContent::new(MessageType::VerificationRequest(
-                    KeyVerificationRequestEventContent::new(
-                        "body".to_owned(),
-                        vec![],
-                        device_id!("device_id").to_owned(),
-                        user_id!("@user_id:example.com").to_owned(),
-                    ),
-                )),
-                event_id: owned_event_id!("$1"),
-                sender: owned_user_id!("@a:b.c"),
-                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(123).unwrap()),
-                unsigned: MessageLikeUnsigned::new(),
-            }),
-        ));
+        let event = EventFactory::new()
+            .sender(user_id!("@a:b.c"))
+            .event(RoomMessageEventContent::new(MessageType::VerificationRequest(
+                KeyVerificationRequestEventContent::new(
+                    "body".to_owned(),
+                    vec![],
+                    device_id!("device_id").to_owned(),
+                    user_id!("@user_id:example.com").to_owned(),
+                ),
+            )))
+            .into();
 
         assert_let!(
             PossibleLatestEvent::NoUnsupportedMessageLikeType =
