@@ -265,10 +265,11 @@ impl MediaStoreInner for IndexeddbMediaStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readwrite)?
-            .put_item(&policy)
-            .await
-            .map_err(Into::into)
+
+        let transaction =
+            self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        transaction.put_item(&policy).await?;
+        transaction.commit().await.map_err(Into::into)
     }
 
     #[instrument(skip_all)]
