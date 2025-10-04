@@ -410,8 +410,10 @@ async fn test_enabling_backups_retries_decryption() {
     debug!("Creating room…");
 
     let initial_state = vec![
-        InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-            .to_raw_any(),
+        InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any(),
     ];
 
     let room = alice
@@ -548,8 +550,10 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // The room needs to be encrypted.
     let initial_state = vec![
-        InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-            .to_raw_any(),
+        InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any(),
     ];
 
     let alice_room = alice
@@ -805,7 +809,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         .create_room(assign!(CreateRoomRequest::new(), {
             is_direct: true,
             initial_state: vec![
-                InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults()).to_raw_any()
+                InitialStateEvent::with_empty_state_key(RoomEncryptionEventContent::with_recommended_defaults()).to_raw_any()
             ],
             preset: Some(RoomPreset::PrivateChat)
         }))

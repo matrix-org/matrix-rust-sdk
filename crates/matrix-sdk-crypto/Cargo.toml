@@ -58,7 +58,7 @@ futures-util.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 itertools.workspace = true
-js_option = "0.1.1"
+js_option = "0.2"
 matrix-sdk-common.workspace = true
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only

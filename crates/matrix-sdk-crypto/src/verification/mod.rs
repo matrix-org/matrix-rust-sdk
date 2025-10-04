@@ -786,25 +786,25 @@ pub(crate) mod tests {
 
         match *content {
             AnyToDeviceEventContent::KeyVerificationRequest(c) => {
-                ToDeviceEvents::KeyVerificationRequest(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationRequest(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationReady(c) => {
-                ToDeviceEvents::KeyVerificationReady(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationReady(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
-                ToDeviceEvents::KeyVerificationKey(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationKey(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationStart(c) => {
-                ToDeviceEvents::KeyVerificationStart(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationStart(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationAccept(c) => {
-                ToDeviceEvents::KeyVerificationAccept(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationAccept(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationMac(c) => {
-                ToDeviceEvents::KeyVerificationMac(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationMac(ToDeviceEvent::new(sender, c))
             }
             AnyToDeviceEventContent::KeyVerificationDone(c) => {
-                ToDeviceEvents::KeyVerificationDone(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationDone(ToDeviceEvent::new(sender, c))
             }
 
             _ => unreachable!(),

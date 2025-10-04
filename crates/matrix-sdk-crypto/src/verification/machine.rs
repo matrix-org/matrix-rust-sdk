@@ -255,7 +255,7 @@ impl VerificationMachine {
         for request in requests {
             if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into() {
                 if let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device {
-                    let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
+                    let event = ToDeviceEvent::new(self.own_user_id().to_owned(), content);
 
                     events.push(
                         Raw::new(&event)
