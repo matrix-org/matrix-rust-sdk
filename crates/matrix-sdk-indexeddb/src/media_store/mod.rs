@@ -305,10 +305,17 @@ impl MediaStoreInner for IndexeddbMediaStore {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_ignore_media_retention_policy_inner(request, ignore_policy)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        if let Some(mut media) = transaction.get_media_by_id(request).await? {
+            if media.metadata.ignore_policy != ignore_policy {
+                media.metadata.ignore_policy = ignore_policy;
+                transaction.put_media(&media).await?;
+                transaction.commit().await?;
+            }
+        }
+        Ok(())
     }
 
     #[instrument(skip_all)]
