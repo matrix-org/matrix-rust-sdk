@@ -434,8 +434,8 @@ impl MediaStoreInner for IndexeddbMediaStore {
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
-        media::store::MediaStoreError, media_store_integration_tests,
-        media_store_integration_tests_time,
+        media::store::MediaStoreError, media_store_inner_integration_tests,
+        media_store_integration_tests, media_store_integration_tests_time,
     };
     use uuid::Uuid;
 
@@ -456,6 +456,9 @@ mod tests {
 
         #[cfg(target_family = "wasm")]
         media_store_integration_tests_time!();
+
+        #[cfg(target_family = "wasm")]
+        media_store_inner_integration_tests!(with_media_size_tests);
     }
 
     mod encrypted {
@@ -473,5 +476,8 @@ mod tests {
 
         #[cfg(target_family = "wasm")]
         media_store_integration_tests_time!();
+
+        #[cfg(target_family = "wasm")]
+        media_store_inner_integration_tests!();
     }
 }
