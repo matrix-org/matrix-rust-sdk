@@ -2083,24 +2083,24 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         if value.is_encrypted {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+            initial_state.push(InitialStateEvent::with_empty_state_key(content).to_raw_any());
         }
 
         if let Some(url) = value.avatar {
             let mut content = RoomAvatarEventContent::new();
             content.url = Some(url.into());
-            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+            initial_state.push(InitialStateEvent::with_empty_state_key(content).to_raw_any());
         }
 
         if let Some(join_rule_override) = value.join_rule_override {
             let content = RoomJoinRulesEventContent::new(join_rule_override.try_into()?);
-            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+            initial_state.push(InitialStateEvent::with_empty_state_key(content).to_raw_any());
         }
 
         if let Some(history_visibility_override) = value.history_visibility_override {
             let content =
                 RoomHistoryVisibilityEventContent::new(history_visibility_override.try_into()?);
-            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+            initial_state.push(InitialStateEvent::with_empty_state_key(content).to_raw_any());
         }
 
         request.initial_state = initial_state;

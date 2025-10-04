@@ -1910,14 +1910,14 @@ mod tests {
 
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
 
-        let event = RumaToDeviceEvent {
-            sender: bob_account.user_id().to_owned(),
-            content: ToDeviceSecretRequestEventContent::new(
+        let event = RumaToDeviceEvent::new(
+            bob_account.user_id().to_owned(),
+            ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 bob_account.device_id().to_owned(),
                 "request_id".into(),
             ),
-        };
+        );
 
         // No secret found
         assert!(alice_machine.inner.outgoing_requests.read().is_empty());
@@ -1948,14 +1948,14 @@ mod tests {
         }
         assert!(alice_machine.inner.outgoing_requests.read().is_empty());
 
-        let event = RumaToDeviceEvent {
-            sender: alice_id().to_owned(),
-            content: ToDeviceSecretRequestEventContent::new(
+        let event = RumaToDeviceEvent::new(
+            alice_id().to_owned(),
+            ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 second_account.device_id().into(),
                 "request_id".into(),
             ),
-        };
+        );
 
         // The device isn't trusted
         alice_machine.receive_incoming_secret_request(&event);
@@ -2010,14 +2010,14 @@ mod tests {
                 .unwrap();
         }
 
-        let event = RumaToDeviceEvent {
-            sender: alice_machine.user_id().to_owned(),
-            content: ToDeviceSecretRequestEventContent::new(
+        let event = RumaToDeviceEvent::new(
+            alice_machine.user_id().to_owned(),
+            ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::RecoveryKey),
                 bob_machine.device_id().to_owned(),
                 request_id,
             ),
-        };
+        );
 
         let bob_device = alice_machine
             .get_device(alice_id, bob_machine.device_id(), None)

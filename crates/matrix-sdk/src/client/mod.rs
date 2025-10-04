@@ -1765,8 +1765,10 @@ impl Client {
     pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
         #[cfg(feature = "e2e-encryption")]
         let initial_state = vec![
-            InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-                .to_raw_any(),
+            InitialStateEvent::with_empty_state_key(
+                RoomEncryptionEventContent::with_recommended_defaults(),
+            )
+            .to_raw_any(),
         ];
 
         #[cfg(not(feature = "e2e-encryption"))]
