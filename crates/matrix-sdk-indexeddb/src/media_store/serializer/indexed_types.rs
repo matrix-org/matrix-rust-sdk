@@ -437,6 +437,20 @@ pub struct IndexedMediaLastAccessKey(
     #[serde(with = "unix_time")] UnixTime,
 );
 
+impl IndexedMediaLastAccessKey {
+    /// Returns the [`IgnoreMediaRetentionPolicy`] value of the associated
+    /// [`IndexedMedia`]
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
+    }
+
+    /// Returns the last time the associated [`IndexedMedia`] record was
+    /// accessed as a [`UnixTime`]
+    pub fn last_access(&self) -> UnixTime {
+        self.1
+    }
+}
+
 impl IndexedKey<Media> for IndexedMediaLastAccessKey {
     const INDEX: Option<&'static str> = Some(keys::MEDIA_LAST_ACCESS);
 
@@ -492,6 +506,25 @@ pub struct IndexedMediaRetentionMetadataKey(
     #[serde(with = "unix_time")] UnixTime,
     IndexedMediaContentSize,
 );
+
+impl IndexedMediaRetentionMetadataKey {
+    /// Returns the [`IgnoreMediaRetentionPolicy`] value of the associated
+    /// [`IndexedMedia`]
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
+    }
+
+    /// Returns the last time the associated [`IndexedMedia`] record was
+    /// accessed as a [`UnixTime`]
+    pub fn last_access(&self) -> UnixTime {
+        self.1
+    }
+
+    /// Returns the size in bytes of the associated [`IndexedMedia::content`]
+    pub fn content_size(&self) -> usize {
+        self.2
+    }
+}
 
 impl IndexedKey<Media> for IndexedMediaRetentionMetadataKey {
     const INDEX: Option<&'static str> = Some(keys::MEDIA_RETENTION_METADATA);
