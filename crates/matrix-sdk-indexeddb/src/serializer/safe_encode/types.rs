@@ -89,6 +89,14 @@ impl SafeEncodeSerializer {
         Self { store_cipher }
     }
 
+    /// Returns whether this serializer contains a nested [`StoreCipher`]. If
+    /// so, values passed to the serializer will be encrypted when serialized
+    /// and decrypted when deserialized.
+    #[cfg(feature = "media-store")]
+    pub fn has_store_cipher(&self) -> bool {
+        self.store_cipher.is_some()
+    }
+
     /// Hash the given key securely for the given tablename using the store
     /// cipher.
     ///

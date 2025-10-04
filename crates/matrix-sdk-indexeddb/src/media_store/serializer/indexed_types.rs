@@ -283,7 +283,11 @@ impl Indexed for Media {
         &self,
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
-        let content = rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?;
+        let content = if serializer.has_store_cipher() {
+            rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?
+        } else {
+            self.content.clone()
+        };
         Ok(Self::IndexedType {
             id: <IndexedMediaIdKey as IndexedKey<Self>>::encode(
                 &self.metadata.request_parameters,
@@ -316,7 +320,11 @@ impl Indexed for Media {
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             metadata: serializer.maybe_decrypt_value(indexed.metadata)?,
-            content: serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?,
+            content: if serializer.has_store_cipher() {
+                serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?
+            } else {
+                indexed.content
+            },
         })
     }
 }
