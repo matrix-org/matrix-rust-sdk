@@ -28,7 +28,7 @@ use std::{rc::Rc, time::Duration};
 
 pub use builder::IndexeddbMediaStoreBuilder;
 pub use error::IndexeddbMediaStoreError;
-use indexed_db_futures::{database::Database, Build};
+use indexed_db_futures::{cursor::CursorDirection, database::Database, Build};
 use matrix_sdk_base::{
     media::{
         store::{
@@ -46,7 +46,7 @@ use web_sys::IdbTransactionMode;
 use crate::{
     media_store::{
         transaction::IndexeddbMediaStoreTransaction,
-        types::{Lease, Media, MediaCleanupTime, MediaMetadata},
+        types::{Lease, Media, MediaCleanupTime, MediaMetadata, UnixTime},
     },
     serializer::{Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
@@ -348,10 +348,66 @@ impl MediaStoreInner for IndexeddbMediaStore {
         current_time: SystemTime,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .clean_inner(policy, current_time)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        if !policy.has_limitations() {
+            return Ok(());
+        }
+
+        let transaction = self.transaction(
+            &[Media::OBJECT_STORE, MediaCleanupTime::OBJECT_STORE],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let ignore_policy = IgnoreMediaRetentionPolicy::No;
+        let current_time = UnixTime::from(current_time);
+
+        if let Some(max_file_size) = policy.computed_max_file_size() {
+            transaction
+                .delete_media_by_content_size_greater_than(ignore_policy, max_file_size as usize)
+                .await?;
+        }
+
+        if let Some(expiry) = policy.last_access_expiry {
+            transaction
+                .delete_media_by_last_access_earlier_than(ignore_policy, current_time - expiry)
+                .await?;
+        }
+
+        if let Some(max_cache_size) = policy.max_cache_size {
+            let cache_size = transaction
+                .get_cache_size(ignore_policy)
+                .await?
+                .ok_or(Self::Error::CacheSizeTooBig)?;
+            if cache_size > (max_cache_size as usize) {
+                let (_, upper_key) = transaction
+                    .fold_media_keys_by_retention_metadata_while(
+                        CursorDirection::Prev,
+                        ignore_policy,
+                        0usize,
+                        |total, key| {
+                            web_sys::console::log_1(&format!("total={total}, key={key:?}").into());
+                            match total.checked_add(key.content_size()) {
+                                None => None,
+                                Some(total) if total > max_cache_size as usize => None,
+                                Some(total) => Some(total),
+                            }
+                        },
+                    )
+                    .await?;
+                if let Some(upper_key) = upper_key {
+                    transaction
+                        .delete_media_by_retention_metadata_to(
+                            upper_key.ignore_policy(),
+                            upper_key.last_access(),
+                            upper_key.content_size(),
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        transaction.put_media_cleanup_time(current_time).await?;
+        transaction.commit().await.map_err(Into::into)
     }
 
     #[instrument(skip_all)]

@@ -28,6 +28,8 @@ pub enum IndexeddbMediaStoreError {
     Transaction(#[from] TransactionError),
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
+    #[error("cache size too big, cannot exceed 'usize::MAX' ({})", usize::MAX)]
+    CacheSizeTooBig,
 }
 
 impl From<IndexeddbMediaStoreError> for MediaStoreError {
@@ -38,6 +40,7 @@ impl From<IndexeddbMediaStoreError> for MediaStoreError {
             UnableToOpenDatabase(e) => GenericError::from(e).into(),
             DomException { .. } => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
+            CacheSizeTooBig => GenericError::from(value.to_string()).into(),
             MemoryStore(error) => error,
         }
     }
