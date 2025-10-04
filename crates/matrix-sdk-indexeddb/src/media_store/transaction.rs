@@ -225,6 +225,12 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.add_item(media).await
     }
 
+    /// Puts [`Media`] in IndexedDB object. If an item with the same key already
+    /// exists, it will be overwritten.
+    pub async fn put_media(&self, media: &Media) -> Result<(), TransactionError> {
+        self.put_item(media).await
+    }
+
     /// Adds [`Media`] to IndexedDB if the size of [`IndexedMedia::content`][1]
     /// does not exceed [`MediaRetentionPolicy::max_file_size]. If an item with
     /// the same key already exists, it will be overwritten.
