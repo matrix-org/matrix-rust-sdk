@@ -300,42 +300,43 @@ async fn decryption_task<P: RoomDataProvider, D: Decryptor>(
 ) {
     debug!("Decryption task starting.");
 
-    while let Some(request) = receiver.recv().await {
-        let should_retry = |session_id: &str| {
-            if let Some(session_ids) = &request.session_ids {
-                session_ids.contains(session_id)
-            } else {
-                true
-            }
-        };
-
-        // Find the indices of events that are in the supplied sessions, distinguishing
-        // between UTDs which we need to decrypt, and already-decrypted events where we
-        // only need to re-fetch encryption info.
-        let mut state = state.write().await;
-        let (retry_decryption_indices, retry_info_indices) =
-            compute_event_indices_to_retry_decryption(&state.items, should_retry);
-
-        // Retry fetching encryption info for events that are already decrypted
-        if !retry_info_indices.is_empty() {
-            debug!("Retrying fetching encryption info");
-            retry_fetch_encryption_info(&mut state, retry_info_indices, &room_data_provider).await;
-        }
-
-        // Retry decrypting any unable-to-decrypt messages
-        if !retry_decryption_indices.is_empty() {
-            debug!("Retrying decryption");
-            decrypt_by_index(
-                &mut state,
-                &request.settings,
-                &room_data_provider,
-                request.decryptor,
-                should_retry,
-                retry_decryption_indices,
-            )
-            .await
-        }
-    }
+    // while let Some(request) = receiver.recv().await {
+    //     let should_retry = |session_id: &str| {
+    //         if let Some(session_ids) = &request.session_ids {
+    //             session_ids.contains(session_id)
+    //         } else {
+    //             true
+    //         }
+    //     };
+    //
+    //     // Find the indices of events that are in the supplied sessions,
+    // distinguishing     // between UTDs which we need to decrypt, and
+    // already-decrypted events where we     // only need to re-fetch encryption
+    // info.     let mut state = state.write().await;
+    //     let (retry_decryption_indices, retry_info_indices) =
+    //         compute_event_indices_to_retry_decryption(&state.items,
+    // should_retry);
+    //
+    //     // Retry fetching encryption info for events that are already decrypted
+    //     if !retry_info_indices.is_empty() {
+    //         debug!("Retrying fetching encryption info");
+    //         retry_fetch_encryption_info(&mut state, retry_info_indices,
+    // &room_data_provider).await;     }
+    //
+    //     // Retry decrypting any unable-to-decrypt messages
+    //     if !retry_decryption_indices.is_empty() {
+    //         debug!("Retrying decryption");
+    //         decrypt_by_index(
+    //             &mut state,
+    //             &request.settings,
+    //             &room_data_provider,
+    //             request.decryptor,
+    //             should_retry,
+    //             retry_decryption_indices,
+    //         )
+    //         .await
+    //     }
+    // }
 
     debug!("Decryption task stopping.");
 }

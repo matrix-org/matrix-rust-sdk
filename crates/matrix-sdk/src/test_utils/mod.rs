@@ -138,6 +138,10 @@ macro_rules! assert_next_with_timeout {
 /// milliseconds.
 #[macro_export]
 macro_rules! assert_recv_with_timeout {
+    ($receiver:expr) => {
+        $crate::assert_recv_with_timeout!($receiver, 1000)
+    };
+
     ($receiver:expr, $timeout_ms:expr) => {{
         tokio::time::timeout(std::time::Duration::from_millis($timeout_ms), $receiver.recv())
             .await

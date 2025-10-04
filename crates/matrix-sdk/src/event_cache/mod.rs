@@ -69,11 +69,13 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 use crate::{
     Client,
     client::WeakClient,
+    event_cache::redecryptor::Redecryptor,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
 mod deduplicator;
 mod pagination;
+mod redecryptor;
 mod room;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
@@ -148,6 +150,9 @@ pub struct EventCacheDropHandles {
 
     /// The task used to automatically shrink the linked chunks.
     auto_shrink_linked_chunk_task: JoinHandle<()>,
+
+    /// The task used to automatically redecrypt UTDs.
+    redecryptor: Redecryptor,
 }
 
 impl fmt::Debug for EventCacheDropHandles {
@@ -257,10 +262,13 @@ impl EventCache {
                 auto_shrink_receiver,
             ));
 
+            let redecryptor = Redecryptor::new(Arc::downgrade(&self.inner));
+
             Arc::new(EventCacheDropHandles {
                 listen_updates_task,
                 ignore_user_list_update_task,
                 auto_shrink_linked_chunk_task,
+                redecryptor,
             })
         });
 
@@ -935,7 +943,7 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
-        // Note: bnjbvr tried to make this concurrent at some point, but it turned out
+        // NOTE: bnjbvr tried to make this concurrent at some point, but it turned out
         // to be a performance regression, even for large sync updates. Lacking
         // time to investigate, this code remains sequential for now. See also
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
