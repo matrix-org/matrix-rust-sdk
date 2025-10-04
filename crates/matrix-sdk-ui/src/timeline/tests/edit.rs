@@ -343,11 +343,8 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
 
     let poll = event.content().as_poll().unwrap();
     assert!(poll.has_been_edited);
-    assert_eq!(
-        poll.start_event_content.poll_start.question.text,
-        "Can the real slim shady please stand up?"
-    );
-    assert_eq!(poll.start_event_content.poll_start.answers.len(), 3);
+    assert_eq!(poll.poll_start.question.text, "Can the real slim shady please stand up?");
+    assert_eq!(poll.poll_start.answers.len(), 3);
 
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());

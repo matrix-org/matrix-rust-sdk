@@ -21,9 +21,10 @@ use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
-    Error as TimelineError, TimelineEventItemId, TimelineItem,
+    Error as TimelineError, MsgLikeContent, MsgLikeKind, PollState, TimelineEventItemId,
+    TimelineItem,
     controller::TimelineMetadata,
-    event_handler::TimelineAction,
+    event_handler::{HandleAggregationKind, TimelineAction},
     event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
 };
@@ -142,9 +143,56 @@ impl EmbeddedEvent {
             }
 
             Some(TimelineAction::HandleAggregation { kind, .. }) => {
-                // The event can't be represented as a standalone timeline item.
-                warn!("embedded event is an aggregation: {}", kind.debug_string());
-                Ok(None)
+                // As an exception, edits are allowed to be embedded events.
+
+                // For an embedded event, we don't need to fill a few fields; it's in an
+                // embedded view context, so there's no strong need to show all detailed
+                // information about it.
+                let reactions = Default::default();
+                let thread_root = None;
+                let in_reply_to = None;
+                let thread_summary = None;
+
+                let content = match kind {
+                    HandleAggregationKind::Edit { replacement } => {
+                        let msg = replacement.new_content;
+                        Some(TimelineItemContent::message(
+                            msg.msgtype,
+                            msg.mentions,
+                            reactions,
+                            thread_root,
+                            in_reply_to,
+                            thread_summary,
+                        ))
+                    }
+
+                    HandleAggregationKind::PollEdit { replacement } => {
+                        let msg = replacement.new_content;
+                        let poll_state = PollState::new(msg.poll_start, msg.text);
+                        Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Poll(poll_state),
+                            reactions: Default::default(),
+                            thread_root,
+                            in_reply_to,
+                            thread_summary,
+                        }))
+                    }
+
+                    _ => {
+                        // The event can't be represented as a standalone timeline item.
+                        warn!("embedded event is an aggregation: {}", kind.debug_string());
+                        None
+                    }
+                };
+
+                if let Some(content) = content {
+                    let sender_profile = TimelineDetails::from_initial_value(
+                        room_data_provider.profile_from_user_id(&sender).await,
+                    );
+                    Ok(Some(Self { content, sender, sender_profile, timestamp, identifier }))
+                } else {
+                    Ok(None)
+                }
             }
 
             None => {

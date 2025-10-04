@@ -19,7 +19,7 @@ async fn test_poll_is_displayed() {
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_state = timeline.poll_state().await;
 
-    assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
+    assert_poll_start_eq(&poll_state.poll_start, &fakes::poll_a());
     assert!(poll_state.response_data.is_empty());
 }
 
@@ -34,8 +34,8 @@ async fn test_edited_poll_is_displayed() {
     let poll_state = event.content().as_poll().unwrap();
     let edited_poll_state = timeline.poll_state().await;
 
-    assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
-    assert_poll_start_eq(&edited_poll_state.start_event_content.poll_start, &fakes::poll_b());
+    assert_poll_start_eq(&poll_state.poll_start, &fakes::poll_a());
+    assert_poll_start_eq(&edited_poll_state.poll_start, &fakes::poll_b());
     assert!(!poll_state.has_been_edited);
     assert!(edited_poll_state.has_been_edited);
 }

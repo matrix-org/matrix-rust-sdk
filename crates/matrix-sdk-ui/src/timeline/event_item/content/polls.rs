@@ -35,7 +35,11 @@ use ruma::{
 /// to the same poll start event.
 #[derive(Clone, Debug)]
 pub struct PollState {
-    pub(in crate::timeline) start_event_content: NewUnstablePollStartEventContent,
+    /// Text representation of the message, for clients that don't support
+    /// polls.
+    pub(in crate::timeline) fallback_text: Option<String>,
+    /// The poll content of the message.
+    pub(in crate::timeline) poll_start: UnstablePollStartContentBlock,
     pub(in crate::timeline) response_data: Vec<ResponseData>,
     pub(in crate::timeline) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     pub(in crate::timeline) has_been_edited: bool,
@@ -49,9 +53,13 @@ pub(in crate::timeline) struct ResponseData {
 }
 
 impl PollState {
-    pub(crate) fn new(content: NewUnstablePollStartEventContent) -> Self {
+    pub(crate) fn new(
+        poll_start: UnstablePollStartContentBlock,
+        fallback_text: Option<String>,
+    ) -> Self {
         Self {
-            start_event_content: content,
+            fallback_text,
+            poll_start,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
@@ -66,8 +74,8 @@ impl PollState {
     ) -> Option<Self> {
         if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
-            clone.start_event_content.poll_start = replacement.poll_start;
-            clone.start_event_content.text = replacement.text;
+            clone.poll_start = replacement.poll_start;
+            clone.fallback_text = replacement.text;
             clone.has_been_edited = true;
             Some(clone)
         } else {
@@ -114,12 +122,12 @@ impl PollState {
     }
 
     pub fn fallback_text(&self) -> Option<String> {
-        self.start_event_content.text.clone()
+        self.fallback_text.clone()
     }
 
     pub fn results(&self) -> PollResult {
         let results = compile_unstable_poll_results(
-            &self.start_event_content.poll_start,
+            &self.poll_start,
             self.response_data.iter().map(|response_data| PollResponseData {
                 sender: &response_data.sender,
                 origin_server_ts: response_data.timestamp,
@@ -129,11 +137,10 @@ impl PollState {
         );
 
         PollResult {
-            question: self.start_event_content.poll_start.question.text.clone(),
-            kind: self.start_event_content.poll_start.kind.clone(),
-            max_selections: self.start_event_content.poll_start.max_selections.into(),
+            question: self.poll_start.question.text.clone(),
+            kind: self.poll_start.kind.clone(),
+            max_selections: self.poll_start.max_selections.into(),
             answers: self
-                .start_event_content
                 .poll_start
                 .answers
                 .iter()
@@ -157,8 +164,8 @@ impl PollState {
 impl From<PollState> for NewUnstablePollStartEventContent {
     fn from(value: PollState) -> Self {
         let content = UnstablePollStartContentBlock::new(
-            value.start_event_content.poll_start.question.text.clone(),
-            value.start_event_content.poll_start.answers.clone(),
+            value.poll_start.question.text.clone(),
+            value.poll_start.answers.clone(),
         );
         if let Some(text) = value.fallback_text() {
             NewUnstablePollStartEventContent::plain_text(text, content)
