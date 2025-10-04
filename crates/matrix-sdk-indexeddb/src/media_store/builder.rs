@@ -14,7 +14,7 @@
 
 use std::{rc::Rc, sync::Arc};
 
-use matrix_sdk_base::media::store::{MediaService, MemoryMediaStore};
+use matrix_sdk_base::media::store::MediaService;
 use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
@@ -67,7 +67,6 @@ impl IndexeddbMediaStoreBuilder {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
             serializer: IndexedTypeSerializer::new(SafeEncodeSerializer::new(self.store_cipher)),
             media_service: MediaService::new(),
-            memory_store: MemoryMediaStore::new(),
         })
     }
 }

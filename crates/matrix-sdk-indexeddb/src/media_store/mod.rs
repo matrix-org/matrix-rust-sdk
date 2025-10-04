@@ -33,7 +33,7 @@ use matrix_sdk_base::{
     media::{
         store::{
             IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStore,
-            MediaStoreInner, MemoryMediaStore,
+            MediaStoreInner,
         },
         MediaRequestParameters,
     },
@@ -66,12 +66,6 @@ pub struct IndexeddbMediaStore {
     // A service for conveniently delegating media-related queries to an `MediaStoreInner`
     // implementation
     media_service: MediaService,
-    // An in-memory store for providing temporary implementations for
-    // functions of `MediaStore`.
-    //
-    // NOTE: This will be removed once we have IndexedDB-backed implementations for all
-    // functions in `MediaStore`.
-    memory_store: MemoryMediaStore,
 }
 
 impl IndexeddbMediaStore {
