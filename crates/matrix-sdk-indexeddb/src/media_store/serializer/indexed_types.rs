@@ -372,10 +372,10 @@ pub struct IndexedMediaContentSizeKey(
 );
 
 impl IndexedMediaContentSizeKey {
-    /// Returns whether the associated [`IndexedMedia`] record should ignore the
-    /// global [`MediaRetentionPolicy`]
-    pub fn ignore_policy(&self) -> bool {
-        self.0.is_yes()
+    /// Returns the [`IgnoreMediaRetentionPolicy`] value of the associated
+    /// [`IndexedMedia`]
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
     }
 
     /// Returns the size in bytes of the associated [`IndexedMedia::content`]
