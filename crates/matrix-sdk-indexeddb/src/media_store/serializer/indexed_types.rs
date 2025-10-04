@@ -46,7 +46,7 @@ use crate::{
             },
             foreign::{ignore_media_retention_policy, unix_time},
         },
-        types::{Lease, Media, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
     serializer::{
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
@@ -66,6 +66,10 @@ pub type IndexedLeaseContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`MediaRetentionPolicy`]
 pub type IndexedMediaRetentionPolicyContent = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of a the last time the store was
+/// cleaned - i.e., as a [`UnixTime`]
+pub type IndexedMediaCleanupTimeContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`MediaMetadata`][1]
 ///
@@ -189,6 +193,49 @@ impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
     }
 }
 
+/// Represents the [`MediaCleanupTime`] record in the [`CORE`][1] object store.
+///
+/// [1]: crate::media_store::migrations::v1::create_core_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaCleanupTime {
+    /// The primary key of the object store.
+    pub id: IndexedCoreIdKey,
+    /// The (possibly) encrypted content - i.e., a [`MediaCleanupTime`]
+    pub content: IndexedMediaCleanupTimeContent,
+}
+
+impl Indexed for MediaCleanupTime {
+    const OBJECT_STORE: &'static str = keys::CORE;
+
+    type IndexedType = IndexedMediaCleanupTime;
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(Self::IndexedType {
+            id: <IndexedCoreIdKey as IndexedKey<Self>>::encode((), serializer),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+impl IndexedKey<MediaCleanupTime> for IndexedCoreIdKey {
+    type KeyComponents<'a> = ();
+
+    fn encode(_components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        serializer.encode_key_as_string(keys::CORE, keys::MEDIA_CLEANUP_TIME_KEY)
+    }
+}
+
 /// Represents the [`MEDIA`][1] object store.
 ///
 /// [1]: crate::media_store::migrations::v1::create_media_object_store
@@ -236,7 +283,11 @@ impl Indexed for Media {
         &self,
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
-        let content = rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?;
+        let content = if serializer.has_store_cipher() {
+            rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?
+        } else {
+            self.content.clone()
+        };
         Ok(Self::IndexedType {
             id: <IndexedMediaIdKey as IndexedKey<Self>>::encode(
                 &self.metadata.request_parameters,
@@ -269,7 +320,11 @@ impl Indexed for Media {
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             metadata: serializer.maybe_decrypt_value(indexed.metadata)?,
-            content: serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?,
+            content: if serializer.has_store_cipher() {
+                serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?
+            } else {
+                indexed.content
+            },
         })
     }
 }
@@ -327,8 +382,8 @@ pub struct IndexedMediaContentSizeKey(
 impl IndexedMediaContentSizeKey {
     /// Returns whether the associated [`IndexedMedia`] record should ignore the
     /// global [`MediaRetentionPolicy`]
-    pub fn ignore_policy(&self) -> bool {
-        self.0.is_yes()
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
     }
 
     /// Returns the size in bytes of the associated [`IndexedMedia::content`]
@@ -338,6 +393,8 @@ impl IndexedMediaContentSizeKey {
 }
 
 impl IndexedKey<Media> for IndexedMediaContentSizeKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_CONTENT_SIZE);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, IndexedMediaContentSize);
 
     fn encode(
@@ -388,7 +445,23 @@ pub struct IndexedMediaLastAccessKey(
     #[serde(with = "unix_time")] UnixTime,
 );
 
+impl IndexedMediaLastAccessKey {
+    /// Returns whether the associated [`IndexedMedia`] record should ignore the
+    /// global [`MediaRetentionPolicy`]
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
+    }
+
+    /// Returns the last time the associated [`IndexedMedia`] record was
+    /// accessed as a [`UnixTime`]
+    pub fn last_access(&self) -> UnixTime {
+        self.1
+    }
+}
+
 impl IndexedKey<Media> for IndexedMediaLastAccessKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_LAST_ACCESS);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime);
 
     fn encode(
@@ -442,7 +515,28 @@ pub struct IndexedMediaRetentionMetadataKey(
     IndexedMediaContentSize,
 );
 
+impl IndexedMediaRetentionMetadataKey {
+    /// Returns whether the associated [`IndexedMedia`] record should ignore the
+    /// global [`MediaRetentionPolicy`]
+    pub fn ignore_policy(&self) -> IgnoreMediaRetentionPolicy {
+        self.0
+    }
+
+    /// Returns the last time the associated [`IndexedMedia`] record was
+    /// accessed as a [`UnixTime`]
+    pub fn last_access(&self) -> UnixTime {
+        self.1
+    }
+
+    /// Returns the size in bytes of the associated [`IndexedMedia::content`]
+    pub fn content_size(&self) -> usize {
+        self.2
+    }
+}
+
 impl IndexedKey<Media> for IndexedMediaRetentionMetadataKey {
+    const INDEX: Option<&'static str> = Some(keys::MEDIA_RETENTION_METADATA);
+
     type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime, IndexedMediaContentSize);
 
     fn encode(
