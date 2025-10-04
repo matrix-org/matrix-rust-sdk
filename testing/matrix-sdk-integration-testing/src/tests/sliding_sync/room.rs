@@ -1072,8 +1072,8 @@ async fn test_room_preview() -> Result<()> {
             topic: Some("Discussing Alice's Topic".to_owned()),
             room_alias_name: Some(room_alias.clone()),
             initial_state: vec![
-                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
-                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
+                InitialStateEvent::with_empty_state_key(RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable)).to_raw_any(),
+                InitialStateEvent::with_empty_state_key(RoomJoinRulesEventContent::new(JoinRule::Invite)).to_raw_any(),
             ],
         }))
         .await?;
@@ -1085,8 +1085,8 @@ async fn test_room_preview() -> Result<()> {
         .create_room(assign!(CreateRoomRequest::new(), {
             name: Some("Alice's Room 2".to_owned()),
             initial_state: vec![
-                InitialStateEvent::new(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared)).to_raw_any(),
-                InitialStateEvent::new(RoomJoinRulesEventContent::new(JoinRule::Public)).to_raw_any(),
+                InitialStateEvent::with_empty_state_key(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared)).to_raw_any(),
+                InitialStateEvent::with_empty_state_key(RoomJoinRulesEventContent::new(JoinRule::Public)).to_raw_any(),
             ],
         }))
         .await?;
