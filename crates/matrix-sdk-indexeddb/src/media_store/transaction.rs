@@ -236,7 +236,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         policy: MediaRetentionPolicy,
     ) -> Result<(), TransactionError> {
         self.put_item_if(media, |indexed| {
-            !indexed.content_size.ignore_policy()
+            !indexed.content_size.ignore_policy().is_yes()
                 && !policy.exceeds_max_file_size(indexed.content_size.content_size() as u64)
         })
         .await
