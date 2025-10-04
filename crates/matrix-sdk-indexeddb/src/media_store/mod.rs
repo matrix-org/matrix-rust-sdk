@@ -28,7 +28,9 @@ use std::{rc::Rc, time::Duration};
 
 pub use builder::IndexeddbMediaStoreBuilder;
 pub use error::IndexeddbMediaStoreError;
-use indexed_db_futures::{cursor::CursorDirection, database::Database, Build};
+use indexed_db_futures::{
+    cursor::CursorDirection, database::Database, transaction::TransactionMode, Build,
+};
 use matrix_sdk_base::{
     media::{
         store::{
@@ -41,7 +43,6 @@ use matrix_sdk_base::{
 };
 use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri};
 use tracing::instrument;
-use web_sys::IdbTransactionMode;
 
 use crate::{
     media_store::{
@@ -81,7 +82,7 @@ impl IndexeddbMediaStore {
     pub fn transaction<'a>(
         &'a self,
         stores: &[&str],
-        mode: IdbTransactionMode,
+        mode: TransactionMode,
     ) -> Result<IndexeddbMediaStoreTransaction<'a>, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStoreTransaction::new(
             self.inner
@@ -110,8 +111,7 @@ impl MediaStore for IndexeddbMediaStore {
 
         let now = Duration::from_millis(MilliSecondsSinceUnixEpoch::now().get().into());
 
-        let transaction =
-            self.transaction(&[Lease::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Lease::OBJECT_STORE], TransactionMode::Readwrite)?;
 
         if let Some(lease) = transaction.get_lease_by_id(key).await? {
             if lease.holder != holder && !lease.has_expired(now) {
@@ -149,8 +149,7 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         if let Some(mut media) = transaction.get_media_by_id(from).await? {
             // delete before adding, in case `from` and `to` generate the same key
             transaction.delete_media_by_id(from).await?;
@@ -177,8 +176,7 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         transaction.delete_media_by_id(request).await?;
         transaction.commit().await.map_err(Into::into)
     }
@@ -199,8 +197,7 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         transaction.delete_media_by_uri(uri).await?;
         transaction.commit().await.map_err(Into::into)
     }
@@ -247,7 +244,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readonly)?
+        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], TransactionMode::Readonly)?
             .get_media_retention_policy()
             .await
             .map_err(Into::into)
@@ -261,7 +258,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         let _timer = timer!("method");
 
         let transaction =
-            self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+            self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], TransactionMode::Readwrite)?;
         transaction.put_item(&policy).await?;
         transaction.commit().await.map_err(Into::into)
     }
@@ -277,8 +274,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
 
         let media = Media {
             metadata: MediaMetadata {
@@ -301,8 +297,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         if let Some(mut media) = transaction.get_media_by_id(request).await? {
             if media.metadata.ignore_policy != ignore_policy {
                 media.metadata.ignore_policy = ignore_policy;
@@ -321,8 +316,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         let media = transaction.access_media_by_id(request, current_time).await?;
         transaction.commit().await?;
         Ok(media.map(|m| m.content))
@@ -336,8 +330,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         let media = transaction.access_media_by_uri(uri, current_time).await?.pop();
         transaction.commit().await?;
         Ok(media.map(|m| m.content))
@@ -357,7 +350,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
 
         let transaction = self.transaction(
             &[Media::OBJECT_STORE, MediaCleanupTime::OBJECT_STORE],
-            IdbTransactionMode::Readwrite,
+            TransactionMode::Readwrite,
         )?;
 
         let ignore_policy = IgnoreMediaRetentionPolicy::No;
@@ -418,7 +411,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<Option<SystemTime>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
         let time = self
-            .transaction(&[MediaCleanupTime::OBJECT_STORE], IdbTransactionMode::Readonly)?
+            .transaction(&[MediaCleanupTime::OBJECT_STORE], TransactionMode::Readonly)?
             .get_media_cleanup_time()
             .await?;
         Ok(time.map(Into::into))
