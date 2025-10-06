@@ -1,2 +1,3 @@
 * @matrix-org/rust
 /crates/matrix-sdk-crypto @matrix-org/rust @matrix-org/rust-crypto-reviewers
+/crates/matrix-sdk-indexeddb/src/crypto_store @matrix-org/rust @matrix-org/rust-crypto-reviewers
