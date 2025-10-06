@@ -2016,6 +2016,17 @@ mod tests {
         // We sort the sessions in the bundle, so that the snapshot is stable.
         bundle.room_keys.sort_by_key(|session| session.session_id.clone());
 
+        // We substitute the algorithm, since this changes based on feature flags.
+        let algorithm = if cfg!(feature = "experimental-algorithms") {
+            "m.megolm.v2.aes-sha2"
+        } else {
+            "m.megolm.v1.aes-sha2"
+        };
+        let map_algorithm = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), algorithm);
+            "[algorithm]"
+        };
+
         // We also substitute alice's keys in the snapshot with placeholders
         let alice_curve_key = alice.identity_keys().curve25519.to_base64();
         let map_alice_curve_key = move |value: Content, _path: ContentPath<'_>| {
@@ -2030,6 +2041,8 @@ mod tests {
 
         insta::with_settings!({ sort_maps => true }, {
             assert_json_snapshot!(bundle, {
+                ".withheld[].algorithm" => insta::dynamic_redaction(map_algorithm),
+                ".room_keys[].algorithm" => insta::dynamic_redaction(map_algorithm),
                 ".room_keys[].sender_key" => insta::dynamic_redaction(map_alice_curve_key.clone()),
                 ".withheld[].sender_key" => insta::dynamic_redaction(map_alice_curve_key),
                 ".room_keys[].sender_claimed_keys.ed25519" => insta::dynamic_redaction(map_alice_ed25519_key),
