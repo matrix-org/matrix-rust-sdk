@@ -47,7 +47,7 @@ use crate::{
     Device,
 };
 
-/// Struct containing a `m.secret.send` event and its acompanying info.
+/// Struct containing a `m.secret.send` event and its accompanying info.
 ///
 /// This struct is created only iff the following three things are true:
 ///
@@ -136,7 +136,7 @@ impl From<SecretName> for SecretInfo {
 }
 
 impl GossipRequest {
-    /// Create an ougoing secret request for the given secret.
+    /// Create an outgoing secret request for the given secret.
     pub(crate) fn from_secret_name(own_user_id: OwnedUserId, secret_name: SecretName) -> Self {
         Self {
             request_recipient: own_user_id,

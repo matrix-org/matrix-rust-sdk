@@ -446,7 +446,7 @@ async fn test_processed_to_device_variants() {
     let raw_encrypted = device
         .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::AllDevices)
         .await
-        .expect("Should have encryted the content");
+        .expect("Should have encrypted the content");
 
     let request = ToDeviceRequest::new(
         bob.user_id(),

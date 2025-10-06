@@ -636,7 +636,7 @@ mod test {
 
         assert!(
             !BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
-            "We should not acceept a bundle if we did not join the room from this Client"
+            "We should not accept a bundle if we did not join the room from this Client"
         );
 
         let invited_room =

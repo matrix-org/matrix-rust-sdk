@@ -1561,7 +1561,7 @@ async fn test_fetch_thread_subscriptions() {
         .match_to("to")
         .add_subscription(room1.clone(), thread1.clone(), ThreadSubscription::new(true, uint!(42)))
         .add_subscription(room2.clone(), thread2.clone(), ThreadSubscription::new(false, uint!(7)))
-        .add_unsubcription(room3.clone(), thread3.clone(), ThreadUnsubscription::new(uint!(13)))
+        .add_unsubscription(room3.clone(), thread3.clone(), ThreadUnsubscription::new(uint!(13)))
         .ok(Some("next_batch_token".to_owned()))
         .mount()
         .await;
