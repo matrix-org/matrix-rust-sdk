@@ -17,7 +17,7 @@ use std::fmt;
 use as_variant::as_variant;
 use regex::Regex;
 use ruma::{
-    OwnedMxcUri, OwnedUserId, UserId,
+    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId,
     events::{SyncStateEvent, member_hints::MemberHintsEventContent},
 };
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,31 @@ impl Room {
     /// This cache is refilled every time we call [`Self::display_name`].
     pub fn cached_display_name(&self) -> Option<RoomDisplayName> {
         self.info.read().cached_display_name.clone()
+    }
+
+    /// Computes the display name for a room using the provided fields.
+    ///
+    /// This function is useful for reusing the same display name computation
+    /// logic where full Rooms aren't available e.g. space summary rooms.
+    pub fn compute_display_name_with_fields(
+        name: Option<String>,
+        canonical_alias: Option<&RoomAliasId>,
+        heroes: Vec<RoomHero>,
+        num_joined_members: u64,
+    ) -> RoomDisplayName {
+        match (name, canonical_alias) {
+            (Some(name), _) => RoomDisplayName::Named(name.trim().to_owned()),
+            (None, Some(alias)) => RoomDisplayName::Aliased(alias.alias().trim().to_owned()),
+            (None, None) => {
+                let hero_display_names =
+                    heroes.into_iter().filter_map(|hero| hero.display_name).collect::<Vec<_>>();
+
+                compute_display_name_from_heroes(
+                    num_joined_members,
+                    hero_display_names.iter().map(|name| name.as_str()).collect(),
+                )
+            }
+        }
     }
 
     /// Force recalculating a room's display name, taking into account its name,
@@ -528,8 +553,8 @@ mod tests {
 
     use super::{Room, RoomDisplayName, compute_display_name_from_heroes};
     use crate::{
-        MinimalStateEvent, OriginalMinimalStateEvent, RoomState, StateChanges, StateStore,
-        store::MemoryStore,
+        MinimalStateEvent, OriginalMinimalStateEvent, RoomHero, RoomState, StateChanges,
+        StateStore, store::MemoryStore,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -576,6 +601,14 @@ mod tests {
         assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
+    #[test]
+    fn test_display_name_compute_fields_empty() {
+        assert_eq!(
+            Room::compute_display_name_with_fields(None, None, vec![], 0),
+            RoomDisplayName::Empty
+        );
+    }
+
     #[async_test]
     async fn test_display_name_for_joined_room_uses_canonical_alias_if_available() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
@@ -583,6 +616,19 @@ mod tests {
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
             room.compute_display_name().await.unwrap().into_inner(),
+            RoomDisplayName::Aliased("test".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_display_name_compute_fields_alias() {
+        assert_eq!(
+            Room::compute_display_name_with_fields(
+                None,
+                Some(room_alias_id!("#test:example.com")),
+                vec![],
+                0,
+            ),
             RoomDisplayName::Aliased("test".to_owned())
         );
     }
@@ -600,6 +646,19 @@ mod tests {
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
             room.compute_display_name().await.unwrap().into_inner(),
+            RoomDisplayName::Named("Test Room".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_display_name_compute_fields_name_over_alias() {
+        assert_eq!(
+            Room::compute_display_name_with_fields(
+                Some("Test Room".to_owned()),
+                Some(room_alias_id!("#test:example.com")),
+                vec![],
+                0
+            ),
             RoomDisplayName::Named("Test Room".to_owned())
         );
     }
@@ -943,6 +1002,47 @@ mod tests {
         assert_eq!(
             room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_display_name_compute_fields_name_deterministic() {
+        assert_eq!(
+            Room::compute_display_name_with_fields(
+                None,
+                None,
+                vec![
+                    RoomHero {
+                        user_id: user_id!("@alice:example.org").to_owned(),
+                        display_name: Some("Alice".to_owned()),
+                        avatar_url: None,
+                    },
+                    RoomHero {
+                        user_id: user_id!("@bob:example.org").to_owned(),
+                        display_name: Some("Bob".to_owned()),
+                        avatar_url: None,
+                    },
+                    RoomHero {
+                        user_id: user_id!("@carol:example.org").to_owned(),
+                        display_name: Some("Carol".to_owned()),
+                        avatar_url: None,
+                    },
+                    RoomHero {
+                        user_id: user_id!("@denis:example.org").to_owned(),
+                        display_name: Some("Denis".to_owned()),
+                        avatar_url: None,
+                    },
+                    RoomHero {
+                        user_id: user_id!("@erica:example.org").to_owned(),
+                        display_name: Some("Erica".to_owned()),
+                        avatar_url: None,
+                    },
+                ],
+                1234,
+            ),
+            RoomDisplayName::Calculated(
+                "Alice, Bob, Carol, Denis, Erica, and 1229 others".to_owned()
+            )
         );
     }
 

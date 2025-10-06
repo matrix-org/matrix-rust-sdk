@@ -29,6 +29,8 @@ pub struct SpaceRoom {
     pub canonical_alias: Option<OwnedRoomAliasId>,
     /// The name of the room, if any.
     pub name: Option<String>,
+    /// Calculated display name based on the room's name, aliases, and members.
+    pub display_name: String,
     /// The topic of the room, if any.
     pub topic: Option<String>,
     /// The URL for the room's avatar, if one is set.
@@ -68,10 +70,19 @@ impl SpaceRoom {
         children_count: u64,
         via: Vec<OwnedServerName>,
     ) -> Self {
+        let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
+            summary.name.clone(),
+            summary.canonical_alias.as_deref(),
+            known_room.as_ref().map(|r| r.heroes().to_vec()).unwrap_or_default(),
+            summary.num_joined_members.into(),
+        )
+        .to_string();
+
         Self {
             room_id: summary.room_id.clone(),
             canonical_alias: summary.canonical_alias.clone(),
             name: summary.name.clone(),
+            display_name,
             topic: summary.topic.clone(),
             avatar_url: summary.avatar_url.clone(),
             room_type: summary.room_type.clone(),
@@ -91,10 +102,20 @@ impl SpaceRoom {
     pub(crate) fn new_from_known(known_room: &Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
+        let name = room_info.name().map(ToOwned::to_owned);
+        let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
+            name.clone(),
+            room_info.canonical_alias(),
+            room_info.heroes().to_vec(),
+            known_room.joined_members_count(),
+        )
+        .to_string();
+
         Self {
             room_id: room_info.room_id().to_owned(),
             canonical_alias: room_info.canonical_alias().map(ToOwned::to_owned),
-            name: room_info.name().map(ToOwned::to_owned),
+            name,
+            display_name,
             topic: room_info.topic().map(ToOwned::to_owned),
             avatar_url: room_info.avatar_url().map(ToOwned::to_owned),
             room_type: room_info.room_type().cloned(),
