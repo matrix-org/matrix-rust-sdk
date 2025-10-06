@@ -4507,7 +4507,7 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
     }
 
     /// Add a single thread unsubscription to the response.
-    pub fn add_unsubcription(
+    pub fn add_unsubscription(
         mut self,
         room_id: OwnedRoomId,
         thread_root: OwnedEventId,
