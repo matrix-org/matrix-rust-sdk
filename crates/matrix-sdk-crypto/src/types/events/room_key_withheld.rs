@@ -17,7 +17,9 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId};
+use ruma::{
+    events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId, RoomId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -223,6 +225,28 @@ impl CommonWithheldCodeContent {
 }
 
 impl MegolmV1AesSha2WithheldContent {
+    /// Get the session ID for this content, if available.
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            MegolmV1AesSha2WithheldContent::BlackListed(content)
+            | MegolmV1AesSha2WithheldContent::Unverified(content)
+            | MegolmV1AesSha2WithheldContent::Unauthorised(content)
+            | MegolmV1AesSha2WithheldContent::Unavailable(content) => Some(&content.session_id),
+            MegolmV1AesSha2WithheldContent::NoOlm(_) => None,
+        }
+    }
+
+    /// Get the room ID for this content, if available.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match self {
+            MegolmV1AesSha2WithheldContent::BlackListed(content)
+            | MegolmV1AesSha2WithheldContent::Unverified(content)
+            | MegolmV1AesSha2WithheldContent::Unauthorised(content)
+            | MegolmV1AesSha2WithheldContent::Unavailable(content) => Some(&content.room_id),
+            MegolmV1AesSha2WithheldContent::NoOlm(_) => None,
+        }
+    }
+
     /// Get the withheld code for this content
     pub fn withheld_code(&self) -> WithheldCode {
         match self {

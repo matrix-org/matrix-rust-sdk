@@ -59,7 +59,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{info, instrument, trace, warn};
 use types::{RoomKeyBundleInfo, StoredRoomKeyBundleData};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
@@ -78,8 +78,8 @@ use crate::{
     },
     store::types::RoomKeyWithheldEntry,
     types::{
-        events::room_key_withheld::MegolmV1AesSha2WithheldContent, BackupSecrets,
-        CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport, SecretsBundle,
+        BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
+        SecretsBundle,
     },
     verification::VerificationMachine,
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -1633,74 +1633,108 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        match &sender_data {
+        if matches!(
+            &sender_data,
             SenderData::UnknownDevice { .. }
-            | SenderData::VerificationViolation(_)
-            | SenderData::DeviceInfo { .. } => {
-                warn!("Not accepting a historic room key bundle due to insufficient trust in the sender");
+                | SenderData::VerificationViolation(_)
+                | SenderData::DeviceInfo { .. }
+        ) {
+            warn!(
+                "Not accepting a historic room key bundle due to insufficient trust in the sender"
+            );
+            return Ok(());
+        }
+
+        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
+
+        Ok(())
+    }
+
+    async fn import_room_key_bundle_sessions(
+        &self,
+        bundle_info: &StoredRoomKeyBundleData,
+        bundle: &RoomKeyBundle,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<(), CryptoStoreError> {
+        let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
+            if key.room_id != bundle_info.bundle_data.room_id {
+                trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                Either::Right(key)
+            } else {
+                Either::Left(key)
             }
-            SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => {
-                let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
-                    if key.room_id != bundle_info.bundle_data.room_id {
-                        trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
-                        Either::Right(key)
-                    } else {
-                        Either::Left(key)
-                    }
-                });
+        });
 
-                match (bad.is_empty(), good.is_empty()) {
-                    // Case 1: Completely empty bundle.
-                    (true, true) => {
-                        warn!("Received a completely empty room key bundle");
-                    }
+        match (bad.is_empty(), good.is_empty()) {
+            // Case 1: Completely empty bundle.
+            (true, true) => {
+                warn!("Received a completely empty room key bundle");
+            }
 
-                    // Case 2: A bundle for the wrong room.
-                    (false, true) => {
-                        let bad_keys: Vec<_> =
-                            bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
+            // Case 2: A bundle for the wrong room.
+            (false, true) => {
+                let bad_keys: Vec<_> =
+                    bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
 
-                        warn!(
+                warn!(
                     ?bad_keys,
                     "Received a room key bundle for the wrong room, ignoring all room keys from the bundle"
                 );
-                    }
+            }
 
-                    // Case 3: A bundle containing useful room keys.
-                    (_, false) => {
-                        // We have at least some good keys, if we also have some bad ones let's
-                        // mention that here.
-                        if !bad.is_empty() {
-                            warn!(
-                                bad_key_count = bad.len(),
-                                "The room key bundle contained some room keys \
+            // Case 3: A bundle containing useful room keys.
+            (_, false) => {
+                // We have at least some good keys, if we also have some bad ones let's
+                // mention that here.
+                if !bad.is_empty() {
+                    warn!(
+                        bad_key_count = bad.len(),
+                        "The room key bundle contained some room keys \
                          that were meant for a different room"
-                            );
-                        }
-
-                        self.import_sessions_impl(good, None, progress_listener).await?;
-                    }
+                    );
                 }
+
+                self.import_sessions_impl(good, None, progress_listener).await?;
             }
         }
 
+        Ok(())
+    }
+
+    async fn import_room_key_bundle_withheld_info(
+        &self,
+        bundle_info: &StoredRoomKeyBundleData,
+        bundle: &RoomKeyBundle,
+    ) -> Result<(), CryptoStoreError> {
         let mut changes = Changes::default();
         for withheld in &bundle.withheld {
-            if let RoomKeyWithheldContent::MegolmV1AesSha2(
-                MegolmV1AesSha2WithheldContent::BlackListed(c)
-                | MegolmV1AesSha2WithheldContent::Unverified(c)
-                | MegolmV1AesSha2WithheldContent::Unauthorised(c)
-                | MegolmV1AesSha2WithheldContent::Unavailable(c),
-            ) = withheld
-            {
-                changes.withheld_session_info.entry(c.room_id.to_owned()).or_default().insert(
-                    c.session_id.to_owned(),
-                    RoomKeyWithheldEntry {
-                        sender: bundle_info.sender_user.clone(),
-                        content: withheld.to_owned(),
-                    },
-                );
+            let (room_id, session_id) = match withheld {
+                #[cfg(not(feature = "experimental-algorithms"))]
+                RoomKeyWithheldContent::MegolmV1AesSha2(c) => match (c.room_id(), c.session_id()) {
+                    (Some(room_id), Some(session_id)) => (room_id, session_id),
+                    _ => continue,
+                },
+                #[cfg(feature = "experimental-algorithms")]
+                RoomKeyWithheldContent::MegolmV2AesSha2(c) => match (c.room_id(), c.session_id()) {
+                    (Some(room_id), Some(session_id)) => (room_id, session_id),
+                    _ => continue,
+                },
+                _ => continue,
+            };
+
+            if room_id != bundle_info.bundle_data.room_id {
+                trace!("Ignoring withheld info for incorrect room {} in bundle", room_id);
+                continue;
             }
+
+            changes.withheld_session_info.entry(room_id.to_owned()).or_default().insert(
+                session_id.to_owned(),
+                RoomKeyWithheldEntry {
+                    sender: bundle_info.sender_user.clone(),
+                    content: withheld.to_owned(),
+                },
+            );
         }
         self.save_changes(changes).await?;
 
@@ -2133,6 +2167,7 @@ mod tests {
         );
         assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
     }
+
     /// Create an inbound Megolm session for the given room.
     ///
     /// `olm_machine` is used to set the `sender_key` and `signing_key`
