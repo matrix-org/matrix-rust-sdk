@@ -676,6 +676,7 @@ mod tests {
         let mut updated_parent_space = parent_space.clone();
         updated_parent_space.topic = Some("New room topic".to_owned());
         updated_parent_space.name = Some("New room name".to_owned());
+        updated_parent_space.display_name = "New room name".to_owned();
 
         // And the subscription is informed about the change
         assert_next_eq!(parent_space_subscriber, Some(updated_parent_space));
@@ -900,7 +901,8 @@ mod tests {
         SpaceRoom {
             room_id,
             canonical_alias: None,
-            name: None,
+            name: Some("New room name".to_owned()),
+            display_name: "Empty room".to_owned(),
             topic: None,
             avatar_url: None,
             room_type: None,
