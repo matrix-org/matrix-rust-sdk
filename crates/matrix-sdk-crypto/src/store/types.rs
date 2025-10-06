@@ -487,8 +487,10 @@ pub struct RoomKeyWithheldInfo {
     /// The ID of the session that the key is for.
     pub session_id: String,
 
-    /// The `m.room_key.withheld` event that notified us that the key is being
-    /// withheld.
+    /// The withheld entry from a `m.room_key.withheld` event or [MSC4268] room
+    /// key bundle.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     pub withheld_event: RoomKeyWithheldEntry,
 }
 
@@ -496,9 +498,13 @@ pub struct RoomKeyWithheldInfo {
 /// to-device event or a bundle entry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomKeyWithheldEntry {
-    /// The ID of the user who sent the bundle.
+    /// The user ID responsible for this entry, either from a
+    /// `m.room_key.withheld` to-device event or an [MSC4268] room key bundle.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     pub sender: OwnedUserId,
-    /// The contents of a single withheld entry in the bundle.
+    /// The content of the entry, which provides details about the reason the
+    /// key was withheld.
     pub content: RoomKeyWithheldContent,
 }
 
