@@ -2114,13 +2114,22 @@ mod tests {
         assert_eq!(imported_sessions[0].room_id(), room_id);
 
         assert_matches!(
-            bob.store().get_withheld_info(room_id, sessions[1].session_id()).await.unwrap(),
-            Some(RoomKeyWithheldEntry {
+            bob.store()
+                .get_withheld_info(room_id, sessions[1].session_id())
+                .await
+                .unwrap()
+                .expect("Withheld info should be present in the store."),
+            RoomKeyWithheldEntry {
+                #[cfg(not(feature = "experimental-algorithms"))]
                 content: RoomKeyWithheldContent::MegolmV1AesSha2(
                     MegolmV1AesSha2WithheldContent::Unauthorised(_)
                 ),
+                #[cfg(feature = "experimental-algorithms")]
+                content: RoomKeyWithheldContent::MegolmV2AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                ),
                 ..
-            })
+            }
         );
     }
 
@@ -2185,7 +2194,10 @@ mod tests {
             room_id,
             session_key,
             SenderData::unknown(),
+            #[cfg(not(feature = "experimental-algorithms"))]
             EventEncryptionAlgorithm::MegolmV1AesSha2,
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2,
             None,
             shared_history,
         )
