@@ -317,7 +317,7 @@ impl SasVerification {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn changes(&self) -> impl Stream<Item = SasState> {
+    pub fn changes(&self) -> impl Stream<Item = SasState> + use<> {
         self.inner.changes()
     }
 

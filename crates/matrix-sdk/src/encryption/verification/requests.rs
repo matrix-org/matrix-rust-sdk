@@ -247,7 +247,7 @@ impl VerificationRequest {
     ///
     /// The changes are presented as a stream of [`VerificationRequestState`]
     /// values.
-    pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> {
+    pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> + use<> {
         let client = self.client.to_owned();
 
         self.inner.changes().map(move |s| Self::convert_state(client.to_owned(), s))

@@ -41,7 +41,7 @@ impl ObservableLiveLocation {
     }
 
     /// Get a stream of [`LiveLocationShare`].
-    pub fn subscribe(&self) -> impl Stream<Item = LiveLocationShare> {
+    pub fn subscribe(&self) -> impl Stream<Item = LiveLocationShare> + use<> {
         let stream = self.observable_room_events.subscribe();
 
         stream! {
