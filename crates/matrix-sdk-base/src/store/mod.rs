@@ -22,7 +22,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     ops::Deref,
     result::Result as StdResult,
@@ -41,6 +41,7 @@ pub mod integration_tests;
 mod observable_map;
 mod traits;
 
+use matrix_sdk_common::locks::Mutex as SyncMutex;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
@@ -185,6 +186,10 @@ pub(crate) struct BaseStateStore {
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     lock: Arc<Mutex<()>>,
+
+    /// Which rooms have already logged a log line about missing room info, in
+    /// the context of response processors?
+    pub(crate) already_logged_missing_room: Arc<SyncMutex<HashSet<OwnedRoomId>>>,
 }
 
 impl BaseStateStore {
@@ -197,6 +202,7 @@ impl BaseStateStore {
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             lock: Default::default(),
+            already_logged_missing_room: Default::default(),
         }
     }
 
