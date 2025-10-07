@@ -379,13 +379,10 @@ impl MediaStoreInner for IndexeddbMediaStore {
                         CursorDirection::Prev,
                         ignore_policy,
                         0usize,
-                        |total, key| {
-                            web_sys::console::log_1(&format!("total={total}, key={key:?}").into());
-                            match total.checked_add(key.content_size()) {
-                                None => None,
-                                Some(total) if total > max_cache_size as usize => None,
-                                Some(total) => Some(total),
-                            }
+                        |total, key| match total.checked_add(key.content_size()) {
+                            None => None,
+                            Some(total) if total > max_cache_size as usize => None,
+                            Some(total) => Some(total),
                         },
                     )
                     .await?;
