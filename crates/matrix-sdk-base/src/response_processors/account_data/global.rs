@@ -172,7 +172,7 @@ fn map_info<F: FnOnce(&mut RoomInfo)>(
         let mut info = room.clone_info();
         f(&mut info);
         changes.add_room(info);
-    } else {
+    } else if store.already_logged_missing_room.lock().insert(room_id.to_owned()) {
         debug!(room = %room_id, "couldn't find room in state changes or store");
     }
 }
