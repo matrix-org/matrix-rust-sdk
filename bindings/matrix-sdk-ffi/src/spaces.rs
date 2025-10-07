@@ -229,8 +229,11 @@ pub struct SpaceRoom {
     pub room_id: String,
     /// The canonical alias of the room, if any.
     pub canonical_alias: Option<String>,
-    /// The name of the room, if any.
-    pub name: Option<String>,
+    /// The room's name from the room state event if received from sync, or one
+    /// that's been computed otherwise.
+    pub display_name: String,
+    /// Room name as defined by the room state event only.
+    pub raw_name: Option<String>,
     /// The topic of the room, if any.
     pub topic: Option<String>,
     /// The URL for the room's avatar, if one is set.
@@ -266,7 +269,8 @@ impl From<UISpaceRoom> for SpaceRoom {
         Self {
             room_id: room.room_id.into(),
             canonical_alias: room.canonical_alias.map(|alias| alias.into()),
-            name: room.name,
+            display_name: room.display_name,
+            raw_name: room.name,
             topic: room.topic,
             avatar_url: room.avatar_url.map(|url| url.into()),
             room_type: room.room_type.into(),
