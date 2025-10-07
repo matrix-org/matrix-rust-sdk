@@ -25,6 +25,7 @@ use matrix_sdk::{
     Client, Room,
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
     encryption::backups::BackupState,
+    event_cache::{self, RedecryptorReport},
     event_handler::EventHandlerHandle,
     executor::{JoinHandle, spawn},
 };
@@ -101,6 +102,32 @@ pub(super) fn compute_redecryption_candidates(
                 Either::Right(session_id)
             }
         })
+}
+
+async fn redecryption_report_task(timeline_controller: TimelineController) {
+    let client = timeline_controller.room().client();
+    let stream = client.event_cache().subscribe_to_decryption_reports();
+
+    pin_mut!(stream);
+
+    while let Some(report) = stream.next().await {
+        match report {
+            Ok(RedecryptorReport::ResolvedUtds { events, .. }) => {
+                let state = timeline_controller.state.read().await;
+
+                if let Some(utd_hook) = &state.meta.unable_to_decrypt_hook {
+                    for event_id in events {
+                        utd_hook.on_late_decrypt(&event_id).await;
+                    }
+                }
+            }
+            Ok(RedecryptorReport::Lagging) | Err(_) => {
+                // The room key stream lagged or the OlmMachine got regenerated. Let's tell the
+                // redecryptor to attempt redecryption of our timeline items.
+                timeline_controller.retry_event_decryption(None).await;
+            }
+        }
+    }
 }
 
 /// The task that handles the room keys from backups.
