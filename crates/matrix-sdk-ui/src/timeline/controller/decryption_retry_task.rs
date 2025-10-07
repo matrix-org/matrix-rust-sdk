@@ -69,6 +69,40 @@ impl Drop for CryptoDropHandles {
     }
 }
 
+/// Decide which events should be retried, either for re-decryption, or, if they
+/// are already decrypted, for re-checking their encryption info.
+///
+/// Returns two sets of session IDs, one for the UTDs and one for the events
+/// that have an encryption info that might need to be updated.
+pub(super) fn compute_redecryption_candidates(
+    timeline_items: &Vector<Arc<TimelineItem>>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    timeline_items
+        .iter()
+        .filter_map(|event| {
+            event.as_event().and_then(|e| {
+                let session_id = e.encryption_info().and_then(|info| info.session_id());
+
+                let session_id = if let Some(session_id) = session_id {
+                    Some(session_id)
+                } else {
+                    event.as_event().and_then(|e| {
+                        e.content.as_unable_to_decrypt().and_then(|utd| utd.session_id())
+                    })
+                };
+
+                session_id.map(|id| id.to_owned()).zip(Some(e))
+            })
+        })
+        .partition_map(|(session_id, event)| {
+            if event.content.is_unable_to_decrypt() {
+                Either::Left(session_id)
+            } else {
+                Either::Right(session_id)
+            }
+        })
+}
+
 /// The task that handles the room keys from backups.
 async fn room_keys_from_backups_task<S>(stream: S, timeline_controller: TimelineController)
 where
