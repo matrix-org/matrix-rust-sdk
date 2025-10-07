@@ -207,7 +207,7 @@ impl QrVerification {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn changes(&self) -> impl Stream<Item = QrVerificationState> {
+    pub fn changes(&self) -> impl Stream<Item = QrVerificationState> + use<> {
         self.inner.changes()
     }
 
