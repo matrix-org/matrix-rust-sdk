@@ -681,7 +681,7 @@ impl QrVerification {
     /// Listen for changes in the QrCode verification process.
     ///
     /// The changes are presented as a stream of [`QrVerificationState`] values.
-    pub fn changes(&self) -> impl Stream<Item = QrVerificationState> {
+    pub fn changes(&self) -> impl Stream<Item = QrVerificationState> + use<> {
         self.state.subscribe().map(|s| (&s).into())
     }
 

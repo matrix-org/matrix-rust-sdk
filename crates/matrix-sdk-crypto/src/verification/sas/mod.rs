@@ -745,7 +745,7 @@ impl Sas {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn changes(&self) -> impl Stream<Item = SasState> {
+    pub fn changes(&self) -> impl Stream<Item = SasState> + use<> {
         self.inner.subscribe().map(|s| (&s).into())
     }
 

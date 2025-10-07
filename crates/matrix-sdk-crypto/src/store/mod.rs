@@ -1151,7 +1151,7 @@ impl Store {
     /// logged and items will be dropped.
     pub fn room_keys_withheld_received_stream(
         &self,
-    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> {
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> + use<> {
         self.inner.store.room_keys_withheld_received_stream()
     }
 
@@ -1185,7 +1185,7 @@ impl Store {
     /// }
     /// # });
     /// ```
-    pub fn user_identities_stream(&self) -> impl Stream<Item = IdentityUpdates> {
+    pub fn user_identities_stream(&self) -> impl Stream<Item = IdentityUpdates> + use<> {
         let verification_machine = self.inner.verification_machine.to_owned();
 
         let this = self.clone();
@@ -1243,7 +1243,7 @@ impl Store {
     /// }
     /// # });
     /// ```
-    pub fn devices_stream(&self) -> impl Stream<Item = DeviceUpdates> {
+    pub fn devices_stream(&self) -> impl Stream<Item = DeviceUpdates> + use<> {
         let verification_machine = self.inner.verification_machine.to_owned();
 
         self.inner.store.identities_stream().map(move |(own_identity, identities, devices)| {
@@ -1265,7 +1265,9 @@ impl Store {
     ///
     /// The stream will terminate once all references to the underlying
     /// `CryptoStoreWrapper` are dropped.
-    pub fn identities_stream_raw(&self) -> impl Stream<Item = (IdentityChanges, DeviceChanges)> {
+    pub fn identities_stream_raw(
+        &self,
+    ) -> impl Stream<Item = (IdentityChanges, DeviceChanges)> + use<> {
         self.inner.store.identities_stream().map(|(_, identities, devices)| (identities, devices))
     }
 
@@ -1318,7 +1320,7 @@ impl Store {
     /// }
     /// # });
     /// ```
-    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
+    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
         self.inner.store.secrets_stream()
     }
 

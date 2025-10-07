@@ -335,14 +335,14 @@ impl CryptoStoreWrapper {
     /// logged and items will be dropped.
     pub fn room_keys_withheld_received_stream(
         &self,
-    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> {
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> + use<> {
         let stream = BroadcastStream::new(self.room_keys_withheld_received_sender.subscribe());
         Self::filter_errors_out_of_stream(stream, "room_keys_withheld_received_stream")
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
-    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
+    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "secrets_stream")
     }
@@ -360,7 +360,8 @@ impl CryptoStoreWrapper {
     /// device and user identity streams.
     pub(super) fn identities_stream(
         &self,
-    ) -> impl Stream<Item = (Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)> {
+    ) -> impl Stream<Item = (Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)> + use<>
+    {
         let stream = BroadcastStream::new(self.identities_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "identities_stream")
     }

@@ -881,7 +881,7 @@ impl VerificationRequest {
     ///
     /// The changes are presented as a stream of [`VerificationRequestState`]
     /// values.
-    pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> {
+    pub fn changes(&self) -> impl Stream<Item = VerificationRequestState> + use<> {
         self.inner.subscribe().map(|s| (&s).into())
     }
 
