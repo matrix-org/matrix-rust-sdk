@@ -28,8 +28,9 @@ use serde_json::{json, value::to_raw_value, Value};
 use crate::{
     machine::{
         test_helpers::{
-            build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
-            get_prepared_machine_test_helper, send_and_receive_encrypted_to_device_test_helper,
+            build_encrypted_to_device_content_without_sender_data, build_session_for_pair,
+            get_machine_pair, get_machine_pair_with_session, get_prepared_machine_test_helper,
+            send_and_receive_encrypted_to_device_test_helper,
         },
         tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
     },
@@ -45,7 +46,7 @@ use crate::{
     utilities::json_convert,
     verification::tests::bob_id,
     CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
-    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, Session, TrustRequirement,
+    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, TrustRequirement,
 };
 
 #[async_test]
@@ -635,33 +636,22 @@ async fn create_and_share_session_without_sender_data(
     // the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
-    let olm_sessions = alice
-        .store()
-        .get_sessions(&bob.identity_keys().curve25519.to_base64())
+    let bob_device = alice
+        .get_device(bob.user_id(), bob.device_id(), None)
         .await
         .unwrap()
-        .unwrap();
-    let mut olm_session: Session = olm_sessions.lock().await[0].clone();
-
+        .expect("Attempt to send message to unknown device");
     let room_key_content = outbound_session.as_content().await;
-    let plaintext = serde_json::to_string(&json!({
-        "sender": alice.user_id(),
-        "sender_device": alice.device_id(),
-        "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
-        // We deliberately do *not* include:
-        // "org.matrix.msc4147.device_keys": alice_device_keys,
-        "recipient": bob.user_id(),
-        "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
-        "type": room_key_content.event_type(),
-        "content": room_key_content,
-    }))
-    .unwrap();
 
-    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
-    ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        olm_session.build_encrypted_event(ciphertext, None).await.unwrap(),
+    let content = build_encrypted_to_device_content_without_sender_data(
+        alice,
+        &bob_device.device_keys,
+        room_key_content.event_type(),
+        &room_key_content,
     )
+    .await;
+
+    ToDeviceEvent::new(alice.user_id().to_owned(), content)
 }
 
 /// Simulate uploading keys for alice that mean bob thinks alice's device
