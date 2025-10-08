@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Add `QrLoginProgress::SyncingSecrets` to indicate that secrets are being synced between the two
   devices.
   ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
+- Add `Room::subscribe_to_send_queue_updates` to observe room send queue updates.
+  ([#5761](https://github.com/matrix-org/matrix-rust-sdk/pull/5761))
 
 ### Features:
 
