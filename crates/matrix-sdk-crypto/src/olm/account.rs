@@ -1519,52 +1519,7 @@ impl Account {
             )
             .into())
         } else {
-            // If the event contained sender_device_keys, check them now.
-            // WARN: If you move or modify this check, ensure that the code below is still
-            // valid. The processing of the historic room key bundle depends on this being
-            // here.
-            Self::check_sender_device_keys(event.as_ref(), sender_key)?;
-            let mut sender_device: Option<Device> = None;
-            if let AnyDecryptedOlmEvent::RoomKey(_) = event.as_ref() {
-                // If this event is an `m.room_key` event, defer the check for
-                // the Ed25519 key of the sender until we decrypt room events.
-                // This ensures that we receive the room key even if we don't
-                // have access to the device.
-            } else if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event.as_ref() {
-                // If this is a room key bundle we're requiring the device keys to be part of
-                // the `AnyDecryptedOlmEvent`. This ensures that we can skip the check for the
-                // Ed25519 key below since `Self::check_sender_device_keys` already did so.
-                //
-                // If the event didn't contain any sender device keys we'll throw an error
-                // refusing to decrypt the room key bundle.
-                event.sender_device_keys().ok_or(EventError::MissingSigningKey).inspect_err(
-                    |_| {
-                        warn!("The room key bundle was missing the sender device keys in the event")
-                    },
-                )?;
-            } else {
-                let device = store
-                    .get_device_from_curve_key(event.sender(), sender_key)
-                    .await?
-                    .ok_or(EventError::MissingSigningKey)?;
-
-                let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
-
-                if key != event.keys().ed25519 {
-                    return Err(EventError::MismatchedKeys(
-                        key.into(),
-                        event.keys().ed25519.into(),
-                    )
-                    .into());
-                }
-
-                // TODO: we should have access to some decryption settings here
-                // (TrustRequirement) and use it to manually reject the decryption.
-                // Similar to check_sender_trust_requirement for room events
-
-                sender_device = Some(device);
-            }
-
+            let sender_device = Self::get_event_sender_device(store, sender_key, &event).await?;
             let encryption_info = Self::get_olm_encryption_info(sender_key, sender, &sender_device);
 
             let result = DecryptionResult {
@@ -1582,6 +1537,59 @@ impl Account {
                 Ok(result)
             }
         }
+    }
+
+    /// Look up the [`Device`] that sent us a successfully-decrypted event.
+    ///
+    /// Also validates the `sender_device_keys` field, if present.
+    ///
+    /// `m.room_key` events are special-cased and return `None`: we look up
+    /// their devices later on.
+    ///
+    /// For other events, we look up the device in the store, and return the
+    /// details.
+    async fn get_event_sender_device(
+        store: &Store,
+        sender_key: Curve25519PublicKey,
+        event: &AnyDecryptedOlmEvent,
+    ) -> OlmResult<Option<Device>> {
+        // If the event contained sender_device_keys, check them now.
+        // WARN: If you move or modify this check, ensure that the code below is still
+        // valid. The processing of the historic room key bundle depends on this being
+        // here.
+        Self::check_sender_device_keys(event, sender_key)?;
+        let mut sender_device: Option<Device> = None;
+        if let AnyDecryptedOlmEvent::RoomKey(_) = event {
+            // If this event is an `m.room_key` event, defer the check for
+            // the Ed25519 key of the sender until we decrypt room events.
+            // This ensures that we receive the room key even if we don't
+            // have access to the device.
+        } else if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event {
+            // If this is a room key bundle we're requiring the device keys to be part of
+            // the `AnyDecryptedOlmEvent`. This ensures that we can skip the check for the
+            // Ed25519 key below since `Self::check_sender_device_keys` already did so.
+            //
+            // If the event didn't contain any sender device keys we'll throw an error
+            // refusing to decrypt the room key bundle.
+            event.sender_device_keys().ok_or(EventError::MissingSigningKey).inspect_err(|_| {
+                warn!("The room key bundle was missing the sender device keys in the event")
+            })?;
+        } else {
+            let device = store
+                .get_device_from_curve_key(event.sender(), sender_key)
+                .await?
+                .ok_or(EventError::MissingSigningKey)?;
+
+            let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+
+            if key != event.keys().ed25519 {
+                return Err(
+                    EventError::MismatchedKeys(key.into(), event.keys().ed25519.into()).into()
+                );
+            }
+            sender_device = Some(device);
+        }
+        Ok(sender_device)
     }
 
     /// Return true if:
