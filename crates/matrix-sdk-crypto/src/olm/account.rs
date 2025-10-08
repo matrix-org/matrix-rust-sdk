@@ -1558,38 +1558,34 @@ impl Account {
         // valid. The processing of the historic room key bundle depends on this being
         // here.
         Self::check_sender_device_keys(event, sender_key)?;
-        let mut sender_device: Option<Device> = None;
         if let AnyDecryptedOlmEvent::RoomKey(_) = event {
             // If this event is an `m.room_key` event, defer the check for
             // the Ed25519 key of the sender until we decrypt room events.
             // This ensures that we receive the room key even if we don't
             // have access to the device.
-        } else if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event {
-            // If this is a room key bundle we're requiring the device keys to be part of
-            // the `AnyDecryptedOlmEvent`. This ensures that we can skip the check for the
-            // Ed25519 key below since `Self::check_sender_device_keys` already did so.
-            //
-            // If the event didn't contain any sender device keys we'll throw an error
-            // refusing to decrypt the room key bundle.
+            return Ok(None);
+        }
+
+        // MSC4268 requires room key bundle events to have a `sender_device_keys` field.
+        // Enforce that now.
+        if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event {
             event.sender_device_keys().ok_or(EventError::MissingSigningKey).inspect_err(|_| {
                 warn!("The room key bundle was missing the sender device keys in the event")
             })?;
-        } else {
-            let device = store
-                .get_device_from_curve_key(event.sender(), sender_key)
-                .await?
-                .ok_or(EventError::MissingSigningKey)?;
-
-            let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
-
-            if key != event.keys().ed25519 {
-                return Err(
-                    EventError::MismatchedKeys(key.into(), event.keys().ed25519.into()).into()
-                );
-            }
-            sender_device = Some(device);
         }
-        Ok(sender_device)
+
+        let device = store
+            .get_device_from_curve_key(event.sender(), sender_key)
+            .await?
+            .ok_or(EventError::MissingSigningKey)?;
+
+        let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+
+        if key != event.keys().ed25519 {
+            return Err(EventError::MismatchedKeys(key.into(), event.keys().ed25519.into()).into());
+        }
+
+        Ok(Some(device))
     }
 
     /// Return true if:
