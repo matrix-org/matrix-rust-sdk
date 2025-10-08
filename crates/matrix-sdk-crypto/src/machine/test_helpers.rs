@@ -30,7 +30,6 @@ use ruma::{
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
     user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
 use serde::Serialize;
@@ -38,12 +37,11 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use crate::{
-    machine::tests,
     olm::PrivateCrossSigningIdentity,
     store::{types::Changes, CryptoStoreWrapper, MemoryStore},
     types::{
         events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
-        requests::{AnyOutgoingRequest, ToDeviceRequest},
+        requests::AnyOutgoingRequest,
         DeviceKeys,
     },
     utilities::json_convert,
@@ -199,16 +197,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         .await
         .expect("Should have encrypted the content");
 
-    let request = ToDeviceRequest::new(
-        recipient.user_id(),
-        DeviceIdOrAllDevices::DeviceId(recipient.device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-    let event = ToDeviceEvent::new(
-        sender.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
+    let event = ToDeviceEvent::new(sender.user_id().to_owned(), raw_encrypted);
 
     let event = json_convert(&event).unwrap();
 
