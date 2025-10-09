@@ -1710,7 +1710,6 @@ impl Store {
         let mut changes = Changes::default();
         for withheld in &bundle.withheld {
             let (room_id, session_id) = match withheld {
-                #[cfg(not(feature = "experimental-algorithms"))]
                 RoomKeyWithheldContent::MegolmV1AesSha2(c) => match (c.room_id(), c.session_id()) {
                     (Some(room_id), Some(session_id)) => (room_id, session_id),
                     _ => continue,
