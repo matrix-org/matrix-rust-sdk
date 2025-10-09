@@ -70,6 +70,10 @@ impl Room {
         heroes: Vec<RoomHero>,
         num_joined_members: u64,
     ) -> RoomDisplayName {
+        // Handle empty string names. The `Room` level implementation relies
+        // on `RoomInfo` doing the same thing.
+        let name = name.and_then(|name| (!name.is_empty()).then_some(name));
+
         match (name, canonical_alias) {
             (Some(name), _) => RoomDisplayName::Named(name.trim().to_owned()),
             (None, Some(alias)) => RoomDisplayName::Aliased(alias.alias().trim().to_owned()),
@@ -588,11 +592,15 @@ mod tests {
         })
     }
 
-    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
+    fn make_name_event_with(name: &str) -> MinimalStateEvent<RoomNameEventContent> {
         MinimalStateEvent::Original(OriginalMinimalStateEvent {
-            content: RoomNameEventContent::new("Test Room".to_owned()),
+            content: RoomNameEventContent::new(name.to_owned()),
             event_id: None,
         })
+    }
+
+    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
+        make_name_event_with("Test Room")
     }
 
     #[async_test]
@@ -605,6 +613,22 @@ mod tests {
     fn test_display_name_compute_fields_empty() {
         assert_eq!(
             Room::compute_display_name_with_fields(None, None, vec![], 0),
+            RoomDisplayName::Empty
+        );
+    }
+
+    #[async_test]
+    async fn test_display_name_for_joined_room_is_empty_if_name_empty() {
+        let (_, room) = make_room_test_helper(RoomState::Joined);
+        room.info.update(|info| info.base_info.name = Some(make_name_event_with("")));
+
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
+    }
+
+    #[test]
+    fn test_display_name_compute_fields_empty_if_name_empty() {
+        assert_eq!(
+            Room::compute_display_name_with_fields(Some("".to_owned()), None, vec![], 0),
             RoomDisplayName::Empty
         );
     }
