@@ -41,7 +41,7 @@ use ruma::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    owned_device_id, room_id,
+    owned_device_id, owned_user_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -530,29 +530,28 @@ async fn test_retry_edit_and_more() {
 
 #[async_test]
 async fn test_retry_message_decryption_highlighted() {
-    const SESSION_ID: &str = "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY";
+    const SESSION_ID: &str = "iLmOdBBComUwueq8mKVU1Om5xXzfP3As0T5W6JnmzcU";
     const SESSION_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
-        AUBvCG7VHqpYOpNJoIVxsTS1Qyu83w6xFDw67qDe1edSAAAACrnzwQzFMw//BB9iNKTviUfGPEKD9XlL9f8N\
-        svGCe971WnKLqWJjtrc42UfyDXH0fz4HXeCN1b104GlzWVFp0r+9RuQpPsP3IZ1DxWPm/xsotr3N4BY3pdgK\
-        wpbCq3oD9bQ0jcYqajrWfmEagSInobo9jd6CPyj6kz7mU/SXwva+aoYB8fVJptdYbIXQbvD8t9vS5SC6ZGlP\
-        CpcJBscXIq79HpWgDjnfvUNZiITlazFcgPB8zI78MwISm4FX/4KAwxjWf0eGNwKPiTP8fjXpxKurgnMQEET/\
-        nVb/r4yIO1Z8rM6vmzoTcQvUc5pXmAGhcLGWN6Q06D3hBuWw0etCKRW5bqcMRit5wmawvBV6j+QNKSPKy7xQ\
-        zQhzx9TFfgGZ7rRsl9EPxn0FB/EJNHOkbqYqOmKix9jbh820jRG9i4vD+x+U6iXGpRPyb2S8w+1f9n3uH3yI\
-        0XWypoX/eEh7cJv9YChq4Wst4UkP2l6ztP8H/dWXfDYHddkMMKnveeb3sjWRjJep7Ih3W5PyMmxfge85DryB\
-        Sgvx6TKvtiC4zOKp1VStbXNgrpipWixhXP2F8BkDmJJvDYO1idWU2NbDJZY6AkKockUscnovpmV1yhovm83Y\
-        sAZRyV3W2MlFpA5qAgdXWlBA4WZ/jus/Mey0dqFZtvDS6fC1S4cx5p6hXBwADLRjIiqq2dpn49+aUwqPMn/b\
-        FM8H2PpVkKgrA+tx8LNQD+FWDfp6MyhmEJEvk9r5vU9LtTXtZl4toYvNY0UHUBbZj2xF9U9Z9A\n\
+        AX24HyDDbSft4ogbfNZNOIfDW77PkIX/pFxHBgMMkU8FAAAAClcahP9R2+HkWpo8ME4+C7BKJlZAhqEZsvfjoqdQVo8\
+        1vMJkdINNuG9jdl4DWd3GxpgiJLTmNqfZewG4Fca1RG6X67KNv7XFwreIn38+wjtqaPa6ODnx2C9ia0nyjKw88x1I4m\
+        MYeRj8NgMvPmBFk5gQXlUeWw9b0LGUzUwn7JtRjvpygmbTJTerLXvAbBJo2CiFVjTlbG+4w2N++PoqtaWHNBmqqEJNF\
+        c2EKnyqkOmHvNkMLAWAkEkbmqSOTjwBYq28PHqY3UTgGafRGkdX+mp0PsexVLEgzNL0SQFNAVaTlnr0WBxnWMGyS88/\
+        n9BeI31YTUjb837ZDDKVgXvu0vybchM5MNActoyxzcOYQ/bqK9Cd7l6O3MvJ8iqgbbMkkKJDO1OY3RByaNmDHXRRQhL\
+        vLIiPqjLqw6NLZYMTb9Qi5cGKnhehEWafKepSDTB29J6szAlzaWdX3m5abgOhi629IPmshKX5AXrfpGP6O6h3BeOpSb\
+        UzcXmEuJJbyi4TbtbTmL4E9kJGWsvs7pobmmp6ndkR2xjHwWdZh9JDzjJvCF4Se61wkmq2tUUQaANch/ORWLxx/Sf3E\
+        NFEAmaDU3PAWsce2AR1LweCTCtgqg2veJ/irKn816SZd8p9E4ujwBPtiwHYXVBaKmja2/BnFEKbU3vzBU8R5RIr4VEd\
+        C1r72yL/zIx+P220q3gPvLEqglUsES5Hwo5+7y/CKLa5ZvLPby+DUyVJxn9lLdvCvoxcBWzKGMrwEmwnClWPxrUFqaP\
+        R36ruSneNIpFsVqemSCVF2irnHWgtYHvH8EUOAbsK8KLMHiCg8HxlkLd5GL1lpBwwR+c\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let own_user_id = user_id!("@example:matrix.org");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let own_user_id = owned_user_id!("@willow:matrix.local");
+    let olm_machine = OlmMachine::new(&own_user_id, "SomeDeviceId".into()).await;
 
     let timeline = TestTimelineBuilder::new()
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
-            &olm_machine,
-        )))
+        .provider(TestRoomDataProvider::default().with_own_user_id(own_user_id).with_decryptor(
+            TestDecryptor::new(room_id!("!TWUdbkXUixrqPXtWbN:matrix.local"), &olm_machine),
+        ))
         .build();
 
     let f = &timeline.factory;
@@ -564,14 +563,18 @@ async fn test_retry_message_decryption_highlighted() {
                 EncryptedEventScheme::MegolmV1AesSha2(
                     MegolmV1AesSha2ContentInit {
                         ciphertext: "\
-                            AwgAEpABNOd7Rxpc/98gaaOanApQ/h40uNyYE/aiFd8PKeQPH65bwuxBy/glodmteryH\
-                            4t5d0cKSPjb+996yK90+A8YUevQKBuC+/+4iRF2CSqMNvArdOCnFHJdZBuCyRP6W82DZ\
-                            sR1w5X/tKGs/A9egJdxomLCzMRZarayTXUlgMT8Kj7E9zKOgyLEZGki6Y9IPybfrU3+S\
-                            b4VbF7RKY395/lIZFiLvJ5hUT+Ao1k13opeTE9GHtdOK0GzQPVFLnN61pRa3K/vV9Otk\
-                            D0QbVS/4mE3C29+yIC1lEkwA"
+                            AwgBEuAC3YC8wNxHOlnuXuyoBwRhtbwE+sVm1CMRZylzapX4uHEB/xP8QFoH6yN5KzGi34h\
+                            6QEb2b3Y+dwNHzHhuSHhtqGNOncJKT3KoPamXzlapmqpF3EjbfN07M9ZMuRNGC6EMF7cCRN\
+                            yy7h4S9erzXs73uRZV9t0dMpk5FJ9/vHFBfEic4p26eQjltnk7CCJ0sMukAsLzkZOPFOdoP\
+                            KLOAsvmPskcYCmtvNfMLIHG+e3YMDj/UzQ9mZl69cD8/r9dOdMiYzdhhullqIFgrXZq+e6J\
+                            SMiTNLdEk7uu8OgAf/GhVmC2h9vaN3MIPfGcu8Z7Yf9RQ8mfGrxFxESLc+NhRaEuCjX5Tc7\
+                            AzPamR41+JV5xHh7FsOFp7a1eLs9MTRHsq1Vfzv02ecQeiUdRtyIVH+IwKAkc336CLnItvy\
+                            CQhXEqcFWKqWLg9+LpTeg0IrUhVhRpQiztqN44vH8xfWpCHDOwbFhJ6DV9NTWQUzDkJjZVI\
+                            W6pEbevP8tyDbQtSDSfpdSHoEPor7WVV9rp9FFqznXZxH9G39dWxI7h40vKdNTiqKkfQNZc\
+                            dwAyDw"
                             .to_owned(),
-                        sender_key: "peI8cfSKqZvTOAfY0Od2e7doDpJ1cxdBsOhSceTLU3E".to_owned(),
-                        device_id: "KDCTEHOVSS".into(),
+                        sender_key: "RfaXABigv2vPj0TciwpZTBU0uwWg7iSHvRHA2V2NFiM".to_owned(),
+                        device_id: "KFWPUYHXZA".into(),
                         session_id: SESSION_ID.into(),
                     }
                     .into(),
@@ -617,7 +620,7 @@ async fn test_retry_message_decryption_highlighted() {
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
     assert_let!(Some(message) = event.content().as_message());
-    assert_eq!(message.body(), "A secret to everybody but Alice");
+    assert_eq!(message.body(), "A secret to everybody but Willow");
     assert!(event.is_highlighted());
 }
 

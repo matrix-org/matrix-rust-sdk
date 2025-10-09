@@ -168,6 +168,7 @@ impl TryFrom<SdkPushCondition> for PushCondition {
     fn try_from(value: SdkPushCondition) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkPushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            #[allow(deprecated)]
             SdkPushCondition::ContainsDisplayName => Self::ContainsDisplayName,
             SdkPushCondition::RoomMemberCount { is } => {
                 Self::RoomMemberCount { prefix: is.prefix.into(), count: is.count.into() }
@@ -190,6 +191,7 @@ impl From<PushCondition> for SdkPushCondition {
     fn from(value: PushCondition) -> Self {
         match value {
             PushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            #[allow(deprecated)]
             PushCondition::ContainsDisplayName => Self::ContainsDisplayName,
             PushCondition::RoomMemberCount { prefix, count } => Self::RoomMemberCount {
                 is: RoomMemberCountIs {

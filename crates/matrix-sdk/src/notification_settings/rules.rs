@@ -316,7 +316,9 @@ pub(crate) mod tests {
     use imbl::HashSet;
     use matrix_sdk_test::{
         async_test,
-        notification_settings::{build_ruleset, get_server_default_ruleset},
+        notification_settings::{
+            build_ruleset, get_server_default_ruleset, server_default_ruleset_with_legacy_mentions,
+        },
     };
     use ruma::{
         OwnedRoomId, RoomId,
@@ -488,7 +490,7 @@ pub(crate) mod tests {
     async fn test_is_user_mention_enabled() {
         // If `IsUserMention` is enable, then is_user_mention_enabled() should return
         // `true` even if the deprecated rules are disabled
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true)
             .unwrap();
@@ -513,7 +515,7 @@ pub(crate) mod tests {
 
         // If `IsUserMention` is disabled, then is_user_mention_enabled() should return
         // `false` even if the deprecated rules are enabled
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
             .unwrap();
@@ -549,7 +551,7 @@ pub(crate) mod tests {
     async fn test_is_room_mention_enabled() {
         // If `IsRoomMention` is present and enabled then is_room_mention_enabled()
         // should return `true` even if the deprecated rule is disabled
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, true)
             .unwrap();
@@ -570,7 +572,7 @@ pub(crate) mod tests {
 
         // If `IsRoomMention` is present and disabled then is_room_mention_enabled()
         // should return `false` even if the deprecated rule is enabled
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)
             .unwrap();
