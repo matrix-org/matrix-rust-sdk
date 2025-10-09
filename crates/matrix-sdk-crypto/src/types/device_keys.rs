@@ -30,6 +30,10 @@ use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{EventEncryptionAlgorithm, Signatures};
+use crate::{
+    olm::{SignedJsonObject, VerifyJson},
+    SignatureError,
+};
 
 /// Represents a Matrix cryptographic device
 ///
@@ -133,6 +137,20 @@ impl DeviceKeys {
                 None
             }
         })
+    }
+
+    /// Verify that the given object has been signed by the Ed25519 key in this
+    /// `DeviceKeys`.
+    pub fn has_signed(&self, signed_object: &impl SignedJsonObject) -> Result<(), SignatureError> {
+        let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
+        let key_id = &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id);
+        key.verify_json(&self.user_id, key_id, signed_object)
+    }
+
+    /// Verify that this `DeviceKeys` structure contains a correct
+    /// self-signature.
+    pub fn check_self_signature(&self) -> Result<(), SignatureError> {
+        self.has_signed(self)
     }
 }
 
@@ -271,8 +289,11 @@ impl From<DeviceKeys> for DeviceKeyHelper {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{device_id, user_id};
+    use std::str::FromStr;
+
+    use ruma::{device_id, user_id, OwnedDeviceKeyId};
     use serde_json::json;
+    use vodozemac::{Curve25519PublicKey, Curve25519SecretKey};
 
     use super::DeviceKeys;
 
@@ -311,5 +332,39 @@ mod tests {
         let serialized = serde_json::to_value(device_keys).expect("Can't reserialize device keys");
 
         assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_check_self_signature() {
+        // A correctly-signed set of keys
+        let mut device_keys: DeviceKeys = serde_json::from_value(json!({
+          "algorithms": vec![
+              "m.olm.v1.curve25519-aes-sha2",
+              "m.megolm.v1.aes-sha2"
+          ],
+          "device_id": "BNYQQWUMXO",
+          "user_id": "@example:localhost",
+          "keys": {
+              "curve25519:BNYQQWUMXO": "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc",
+              "ed25519:BNYQQWUMXO": "2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"
+          },
+          "signatures": {
+              "@example:localhost": {
+                  "ed25519:BNYQQWUMXO": "kTwMrbsLJJM/uFGOj/oqlCaRuw7i9p/6eGrTlXjo8UJMCFAetoyWzoMcF35vSe4S6FTx8RJmqX6rM7ep53MHDQ"
+              }
+          },
+          "unsigned": {
+              "device_display_name": "Alice's mobile phone"
+          }
+        })).expect("Can't deserialize device keys");
+
+        device_keys.check_self_signature().expect("Self-signature check failed");
+
+        // Change one of the fields and verify that the signature check fails.
+        let new_curve_key = Curve25519SecretKey::new();
+        let key_id = OwnedDeviceKeyId::from_str("curve25519:BNYQQWUMXO").unwrap();
+        device_keys.keys.insert(key_id, Curve25519PublicKey::from(&new_curve_key).into());
+
+        assert!(device_keys.check_self_signature().is_err());
     }
 }
