@@ -304,6 +304,10 @@ impl CheckCodeSender {
     /// Send the [`CheckCode`].
     ///
     /// Calling this method more than once will result in an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `check_code` - The check code in digits representation.
     pub async fn send(&self, check_code: u8) -> Result<(), CheckCodeSenderError> {
         match self.inner.lock().await.take() {
             Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
