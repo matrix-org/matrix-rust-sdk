@@ -319,9 +319,6 @@ pub enum CheckCodeSenderError {
     #[error("check code already sent.")]
     AlreadySent,
     /// The check code cannot be sent.
-    ///
-    /// This probably means that the new device log-in process
-    /// crashed somehow.
     #[error("check code cannot be sent.")]
     CannotSend,
 }
