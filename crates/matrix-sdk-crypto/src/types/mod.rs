@@ -429,7 +429,7 @@ impl Algorithm for DeviceKeyAlgorithm {
 }
 
 /// An encryption algorithm to be used to encrypt messages sent to a room.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[non_exhaustive]
 pub enum EventEncryptionAlgorithm {
     /// Olm version 1 using Curve25519, AES-256, and SHA-256.

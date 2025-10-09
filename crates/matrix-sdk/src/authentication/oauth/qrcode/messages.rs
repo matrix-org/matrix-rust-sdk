@@ -130,7 +130,7 @@ pub struct AuthorizationGrant {
 }
 
 /// Reasons why the login might have failed.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 pub enum LoginFailureReason {
     /// The Device Authorization Grant expired.
@@ -155,7 +155,7 @@ pub enum LoginFailureReason {
 }
 
 /// Enum containing known login protocol types.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 pub enum LoginProtocolType {
     /// The `device_authorization_grant` login protocol type.
