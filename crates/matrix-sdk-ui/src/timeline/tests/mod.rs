@@ -253,6 +253,9 @@ type ReadReceiptMap =
 
 #[derive(Clone, Debug, Default)]
 struct TestRoomDataProvider {
+    /// The ID of our own user.
+    own_user_id: Option<OwnedUserId>,
+
     /// The initial list of user receipts for that room.
     ///
     /// Configurable at construction, static for the lifetime of the provider.
@@ -278,6 +281,11 @@ struct TestRoomDataProvider {
 }
 
 impl TestRoomDataProvider {
+    fn with_own_user_id(mut self, user_id: OwnedUserId) -> Self {
+        self.own_user_id = Some(user_id);
+        self
+    }
+
     fn with_initial_user_receipts(mut self, initial_user_receipts: ReadReceiptMap) -> Self {
         self.initial_user_receipts = initial_user_receipts;
         self
@@ -356,7 +364,7 @@ impl PinnedEventsRoom for TestRoomDataProvider {
 
 impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
-        &ALICE
+        self.own_user_id.as_deref().unwrap_or(&ALICE)
     }
 
     fn room_version_rules(&self) -> RoomVersionRules {
@@ -415,7 +423,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn push_context(&self) -> Option<PushContext> {
-        let push_rules = Ruleset::server_default(&ALICE);
+        let push_rules = Ruleset::server_default(self.own_user_id());
         let power_levels = PushConditionPowerLevelsCtx::new(
             BTreeMap::new(),
             int!(0),
@@ -426,7 +434,7 @@ impl RoomDataProvider for TestRoomDataProvider {
             PushConditionRoomCtx::new(
                 room_id!("!my_room:server.name").to_owned(),
                 uint!(2),
-                ALICE.to_owned(),
+                self.own_user_id().to_owned(),
                 "Alice".to_owned(),
             ),
             { power_levels: Some(power_levels) }
