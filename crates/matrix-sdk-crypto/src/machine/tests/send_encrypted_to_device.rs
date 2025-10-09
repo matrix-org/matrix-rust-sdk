@@ -117,6 +117,44 @@ async fn test_send_encrypted_to_device() {
     );
 }
 
+/// Test what happens when the sending device is deleted before the to-device
+/// event arrives. (It should still be successfully decrypted.)
+///
+/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
+#[async_test]
+async fn test_encrypted_to_device_from_deleted_device() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
+
+    // Tell Bob that Alice's device has been deleted
+    let mut keys_query_response = ruma::api::client::keys::get_keys::v3::Response::default();
+    keys_query_response.device_keys.insert(alice.user_id().to_owned(), Default::default());
+    bob.receive_keys_query_response(&TransactionId::new(), &keys_query_response).await.unwrap();
+
+    let custom_event_type = "m.new_device";
+    let custom_content = json!({"a": "b"});
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+        &decryption_settings,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
+
+    let decrypted_event = raw.deserialize().unwrap();
+    assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
+
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
+}
 
 /// If the sender device is genuinely unknown (it is not in the store, nor does
 /// the to-device message contain `sender_device_keys`), decryption will fail,
