@@ -30,6 +30,7 @@ use crate::{
         test_helpers::{
             build_encrypted_to_device_content_without_sender_data, build_session_for_pair,
             get_machine_pair, get_machine_pair_with_session, get_prepared_machine_test_helper,
+            receive_encrypted_to_device_test_helper,
             send_and_receive_encrypted_to_device_test_helper,
         },
         tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
@@ -49,6 +50,8 @@ use crate::{
     EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, TrustRequirement,
 };
 
+/// Happy path test: encrypt a to-device message, and check it is successfully
+/// decrypted by the recipient, and that all the metadata is set as expected.
 #[async_test]
 async fn test_send_encrypted_to_device() {
     let (alice, bob) =
@@ -114,14 +117,13 @@ async fn test_send_encrypted_to_device() {
     );
 }
 
-#[async_test]
-async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
-    // When decrypting a custom to device, we expect the recipient to know the
-    // sending device. If the device is not known decryption will fail (see
-    // `EventError(MissingSigningKey)`). The only exception is room keys where
-    // this check can be delayed. This is a reason why there is no test for
-    // verification_state `DeviceLinkProblem::MissingDevice`
 
+/// If the sender device is genuinely unknown (it is not in the store, nor does
+/// the to-device message contain `sender_device_keys`), decryption will fail,
+/// with `EventError::MissingSigningKey`.
+#[async_test]
+async fn test_receive_custom_encrypted_to_device_with_no_sender_device_keys_fails_if_device_unknown(
+) {
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
     let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
@@ -141,12 +143,22 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+    // We need to suppress the sender_data field to correctly emulate an unknown
+    // device
+    let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
+    let raw_encrypted = build_encrypted_to_device_content_without_sender_data(
         &alice,
-        &bob,
+        &bob_device.device_keys,
         custom_event_type,
         &custom_content,
+    )
+    .await;
+
+    let processed_event = receive_encrypted_to_device_test_helper(
+        alice.user_id(),
+        &bob,
         &decryption_settings,
+        Raw::new(&raw_encrypted).unwrap(),
     )
     .await;
 

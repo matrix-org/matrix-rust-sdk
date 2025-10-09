@@ -1541,13 +1541,17 @@ impl Account {
 
     /// Look up the [`Device`] that sent us a successfully-decrypted event.
     ///
-    /// Also validates the `sender_device_keys` field, if present.
+    /// We first look for the sender device in our store; if it is found then we
+    /// return that (having checked that the keys match). If the device is
+    /// not found in the store, we return the details
+    /// from `sender_device_keys`, if present. If the device is not in the
+    /// store, and the event lacks `sender_device_keys`, an error is returned.
+    ///
+    /// Also validates the `sender_device_keys` field, if present, regardless of
+    /// whether it is used.
     ///
     /// `m.room_key` events are special-cased and return `None`: we look up
     /// their devices later on.
-    ///
-    /// For other events, we look up the device in the store, and return the
-    /// details.
     async fn get_event_sender_device(
         store: &Store,
         sender_key: Curve25519PublicKey,
@@ -1557,7 +1561,7 @@ impl Account {
         // WARN: If you move or modify this check, ensure that the code below is still
         // valid. The processing of the historic room key bundle depends on this being
         // here.
-        Self::check_sender_device_keys(event, sender_key)?;
+        let sender_device_keys = Self::check_sender_device_keys(event, sender_key)?;
         if let AnyDecryptedOlmEvent::RoomKey(_) = event {
             // If this event is an `m.room_key` event, defer the check for
             // the Ed25519 key of the sender until we decrypt room events.
@@ -1569,23 +1573,41 @@ impl Account {
         // MSC4268 requires room key bundle events to have a `sender_device_keys` field.
         // Enforce that now.
         if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event {
-            event.sender_device_keys().ok_or(EventError::MissingSigningKey).inspect_err(|_| {
+            sender_device_keys.ok_or(EventError::MissingSigningKey).inspect_err(|_| {
                 warn!("The room key bundle was missing the sender device keys in the event")
             })?;
         }
 
-        let device = store
-            .get_device_from_curve_key(event.sender(), sender_key)
-            .await?
-            .ok_or(EventError::MissingSigningKey)?;
+        // For event types other than `m.room_key`, we need to look up the device in the
+        // database irrespective of whether the `sender_device_keys` field is
+        // present in the event, because it may have been marked as "locally
+        // trusted" in the database.
+        let store_device = store.get_device_from_curve_key(event.sender(), sender_key).await?;
 
-        let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+        match (store_device, sender_device_keys) {
+            // If the device is in the database, it had better have an Ed25519 key which
+            // matches that in the event.
+            (Some(device), _) => {
+                let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
+                if key != event.keys().ed25519 {
+                    return Err(EventError::MismatchedKeys(
+                        key.into(),
+                        event.keys().ed25519.into(),
+                    )
+                    .into());
+                }
+                Ok(Some(device))
+            }
 
-        if key != event.keys().ed25519 {
-            return Err(EventError::MismatchedKeys(key.into(), event.keys().ed25519.into()).into());
+            (None, Some(sender_device_keys)) => {
+                // We have already validated the signature on `sender_device_keys`, so this
+                // try_into cannot fail.
+                let sender_device_data = sender_device_keys.try_into().expect("Conversion of DeviceKeys to DeviceData failed despite the signature already having been checked");
+                Ok(Some(store.wrap_device_data(sender_device_data).await?))
+            }
+
+            (None, None) => Err(OlmError::EventError(EventError::MissingSigningKey)),
         }
-
-        Ok(Some(device))
     }
 
     /// Return true if:
@@ -1733,13 +1755,18 @@ impl Account {
     /// * `sender_key` - The Curve25519 key that the sender used to establish
     ///   the Olm session that was used to decrypt the event.
     ///
+    /// # Returns
+    ///
+    /// A reference to the `sender_device_keys` in the event, if it exists and
+    /// is valid.
+    ///
     /// [MSC4147]: https://github.com/matrix-org/matrix-spec-proposals/pull/4147
     fn check_sender_device_keys(
         event: &AnyDecryptedOlmEvent,
         sender_key: Curve25519PublicKey,
-    ) -> OlmResult<()> {
+    ) -> OlmResult<Option<&DeviceKeys>> {
         let Some(sender_device_keys) = event.sender_device_keys() else {
-            return Ok(());
+            return Ok(None);
         };
 
         // Check the signature within the device_keys structure
@@ -1774,7 +1801,7 @@ impl Account {
             return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
         }
 
-        Ok(())
+        Ok(Some(sender_device_keys))
     }
 
     /// Internal use only.
