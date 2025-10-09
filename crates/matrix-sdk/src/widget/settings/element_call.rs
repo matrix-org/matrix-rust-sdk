@@ -163,7 +163,7 @@ pub enum HeaderStyle {
 #[derive(Debug, PartialEq, Serialize, Clone, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationType {
-    /// The receiving client should display a visual notification.    
+    /// The receiving client should display a visual notification.
     #[default]
     Notification,
     /// The receiving client should ring with an audible sound.
@@ -517,8 +517,8 @@ mod tests {
 
     fn build_url_from_widget_settings(settings: WidgetSettings) -> String {
         let mut profile = get_profile::v3::Response::new();
-        profile.set("avatar_url", "some-url".into());
-        profile.set("displayname", "hello".into());
+        profile.set("avatar_url".to_owned(), "some-url".into());
+        profile.set("displayname".to_owned(), "hello".into());
 
         settings
             ._generate_webview_url(

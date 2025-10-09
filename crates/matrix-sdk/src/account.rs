@@ -107,6 +107,7 @@ impl Account {
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        #[allow(deprecated)]
         let request = get_display_name::v3::Request::new(user_id.to_owned());
         let request_config = self.client.request_config().force_auth();
         let response = self.client.send(request).with_request_config(request_config).await?;
@@ -131,6 +132,7 @@ impl Account {
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        #[allow(deprecated)]
         let request =
             set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
         self.client.send(request).await?;
@@ -161,6 +163,7 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        #[allow(deprecated)]
         let request = get_avatar_url::v3::Request::new(user_id.to_owned());
 
         let config = Some(RequestConfig::new().force_auth());
@@ -203,6 +206,7 @@ impl Account {
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        #[allow(deprecated)]
         let request =
             set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
         self.client.send(request).await?;
