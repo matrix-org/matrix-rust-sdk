@@ -2194,6 +2194,12 @@ mod tests {
     ///
     /// `olm_machine` is used to set the `sender_key` and `signing_key`
     /// fields of the resultant session.
+    ///
+    /// The encryption algorithm used for the session depends on the
+    /// `experimental-algorithms` feature flag:
+    ///
+    /// - When not set, the session uses `m.megolm.v1.aes-sha2`.
+    /// - When set, the session uses `m.megolm.v2.aes-sha2`.
     fn create_inbound_group_session_with_visibility(
         olm_machine: &OlmMachine,
         room_id: &RoomId,
