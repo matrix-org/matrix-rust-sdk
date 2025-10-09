@@ -1694,10 +1694,40 @@ impl Account {
     /// If the plaintext of the decrypted message includes a
     /// `sender_device_keys` property per [MSC4147], check that it is valid.
     ///
+    /// In particular, we check that:
+    ///
+    ///  * The Curve25519 key in the `sender_device_keys` matches that used to
+    ///    establish the Olm session that was used to decrypt the event.
+    ///
+    ///  * The `sender_device_keys` contains a valid self-signature by the
+    ///    Ed25519 key in the device data.
+    ///
+    ///  * The Ed25519 key in the device data matches that in the `keys` field
+    ///    in the event, for consistency and sanity.
+    ///
+    /// The first two checks are sufficient to bind together the Ed25519 and
+    /// Curve25519 keys:
+    ///
+    ///  * Only the holder of the secret part of the Curve25519 key that was
+    ///    used to construct the Olm session (the 'owner' of that key) can
+    ///    encrypt the device data in that Olm session. By including the Ed25519
+    ///    key in the device data, the owner of the Curve25519 key is claiming
+    ///    ownership of the Ed25519 key.
+    ///
+    ///  * Only the owner of the Ed25519 key can construct the self-signature on
+    ///    the device data. By including the Curve25519 key in the device data
+    ///    and then signing it, the owner of the Ed25519 key is claiming
+    ///    ownership of the Curve25519 key.
+    ///
+    ///  * Since we now have claims in both directions, the two key owners must
+    ///    either be the same entity, or working in sufficiently close
+    ///    collaboration that they can be treated as such.
+    ///
     /// # Arguments
     ///
     /// * `event` - The decrypted and deserialized plaintext of the event.
-    /// * `sender_key` - The curve25519 key of the sender of the event.
+    /// * `sender_key` - The Curve25519 key that the sender used to establish
+    ///   the Olm session that was used to decrypt the event.
     ///
     /// [MSC4147]: https://github.com/matrix-org/matrix-spec-proposals/pull/4147
     fn check_sender_device_keys(
