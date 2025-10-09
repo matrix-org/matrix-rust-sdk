@@ -18,7 +18,7 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use matrix_sdk_base::{
     SessionMeta, boxed_into_future,
-    crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData},
+    crypto::types::qr_login::{QrCodeData, QrCodeMode},
     store::RoomLoadSettings,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
@@ -473,8 +473,6 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         let http_client = self.client.inner.http_client.clone();
 
         let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
-
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
 
         let qr_code_data = secure_channel.qr_code_data().clone();
 
