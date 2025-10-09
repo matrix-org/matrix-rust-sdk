@@ -6,8 +6,8 @@ expression: info
   "MegolmV1AesSha2": {
     "curve25519_key": "curvecurvecurve",
     "sender_claimed_keys": {
-      "ed25519": "claimedclaimeded25519",
-      "curve25519": "claimedclaimedcurve25519"
+      "curve25519": "claimedclaimedcurve25519",
+      "ed25519": "claimedclaimeded25519"
     }
   }
 }

@@ -25,7 +25,7 @@ use oauth2::{AsyncHttpClient, ClientId, HttpClientError, RequestTokenError};
 use ruma::{
     SecondsSinceUnixEpoch,
     api::client::discovery::get_authorization_server_metadata::v1::{GrantType, ResponseType},
-    serde::{PartialEqAsRefStr, Raw, StringEnum},
+    serde::{Raw, StringEnum},
 };
 use serde::{Deserialize, Serialize, ser::SerializeMap};
 use url::Url;
@@ -179,7 +179,7 @@ pub enum OAuthGrantType {
 }
 
 /// The possible types of an application.
-#[derive(Clone, StringEnum, PartialEqAsRefStr, Eq)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum ApplicationType {
