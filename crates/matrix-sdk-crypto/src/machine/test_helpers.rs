@@ -197,7 +197,22 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         .await
         .expect("Should have encrypted the content");
 
-    let event = ToDeviceEvent::new(sender.user_id().to_owned(), raw_encrypted);
+    receive_encrypted_to_device_test_helper(
+        sender.user_id(),
+        recipient,
+        decryption_settings,
+        raw_encrypted,
+    )
+    .await
+}
+
+pub async fn receive_encrypted_to_device_test_helper(
+    sender: &UserId,
+    recipient: &OlmMachine,
+    decryption_settings: &DecryptionSettings,
+    raw_encrypted: Raw<ToDeviceEncryptedEventContent>,
+) -> ProcessedToDeviceEvent {
+    let event = ToDeviceEvent::new(sender.to_owned(), raw_encrypted);
 
     let event = json_convert(&event).unwrap();
 
