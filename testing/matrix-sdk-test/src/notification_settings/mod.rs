@@ -1,14 +1,22 @@
 use ruma::{
     RoomId, UserId,
+    power_levels::NotificationPowerLevelsKey,
     push::{
-        Action, NewConditionalPushRule, NewPushRule, NewSimplePushRule, PushCondition, RuleKind,
-        Ruleset, Tweak,
+        Action, ConditionalPushRule, ConditionalPushRuleInit, NewConditionalPushRule, NewPushRule,
+        NewSimplePushRule, PatternedPushRule, PatternedPushRuleInit, PredefinedContentRuleId,
+        PredefinedOverrideRuleId, PushCondition, RuleKind, Ruleset, Tweak,
     },
+    user_id,
 };
 
+fn user_id() -> &'static UserId {
+    user_id!("@user:matrix.org")
+}
+
+/// The ruleset containing the default spec push rules for the user
+/// `@user:matrix.org`.
 pub fn get_server_default_ruleset() -> Ruleset {
-    let user_id = UserId::parse("@user:matrix.org").unwrap();
-    Ruleset::server_default(&user_id)
+    Ruleset::server_default(user_id())
 }
 
 /// Build a new ruleset based on the server's default ruleset, by inserting a
@@ -46,4 +54,60 @@ pub fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
     }
 
     ruleset
+}
+
+/// The ruleset containing the default spec push rules and the legacy mention
+/// rules for the user `@user:matrix.org`.
+pub fn server_default_ruleset_with_legacy_mentions() -> Ruleset {
+    let mut ruleset = get_server_default_ruleset();
+
+    // In the tests we don't care about the order, so we just add them to the end of
+    // the lists.
+    ruleset.content.insert(contains_user_name_push_rule());
+    ruleset.override_.insert(contains_display_name_push_rule());
+    ruleset.override_.insert(room_notif_push_rule());
+
+    ruleset
+}
+
+/// Room mention rule that was removed from the spec.
+fn room_notif_push_rule() -> ConditionalPushRule {
+    #[allow(deprecated)]
+    ConditionalPushRuleInit {
+        rule_id: PredefinedOverrideRuleId::RoomNotif.to_string(),
+        default: true,
+        enabled: true,
+        conditions: vec![
+            PushCondition::EventMatch { key: "content.body".into(), pattern: "@room".into() },
+            PushCondition::SenderNotificationPermission { key: NotificationPowerLevelsKey::Room },
+        ],
+        actions: vec![Action::Notify],
+    }
+    .into()
+}
+
+/// User mention rule that was removed from the spec.
+fn contains_user_name_push_rule() -> PatternedPushRule {
+    #[allow(deprecated)]
+    PatternedPushRuleInit {
+        rule_id: PredefinedContentRuleId::ContainsUserName.to_string(),
+        default: true,
+        enabled: true,
+        pattern: user_id().localpart().into(),
+        actions: vec![Action::Notify],
+    }
+    .into()
+}
+
+/// User mention rule that was removed from the spec.
+fn contains_display_name_push_rule() -> ConditionalPushRule {
+    #[allow(deprecated)]
+    ConditionalPushRuleInit {
+        rule_id: PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
+        default: true,
+        enabled: true,
+        conditions: vec![PushCondition::ContainsDisplayName],
+        actions: vec![Action::Notify],
+    }
+    .into()
 }

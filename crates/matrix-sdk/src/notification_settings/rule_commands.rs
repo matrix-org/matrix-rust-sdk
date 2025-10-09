@@ -217,23 +217,23 @@ impl RuleCommands {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{
+        async_test,
+        notification_settings::{
+            get_server_default_ruleset, server_default_ruleset_with_legacy_mentions,
+        },
+    };
     use ruma::{
-        OwnedRoomId, RoomId, UserId,
+        OwnedRoomId, RoomId,
         push::{
             Action, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RemovePushRuleError, RuleKind,
-            Ruleset, Tweak,
+            Tweak,
         },
     };
 
     use super::RuleCommands;
     use crate::{error::NotificationSettingsError, notification_settings::command::Command};
-
-    fn get_server_default_ruleset() -> Ruleset {
-        let user_id = UserId::parse("@user:matrix.org").unwrap();
-        Ruleset::server_default(&user_id)
-    }
 
     fn get_test_room_id() -> OwnedRoomId {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
@@ -390,7 +390,7 @@ mod tests {
 
     #[async_test]
     async fn test_set_rule_enabled_user_mention() {
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         let mut rule_commands = RuleCommands::new(ruleset.clone());
 
         ruleset
@@ -479,7 +479,7 @@ mod tests {
 
     #[async_test]
     async fn test_set_rule_enabled_room_mention() {
-        let mut ruleset = get_server_default_ruleset();
+        let mut ruleset = server_default_ruleset_with_legacy_mentions();
         let mut rule_commands = RuleCommands::new(ruleset.clone());
 
         ruleset

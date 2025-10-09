@@ -8,7 +8,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
 };
 use ruma::{
-    push::{Action, ConditionalPushRule, NewSimplePushRule, PatternedPushRule, Ruleset, Tweak},
+    push::{Action, ConditionalPushRule, NewSimplePushRule, Ruleset, Tweak},
     room_id,
 };
 use serde_json::json;
@@ -36,8 +36,6 @@ async fn test_get_notification_mode() {
     let f = EventFactory::new();
 
     let mut ruleset = Ruleset::default();
-    #[allow(deprecated)]
-    ruleset.content.insert(PatternedPushRule::contains_user_name(client.user_id().unwrap()));
     ruleset.override_ =
         [ConditionalPushRule::master(), ConditionalPushRule::suppress_notices()].into();
     ruleset.room.insert(
@@ -49,8 +47,6 @@ async fn test_get_notification_mode() {
     );
     ruleset.underride = [
         ConditionalPushRule::call(),
-        #[allow(deprecated)]
-        ConditionalPushRule::contains_display_name(),
         ConditionalPushRule::room_one_to_one(),
         ConditionalPushRule::invite_for_me(client.user_id().unwrap()),
         ConditionalPushRule::member_event(),
