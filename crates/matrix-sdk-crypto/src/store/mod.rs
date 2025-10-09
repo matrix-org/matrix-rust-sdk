@@ -1720,7 +1720,7 @@ impl Store {
                     (Some(room_id), Some(session_id)) => (room_id, session_id),
                     _ => continue,
                 },
-                _ => continue,
+                RoomKeyWithheldContent::Unknown(_) => continue,
             };
 
             if room_id != bundle_info.bundle_data.room_id {
