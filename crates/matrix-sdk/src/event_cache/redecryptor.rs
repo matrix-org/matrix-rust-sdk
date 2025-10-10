@@ -15,10 +15,16 @@
 //! The Redecryptor (Rd) is a layer and long-running background task which
 //! handles redecryption of events in case we couldn't decrypt them imediatelly.
 //!
-//! Rd listens to the OlmMachine for received room keys. If a new room key has
-//! been received it attempts to find any UTDs in the [`EventCache`]. If Rd
-//! decrypts any UTDs from the event cache it will replace the events in the
-//! cache and send out new [`RoomEventCacheUpdates`] to any of its listeners.
+//! Rd listens to the OlmMachine for received room keys and new
+//! m.room_key.withheld events.
+//!
+//! If a new room key has been received it attempts to find any UTDs in the
+//! [`EventCache`]. If Rd decrypts any UTDs from the event cache it will replace
+//! the events in the cache and send out new [`RoomEventCacheUpdates`] to any of
+//! its listeners.
+//!
+//! If a new withheld info has been received it attempts to find any relevant
+//! events and updates the [`EncryptionInfo`] of an event.
 //!
 //! There's an additional gotcha, the [`OlmMachine`] might get recreated by
 //! calls to [`BaseClient::regenerate_olm()`]. When this happens we will receive
@@ -70,7 +76,10 @@ use futures_util::{StreamExt, pin_mut};
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
-    crypto::{store::types::RoomKeyInfo, types::events::room::encrypted::EncryptedEvent},
+    crypto::{
+        store::types::{RoomKeyInfo, RoomKeyWithheldInfo},
+        types::events::room::encrypted::EncryptedEvent,
+    },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
     locks::Mutex,
 };
@@ -155,7 +164,7 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<(OwnedEventId, Raw<AnySyncTimelineEvent>)>, EventCacheError> {
-        let map_timeline_event = |event: TimelineEvent| {
+        let filter = |event: TimelineEvent| {
             let event_id = event.event_id();
 
             // Only pick out events that are UTDs, get just the Raw event as this is what
@@ -167,13 +176,31 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        // Load the relevant events from the event cache store and attempt to redecrypt
-        // things.
         let store = self.inner.store.lock().await?;
         let events =
             store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?;
 
-        Ok(events.into_iter().filter_map(map_timeline_event).collect())
+        Ok(events.into_iter().filter_map(filter).collect())
+    }
+
+    async fn get_decrypted_events(
+        &self,
+        room_id: &RoomId,
+        session_id: SessionId<'_>,
+    ) -> Result<Vec<(OwnedEventId, DecryptedRoomEvent)>, EventCacheError> {
+        let filter = |event: TimelineEvent| {
+            let event_id = event.event_id();
+
+            let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
+            // Zip the event ID and event together so we don't have to pick out the event ID
+            // again. We need the event ID to replace the event in the cache.
+            event_id.zip(event)
+        };
+
+        let store = self.inner.store.lock().await?;
+        let events = store.get_room_events(room_id, None, Some(session_id)).await?;
+
+        Ok(events.into_iter().filter_map(filter).collect())
     }
 
     /// Handle a chunk of events that we were previously unable to decrypt but
@@ -289,6 +316,38 @@ impl EventCache {
         Ok(())
     }
 
+    async fn update_encryption_info(
+        &self,
+        room_id: &RoomId,
+        session_id: SessionId<'_>,
+    ) -> Result<(), EventCacheError> {
+        let client = self.inner.client().ok().unwrap();
+        let room = client.get_room(room_id).unwrap();
+
+        // Get all the relevant events.
+        let events = self.get_decrypted_events(room_id, session_id).await?;
+
+        // Let's attempt to update their encryption info.
+        let mut updated_events = Vec::with_capacity(events.len());
+
+        for (event_id, mut event) in events {
+            let new_encryption_info =
+                room.get_encryption_info(session_id, &event.encryption_info.sender).await;
+
+            // Only create a replacement if the encryption info actually changed.
+            if let Some(new_encryption_info) = new_encryption_info
+                && event.encryption_info != new_encryption_info
+            {
+                event.encryption_info = new_encryption_info;
+                updated_events.push((event_id, event));
+            }
+        }
+
+        self.on_resolved_utds(room_id, updated_events).await?;
+
+        Ok(())
+    }
+
     /// Explicitly request the redecryption of a set of events.
     ///
     /// TODO: Explain when and why this might be useful.
@@ -343,12 +402,17 @@ impl Redecryptor {
     /// the sending part of the stream has been dropped.
     async fn subscribe_to_room_key_stream(
         cache: &Weak<EventCacheInner>,
-    ) -> Option<impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>> {
+    ) -> Option<(
+        impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>,
+        impl Stream<Item = Vec<RoomKeyWithheldInfo>>,
+    )> {
         let event_cache = cache.upgrade()?;
         let client = event_cache.client().ok()?;
         let machine = client.olm_machine().await;
 
-        machine.as_ref().map(|m| m.store().room_keys_received_stream())
+        machine.as_ref().map(|m| {
+            (m.store().room_keys_received_stream(), m.store().room_keys_withheld_received_stream())
+        })
     }
 
     fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
@@ -359,11 +423,14 @@ impl Redecryptor {
         cache: &Weak<EventCacheInner>,
         decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
     ) -> bool {
-        let Some(room_key_stream) = Self::subscribe_to_room_key_stream(cache).await else {
+        let Some((room_key_stream, withheld_stream)) =
+            Self::subscribe_to_room_key_stream(cache).await
+        else {
             return false;
         };
 
         pin_mut!(room_key_stream);
+        pin_mut!(withheld_stream);
 
         loop {
             tokio::select! {
@@ -374,6 +441,8 @@ impl Redecryptor {
                             break false;
                         };
 
+                        trace!(?request, "Received a redecryption request");
+
                         for session_id in request.utd_session_ids {
                             let _ = cache
                                 .retry_decryption(&request.room_id, &session_id)
@@ -381,7 +450,14 @@ impl Redecryptor {
                                 .inspect_err(|e| warn!("Error redecrypting after an explicit request was received {e:?}"));
                         }
 
-                        // TODO: Deal with encryption info updating as well.
+                        for session_id in request.refresh_info_session_ids {
+                            let _ = cache.update_encryption_info(&request.room_id, &session_id).await.inspect_err(|e|
+                                warn!(
+                                    room_id = %request.room_id,
+                                    session_id = session_id,
+                                    "Unable to update the encryption info {e:?}",
+                            ));
+                        }
                 }
                 // The room key stream from the OlmMachine. Needs to be recreated every time we
                 // receive a `None` from the stream.
@@ -395,14 +471,23 @@ impl Redecryptor {
                                 break false;
                             };
 
-                            for key in room_keys {
+                            trace!(?room_keys, "Received new room keys");
+
+                            for key in &room_keys {
                                 let _ = cache
                                     .retry_decryption(&key.room_id, &key.session_id)
                                     .await
                                     .inspect_err(|e| warn!("Error redecrypting {e:?}"));
                             }
 
-                            // TODO: Deal with encryption info updating as well.
+                            for key in room_keys {
+                                let _ = cache.update_encryption_info(&key.room_id, &key.session_id).await.inspect_err(|e|
+                                    warn!(
+                                        room_id = %key.room_id,
+                                        session_id = key.session_id,
+                                        "Unable to update the encryption info {e:?}",
+                                ));
+                            }
                         },
                         Some(Err(_)) => {
                             // We missed some room keys, we need to report this in case a listener
@@ -422,6 +507,29 @@ impl Redecryptor {
                         None => {
                             break true
                         }
+                    }
+                }
+                withheld_info = withheld_stream.next() => {
+                    match withheld_info {
+                        Some(infos) => {
+                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                                break false;
+                            };
+
+                            trace!(?infos, "Received new withheld infos");
+
+                            for RoomKeyWithheldInfo { room_id, session_id, .. } in &infos {
+                                let _ = cache.update_encryption_info(room_id, session_id).await.inspect_err(|e|
+                                    warn!(
+                                        room_id = %room_id,
+                                        session_id = session_id,
+                                        "Unable to update the encryption info {e:?}",
+                                ));
+                            }
+                        }
+                        // The stream got closed, same as for the room key stream, we'll try to
+                        // recreate the streams.
+                        None => break true
                     }
                 }
                 else => break false,
