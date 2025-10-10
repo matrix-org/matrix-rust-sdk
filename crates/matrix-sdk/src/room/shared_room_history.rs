@@ -132,6 +132,9 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
 
     // Ensure that we get a fresh list of devices for the inviter, in case we need
     // to recalculate the `SenderData`.
+    // XXX: is this necessary, given (with exclude-insecure-devices), we should have
+    // checked that the inviter device was cross-signed when we received the
+    // to-device message?
     let (req_id, request) =
         olm_machine.query_keys_for_users(iter::once(bundle_info.sender_user.as_ref()));
 
