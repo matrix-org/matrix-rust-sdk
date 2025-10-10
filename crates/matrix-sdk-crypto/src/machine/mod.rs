@@ -1003,14 +1003,16 @@ impl OlmMachine {
 
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
             MegolmV1AesSha2WithheldContent::BlackListed(c)
-            | MegolmV1AesSha2WithheldContent::Unverified(c),
+            | MegolmV1AesSha2WithheldContent::Unverified(c)
+            | MegolmV1AesSha2WithheldContent::Unauthorised(c)
+            | MegolmV1AesSha2WithheldContent::Unavailable(c),
         ) = &event.content
         {
             changes
                 .withheld_session_info
                 .entry(c.room_id.to_owned())
                 .or_default()
-                .insert(c.session_id.to_owned(), event.to_owned());
+                .insert(c.session_id.to_owned(), event.to_owned().into());
         }
     }
 
