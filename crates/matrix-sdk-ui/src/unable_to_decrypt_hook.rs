@@ -26,12 +26,12 @@ use std::{
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{
     Client,
-    crypto::types::events::UtdCause,
     executor::{JoinHandle, spawn},
     sleep::sleep,
 };
 use matrix_sdk_base::{
     SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm,
+    crypto::types::events::UtdCause,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,

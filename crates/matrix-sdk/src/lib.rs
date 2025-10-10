@@ -20,8 +20,6 @@
 
 pub use async_trait::async_trait;
 pub use bytes;
-#[cfg(feature = "e2e-encryption")]
-pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     ComposerDraft, ComposerDraftType, EncryptionState, PredecessorRoom, QueueWedgeError,
     Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,

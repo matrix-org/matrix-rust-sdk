@@ -21,11 +21,6 @@ use matrix_sdk::{
     Client, SessionMeta,
     authentication::matrix::MatrixSession,
     config::RequestConfig,
-    crypto::{
-        olm::{InboundGroupSession, SenderData, SessionCreationError},
-        store::types::BackupDecryptionKey,
-        types::EventEncryptionAlgorithm,
-    },
     encryption::{
         BackupDownloadStrategy, EncryptionSettings,
         backups::{BackupState, UploadState, futures::SteadyStateError},
@@ -36,7 +31,11 @@ use matrix_sdk::{
         test_client_builder_with_server,
     },
 };
-use matrix_sdk_base::crypto::olm::OutboundGroupSession;
+use matrix_sdk_base::crypto::{
+    olm::{InboundGroupSession, OutboundGroupSession, SenderData, SessionCreationError},
+    store::types::BackupDecryptionKey,
+    types::EventEncryptionAlgorithm,
+};
 use matrix_sdk_common::timeout::timeout;
 use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_test};
 use ruma::{
@@ -1422,7 +1421,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         device_id!("KIUVQQSDTM").to_owned(),
         Arc::new(sender_identity_keys),
         room_id,
-        matrix_sdk::crypto::EncryptionSettings::default(),
+        matrix_sdk_base::crypto::EncryptionSettings::default(),
     )?;
 
     // Export the `OutboundGroupSession` to an `InboundGroupSession`, and export it

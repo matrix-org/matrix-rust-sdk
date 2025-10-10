@@ -15,8 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::crypto::types::events::UtdCause;
-use matrix_sdk_base::latest_event::{PossibleLatestEvent, is_suitable_for_latest_event};
+use matrix_sdk_base::{
+    crypto::types::events::UtdCause,
+    latest_event::{PossibleLatestEvent, is_suitable_for_latest_event},
+};
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{

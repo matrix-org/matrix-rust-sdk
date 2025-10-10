@@ -22,6 +22,7 @@ use std::{
 };
 
 use assert_matches2::assert_let;
+use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::test_json;
 use ruma::{
     CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
@@ -43,7 +44,6 @@ use wiremock::{
 
 use crate::{
     Client,
-    crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
     test_utils::{
         client::MockClientBuilder,
         mocks::{Keys, MatrixMockServer},

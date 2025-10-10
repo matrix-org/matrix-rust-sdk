@@ -26,6 +26,8 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -38,8 +40,6 @@ use tokio::sync::{Mutex, OnceCell, broadcast};
 use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
-#[cfg(feature = "e2e-encryption")]
-use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_family = "wasm"))]

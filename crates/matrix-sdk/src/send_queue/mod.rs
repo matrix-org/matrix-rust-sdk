@@ -138,6 +138,8 @@ use std::{
 };
 
 use eyeball::SharedObservable;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::{OlmError, SessionRecipientCollectionError};
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
@@ -173,8 +175,6 @@ use ruma::{
 use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-#[cfg(feature = "e2e-encryption")]
-use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
     Client, Media, Room, TransmissionProgress,
     client::WeakClient,

@@ -14,11 +14,14 @@
 
 use std::iter;
 
-use matrix_sdk_base::media::{MediaFormat, MediaRequestParameters};
+use matrix_sdk_base::{
+    crypto::types::events::room_key_bundle::RoomKeyBundleContent,
+    media::{MediaFormat, MediaRequestParameters},
+};
 use ruma::{OwnedUserId, UserId, events::room::MediaSource};
 use tracing::{info, instrument, warn};
 
-use crate::{Error, Result, Room, crypto::types::events::room_key_bundle::RoomKeyBundleContent};
+use crate::{Error, Result, Room};
 
 /// Share any shareable E2EE history in the given room with the given recipient,
 /// as per [MSC4268].
