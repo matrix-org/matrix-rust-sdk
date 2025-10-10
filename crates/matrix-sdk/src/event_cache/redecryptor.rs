@@ -86,7 +86,12 @@ use matrix_sdk_base::{
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
 use matrix_sdk_common::executor::{JoinHandle, spawn};
-use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnySyncTimelineEvent, serde::Raw};
+use ruma::{
+    OwnedEventId, OwnedRoomId, RoomId,
+    events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
+    push::Action,
+    serde::Raw,
+};
 use tokio::sync::{
     broadcast,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -96,8 +101,12 @@ use tokio_stream::wrappers::{
 };
 use tracing::{info, instrument, trace, warn};
 
-use crate::event_cache::{
-    EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate,
+use crate::{
+    Room,
+    event_cache::{
+        EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate,
+    },
+    room::PushContext,
 };
 
 type SessionId<'a> = &'a str;
@@ -218,23 +227,28 @@ impl EventCache {
     async fn on_resolved_utds(
         &self,
         room_id: &RoomId,
-        events: Vec<(OwnedEventId, DecryptedRoomEvent)>,
+        events: Vec<(OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>)>,
     ) -> Result<(), EventCacheError> {
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
         let mut state = room_cache.inner.state.write().await;
 
-        let event_ids: BTreeSet<_> = events.iter().cloned().map(|(event_id, _)| event_id).collect();
+        let event_ids: BTreeSet<_> =
+            events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
         trace!(?event_ids, "Replacing successfully re-decrypted events");
 
-        for (event_id, decrypted) in events {
+        for (event_id, decrypted, actions) in events {
             // The event isn't in the cache, nothing to replace. Realistically this can't
             // happen since we retrieved the list of events from the cache itself and
             // `find_event()` will look into the store as well.
             if let Some((location, mut target_event)) = state.find_event(&event_id).await? {
                 target_event.kind = TimelineEventKind::Decrypted(decrypted);
+
+                if let Some(actions) = actions {
+                    target_event.set_push_actions(actions);
+                }
 
                 // TODO: `replace_event_at()` propagates changes to the store for every event,
                 // we should probably have a bulk version of this?
@@ -266,21 +280,50 @@ impl EventCache {
     async fn decrypt_event(
         &self,
         room_id: &RoomId,
+        room: Option<&Room>,
+        push_context: Option<&PushContext>,
         event: &Raw<EncryptedEvent>,
-    ) -> Option<DecryptedRoomEvent> {
-        let client = self.inner.client().ok()?;
-        // TODO: Do we need to use the `Room` object to decrypt these events so we can
-        // calculate if the event should count as a notification, i.e. get the push
-        // actions. I thing we do, what happens if the room can't be found? We fallback
-        // to this?
-        let machine = client.olm_machine().await;
-        let machine = machine.as_ref()?;
+    ) -> Option<(DecryptedRoomEvent, Option<Vec<Action>>)> {
+        if let Some(room) = room {
+            match room
+                .decrypt_event(
+                    event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
+                    push_context,
+                )
+                .await
+            {
+                Ok(maybe_decrypted) => {
+                    let actions = maybe_decrypted.push_actions().map(|a| a.to_vec());
 
-        match machine.decrypt_room_event(event, room_id, client.decryption_settings()).await {
-            Ok(decrypted) => Some(decrypted),
-            Err(e) => {
-                warn!("Failed to redecrypt an event despite receiving a room key for it {e:?}");
-                None
+                    if let TimelineEventKind::Decrypted(decrypted) = maybe_decrypted.kind {
+                        Some((decrypted, actions))
+                    } else {
+                        warn!(
+                            "Failed to redecrypt an event despite receiving a room key or request to redecrypt"
+                        );
+                        None
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to redecrypt an event despite receiving a room key or request to redecrypt {e:?}"
+                    );
+                    None
+                }
+            }
+        } else {
+            let client = self.inner.client().ok()?;
+            let machine = client.olm_machine().await;
+            let machine = machine.as_ref()?;
+
+            match machine.decrypt_room_event(event, room_id, client.decryption_settings()).await {
+                Ok(decrypted) => Some((decrypted, None)),
+                Err(e) => {
+                    warn!(
+                        "Failed to redecrypt an event despite receiving a room key or a request to redecrypt {e:?}"
+                    );
+                    None
+                }
             }
         }
     }
@@ -298,14 +341,26 @@ impl EventCache {
         // Get all the relevant UTDs.
         let events = self.get_utds(room_id, session_id).await?;
 
+        let room = self.inner.client().ok().and_then(|client| client.get_room(room_id));
+        let push_context =
+            if let Some(room) = &room { room.push_context().await.ok().flatten() } else { None };
+
         // Let's attempt to decrypt them them.
         let mut decrypted_events = Vec::with_capacity(events.len());
 
         for (event_id, event) in events {
             // If we managed to decrypt the event, and we should have to since we received
             // the room key for this specific event, then replace the event.
-            if let Some(decrypted) = self.decrypt_event(room_id, event.cast_ref_unchecked()).await {
-                decrypted_events.push((event_id, decrypted));
+            if let Some((decrypted, actions)) = self
+                .decrypt_event(
+                    room_id,
+                    room.as_ref(),
+                    push_context.as_ref(),
+                    event.cast_ref_unchecked(),
+                )
+                .await
+            {
+                decrypted_events.push((event_id, decrypted, actions));
             }
         }
 
@@ -321,8 +376,13 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<(), EventCacheError> {
-        let client = self.inner.client().ok().unwrap();
-        let room = client.get_room(room_id).unwrap();
+        let Ok(client) = self.inner.client() else {
+            return Ok(());
+        };
+
+        let Some(room) = client.get_room(room_id) else {
+            return Ok(());
+        };
 
         // Get all the relevant events.
         let events = self.get_decrypted_events(room_id, session_id).await?;
@@ -339,7 +399,7 @@ impl EventCache {
                 && event.encryption_info != new_encryption_info
             {
                 event.encryption_info = new_encryption_info;
-                updated_events.push((event_id, event));
+                updated_events.push((event_id, event, None));
             }
         }
 
