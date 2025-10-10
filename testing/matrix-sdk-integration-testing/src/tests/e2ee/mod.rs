@@ -9,7 +9,6 @@ use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     Client, assert_next_eq_with_timeout,
-    crypto::{SasState, format_emojis},
     encryption::{
         BackupDownloadStrategy, EncryptionSettings, LocalTrust,
         backups::BackupState,
@@ -33,6 +32,7 @@ use matrix_sdk::{
     },
     timeout::timeout,
 };
+use matrix_sdk_base::crypto::{SasState, format_emojis};
 use matrix_sdk_ui::{
     notification_client::{NotificationClient, NotificationProcessSetup},
     sync_service::SyncService,
