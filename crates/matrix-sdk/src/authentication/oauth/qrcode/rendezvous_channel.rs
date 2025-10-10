@@ -109,7 +109,6 @@ impl RendezvousChannel {
     /// By outbound we mean that we're going to tell the Matrix server to create
     /// a new rendezvous session. We're going to send an initial empty message
     /// through the channel.
-    #[cfg(test)]
     pub(super) async fn create_outbound(
         client: HttpClient,
         rendezvous_server: &Url,
