@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Remove the `matrix-sdk-crypto` re-export.
+  ([#5769](https://github.com/matrix-org/matrix-rust-sdk/pull/5769))
 - [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
   an error that occurred when importing a secret from secret storage.
   ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))

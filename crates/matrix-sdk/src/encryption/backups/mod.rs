@@ -55,12 +55,11 @@ use tracing::{Span, error, info, instrument, trace, warn};
 pub mod futures;
 pub(crate) mod types;
 
+use matrix_sdk_base::crypto::olm::ExportedRoomKey;
 pub use types::{BackupState, UploadState};
 
 use self::futures::WaitForSteadyState;
-use crate::{
-    Client, Error, Room, crypto::olm::ExportedRoomKey, encryption::BackupDownloadStrategy,
-};
+use crate::{Client, Error, Room, encryption::BackupDownloadStrategy};
 
 /// The backups manager for the [`Client`].
 #[derive(Debug, Clone)]
