@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use matrix_sdk::crypto::types::events::UtdCause;
+use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::events::{room::MediaSource as RumaMediaSource, MessageLikeEventContent};
 
 use super::{

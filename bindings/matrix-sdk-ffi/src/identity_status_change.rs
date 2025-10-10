@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::crypto::IdentityState;
+use matrix_sdk_base::crypto::IdentityState;
 
 #[derive(uniffi::Record)]
 pub struct IdentityStatusChange {
