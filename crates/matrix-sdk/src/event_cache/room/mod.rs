@@ -1301,6 +1301,11 @@ mod private {
             &self.room_linked_chunk
         }
 
+        /// Returns a mutable reference to the underlying room linked chunk.
+        pub(in crate::event_cache) fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
+            &mut self.room_linked_chunk
+        }
+
         //// Find a single event in this room, starting from the most recent event.
         ///
         /// **Warning**! It looks into the loaded events from the in-memory
@@ -1593,7 +1598,7 @@ mod private {
         /// observers that a single item has been replaced. Otherwise,
         /// such a notification is not emitted, because observers are
         /// unlikely to observe the store updates directly.
-        async fn replace_event_at(
+        pub(crate) async fn replace_event_at(
             &mut self,
             location: EventLocation,
             event: Event,
@@ -2277,7 +2282,7 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like^W enable storage!
+        // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
@@ -2354,7 +2359,7 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like^W enable storage!
+        // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
@@ -2496,7 +2501,7 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like^W enable storage!
+        // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
@@ -2644,7 +2649,7 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like^W enable storage!
+        // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
         // Let's check whether the generic updates are received for the initialisation.
@@ -2768,7 +2773,7 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like^W enable storage!
+        // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);

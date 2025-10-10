@@ -26,12 +26,13 @@ use matrix_sdk::{
     crypto::store::types::RoomKeyInfo,
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
     encryption::backups::BackupState,
+    event_cache::{self, RedecryptorReport},
     event_handler::EventHandlerHandle,
     executor::{JoinHandle, spawn},
 };
 use tokio::sync::{
     RwLock,
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Receiver, Sender, UnboundedSender},
 };
 use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
 use tracing::{Instrument as _, debug, error, field, info, info_span, warn};
@@ -66,6 +67,58 @@ impl Drop for CryptoDropHandles {
         self.room_keys_received_join_handle.abort();
         self.room_key_backup_enabled_join_handle.abort();
         self.encryption_changes_handle.abort();
+    }
+}
+
+async fn redecryption_report_task(
+    stream: impl Stream<Item = Result<RedecryptorReport, BroadcastStreamRecvError>>,
+    timeline_controller: TimelineController,
+    sender: UnboundedSender<event_cache::DecryptionRetryRequest>,
+) {
+    pin_mut!(stream);
+
+    while let Some(report) = stream.next().await {
+        match report {
+            Ok(RedecryptorReport::ResolvedUtds { events, .. }) => {
+                let state = timeline_controller.state.read().await;
+
+                if let Some(utd_hook) = &state.meta.unable_to_decrypt_hook {
+                    for event_id in events {
+                        utd_hook.on_late_decrypt(&event_id).await;
+                    }
+                }
+            }
+            Ok(RedecryptorReport::Lagging) | Err(_) => {
+                // The room key stream lagged or the OlmMachine got regenerated. Let's tell the
+                // redecryptor which events we have.
+                let state = timeline_controller.state.read().await;
+
+                let (utds, decrypted): (BTreeSet<_>, BTreeSet<_>) = state
+                    .items
+                    .iter()
+                    .filter_map(|event| {
+                        event.as_event().and_then(|e| {
+                            let session_id = e.encryption_info().and_then(|info| info.session_id());
+                            session_id.map(|id| id.to_owned()).zip(Some(e))
+                        })
+                    })
+                    .partition_map(|(session_id, event)| {
+                        if event.content.is_unable_to_decrypt() {
+                            Either::Left(session_id)
+                        } else {
+                            Either::Right(session_id)
+                        }
+                    });
+
+                let message = event_cache::DecryptionRetryRequest {
+                    room_id: timeline_controller.room().room_id().to_owned(),
+                    utd_session_ids: utds,
+                    refresh_info_session_ids: decrypted,
+                };
+
+                let _ = sender.send(message);
+            }
+        }
     }
 }
 
@@ -300,42 +353,43 @@ async fn decryption_task<P: RoomDataProvider, D: Decryptor>(
 ) {
     debug!("Decryption task starting.");
 
-    while let Some(request) = receiver.recv().await {
-        let should_retry = |session_id: &str| {
-            if let Some(session_ids) = &request.session_ids {
-                session_ids.contains(session_id)
-            } else {
-                true
-            }
-        };
-
-        // Find the indices of events that are in the supplied sessions, distinguishing
-        // between UTDs which we need to decrypt, and already-decrypted events where we
-        // only need to re-fetch encryption info.
-        let mut state = state.write().await;
-        let (retry_decryption_indices, retry_info_indices) =
-            compute_event_indices_to_retry_decryption(&state.items, should_retry);
-
-        // Retry fetching encryption info for events that are already decrypted
-        if !retry_info_indices.is_empty() {
-            debug!("Retrying fetching encryption info");
-            retry_fetch_encryption_info(&mut state, retry_info_indices, &room_data_provider).await;
-        }
-
-        // Retry decrypting any unable-to-decrypt messages
-        if !retry_decryption_indices.is_empty() {
-            debug!("Retrying decryption");
-            decrypt_by_index(
-                &mut state,
-                &request.settings,
-                &room_data_provider,
-                request.decryptor,
-                should_retry,
-                retry_decryption_indices,
-            )
-            .await
-        }
-    }
+    // while let Some(request) = receiver.recv().await {
+    //     let should_retry = |session_id: &str| {
+    //         if let Some(session_ids) = &request.session_ids {
+    //             session_ids.contains(session_id)
+    //         } else {
+    //             true
+    //         }
+    //     };
+    //
+    //     // Find the indices of events that are in the supplied sessions,
+    // distinguishing     // between UTDs which we need to decrypt, and
+    // already-decrypted events where we     // only need to re-fetch encryption
+    // info.     let mut state = state.write().await;
+    //     let (retry_decryption_indices, retry_info_indices) =
+    //         compute_event_indices_to_retry_decryption(&state.items,
+    // should_retry);
+    //
+    //     // Retry fetching encryption info for events that are already decrypted
+    //     if !retry_info_indices.is_empty() {
+    //         debug!("Retrying fetching encryption info");
+    //         retry_fetch_encryption_info(&mut state, retry_info_indices,
+    // &room_data_provider).await;     }
+    //
+    //     // Retry decrypting any unable-to-decrypt messages
+    //     if !retry_decryption_indices.is_empty() {
+    //         debug!("Retrying decryption");
+    //         decrypt_by_index(
+    //             &mut state,
+    //             &request.settings,
+    //             &room_data_provider,
+    //             request.decryptor,
+    //             should_retry,
+    //             retry_decryption_indices,
+    //         )
+    //         .await
+    //     }
+    // }
 
     debug!("Decryption task stopping.");
 }
