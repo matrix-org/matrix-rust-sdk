@@ -28,8 +28,10 @@ use serde_json::{json, value::to_raw_value, Value};
 use crate::{
     machine::{
         test_helpers::{
-            build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
-            get_prepared_machine_test_helper, send_and_receive_encrypted_to_device_test_helper,
+            build_encrypted_to_device_content_without_sender_data, build_session_for_pair,
+            get_machine_pair, get_machine_pair_with_session, get_prepared_machine_test_helper,
+            receive_encrypted_to_device_test_helper,
+            send_and_receive_encrypted_to_device_test_helper,
         },
         tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
     },
@@ -45,9 +47,11 @@ use crate::{
     utilities::json_convert,
     verification::tests::bob_id,
     CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
-    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, Session, TrustRequirement,
+    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, TrustRequirement,
 };
 
+/// Happy path test: encrypt a to-device message, and check it is successfully
+/// decrypted by the recipient, and that all the metadata is set as expected.
 #[async_test]
 async fn test_send_encrypted_to_device() {
     let (alice, bob) =
@@ -113,14 +117,51 @@ async fn test_send_encrypted_to_device() {
     );
 }
 
+/// Test what happens when the sending device is deleted before the to-device
+/// event arrives. (It should still be successfully decrypted.)
+///
+/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
 #[async_test]
-async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
-    // When decrypting a custom to device, we expect the recipient to know the
-    // sending device. If the device is not known decryption will fail (see
-    // `EventError(MissingSigningKey)`). The only exception is room keys where
-    // this check can be delayed. This is a reason why there is no test for
-    // verification_state `DeviceLinkProblem::MissingDevice`
+async fn test_encrypted_to_device_from_deleted_device() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
 
+    // Tell Bob that Alice's device has been deleted
+    let mut keys_query_response = ruma::api::client::keys::get_keys::v3::Response::default();
+    keys_query_response.device_keys.insert(alice.user_id().to_owned(), Default::default());
+    bob.receive_keys_query_response(&TransactionId::new(), &keys_query_response).await.unwrap();
+
+    let custom_event_type = "m.new_device";
+    let custom_content = json!({"a": "b"});
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+        &decryption_settings,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
+
+    let decrypted_event = raw.deserialize().unwrap();
+    assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
+
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
+}
+
+/// If the sender device is genuinely unknown (it is not in the store, nor does
+/// the to-device message contain `sender_device_keys`), decryption will fail,
+/// with `EventError::MissingSigningKey`.
+#[async_test]
+async fn test_receive_custom_encrypted_to_device_with_no_sender_device_keys_fails_if_device_unknown(
+) {
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
     let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
@@ -140,12 +181,22 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+    // We need to suppress the sender_data field to correctly emulate an unknown
+    // device
+    let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
+    let raw_encrypted = build_encrypted_to_device_content_without_sender_data(
         &alice,
-        &bob,
+        &bob_device.device_keys,
         custom_event_type,
         &custom_content,
+    )
+    .await;
+
+    let processed_event = receive_encrypted_to_device_test_helper(
+        alice.user_id(),
+        &bob,
         &decryption_settings,
+        Raw::new(&raw_encrypted).unwrap(),
     )
     .await;
 
@@ -635,33 +686,22 @@ async fn create_and_share_session_without_sender_data(
     // the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
-    let olm_sessions = alice
-        .store()
-        .get_sessions(&bob.identity_keys().curve25519.to_base64())
+    let bob_device = alice
+        .get_device(bob.user_id(), bob.device_id(), None)
         .await
         .unwrap()
-        .unwrap();
-    let mut olm_session: Session = olm_sessions.lock().await[0].clone();
-
+        .expect("Attempt to send message to unknown device");
     let room_key_content = outbound_session.as_content().await;
-    let plaintext = serde_json::to_string(&json!({
-        "sender": alice.user_id(),
-        "sender_device": alice.device_id(),
-        "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
-        // We deliberately do *not* include:
-        // "org.matrix.msc4147.device_keys": alice_device_keys,
-        "recipient": bob.user_id(),
-        "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
-        "type": room_key_content.event_type(),
-        "content": room_key_content,
-    }))
-    .unwrap();
 
-    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
-    ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        olm_session.build_encrypted_event(ciphertext, None).await.unwrap(),
+    let content = build_encrypted_to_device_content_without_sender_data(
+        alice,
+        &bob_device.device_keys,
+        room_key_content.event_type(),
+        &room_key_content,
     )
+    .await;
+
+    ToDeviceEvent::new(alice.user_id().to_owned(), content)
 }
 
 /// Simulate uploading keys for alice that mean bob thinks alice's device
