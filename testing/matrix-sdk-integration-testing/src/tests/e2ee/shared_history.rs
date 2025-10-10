@@ -26,8 +26,26 @@ use crate::helpers::{SyncTokenAwareClient, TestClientBuilder, wait_for_room};
 
 /// When we invite another user to a room with "joined" history visibility, we
 /// share the encryption history.
+///
+/// Pre-"exclude insecure devices" test variant.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_history_share_on_invite() -> Result<()> {
+    test_history_share_on_invite_helper(false).await
+}
+
+/// When we invite another user to a room with "joined" history visibility, we
+/// share the encryption history, even when "exclude insecure devices" is
+/// enabled.
+///
+/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5613
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_share_on_invite_exclude_insecure_devices() -> Result<()> {
+    test_history_share_on_invite_helper(true).await
+}
+
+/// Common implementation for [`test_history_share_on_invite`] and
+/// [`test_history_share_on_invite_exclude_insecure_devices].
+async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> Result<()> {
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
@@ -38,6 +56,7 @@ async fn test_history_share_on_invite() -> Result<()> {
         .use_sqlite()
         .encryption_settings(encryption_settings)
         .enable_share_history_on_invite(true)
+        .exclude_insecure_devices(exclude_insecure_devices)
         .build()
         .await?;
 
@@ -55,6 +74,7 @@ async fn test_history_share_on_invite() -> Result<()> {
         TestClientBuilder::new("bob")
             .encryption_settings(encryption_settings)
             .enable_share_history_on_invite(true)
+            .exclude_insecure_devices(exclude_insecure_devices)
             .build()
             .await?,
     );
@@ -86,8 +106,18 @@ async fn test_history_share_on_invite() -> Result<()> {
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
     // Alice is done. Bob has been invited and the room key bundle should have been
-    // sent out. Let's stop syncing so the logs contain less noise.
+    // sent out. Let's log her out, so we know that this feature works even when the
+    // sender device has been deleted (and to reduce the amount of noise in the
+    // logs).
     alice_sync_service.stop().await;
+    alice.logout().instrument(alice_span.clone()).await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
+    // Alice's identity.
+    bob.encryption()
+        .request_user_identity(alice.user_id().unwrap())
+        .instrument(bob_span.clone())
+        .await?;
 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 
