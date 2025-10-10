@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Remove the `matrix-sdk-crypto` re-export.
+  ([#5769](https://github.com/matrix-org/matrix-rust-sdk/pull/5769))
 - Allow `Client::get_dm_room()` to be called without the `e2e-encryption` crate feature.
   ([#5787](https://github.com/matrix-org/matrix-rust-sdk/pull/5787))
 - [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate

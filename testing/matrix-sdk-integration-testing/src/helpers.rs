@@ -12,7 +12,6 @@ use assign::assign;
 use matrix_sdk::{
     Client, ClientBuilder, Room,
     config::{RequestConfig, SyncSettings},
-    crypto::{CollectStrategy, DecryptionSettings},
     encryption::EncryptionSettings,
     ruma::{
         RoomId,
@@ -23,7 +22,7 @@ use matrix_sdk::{
     sync::SyncResponse,
     timeout::ElapsedError,
 };
-use matrix_sdk_base::crypto::TrustRequirement;
+use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{TempDir, tempdir};

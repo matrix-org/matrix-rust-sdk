@@ -27,13 +27,15 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     self, Client, assert_next_matches_with_timeout, assert_next_with_timeout,
-    crypto::{OlmMachine, decrypt_room_key_export, types::events::UtdCause},
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationLevel, VerificationState,
     },
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::deserialized_responses::{TimelineEvent, UnableToDecryptReason};
+use matrix_sdk_base::{
+    crypto::{OlmMachine, decrypt_room_key_export, types::events::UtdCause},
+    deserialized_responses::{TimelineEvent, UnableToDecryptReason},
+};
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     RoomId, UserId, assign, event_id,

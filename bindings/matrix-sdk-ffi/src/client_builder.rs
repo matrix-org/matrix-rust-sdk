@@ -3,7 +3,6 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
-    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
@@ -14,6 +13,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, SqliteStoreConfig, ThreadingSupport,
 };
+use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 use zeroize::Zeroizing;

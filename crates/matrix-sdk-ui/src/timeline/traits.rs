@@ -18,12 +18,13 @@ use eyeball::Subscriber;
 use indexmap::IndexMap;
 use matrix_sdk::{
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
-    crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     paginators::{PaginableRoom, thread::PaginableThread},
     room::PushContext,
 };
-use matrix_sdk_base::{RoomInfo, latest_event::LatestEvent};
+use matrix_sdk_base::{
+    RoomInfo, crypto::types::events::CryptoContextInfo, latest_event::LatestEvent,
+};
 use ruma::{
     EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::{

@@ -23,12 +23,12 @@ use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
     Client, Room,
-    crypto::store::types::RoomKeyInfo,
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
     encryption::backups::BackupState,
     event_handler::EventHandlerHandle,
     executor::{JoinHandle, spawn},
 };
+use matrix_sdk_base::crypto::store::types::RoomKeyInfo;
 use tokio::sync::{
     RwLock,
     mpsc::{self, Receiver, Sender},
@@ -516,10 +516,8 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
     use imbl::vector;
-    use matrix_sdk::{
-        crypto::types::events::UtdCause,
-        deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
-    };
+    use matrix_sdk::deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState};
+    use matrix_sdk_base::crypto::types::events::UtdCause;
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId,
         events::room::{

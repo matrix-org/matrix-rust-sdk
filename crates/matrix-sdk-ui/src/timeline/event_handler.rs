@@ -17,10 +17,10 @@ use std::{borrow::Cow, sync::Arc};
 use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    crypto::types::events::UtdCause,
     deserialized_responses::{EncryptionInfo, UnableToDecryptInfo},
     send_queue::SendHandle,
 };
+use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId,

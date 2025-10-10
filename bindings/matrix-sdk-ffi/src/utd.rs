@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
-use matrix_sdk::crypto::types::events::UtdCause;
+use matrix_sdk_base::crypto::types::events::UtdCause;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::unable_to_decrypt_hook::{
     UnableToDecryptHook, UnableToDecryptInfo as SdkUnableToDecryptInfo,
