@@ -366,122 +366,18 @@ impl OAuth {
 
     /// Log in using a QR code.
     ///
-    /// This method allows you to log in with a QR code, the existing device
-    /// needs to display the QR code which this device can scan and call
-    /// this method to log in.
-    ///
-    /// A successful login using this method will automatically mark the device
-    /// as verified and transfer all end-to-end encryption related secrets, like
-    /// the private cross-signing keys and the backup key from the existing
-    /// device to the new device.
-    ///
     /// # Arguments
-    ///
-    /// * `data` - The data scanned from a QR code.
     ///
     /// * `registration_data` - The data to restore or register the client with
     ///   the server. If this is not provided, an error will occur unless
     ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
     ///   was called previously.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use anyhow::bail;
-    /// use futures_util::StreamExt;
-    /// use matrix_sdk::{
-    ///     authentication::oauth::{
-    ///         registration::ClientMetadata,
-    ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
-    ///     },
-    ///     ruma::serde::Raw,
-    ///     Client,
-    /// };
-    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() }
-    /// # _ = async {
-    /// # let bytes = unimplemented!();
-    /// // You'll need to use a different library to scan and extract the raw bytes from the QR
-    /// // code.
-    /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
-    ///
-    /// // Fetch the homeserver out of the parsed QR code data.
-    /// let QrCodeModeData::Reciprocate{ server_name } = qr_code_data.mode_data else {
-    ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
-    /// };
-    ///
-    /// // Build the client as usual.
-    /// let client = Client::builder()
-    ///     .server_name_or_homeserver_url(server_name)
-    ///     .handle_refresh_tokens()
-    ///     .build()
-    ///     .await?;
-    ///
-    /// let oauth = client.oauth();
-    /// let client_metadata: Raw<ClientMetadata> = client_metadata();
-    /// let registration_data = client_metadata.into();
-    ///
-    /// // Subscribing to the progress is necessary since we need to input the check
-    /// // code on the existing device.
-    /// let login = oauth.login_with_qr_code(&qr_code_data, Some(&registration_data));
-    /// let mut progress = login.subscribe_to_progress();
-    ///
-    /// // Create a task which will show us the progress and tell us the check
-    /// // code to input in the existing device.
-    /// let task = tokio::spawn(async move {
-    ///     while let Some(state) = progress.next().await {
-    ///         match state {
-    ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
-    ///             LoginProgress::EstablishingSecureChannel(progress) => {
-    ///                 let code = progress.check_code.to_digit();
-    ///                 println!("Please enter the following code into the other device {code:02}");
-    ///             },
-    ///             LoginProgress::WaitingForToken { user_code } => {
-    ///                 println!("Please use your other device to confirm the log in {user_code}")
-    ///             },
-    ///             LoginProgress::Done => break,
-    ///         }
-    ///     }
-    /// });
-    ///
-    /// // Now run the future to complete the login.
-    /// login.await?;
-    /// task.abort();
-    ///
-    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
-    /// # anyhow::Ok(()) };
-    /// ```
     #[cfg(feature = "e2e-encryption")]
     pub fn login_with_qr_code<'a>(
         &'a self,
-        data: &'a QrCodeData,
         registration_data: Option<&'a ClientRegistrationData>,
-    ) -> LoginWithQrCode<'a> {
-        LoginWithQrCode::new(&self.client, data, registration_data)
-    }
-
-    /// Log in using a generated QR code.
-    ///
-    /// This method allows you to log in with a QR code, this device
-    /// needs to display the QR code by calling this method so the existing
-    /// device can scan it and grant the log in.
-    ///
-    /// A successful login using this method will automatically mark the device
-    /// as verified and transfer all end-to-end encryption related secrets, like
-    /// the private cross-signing keys and the backup key from the existing
-    /// device to the new device.
-    ///
-    /// # Arguments
-    ///
-    /// * `registration_data` - The data to restore or register the client with
-    ///   the server. If this is not provided, an error will occur unless
-    ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
-    ///   was called previously.
-    #[cfg(feature = "e2e-encryption")]
-    pub fn login_with_generated_qr_code<'a>(
-        &'a self,
-        registration_data: Option<&'a ClientRegistrationData>,
-    ) -> LoginWithGeneratedQrCode<'a> {
-        LoginWithGeneratedQrCode::new(&self.client, registration_data)
+    ) -> LoginWithQrCodeBuilder<'a> {
+        LoginWithQrCodeBuilder { client: &self.client, registration_data }
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given
@@ -1425,6 +1321,179 @@ impl OAuth {
         }
 
         Ok(())
+    }
+}
+
+/// Builder for QR login futures.
+#[derive(Debug)]
+pub struct LoginWithQrCodeBuilder<'a> {
+    /// The underlying Matrix API client.
+    client: &'a Client,
+
+    /// The data to restore or register the client with the server.
+    registration_data: Option<&'a ClientRegistrationData>,
+}
+
+impl<'a> LoginWithQrCodeBuilder<'a> {
+    /// This method allows you to log in with a scanned QR code.
+    ///
+    /// The existing device needs to display the QR code which this device can
+    /// scan and call this method to log in.
+    ///
+    /// A successful login using this method will automatically mark the device
+    /// as verified and transfer all end-to-end encryption related secrets, like
+    /// the private cross-signing keys and the backup key from the existing
+    /// device to the new device.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The data scanned from a QR code.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     authentication::oauth::{
+    ///         registration::ClientMetadata,
+    ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///     },
+    ///     ruma::serde::Raw,
+    ///     Client,
+    /// };
+    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() }
+    /// # _ = async {
+    /// # let bytes = unimplemented!();
+    /// // You'll need to use a different library to scan and extract the raw bytes from the QR
+    /// // code.
+    /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
+    ///
+    /// // Fetch the homeserver out of the parsed QR code data.
+    /// let QrCodeModeData::Reciprocate{ server_name } = qr_code_data.mode_data else {
+    ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
+    /// };
+    ///
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .server_name_or_homeserver_url(server_name)
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oauth = client.oauth();
+    /// let client_metadata: Raw<ClientMetadata> = client_metadata();
+    /// let registration_data = client_metadata.into();
+    ///
+    /// // Subscribing to the progress is necessary since we need to input the check
+    /// // code on the existing device.
+    /// let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data);
+    /// let mut progress = login.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and tell us the check
+    /// // code to input in the existing device.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
+    ///             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
+    ///                 let code = check_code.to_digit();
+    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///             },
+    ///             LoginProgress::WaitingForToken { user_code } => {
+    ///                 println!("Please use your other device to confirm the log in {user_code}")
+    ///             },
+    ///             LoginProgress::Done => break,
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Now run the future to complete the login.
+    /// login.await?;
+    /// task.abort();
+    ///
+    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn scan(self, data: &'a QrCodeData) -> LoginWithQrCode<'a> {
+        LoginWithQrCode::new(self.client, data, self.registration_data)
+    }
+
+    /// This method allows you to log in by generating a QR code.
+    ///
+    /// This device needs to call this method to generate and display the
+    /// QR code which the existing device can scan and grant the log in.
+    ///
+    /// A successful login using this method will automatically mark the device
+    /// as verified and transfer all end-to-end encryption related secrets, like
+    /// the private cross-signing keys and the backup key from the existing
+    /// device to the new device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     authentication::oauth::{
+    ///         registration::ClientMetadata,
+    ///         qrcode::{GeneratedQrProgress, LoginProgress, QrCodeData, QrCodeModeData},
+    ///     },
+    ///     ruma::serde::Raw,
+    ///     Client,
+    /// };
+    /// use std::io::stdin;
+    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() }
+    /// # _ = async {
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .server_name_or_homeserver_url("matrix.org")
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oauth = client.oauth();
+    /// let client_metadata: Raw<ClientMetadata> = client_metadata();
+    /// let registration_data = client_metadata.into();
+    ///
+    /// // Subscribing to the progress is necessary since we need to display the
+    /// // QR code and prompt for the check code.
+    /// let login = oauth.login_with_qr_code(Some(&registration_data)).generate();
+    /// let mut progress = login.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and allows us to display
+    /// // the QR code and prompt for the check code.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
+    ///             LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(qr)) => {
+    ///                 println!("Please use your other device to scan the QR code {:?}", qr)
+    ///             }
+    ///             LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(cctx)) => {
+    ///                 println!("Please enter the code displayed on your other device");
+    ///                 let mut s = String::new();
+    ///                 stdin().read_line(&mut s).unwrap();
+    ///                 let check_code = s.trim().parse::<u8>().unwrap();
+    ///                 cctx.send(check_code).await.unwrap()
+    ///             }
+    ///             LoginProgress::WaitingForToken { user_code } => {
+    ///                 println!("Please use your other device to confirm the log in {user_code}")
+    ///             },
+    ///             LoginProgress::Done => break,
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Now run the future to complete the login.
+    /// login.await?;
+    /// task.abort();
+    ///
+    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn generate(self) -> LoginWithGeneratedQrCode<'a> {
+        LoginWithGeneratedQrCode::new(self.client, self.registration_data)
     }
 }
 

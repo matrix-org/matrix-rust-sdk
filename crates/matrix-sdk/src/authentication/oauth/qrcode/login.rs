@@ -639,7 +639,7 @@ mod test {
 
         let oauth = bob.oauth();
         let registration_data = mock_client_metadata().into();
-        let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
+        let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
         let mut updates = login_bob.subscribe_to_progress();
 
         let updates_task = spawn(async move {
@@ -809,7 +809,7 @@ mod test {
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
-        let bob_login = bob_oauth.login_with_generated_qr_code(Some(&registration_data));
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
         let mut bob_updates = bob_login.subscribe_to_progress();
 
         let updates_task = spawn(async move {
@@ -911,7 +911,7 @@ mod test {
 
         let oauth = bob.oauth();
         let registration_data = mock_client_metadata().into();
-        let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
+        let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = spawn(async move {
@@ -989,7 +989,7 @@ mod test {
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
-        let bob_login = bob_oauth.login_with_generated_qr_code(Some(&registration_data));
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
         let mut bob_updates = bob_login.subscribe_to_progress();
 
         let _updates_task = spawn(async move {
@@ -1193,7 +1193,7 @@ mod test {
 
         let oauth = bob.oauth();
         let registration_data = mock_client_metadata().into();
-        let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
+        let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = spawn(async move {

@@ -41,7 +41,9 @@ mod rendezvous_channel;
 mod secure_channel;
 
 pub use self::{
-    login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress},
+    login::{
+        GeneratedQrProgress, LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress,
+    },
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
 use super::CrossProcessRefreshLockError;
