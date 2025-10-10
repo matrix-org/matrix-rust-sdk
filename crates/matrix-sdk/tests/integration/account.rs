@@ -1,4 +1,10 @@
+use assert_matches2::assert_matches;
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::async_test;
+use ruma::api::{
+    MatrixVersion,
+    client::profile::{ProfileFieldName, ProfileFieldValue, TimeZone},
+};
 use serde_json::json;
 use wiremock::{
     Mock, Request, ResponseTemplate,
@@ -56,4 +62,52 @@ async fn test_account_deactivation() {
 
         assert!(client.account().deactivate(None, None, true).await.is_ok());
     }
+}
+
+#[async_test]
+async fn test_fetch_profile_field() {
+    let tz = "Africa/Bujumbura";
+    let display_name = "Alice";
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_get_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok_with_value(Some(tz.into()))
+        .expect(2)
+        .named("get m.tz profile field")
+        .mount()
+        .await;
+    server
+        .mock_get_profile_field(user_id, ProfileFieldName::DisplayName)
+        .ok_with_value(Some(display_name.into()))
+        .mock_once()
+        .named("get displayname profile field")
+        .mount()
+        .await;
+    server
+        .mock_get_profile_field(user_id, ProfileFieldName::AvatarUrl)
+        .ok_with_value(None)
+        .mock_once()
+        .named("get avatar_url profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+
+    let res_avatar_url = account.get_avatar_url().await.unwrap();
+    assert_eq!(res_avatar_url, None);
+    let res_display_name = account.get_display_name().await.unwrap();
+    assert_eq!(res_display_name.as_deref(), Some(display_name));
+    let res_value = account
+        .fetch_profile_field_of(user_id.to_owned(), ProfileFieldName::TimeZone)
+        .await
+        .unwrap();
+    assert_matches!(res_value, Some(ProfileFieldValue::TimeZone(res_tz)));
+    assert_eq!(res_tz, tz);
+    let res_tz =
+        account.fetch_profile_field_of_static::<TimeZone>(user_id.to_owned()).await.unwrap();
+    assert_eq!(res_tz.as_deref(), Some(tz));
 }
