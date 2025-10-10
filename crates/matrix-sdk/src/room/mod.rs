@@ -35,7 +35,9 @@ pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
+use matrix_sdk_base::crypto::{
+    IdentityStatusChange, RoomIdentityProvider, UserIdentity, types::events::CryptoContextInfo,
+};
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
@@ -154,6 +156,8 @@ pub use self::{
         Relations, RelationsOptions, ThreadRoots,
     },
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::encryption::backups::BackupState;
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 #[cfg(feature = "experimental-encrypted-state-events")]
@@ -177,8 +181,6 @@ use crate::{
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
 };
-#[cfg(feature = "e2e-encryption")]
-use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
 
 pub mod edit;
 pub mod futures;

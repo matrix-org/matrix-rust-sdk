@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
-use matrix_sdk::{
-    authentication::oauth::{
-        qrcode::{
-            self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-            DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
-        },
-        OAuth,
+use matrix_sdk::authentication::oauth::{
+    qrcode::{
+        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
+        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
     },
-    crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
+    OAuth,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 
@@ -152,8 +149,8 @@ impl QrCodeData {
     /// will return `None`.
     pub fn server_name(&self) -> Option<String> {
         match &self.inner.mode_data {
-            QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
-            QrCodeModeData::Login => None,
+            qrcode::QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
+            qrcode::QrCodeModeData::Login => None,
         }
     }
 }
@@ -165,7 +162,7 @@ pub enum QrCodeDecodeError {
     #[error("Error decoding QR code: {error:?}")]
     Crypto {
         #[from]
-        error: LoginQrCodeDecodeError,
+        error: qrcode::LoginQrCodeDecodeError,
     },
 }
 

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
-    crypto::LocalTrust,
+    encryption::LocalTrust,
     room::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
         TryFromReportedContentScoreError,
