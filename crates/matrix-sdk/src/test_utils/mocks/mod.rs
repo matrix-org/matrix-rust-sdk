@@ -1645,6 +1645,17 @@ impl MatrixMockServer {
             .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
         self.mock_endpoint(mock, SetProfileFieldEndpoint).expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the endpoint used to delete a profile field.
+    pub fn mock_delete_profile_field(
+        &self,
+        user_id: &UserId,
+        field: ProfileFieldName,
+    ) -> MockEndpoint<'_, DeleteProfileFieldEndpoint> {
+        let mock = Mock::given(method("DELETE"))
+            .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
+        self.mock_endpoint(mock, DeleteProfileFieldEndpoint).expect_default_access_token()
+    }
 }
 
 /// A specification for a push rule ID.
@@ -4705,6 +4716,16 @@ impl<'a> MockEndpoint<'a, GetProfileFieldEndpoint> {
 pub struct SetProfileFieldEndpoint;
 
 impl<'a> MockEndpoint<'a, SetProfileFieldEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `DELETE /_matrix/client/*/profile/{user_id}/{key_name}`.
+pub struct DeleteProfileFieldEndpoint;
+
+impl<'a> MockEndpoint<'a, DeleteProfileFieldEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()

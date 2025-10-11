@@ -41,7 +41,8 @@ use ruma::{
         error::ErrorKind,
         profile::{
             AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
-            get_profile, get_profile_field, set_avatar_url, set_display_name, set_profile_field,
+            delete_profile_field, get_profile, get_profile_field, set_avatar_url, set_display_name,
+            set_profile_field,
         },
         uiaa::AuthData,
     },
@@ -411,6 +412,27 @@ impl Account {
     pub async fn set_profile_field(&self, value: ProfileFieldValue) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = set_profile_field::v3::Request::new(user_id.to_owned(), value);
+        self.client.send(request).await?;
+
+        Ok(())
+    }
+
+    /// Delete the given field of our own user's profile.
+    ///
+    /// [`Client::get_capabilities()`] should be called first to check it the
+    /// field can be modified on the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The profile field to delete.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the server doesn't support extended profile fields
+    /// of if the request fails in some other way.
+    pub async fn delete_profile_field(&self, field: ProfileFieldName) -> Result<()> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = delete_profile_field::v3::Request::new(user_id.to_owned(), field);
         self.client.send(request).await?;
 
         Ok(())
