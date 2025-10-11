@@ -157,34 +157,66 @@ async fn test_set_profile_field() {
 #[async_test]
 async fn test_delete_profile_field() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
-    let user_id = client.user_id().unwrap();
 
-    server
-        .mock_delete_profile_field(user_id, ProfileFieldName::TimeZone)
-        .ok()
-        .mock_once()
-        .named("delete m.tz profile field")
-        .mount()
-        .await;
-    server
-        .mock_set_profile_field(user_id, ProfileFieldName::DisplayName)
-        .ok()
-        .mock_once()
-        .named("set displayname profile field")
-        .mount()
-        .await;
-    server
-        .mock_set_profile_field(user_id, ProfileFieldName::AvatarUrl)
-        .ok()
-        .mock_once()
-        .named("set avatar_url profile field")
-        .mount()
-        .await;
+    // Test with server that does NOT support deleting custom fields.
+    {
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_15]).build().await;
+        let user_id = client.user_id().unwrap();
 
-    let account = client.account();
+        let _guard = server
+            .mock_set_profile_field(user_id, ProfileFieldName::DisplayName)
+            .ok()
+            .mock_once()
+            .named("set displayname profile field")
+            .mount_as_scoped()
+            .await;
+        let _guard = server
+            .mock_set_profile_field(user_id, ProfileFieldName::AvatarUrl)
+            .ok()
+            .mock_once()
+            .named("set avatar_url profile field")
+            .mount_as_scoped()
+            .await;
 
-    account.set_avatar_url(None).await.unwrap();
-    account.set_display_name(None).await.unwrap();
-    account.delete_profile_field(ProfileFieldName::TimeZone).await.unwrap();
+        let account = client.account();
+
+        account.set_avatar_url(None).await.unwrap();
+        account.set_display_name(None).await.unwrap();
+    }
+
+    // Test with server that supports deleting custom fields.
+    {
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+        let user_id = client.user_id().unwrap();
+
+        let _guard = server
+            .mock_delete_profile_field(user_id, ProfileFieldName::AvatarUrl)
+            .ok()
+            .mock_once()
+            .named("delete m.tz profile field")
+            .mount_as_scoped()
+            .await;
+        let _guard = server
+            .mock_delete_profile_field(user_id, ProfileFieldName::DisplayName)
+            .ok()
+            .mock_once()
+            .named("delete m.tz profile field")
+            .mount_as_scoped()
+            .await;
+        let _guard = server
+            .mock_delete_profile_field(user_id, ProfileFieldName::TimeZone)
+            .ok()
+            .mock_once()
+            .named("delete m.tz profile field")
+            .mount_as_scoped()
+            .await;
+
+        let account = client.account();
+
+        account.set_avatar_url(None).await.unwrap();
+        account.set_display_name(None).await.unwrap();
+        account.delete_profile_field(ProfileFieldName::TimeZone).await.unwrap();
+    }
 }
