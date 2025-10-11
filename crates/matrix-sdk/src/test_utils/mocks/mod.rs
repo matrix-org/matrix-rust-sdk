@@ -35,7 +35,7 @@ use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
     OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::client::{
-        profile::ProfileFieldName,
+        profile::{ProfileFieldName, ProfileFieldValue},
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
         sync::sync_events::v5,
@@ -1655,6 +1655,13 @@ impl MatrixMockServer {
         let mock = Mock::given(method("DELETE"))
             .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
         self.mock_endpoint(mock, DeleteProfileFieldEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a profile.
+    pub fn mock_get_profile(&self, user_id: &UserId) -> MockEndpoint<'_, GetProfileEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path(format!("/_matrix/client/v3/profile/{user_id}")));
+        self.mock_endpoint(mock, GetProfileEndpoint)
     }
 }
 
@@ -4729,5 +4736,19 @@ impl<'a> MockEndpoint<'a, DeleteProfileFieldEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/*/profile/{user_id}`.
+pub struct GetProfileEndpoint;
+
+impl<'a> MockEndpoint<'a, GetProfileEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok_with_fields(self, fields: Vec<ProfileFieldValue>) -> MatrixMock<'a> {
+        let profile = fields
+            .iter()
+            .map(|field| (field.field_name(), field.value()))
+            .collect::<BTreeMap<_, _>>();
+        self.respond_with(ResponseTemplate::new(200).set_body_json(profile))
     }
 }
