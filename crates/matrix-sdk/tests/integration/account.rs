@@ -153,3 +153,38 @@ async fn test_set_profile_field() {
     account.set_display_name(Some(display_name)).await.unwrap();
     account.set_profile_field(ProfileFieldValue::TimeZone(tz.to_owned())).await.unwrap();
 }
+
+#[async_test]
+async fn test_delete_profile_field() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_delete_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok()
+        .mock_once()
+        .named("delete m.tz profile field")
+        .mount()
+        .await;
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::DisplayName)
+        .ok()
+        .mock_once()
+        .named("set displayname profile field")
+        .mount()
+        .await;
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::AvatarUrl)
+        .ok()
+        .mock_once()
+        .named("set avatar_url profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+
+    account.set_avatar_url(None).await.unwrap();
+    account.set_display_name(None).await.unwrap();
+    account.delete_profile_field(ProfileFieldName::TimeZone).await.unwrap();
+}
