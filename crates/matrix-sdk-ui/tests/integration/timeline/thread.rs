@@ -30,6 +30,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{
     RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventItemId, TimelineFocus,
+    VirtualTimelineItem,
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch,
@@ -1719,11 +1720,16 @@ async fn test_send_read_receipts() {
     assert_eq!(ev.event_id(), Some(event_id!("$2")));
     assert!(ev.read_receipts().is_empty());
 
-    let ev = initial_items[3].as_event().unwrap();
+    // Since the room has no `m.fully_read` event, the read marker falls back to
+    // the normal read receipt.
+    let ev = initial_items[3].as_virtual().unwrap();
+    assert!(matches!(ev, VirtualTimelineItem::ReadMarker));
+
+    let ev = initial_items[4].as_event().unwrap();
     assert_eq!(ev.event_id(), Some(event_id!("$3")));
     assert!(ev.read_receipts().is_empty());
 
-    let ev = initial_items[4].as_event().unwrap();
+    let ev = initial_items[5].as_event().unwrap();
     assert_eq!(ev.event_id(), Some(event_id!("$4")));
     let rr = ev.read_receipts();
     assert_eq!(rr.len(), 1);
