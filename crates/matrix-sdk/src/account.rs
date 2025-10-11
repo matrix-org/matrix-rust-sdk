@@ -32,19 +32,22 @@ use mime::Mime;
 use ruma::api::client::config::set_global_account_data::v3::Request as UpdateGlobalAccountDataRequest;
 use ruma::{
     ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
-    api::client::{
-        account::{
-            add_3pid, change_password, deactivate, delete_3pid, get_3pids,
-            request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+    api::{
+        Metadata,
+        client::{
+            account::{
+                add_3pid, change_password, deactivate, delete_3pid, get_3pids,
+                request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+            },
+            config::{get_global_account_data, set_global_account_data},
+            error::ErrorKind,
+            profile::{
+                AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
+                delete_profile_field, get_profile, get_profile_field, set_avatar_url,
+                set_display_name, set_profile_field,
+            },
+            uiaa::AuthData,
         },
-        config::{get_global_account_data, set_global_account_data},
-        error::ErrorKind,
-        profile::{
-            AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
-            delete_profile_field, get_profile, get_profile_field, set_avatar_url, set_display_name,
-            set_profile_field,
-        },
-        uiaa::AuthData,
     },
     assign,
     events::{
@@ -130,10 +133,24 @@ impl Account {
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        // Prefer the endpoint to delete profile fields, if it is supported.
+        if name.is_none() {
+            let versions = self.client.supported_versions().await?;
+
+            if delete_profile_field::v3::Request::PATH_BUILDER.is_supported(&versions) {
+                return self.delete_profile_field(ProfileFieldName::DisplayName).await;
+            }
+        }
+
+        // If name is `Some(_)`, this endpoint is the same as `set_profile_field`, but
+        // we still need to use it in case it is `None` and the server doesn't support
+        // the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
         self.client.send(request).await?;
+
         Ok(())
     }
 
@@ -201,10 +218,24 @@ impl Account {
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        // Prefer the endpoint to delete profile fields, if it is supported.
+        if url.is_none() {
+            let versions = self.client.supported_versions().await?;
+
+            if delete_profile_field::v3::Request::PATH_BUILDER.is_supported(&versions) {
+                return self.delete_profile_field(ProfileFieldName::AvatarUrl).await;
+            }
+        }
+
+        // If url is `Some(_)`, this endpoint is the same as `set_profile_field`, but
+        // we still need to use it in case it is `None` and the server doesn't support
+        // the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
         self.client.send(request).await?;
+
         Ok(())
     }
 
