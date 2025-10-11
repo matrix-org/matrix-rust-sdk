@@ -65,7 +65,7 @@ impl ReadReceipts {
 
     /// Read the latest read receipt of the given type for the given user, from
     /// the in-memory cache.
-    fn get_latest(
+    pub(crate) fn get_latest(
         &self,
         user_id: &UserId,
         receipt_type: &ReceiptType,

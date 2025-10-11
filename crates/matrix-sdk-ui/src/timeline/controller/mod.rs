@@ -1012,11 +1012,18 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
         }
 
-        if track_read_markers
-            && let Some(fully_read_event_id) =
+        if track_read_markers {
+            if let Some(fully_read_event_id) =
                 self.room_data_provider.load_fully_read_marker().await
-        {
-            state.handle_fully_read_marker(fully_read_event_id);
+            {
+                state.handle_fully_read_marker(fully_read_event_id);
+            } else if let Some(latest_receipt_event_id) = state
+                .latest_user_read_receipt_timeline_event_id(self.room_data_provider.own_user_id())
+            {
+                // Fall back to read receipt if no fully read marker exists.
+                debug!("no `m.fully_read` marker found, falling back to read receipt");
+                state.handle_fully_read_marker(latest_receipt_event_id);
+            }
         }
     }
 
