@@ -1,9 +1,12 @@
 use assert_matches2::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::async_test;
-use ruma::api::{
-    MatrixVersion,
-    client::profile::{ProfileFieldName, ProfileFieldValue, TimeZone},
+use ruma::{
+    api::{
+        MatrixVersion,
+        client::profile::{ProfileFieldName, ProfileFieldValue, TimeZone},
+    },
+    mxc_uri,
 };
 use serde_json::json;
 use wiremock::{
@@ -110,4 +113,43 @@ async fn test_fetch_profile_field() {
     let res_tz =
         account.fetch_profile_field_of_static::<TimeZone>(user_id.to_owned()).await.unwrap();
     assert_eq!(res_tz.as_deref(), Some(tz));
+}
+
+#[async_test]
+async fn test_set_profile_field() {
+    let tz = "Africa/Bujumbura";
+    let display_name = "Alice";
+    let avatar_url = mxc_uri!("mxc://localhost/1mA63");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok()
+        .mock_once()
+        .named("set m.tz profile field")
+        .mount()
+        .await;
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::DisplayName)
+        .ok()
+        .mock_once()
+        .named("set displayname profile field")
+        .mount()
+        .await;
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::AvatarUrl)
+        .ok()
+        .mock_once()
+        .named("set avatar_url profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+
+    account.set_avatar_url(Some(avatar_url)).await.unwrap();
+    account.set_display_name(Some(display_name)).await.unwrap();
+    account.set_profile_field(ProfileFieldValue::TimeZone(tz.to_owned())).await.unwrap();
 }

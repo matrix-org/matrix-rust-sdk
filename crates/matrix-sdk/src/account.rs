@@ -41,7 +41,7 @@ use ruma::{
         error::ErrorKind,
         profile::{
             AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
-            get_profile, get_profile_field, set_avatar_url, set_display_name,
+            get_profile, get_profile_field, set_avatar_url, set_display_name, set_profile_field,
         },
         uiaa::AuthData,
     },
@@ -394,6 +394,26 @@ impl Account {
             .await?;
 
         Ok(response.value)
+    }
+
+    /// Set the given field of our own user's profile.
+    ///
+    /// [`Client::get_capabilities()`] should be called first to check it the
+    /// field can be set on the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The value of the profile field to set.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the request fails.
+    pub async fn set_profile_field(&self, value: ProfileFieldValue) -> Result<()> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = set_profile_field::v3::Request::new(user_id.to_owned(), value);
+        self.client.send(request).await?;
+
+        Ok(())
     }
 
     /// Change the password of the account.
