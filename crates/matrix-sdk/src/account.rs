@@ -23,7 +23,7 @@ use js_int::uint;
 #[cfg(feature = "experimental-element-recent-emojis")]
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_base::{
-    StateStoreDataKey, StateStoreDataValue,
+    SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
     media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
 };
@@ -32,17 +32,22 @@ use mime::Mime;
 use ruma::api::client::config::set_global_account_data::v3::Request as UpdateGlobalAccountDataRequest;
 use ruma::{
     ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
-    api::client::{
-        account::{
-            add_3pid, change_password, deactivate, delete_3pid, get_3pids,
-            request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+    api::{
+        OutgoingRequest,
+        client::{
+            account::{
+                add_3pid, change_password, deactivate, delete_3pid, get_3pids,
+                request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+            },
+            config::{get_global_account_data, set_global_account_data},
+            error::ErrorKind,
+            profile::{
+                AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
+                delete_profile_field, get_profile, get_profile_field, set_avatar_url,
+                set_display_name, set_profile_field,
+            },
+            uiaa::AuthData,
         },
-        config::{get_global_account_data, set_global_account_data},
-        error::ErrorKind,
-        profile::{
-            get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
-        },
-        uiaa::AuthData,
     },
     assign,
     events::{
@@ -107,11 +112,7 @@ impl Account {
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        #[allow(deprecated)]
-        let request = get_display_name::v3::Request::new(user_id.to_owned());
-        let request_config = self.client.request_config().force_auth();
-        let response = self.client.send(request).with_request_config(request_config).await?;
-        Ok(response.displayname)
+        self.fetch_profile_field_of_static::<DisplayName>(user_id.to_owned()).await
     }
 
     /// Set the display name of the account.
@@ -132,10 +133,24 @@ impl Account {
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        // Prefer the endpoint to delete profile fields, if it is supported.
+        if name.is_none() {
+            let versions = self.client.supported_versions().await?;
+
+            if delete_profile_field::v3::Request::is_supported(&versions) {
+                return self.delete_profile_field(ProfileFieldName::DisplayName).await;
+            }
+        }
+
+        // If name is `Some(_)`, this endpoint is the same as `set_profile_field`, but
+        // we still need to use it in case it is `None` and the server doesn't support
+        // the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
         self.client.send(request).await?;
+
         Ok(())
     }
 
@@ -163,13 +178,10 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        #[allow(deprecated)]
-        let request = get_avatar_url::v3::Request::new(user_id.to_owned());
+        let avatar_url =
+            self.fetch_profile_field_of_static::<AvatarUrl>(user_id.to_owned()).await?;
 
-        let config = Some(RequestConfig::new().force_auth());
-
-        let response = self.client.send(request).with_request_config(config).await?;
-        if let Some(url) = response.avatar_url.clone() {
+        if let Some(url) = avatar_url.clone() {
             // If an avatar is found cache it.
             let _ = self
                 .client
@@ -187,7 +199,7 @@ impl Account {
                 .remove_kv_data(StateStoreDataKey::UserAvatarUrl(user_id))
                 .await;
         }
-        Ok(response.avatar_url)
+        Ok(avatar_url)
     }
 
     /// Get the URL of the account's avatar, if is stored in cache.
@@ -206,10 +218,24 @@ impl Account {
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        // Prefer the endpoint to delete profile fields, if it is supported.
+        if url.is_none() {
+            let versions = self.client.supported_versions().await?;
+
+            if delete_profile_field::v3::Request::is_supported(&versions) {
+                return self.delete_profile_field(ProfileFieldName::AvatarUrl).await;
+            }
+        }
+
+        // If url is `Some(_)`, this endpoint is the same as `set_profile_field`, but
+        // we still need to use it in case it is `None` and the server doesn't support
+        // the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
         self.client.send(request).await?;
+
         Ok(())
     }
 
@@ -326,6 +352,121 @@ impl Account {
             .send(request)
             .with_request_config(RequestConfig::short_retry().force_auth())
             .await?)
+    }
+
+    /// Get the given field from the given user's profile.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user to get the profile field of.
+    ///
+    /// * `field` - The name of the profile field to get.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the request fails or if deserialization of the
+    /// response fails.
+    ///
+    /// If the field is not set, the server should respond with an error with an
+    /// [`ErrorCode::NotFound`], but it might also respond with an empty
+    /// response, which would result in `Ok(None)`. Note that this error code
+    /// might also mean that the given user ID doesn't exist.
+    ///
+    /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
+    pub async fn fetch_profile_field_of(
+        &self,
+        user_id: OwnedUserId,
+        field: ProfileFieldName,
+    ) -> Result<Option<ProfileFieldValue>> {
+        let request = get_profile_field::v3::Request::new(user_id, field);
+        let response = self
+            .client
+            .send(request)
+            .with_request_config(RequestConfig::short_retry().force_auth())
+            .await?;
+
+        Ok(response.value)
+    }
+
+    /// Get the given statically-known field from the given user's profile.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user to get the profile field of.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the request fails or if deserialization of the
+    /// response fails.
+    ///
+    /// If the field is not set, the server should respond with an error with an
+    /// [`ErrorCode::NotFound`], but it might also respond with an empty
+    /// response, which would result in `Ok(None)`. Note that this error code
+    /// might also mean that the given user ID doesn't exist.
+    ///
+    /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
+    pub async fn fetch_profile_field_of_static<F>(
+        &self,
+        user_id: OwnedUserId,
+    ) -> Result<Option<F::Value>>
+    where
+        F: StaticProfileField
+            + std::fmt::Debug
+            + Clone
+            + SendOutsideWasm
+            + SyncOutsideWasm
+            + 'static,
+        F::Value: SendOutsideWasm + SyncOutsideWasm,
+    {
+        let request = get_profile_field::v3::Request::new_static::<F>(user_id);
+        let response = self
+            .client
+            .send(request)
+            .with_request_config(RequestConfig::short_retry().force_auth())
+            .await?;
+
+        Ok(response.value)
+    }
+
+    /// Set the given field of our own user's profile.
+    ///
+    /// [`Client::get_capabilities()`] should be called first to check it the
+    /// field can be set on the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The value of the profile field to set.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the request fails.
+    pub async fn set_profile_field(&self, value: ProfileFieldValue) -> Result<()> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = set_profile_field::v3::Request::new(user_id.to_owned(), value);
+        self.client.send(request).await?;
+
+        Ok(())
+    }
+
+    /// Delete the given field of our own user's profile.
+    ///
+    /// [`Client::get_capabilities()`] should be called first to check it the
+    /// field can be modified on the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The profile field to delete.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if the server doesn't support extended profile fields
+    /// of if the request fails in some other way.
+    pub async fn delete_profile_field(&self, field: ProfileFieldName) -> Result<()> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = delete_profile_field::v3::Request::new(user_id.to_owned(), field);
+        self.client.send(request).await?;
+
+        Ok(())
     }
 
     /// Change the password of the account.

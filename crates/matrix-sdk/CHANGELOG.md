@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support for extended profile fields with `Account::fetch_profile_field_of()`,
+  `Account::fetch_profile_field_of_static()`, `Account::set_profile_field()` and
+  `Account::delete_profile_field()`.
+  ([#5771](https://github.com/matrix-org/matrix-rust-sdk/pull/5771))
 - [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
   an error that occurred when importing a secret from secret storage.
   ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
