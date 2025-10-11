@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support for extended profile fields with `Account::fetch_profile_field_of()`,
+  `Account::fetch_profile_field_of_static()`, `Account::set_profile_field()` and
+  `Account::delete_profile_field()`.
+  ([#5771](https://github.com/matrix-org/matrix-rust-sdk/pull/5771))
 - [**breaking**] Remove the `matrix-sdk-crypto` re-export.
   ([#5769](https://github.com/matrix-org/matrix-rust-sdk/pull/5769))
 - Allow `Client::get_dm_room()` to be called without the `e2e-encryption` crate feature.
