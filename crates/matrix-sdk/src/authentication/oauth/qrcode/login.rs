@@ -327,7 +327,8 @@ pub enum CheckCodeSenderError {
     CannotSend,
 }
 
-/// Named future for the [`OAuth::login_with_qr_code()`] method.
+/// Named future for logging in by scanning a QR code with the
+/// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
 pub struct LoginWithQrCode<'a> {
     client: &'a Client,
@@ -407,7 +408,8 @@ impl<'a> LoginWithQrCode<'a> {
     }
 }
 
-/// Named future for the [`OAuth::login_with_generated_qr_code()`] method.
+/// Named future for logging in by generating a QR code with the
+/// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
 pub struct LoginWithGeneratedQrCode<'a> {
     client: &'a Client,
