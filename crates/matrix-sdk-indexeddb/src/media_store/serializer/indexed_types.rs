@@ -76,9 +76,6 @@ pub type IndexedMediaCleanupTimeContent = MaybeEncrypted;
 /// [1]: crate::media_store::types::MediaMetadata
 pub type IndexedMediaMetadata = MaybeEncrypted;
 
-/// A (possibly) encrypted representation of [`Media::content`]
-pub type IndexedMediaContent = Vec<u8>;
-
 /// A representation of the size in bytes of the [`IndexedMediaContent`] which
 /// is suitable for use in an IndexedDB key
 pub type IndexedMediaContentSize = usize;
@@ -260,7 +257,7 @@ pub struct IndexedMedia {
     /// [1]: crate::media_store::types::MediaMetadata
     pub metadata: IndexedMediaMetadata,
     /// The (possibly) encrypted content - i.e., [`Media::content`]
-    pub content: IndexedMediaContent,
+    pub content: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
