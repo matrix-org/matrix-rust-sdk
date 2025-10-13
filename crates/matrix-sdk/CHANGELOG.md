@@ -79,8 +79,9 @@ All notable changes to this project will be documented in this file.
   begins ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
 - Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so they can be assigned from other files
   ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
-- Add `OAuth::login_with_generated_qr_code` for generating a QR code on a new device
-  and logging it in with the help of an existing device scanning the code.
+- [**breaking**] `OAuth::login_with_qr_code` now returns a builder that allows performing the flow with either the
+  current device scanning or generating the QR code. Additionally, new errors `SecureChannelError::CannotReceiveCheckCode`
+  and `QRCodeLoginError::ServerReset` were added.
   ([#5711](https://github.com/matrix-org/matrix-rust-sdk/pull/5711))
 
 ### Refactor
