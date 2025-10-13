@@ -1830,7 +1830,6 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
 
-    // But an event-focused timeline, focused on an in-thread event, is threaded \o/
     let f = EventFactory::new().sender(&ALICE).room(room_id);
     let thread_root = event_id!("$thread_root");
     let event = f
@@ -1895,4 +1894,98 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
 
     // The stream should still be pending!
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_redacted_replied_to_is_updated() {
+    // When we're in a thread, and the thread has one thread reply, and another
+    // in-thread reply to the first threaded reply; if the first threaded reply
+    // is redacted, the second in-thread reply should have its replied-to
+    // information updated correctly.
+    let server = MatrixMockServer::new().await;
+
+    let client = client_with_threading_support(&server).await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let thread_root = event_id!("$thread_root");
+    let first_reply = event_id!("$first_reply");
+    let second_reply = event_id!("$second_reply");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.to_owned() })
+        .build()
+        .await
+        .unwrap();
+
+    // Subscribe to the timeline changes.
+    let (initial_items, mut stream) = timeline.subscribe().await;
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // After syncing the initial thread content,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hey to you too!")
+                        .event_id(first_reply)
+                        .in_thread(thread_root, thread_root),
+                )
+                .add_timeline_event(
+                    f.text_msg("how are you doing?")
+                        .event_id(second_reply)
+                        .in_thread_reply(thread_root, first_reply),
+                ),
+        )
+        .await;
+
+    // The timeline sees the new events.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 3);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let ev1 = value.as_event().unwrap();
+    assert_eq!(ev1.event_id(), Some(first_reply));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let ev2 = value.as_event().unwrap();
+    assert_eq!(ev2.event_id(), Some(second_reply));
+
+    let msglike = ev2.content().as_msglike().unwrap();
+    let in_reply_to = msglike.in_reply_to.as_ref().unwrap();
+    assert_eq!(in_reply_to.event_id, first_reply);
+    assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+    assert!(replied_to.content.is_message());
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
+
+    // When the first reply is redacted,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.redaction(first_reply).event_id(event_id!("$redaction"))),
+        )
+        .await;
+
+    // The timeline sees the redaction as a removal,
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
+
+    // And then the replied-to update happens independently.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
+    let ev2 = value.as_event().unwrap();
+    assert_eq!(ev2.event_id(), Some(second_reply));
+    let msglike = ev2.content().as_msglike().unwrap();
+    let in_reply_to = msglike.in_reply_to.as_ref().unwrap();
+    assert_eq!(in_reply_to.event_id, first_reply);
+    assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
+    assert!(replied_to_event.content.is_redacted());
 }
