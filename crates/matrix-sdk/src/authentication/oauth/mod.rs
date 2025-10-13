@@ -1359,7 +1359,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// use matrix_sdk::{
     ///     authentication::oauth::{
     ///         registration::ClientMetadata,
-    ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData, QrProgress},
     ///     },
     ///     ruma::serde::Raw,
     ///     Client,
