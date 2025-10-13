@@ -64,7 +64,10 @@ impl TimelineBuilder {
 
     /// Sets up the initial focus for this timeline.
     ///
-    /// This can be changed later on while the timeline is alive.
+    /// By default, the focus for a timeline is to be "live" (i.e. it will
+    /// listen to sync and append this room's events in real-time, and it'll be
+    /// able to back-paginate older events), and show all events (including
+    /// events in threads). Look at [`TimelineFocus`] for other options.
     pub fn with_focus(mut self, focus: TimelineFocus) -> Self {
         self.focus = focus;
         self
