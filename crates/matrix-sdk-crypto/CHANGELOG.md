@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix a bug which caused encrypted to-device messages from unknown devices to be ignored.
+  ([#5763](https://github.com/matrix-org/matrix-rust-sdk/pull/5763))
+- Fix a bug which caused history shared on invite to be ignored when "exclude insecure devices" was enabled.
+  ([#5763](https://github.com/matrix-org/matrix-rust-sdk/pull/5763))
 - Fix a bug introduced in 0.14.0 which meant that the serialization of the value returned by `OtherUserIdentity::verification_request_content` did not include a `msgtype` field.
   ([#5642](https://github.com/matrix-org/matrix-rust-sdk/pull/5642))
 

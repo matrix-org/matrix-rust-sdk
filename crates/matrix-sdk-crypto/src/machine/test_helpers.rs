@@ -30,26 +30,24 @@ use ruma::{
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
     user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
+use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use crate::{
-    machine::tests,
     olm::PrivateCrossSigningIdentity,
-    session_manager::CollectStrategy,
     store::{types::Changes, CryptoStoreWrapper, MemoryStore},
     types::{
-        events::ToDeviceEvent,
-        requests::{AnyOutgoingRequest, ToDeviceRequest},
+        events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
+        requests::AnyOutgoingRequest,
         DeviceKeys,
     },
     utilities::json_convert,
     verification::VerificationMachine,
-    Account, CrossSigningBootstrapRequests, DecryptionSettings, Device, DeviceData,
-    EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
+    Account, CollectStrategy, CrossSigningBootstrapRequests, DecryptionSettings, Device,
+    DeviceData, EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
 };
 
 /// These keys need to be periodically uploaded to the server.
@@ -199,16 +197,22 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         .await
         .expect("Should have encrypted the content");
 
-    let request = ToDeviceRequest::new(
-        recipient.user_id(),
-        DeviceIdOrAllDevices::DeviceId(recipient.device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-    let event = ToDeviceEvent::new(
-        sender.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
+    receive_encrypted_to_device_test_helper(
+        sender.user_id(),
+        recipient,
+        decryption_settings,
+        raw_encrypted,
+    )
+    .await
+}
+
+pub async fn receive_encrypted_to_device_test_helper(
+    sender: &UserId,
+    recipient: &OlmMachine,
+    decryption_settings: &DecryptionSettings,
+    raw_encrypted: Raw<ToDeviceEncryptedEventContent>,
+) -> ProcessedToDeviceEvent {
+    let event = ToDeviceEvent::new(sender.to_owned(), raw_encrypted);
 
     let event = json_convert(&event).unwrap();
 
@@ -225,6 +229,58 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
 
     assert_eq!(1, decrypted.len());
     decrypted[0].clone()
+}
+
+/// Encrypt the given event content into the content of an
+/// olm-encrypted to-device event, suppressing the `sender_device_keys` field in
+/// the encrypted content.
+///
+/// This is much the same as calling [`Device::encrypt`] on the recipient
+/// device, other than the suppression of `sender_device_keys`.
+///
+/// # Arguments
+///
+/// * `sender` - The OlmMachine to use to encrypt the event.
+/// * `recipient` - The recipient of the encrypted event.
+/// * `event_type` - The type of the event to encrypt.
+/// * `content` - The content of the event to encrypt.
+pub async fn build_encrypted_to_device_content_without_sender_data(
+    sender: &OlmMachine,
+    recipient_device: &DeviceKeys,
+    event_type: &str,
+    content: &impl Serialize,
+) -> ToDeviceEncryptedEventContent {
+    let sender_store = &sender.inner.store;
+
+    let sender_key = recipient_device.curve25519_key().unwrap();
+    let sessions = sender_store
+        .get_sessions(&sender_key.to_base64())
+        .await
+        .expect("Could not get most recent session")
+        .expect("No olm session found");
+    let mut olm_session = sessions.lock().await.first().unwrap().clone();
+
+    let plaintext = serde_json::to_string(&json!({
+        "sender": sender.user_id(),
+        "sender_device": sender.device_id(),
+        "keys": { "ed25519": sender.identity_keys().ed25519.to_base64() },
+        "recipient": recipient_device.user_id,
+        "recipient_keys": { "ed25519": recipient_device.ed25519_key().unwrap().to_base64() },
+        "type": event_type,
+        "content": content,
+    }))
+    .unwrap();
+
+    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
+    let content =
+        olm_session.build_encrypted_event(ciphertext, None).await.expect("could not encrypt");
+
+    sender_store
+        .save_changes(Changes { sessions: vec![olm_session], ..Default::default() })
+        .await
+        .expect("Could not save session");
+
+    content
 }
 
 /// Create a session for the two supplied Olm machines to communicate.
