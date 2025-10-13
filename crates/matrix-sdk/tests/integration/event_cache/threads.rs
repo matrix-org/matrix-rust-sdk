@@ -794,7 +794,8 @@ async fn test_redact_touches_threads() {
     event_cache.subscribe().unwrap();
 
     let thread_root_id = s.thread_root;
-    let thread_resp_id = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+    let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
 
     // Receive a thread root, and a threaded reply.
     let room = s
@@ -803,7 +804,8 @@ async fn test_redact_touches_threads() {
             &s.client,
             JoinedRoomBuilder::new(&s.room_id)
                 .add_timeline_event(f.text_msg("da r00t").event_id(&thread_root_id))
-                .add_timeline_event(s.events[0].clone()),
+                .add_timeline_event(s.events[0].clone())
+                .add_timeline_event(s.events[1].clone()),
         )
         .await;
 
@@ -815,31 +817,33 @@ async fn test_redact_touches_threads() {
     // Sanity check: both events are present in the thread, and the thread summary
     // is correct.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
-    assert_eq!(thread_events.len(), 1);
-    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp_id));
+    assert_eq!(thread_events.len(), 2);
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp1));
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp2));
 
     let (room_events, mut room_stream) = room_event_cache.subscribe().await;
-    assert_eq!(room_events.len(), 2);
+    assert_eq!(room_events.len(), 3);
 
     {
         assert_eq!(room_events[0].event_id().as_ref(), Some(&thread_root_id));
         let summary = room_events[0].thread_summary.summary().unwrap();
-        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp_id));
-        assert_eq!(summary.num_replies, 1);
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        assert_eq!(summary.num_replies, 2);
     }
 
-    assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp_id));
+    assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp1));
+    assert_eq!(room_events[2].event_id().as_ref(), Some(&thread_resp2));
 
     assert!(thread_stream.is_empty());
     assert!(room_stream.is_empty());
 
-    // A redaction for the reply comes through sync.
-    let redaction_event_id = event_id!("$redaction");
+    // A redaction for the first reply comes through sync.
+    let thread_resp1_redaction = event_id!("$redact_thread_resp1");
     s.server
         .sync_room(
             &s.client,
             JoinedRoomBuilder::new(&s.room_id)
-                .add_timeline_event(f.redaction(&thread_resp_id).event_id(redaction_event_id)),
+                .add_timeline_event(f.redaction(&thread_resp1).event_id(thread_resp1_redaction)),
         )
         .await;
 
@@ -865,7 +869,7 @@ async fn test_redact_touches_threads() {
         // The redaction event is appended to the room cache.
         assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
         assert_eq!(new_events.len(), 1);
-        assert_eq!(new_events[0].event_id().as_deref(), Some(redaction_event_id));
+        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp1_redaction));
 
         // The room event is redacted.
         {
@@ -884,8 +888,8 @@ async fn test_redact_touches_threads() {
             assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[2]);
             assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
             let summary = new_root.thread_summary.summary().unwrap();
-            assert!(summary.latest_reply.is_none());
-            assert_eq!(summary.num_replies, 0);
+            assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+            assert_eq!(summary.num_replies, 1);
         }
     }
 }

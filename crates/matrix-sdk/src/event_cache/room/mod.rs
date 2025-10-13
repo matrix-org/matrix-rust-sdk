@@ -1694,17 +1694,12 @@ mod private {
                 // replies may include the to-be-redacted event.
                 if let Some(thread_root) = thread_root {
                     if let Some(thread_cache) = self.threads.get_mut(&thread_root) {
-                        let was_last_event =
-                            thread_cache.latest_event_id().as_deref() == Some(event_id);
-
                         thread_cache.try_remove_event(event_id);
 
-                        // If the event was the latest event in the thread, update the thread
-                        // summary as well.
-                        if was_last_event {
-                            let latest_event_id = thread_cache.latest_event_id();
-                            self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
-                        }
+                        // The number of replies may have changed, so update the thread summary if
+                        // needs be.
+                        let latest_event_id = thread_cache.latest_event_id();
+                        self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
                     }
                 }
             }
