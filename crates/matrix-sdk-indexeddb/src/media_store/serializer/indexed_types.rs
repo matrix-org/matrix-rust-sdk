@@ -27,6 +27,8 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::media_store::migrations`].
 
+use std::ops::Deref;
+
 use matrix_sdk_base::media::{
     store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     MediaRequestParameters, UniqueKey,
@@ -46,7 +48,7 @@ use crate::{
             },
             foreign::{ignore_media_retention_policy, unix_time},
         },
-        types::{Lease, Media, MediaCleanupTime, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, MediaContent, UnixTime},
     },
     serializer::{
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
@@ -79,6 +81,9 @@ pub type IndexedMediaMetadata = MaybeEncrypted;
 /// A representation of the size in bytes of the [`IndexedMediaContent`] which
 /// is suitable for use in an IndexedDB key
 pub type IndexedMediaContentSize = usize;
+
+/// A (possibly) encrypted representation of [`MediaContent::data`]
+pub type IndexedMediaContentData = Vec<u8>;
 
 /// A representation of time in seconds since the [Unix
 /// Epoch](std::time::UNIX_EPOCH) which is suitable for use in an IndexedDB key
@@ -567,5 +572,86 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
         (prefix, INDEXED_KEY_UPPER_UNIX_TIME, INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE)
+    }
+}
+
+/// Represents the [`MEDIA_CONTENT`][1] object store.
+///
+/// [1]: crate::media_store::migrations::v1::create_media_content_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaContent {
+    /// The primary key of the object store
+    pub id: IndexedMediaContentIdKey,
+    /// The (possibly) encrypted content - i.e., [`MediaContent::data`]
+    pub content: IndexedMediaContentData,
+}
+
+#[derive(Debug, Error)]
+pub enum IndexedMediaContentError {
+    #[error("crypto store: {0}")]
+    CryptoStore(#[from] CryptoStoreError),
+    #[error("serialization: {0}")]
+    Serialization(#[from] rmp_serde::encode::Error),
+    #[error("deserialization: {0}")]
+    Deserialization(#[from] rmp_serde::decode::Error),
+}
+
+impl Indexed for MediaContent {
+    const OBJECT_STORE: &'static str = keys::MEDIA_CONTENT;
+
+    type IndexedType = IndexedMediaContent;
+    type Error = IndexedMediaContentError;
+
+    fn to_indexed(
+        &self,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(Self::IndexedType {
+            id: IndexedMediaContentIdKey::encode(self.id, serializer),
+            content: if serializer.has_store_cipher() {
+                rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.data)?)?
+            } else {
+                self.data.clone()
+            },
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: *indexed.id,
+            data: if serializer.has_store_cipher() {
+                serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?
+            } else {
+                indexed.content
+            },
+        })
+    }
+}
+
+/// The primary key of the [`MEDIA_CONTENT`][1] object store, which is
+/// constructed from:
+///
+/// - The identifier associated with the [`IndexedMediaContent`]
+///
+/// [1]: crate::media_store::migrations::v1::create_media_content_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaContentIdKey(u64);
+
+impl Deref for IndexedMediaContentIdKey {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl IndexedKey<MediaContent> for IndexedMediaContentIdKey {
+    type KeyComponents<'a> = u64;
+
+    fn encode(components: Self::KeyComponents<'_>, _: &SafeEncodeSerializer) -> Self {
+        Self(components)
     }
 }
