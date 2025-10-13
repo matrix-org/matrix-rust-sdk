@@ -707,22 +707,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Aggregation::new(self.ctx.flow.timeline_item_id(), AggregationKind::Redaction);
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
-        if let Some(new_item) = find_item_and_apply_aggregation(
+        find_item_and_apply_aggregation(
             &self.meta.aggregations,
             self.items,
             &target,
             aggregation,
             &self.meta.room_version_rules,
-        ) {
-            // Look for any timeline event that's a reply to the redacted event, and redact
-            // the replied-to event there as well.
-            Self::maybe_update_responses(
-                self.meta,
-                self.items,
-                &redacted,
-                EmbeddedEvent::from_timeline_item(&new_item),
-            );
-        }
+        );
+
+        // Even if the redacted event wasn't in the timeline, we can always update
+        // responses with a placeholder "redacted" embedded item.
+        let embedded_event = EmbeddedEvent {
+            content: TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
+            sender: self.ctx.sender.clone(),
+            sender_profile: TimelineDetails::from_initial_value(self.ctx.sender_profile.clone()),
+            timestamp: self.ctx.timestamp,
+            identifier: TimelineEventItemId::EventId(redacted.clone()),
+        };
+
+        Self::maybe_update_responses(self.meta, self.items, &redacted, embedded_event);
     }
 
     /// Attempts to redact an aggregation (e.g. a reaction, a poll response,
