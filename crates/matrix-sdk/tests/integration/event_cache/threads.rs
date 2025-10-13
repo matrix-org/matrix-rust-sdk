@@ -780,3 +780,112 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
     assert_let_timeout!(Ok(ThreadEventCacheUpdate { .. }) = thread_stream.recv());
     assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 }
+
+#[async_test]
+async fn test_redact_touches_threads() {
+    // We start with a thread with some replies, then receive redactions for those
+    // replies over sync. We observe that the thread linked chunks are correctly
+    // updated, as well as the thread summary on the thread root event.
+
+    let s = thread_subscription_test_setup().await;
+    let f = s.factory;
+
+    let event_cache = s.client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = s.thread_root;
+    let thread_resp_id = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+
+    // Receive a thread root, and a threaded reply.
+    let room = s
+        .server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.text_msg("da r00t").event_id(&thread_root_id))
+                .add_timeline_event(s.events[0].clone()),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (thread_events, mut thread_stream) =
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+
+    // Sanity check: both events are present in the thread, and the thread summary
+    // is correct.
+    let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+    assert_eq!(thread_events.len(), 1);
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp_id));
+
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+    assert_eq!(room_events.len(), 2);
+
+    {
+        assert_eq!(room_events[0].event_id().as_ref(), Some(&thread_root_id));
+        let summary = room_events[0].thread_summary.summary().unwrap();
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp_id));
+        assert_eq!(summary.num_replies, 1);
+    }
+
+    assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp_id));
+
+    assert!(thread_stream.is_empty());
+    assert!(room_stream.is_empty());
+
+    // A redaction for the reply comes through sync.
+    let redaction_event_id = event_id!("$redaction");
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.redaction(&thread_resp_id).event_id(redaction_event_id)),
+        )
+        .await;
+
+    // The redaction affects the thread cache: it *removes* the redacted event.
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+
+        assert!(thread_stream.is_empty());
+    }
+
+    // The redaction affects the room cache too:
+    // - the redaction event is pushed to the room history,
+    // - the redaction's target is, well, redacted,
+    // - the thread summary is updated correctly.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 3);
+
+        // The redaction event is appended to the room cache.
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        assert_eq!(new_events[0].event_id().as_deref(), Some(redaction_event_id));
+
+        // The room event is redacted.
+        {
+            assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[1]);
+            let deserialized = new_event.raw().deserialize().unwrap();
+
+            // TODO: replace with https://github.com/ruma/ruma/pull/2254 when it's been merged in Ruma.
+            assert!(match deserialized {
+                AnySyncTimelineEvent::MessageLike(ev) => ev.is_redacted(),
+                AnySyncTimelineEvent::State(_ev) => unreachable!(),
+            });
+        }
+
+        // The thread summary is updated.
+        {
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[2]);
+            assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
+            let summary = new_root.thread_summary.summary().unwrap();
+            assert!(summary.latest_reply.is_none());
+            assert_eq!(summary.num_replies, 0);
+        }
+    }
+}
