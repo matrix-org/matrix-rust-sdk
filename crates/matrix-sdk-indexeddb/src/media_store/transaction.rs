@@ -24,10 +24,11 @@ use ruma::MxcUri;
 use crate::{
     media_store::{
         serializer::indexed_types::{
-            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentSizeKey, IndexedMediaIdKey,
-            IndexedMediaLastAccessKey, IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
+            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentIdKey,
+            IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaLastAccessKey,
+            IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
-        types::{Lease, Media, MediaCleanupTime, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, MediaContent, UnixTime},
     },
     serializer::{IndexedKeyRange, IndexedPrefixKeyComponentBounds, IndexedTypeSerializer},
     transaction::{Transaction, TransactionError},
@@ -335,5 +336,49 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         let lower = (lower_last_access, lower_content_size);
         self.delete_media_by_retention_metadata(ignore_policy, (lower, (last_access, content_size)))
             .await
+    }
+
+    /// Query IndexedDB for [`MediaMetadata`] that matches the given
+    /// identifier. If more than one item is found, an error
+    /// is returned.
+    pub async fn get_media_content_by_id(
+        &self,
+        id: u64,
+    ) -> Result<Option<MediaContent>, TransactionError> {
+        self.get_item_by_key_components::<MediaContent, IndexedMediaContentIdKey>(id).await
+    }
+
+    /// Adds [`MediaContent`] to IndexedDB. If an item with the same key already
+    /// exists, it will be rejected.
+    pub async fn add_media_content(&self, content: &MediaContent) -> Result<(), TransactionError> {
+        self.add_item(content).await
+    }
+
+    /// Puts [`MediaContent`] in IndexedDB object. If an item with the same key
+    /// already exists, it will be overwritten.
+    pub async fn put_media_content(&self, content: &MediaContent) -> Result<(), TransactionError> {
+        self.put_item(content).await
+    }
+
+    /// Adds [`MediaContent`] to IndexedDB if the size of
+    /// [`IndexedMediaContent::content`][1] does not exceed
+    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
+    /// already exists, it will be overwritten.
+    ///
+    /// [1]: crate::media_store::serializer::indexed_types::IndexedMediaContent::content
+    pub async fn put_media_content_if_policy_compliant(
+        &self,
+        media: &MediaContent,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), TransactionError> {
+        self.put_item_if(media, |indexed| {
+            !policy.exceeds_max_file_size(indexed.content.len() as u64)
+        })
+        .await
+    }
+
+    /// Delete [`MediaContent`] that match the given identifier from IndexedDB
+    pub async fn delete_media_content_by_id(&self, id: u64) -> Result<(), TransactionError> {
+        self.delete_item_by_key::<MediaContent, IndexedMediaContentIdKey>(id).await
     }
 }
