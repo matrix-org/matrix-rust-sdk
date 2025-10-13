@@ -1325,6 +1325,7 @@ impl OAuth {
 }
 
 /// Builder for QR login futures.
+#[cfg(feature = "e2e-encryption")]
 #[derive(Debug)]
 pub struct LoginWithQrCodeBuilder<'a> {
     /// The underlying Matrix API client.
@@ -1334,6 +1335,7 @@ pub struct LoginWithQrCodeBuilder<'a> {
     registration_data: Option<&'a ClientRegistrationData>,
 }
 
+#[cfg(feature = "e2e-encryption")]
 impl<'a> LoginWithQrCodeBuilder<'a> {
     /// This method allows you to log in with a scanned QR code.
     ///
