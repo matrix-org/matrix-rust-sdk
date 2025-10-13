@@ -61,6 +61,15 @@ pub struct MediaMetadata {
     pub ignore_policy: IgnoreMediaRetentionPolicy,
 }
 
+/// A representation of media content which can be stored in IndexedDB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaContent {
+    /// The identifier associated with the given [`MediaContent::data`].
+    pub id: u64,
+    /// The bytes to be stored in IndexedDB
+    pub data: Vec<u8>,
+}
+
 /// A representation of time relative to the [`UNIX_EPOCH`].
 ///
 /// Typically a type of this nature is represented as a [`Duration`],
