@@ -355,27 +355,28 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
         Box::pin(async move {
             // Before we get here, the other device has created a new rendezvous session
             // and presented a QR code which this device has scanned.
-            // -- MSC4108 step 1, 2 & 3
+            // -- MSC4108 Secure channel setup steps 1-3
 
             // First things first, establish the secure channel. Since we're the one that
             // scanned the QR code, we're certain that the secure channel is
             // secure, under the assumption that we didn't scan the wrong QR code.
-            // -- MSC4108 step 3, 4 & 5
+            // -- MSC4108 Secure channel setup steps 3-5
             let channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
             // The other side isn't yet sure that it's talking to the right device, show
             // a check code so they can confirm.
-            // -- MSC4108 step 6
+            // -- MSC4108 Secure channel setup step 6
             let check_code = channel.check_code().to_owned();
             self.state.set(LoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
             // The user now enters the checkcode on the other device which verifies it
             // and will only facilitate the login if the code matches.
-            // -- MSC4108 step 7
+            // -- MSC4108 Secure channel setup step 7
 
             // Now attempt to finish the login.
+            // -- MSC4108 OAuth 2.0 login all steps
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
@@ -432,15 +433,21 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
+            // Establish and verify the secure channel.
+            // -- MSC4108 Secure channel setup all steps
             let mut channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
-            // Receive m.login.protocols message.
+            // Wait for the other device to send us the m.login.protocols message
+            // so that we can discover the homeserver to use for logging in.
+            // -- MSC4108 OAuth 2.0 login step 1
             let message = channel.receive_json().await?;
 
-            match message {
-                QrAuthMessage::LoginProtocols { protocols, .. } => {
+            // Verify that the device authorization grant is supported and extract
+            // the homeserver URL.
+            let homeserver = match message {
+                QrAuthMessage::LoginProtocols { protocols, homeserver } => {
                     if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
                         channel
                             .send_json(QrAuthMessage::LoginFailure {
@@ -454,6 +461,8 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
                             homeserver: None,
                         });
                     }
+
+                    homeserver
                 }
                 _ => {
                     send_unexpected_message_error(&mut channel).await?;
@@ -463,8 +472,17 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
                         received: message,
                     });
                 }
+            };
+
+            // Change the login homeserver if it is different from the server hosting the
+            // secure channel.
+            if self.client.homeserver() != homeserver {
+                self.client.set_homeserver(homeserver);
+                self.client.reset_server_info().await.map_err(QRCodeLoginError::ServerReset)?;
             }
 
+            // Proceed with logging in.
+            // -- MSC4108 OAuth 2.0 login remaining steps
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
@@ -484,12 +502,13 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         let http_client = self.client.inner.http_client.clone();
 
         // Create a new ephemeral key pair and a rendezvous session to request a login
-        // with. -- MSC4108 step 1 & 2
+        // with.
+        // -- MSC4108 Secure channel setup steps 1 & 2
         let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
 
         // Extract the QR code data and emit a progress update so that the caller can
         // present the QR code for scanning by the other device.
-        // -- MSC4108 step 3
+        // -- MSC4108 Secure channel setup step 3
         let qr_code_data = secure_channel.qr_code_data().clone();
         trace!("Generated QR code.");
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
@@ -504,7 +523,7 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         // The other device now verifies our message, computes the checkcode and
         // displays it. We emit a progress update to let the caller prompt the
         // user to enter the checkcode and feed it back to us.
-        // -- MSC4108 step 6
+        // -- MSC4108 Secure channel setup step 6
         trace!("Waiting for checkcode.");
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
@@ -513,7 +532,7 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
 
         // Retrieve the entered checkcode and verify it to confirm that the channel is
         // actually secure.
-        // -- MSC4108 step 7
+        // -- MSC4108 Secure channel setup step 7
         let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
         trace!("Received check code.");
         channel.confirm(check_code)
@@ -812,6 +831,110 @@ mod test {
         // Create Alice, the existing client, as a logged-in client. They will scan the
         // QR code generated by Bob.
         let alice = server.client_builder().logged_in_with_oauth().build().await;
+        assert!(alice.session_meta().is_some(), "Alice should be logged in");
+
+        // Create Bob, the new client. They will generate the QR code.
+        let bob = Client::builder()
+            .server_name_or_homeserver_url(&homeserver_url)
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .expect("Should be able to create a client for Bob");
+
+        let secure_channel = SecureChannel::login(bob.inner.http_client.clone(), &homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel");
+
+        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+
+        let registration_data = mock_client_metadata().into();
+        let bob_oauth = bob.oauth();
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let mut bob_updates = bob_login.subscribe_to_progress();
+
+        let updates_task = spawn(async move {
+            let mut qr_sender = Some(qr_sender);
+            let mut cctx_sender = Some(cctx_sender);
+
+            while let Some(update) = bob_updates.next().await {
+                match update {
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(qr)) => {
+                        qr_sender
+                            .take()
+                            .expect("The establishing secure channel update with a qr code should be received only once")
+                            .send(qr)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+                        cctx,
+                    )) => {
+                        cctx_sender
+                            .take()
+                            .expect("The establishing secure channel update with a CheckCodeSender should be received only once")
+                            .send(cctx)
+                            .expect("Bob should be able to send the qr code code to Alice");
+                    }
+                    LoginProgress::Done => break,
+                    _ => (),
+                }
+            }
+        });
+
+        let alice_task = spawn(async move {
+            grant_login_with_generated_qr(
+                &alice,
+                qr_receiver,
+                cctx_receiver,
+                AliceBehaviour::HappyPath,
+            )
+            .await
+        });
+
+        join!(
+            async { bob_login.await.expect("Bob should be able to login") },
+            async { alice_task.await.expect("Alice should have completed it's task successfully") },
+            async { updates_task.await.unwrap() }
+        );
+
+        assert!(bob.encryption().cross_signing_status().await.unwrap().is_complete());
+        let own_identity =
+            bob.encryption().get_user_identity(bob.user_id().unwrap()).await.unwrap().unwrap();
+
+        assert!(own_identity.is_verified());
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_with_homeserver_swap() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
+        let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
+
+        let login_server = MatrixMockServer::new().await;
+        let oauth_server = login_server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        oauth_server
+            .mock_device_authorization()
+            .ok()
+            .expect(1)
+            .named("device_authorization")
+            .mount()
+            .await;
+        oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+        server.mock_versions().ok().expect(1..).named("versions").mount().await;
+
+        login_server.mock_versions().ok().expect(1..).named("versions").mount().await;
+        login_server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
+        login_server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        login_server.mock_query_keys().ok().expect(1).named("query_keys").mount().await;
+
+        let homeserver_url = rendezvous_server.homeserver_url.clone();
+
+        // Create Alice, the existing client, as a logged-in client. They will scan the
+        // QR code generated by Bob.
+        let alice = login_server.client_builder().logged_in_with_oauth().build().await;
         assert!(alice.session_meta().is_some(), "Alice should be logged in");
 
         // Create Bob, the new client. They will generate the QR code.

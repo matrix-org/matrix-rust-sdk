@@ -106,6 +106,11 @@ pub enum QRCodeLoginError {
     /// imported.
     #[error(transparent)]
     SecretImport(#[from] SecretImportError),
+
+    /// The other party told us to use a different homeserver but we failed to
+    /// reset the server URL.
+    #[error(transparent)]
+    ServerReset(crate::Error),
 }
 
 /// Error type describing failures in the interaction between the device

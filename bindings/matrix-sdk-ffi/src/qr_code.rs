@@ -116,7 +116,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             | QRCodeLoginError::DeviceKeyUpload(_)
             | QRCodeLoginError::SessionTokens(_)
             | QRCodeLoginError::UserIdDiscovery(_)
-            | QRCodeLoginError::SecretImport(_) => HumanQrLoginError::Unknown,
+            | QRCodeLoginError::SecretImport(_)
+            | QRCodeLoginError::ServerReset(_) => HumanQrLoginError::Unknown,
         }
     }
 }

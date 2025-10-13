@@ -529,7 +529,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    fn set_homeserver(&self, homeserver_url: Url) {
+    pub(crate) fn set_homeserver(&self, homeserver_url: Url) {
         *self.inner.homeserver.write().unwrap() = homeserver_url;
     }
 
