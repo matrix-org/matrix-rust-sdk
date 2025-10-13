@@ -892,4 +892,58 @@ async fn test_redact_touches_threads() {
             assert_eq!(summary.num_replies, 1);
         }
     }
+
+    // A redaction for the second (and last) reply comes through sync.
+    let thread_resp2_redaction = event_id!("$redact_thread_resp2");
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.redaction(&thread_resp2).event_id(thread_resp2_redaction)),
+        )
+        .await;
+
+    // The redaction affects the thread cache: it *removes* the redacted event.
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+
+        assert!(thread_stream.is_empty());
+    }
+
+    // The redaction affects the room cache too:
+    // - the redaction event is pushed to the room history,
+    // - the redaction's target is, well, redacted,
+    // - the thread summary is removed from the thread root.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 3);
+
+        // The redaction event is appended to the room cache.
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp2_redaction));
+
+        // The room event is redacted.
+        {
+            assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[1]);
+            let deserialized = new_event.raw().deserialize().unwrap();
+
+            // TODO: replace with https://github.com/ruma/ruma/pull/2254 when it's been merged in Ruma.
+            assert!(match deserialized {
+                AnySyncTimelineEvent::MessageLike(ev) => ev.is_redacted(),
+                AnySyncTimelineEvent::State(_ev) => unreachable!(),
+            });
+        }
+
+        // The thread summary is removed.
+        {
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[2]);
+            assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
+            assert!(new_root.thread_summary.summary().is_none());
+        }
+    }
 }
