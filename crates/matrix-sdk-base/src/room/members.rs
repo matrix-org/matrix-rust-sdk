@@ -215,9 +215,10 @@ impl RoomMember {
             room_info;
 
         let display_name = event.display_name();
-        let display_name_ambiguous = users_display_names
-            .get(&display_name)
-            .is_some_and(|s| is_display_name_ambiguous(&display_name, s));
+        let membership = event.membership();
+        let display_name_ambiguous = users_display_names.get(&display_name).is_some_and(|s| {
+            is_display_name_ambiguous(&display_name, s) && *membership != MembershipState::Leave
+        });
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
 
         Self {
