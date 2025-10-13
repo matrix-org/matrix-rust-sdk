@@ -1551,8 +1551,6 @@ mod private {
             };
 
             let prev_summary = target_event.thread_summary.summary();
-            let mut latest_reply =
-                prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
 
             // Recompute the thread summary, if needs be.
 
@@ -1564,17 +1562,13 @@ mod private {
             // reactions/edits/etc.). Pretty neat, huh?
             let num_replies = {
                 let store_guard = &*self.store.lock().await?;
-                let related_thread_events = store_guard
+                let thread_replies = store_guard
                     .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
                     .await?;
-                related_thread_events.len().try_into().unwrap_or(u32::MAX)
+                thread_replies.len().try_into().unwrap_or(u32::MAX)
             };
 
-            if let Some(latest_event_id) = latest_event_id {
-                latest_reply = Some(latest_event_id);
-            }
-
-            let new_summary = ThreadSummary { num_replies, latest_reply };
+            let new_summary = ThreadSummary { num_replies, latest_reply: latest_event_id };
 
             if prev_summary == Some(&new_summary) {
                 trace!(%thread_root, "thread summary is already up-to-date");
@@ -1654,7 +1648,9 @@ mod private {
             };
 
             // Don't redact already redacted events.
-            if let Ok(deserialized) = target_event.raw().deserialize() {
+            let thread_root = if let Ok(deserialized) = target_event.raw().deserialize() {
+                // TODO: replace with `deserialized.is_redacted()` when
+                // https://github.com/ruma/ruma/pull/2254 has been merged.
                 match deserialized {
                     AnySyncTimelineEvent::MessageLike(ev) => {
                         if ev.is_redacted() {
@@ -1667,7 +1663,14 @@ mod private {
                         }
                     }
                 }
-            }
+
+                // If the event is part of a thread, update the thread linked chunk and the
+                // summary.
+                extract_thread_root(target_event.raw())
+            } else {
+                warn!("failed to deserialize the event to redact");
+                None
+            };
 
             if let Some(redacted_event) = apply_redaction(
                 target_event.raw(),
@@ -1681,6 +1684,29 @@ mod private {
                 target_event.replace_raw(redacted_event.cast_unchecked());
 
                 self.replace_event_at(location, target_event).await?;
+
+                // If the redacted event was part of a thread, remove it in the thread linked
+                // chunk too, and make sure to update the thread root's summary
+                // as well.
+                //
+                // Note: there is an ordering issue here: the above `replace_event_at` must
+                // happen BEFORE we recompute the summary, otherwise the set of
+                // replies may include the to-be-redacted event.
+                if let Some(thread_root) = thread_root {
+                    if let Some(thread_cache) = self.threads.get_mut(&thread_root) {
+                        let was_last_event =
+                            thread_cache.latest_event_id().as_deref() == Some(event_id);
+
+                        thread_cache.try_remove_event(event_id);
+
+                        // If the event was the latest event in the thread, update the thread
+                        // summary as well.
+                        if was_last_event {
+                            let latest_event_id = thread_cache.latest_event_id();
+                            self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
+                        }
+                    }
+                }
             }
 
             Ok(())

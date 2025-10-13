@@ -21,9 +21,9 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, OwnedLinkedChunkId, Position},
 };
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::trace;
+use tracing::{error, trace};
 
 use crate::event_cache::{
     BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
@@ -139,6 +139,32 @@ impl ThreadEventCache {
 
         self.chunk.push_live_events(None, &events);
 
+        self.propagate_changes();
+
+        let diffs = self.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.sender.send(ThreadEventCacheUpdate { diffs, origin: EventsOrigin::Sync });
+        }
+    }
+
+    /// Remove an event from an thread event linked chunk, if it exists.
+    ///
+    /// If the event has been found and removed, then an update will be
+    /// propagated to observers.
+    pub(crate) fn try_remove_event(&mut self, event_id: &EventId) {
+        let Some(pos) = self.chunk.events().find_map(|(pos, event)| {
+            (event.event_id().as_deref() == Some(event_id)).then_some(pos)
+        }) else {
+            // Event not found in the linked chunk, nothing to do.
+            return;
+        };
+
+        if let Err(err) = self.chunk.remove_events_by_position(vec![pos]) {
+            error!(%err, "a thread linked chunk position was valid a few lines above, but invalid when deleting");
+            return;
+        }
+
+        // We've touched the linked chunk; propagate changes to storage and observers.
         self.propagate_changes();
 
         let diffs = self.chunk.updates_as_vector_diffs();
