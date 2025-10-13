@@ -124,6 +124,8 @@ pub mod v1 {
         pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
         pub const MEDIA_RETENTION_METADATA: &str = "media_retention_metadata";
         pub const MEDIA_RETENTION_METADATA_KEY_PATH: &str = "retention_metadata";
+        pub const MEDIA_CONTENT: &str = "media_content";
+        pub const MEDIA_CONTENT_KEY_PATH: &str = "id";
     }
 
     /// Create all object stores and indices for v1 database
@@ -131,6 +133,7 @@ pub mod v1 {
         create_core_object_store(db)?;
         create_lease_object_store(db)?;
         create_media_object_store(db)?;
+        create_media_content_object_store(db)?;
         Ok(())
     }
 
@@ -182,6 +185,17 @@ pub mod v1 {
                 keys::MEDIA_RETENTION_METADATA,
                 keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
             )
+            .build()?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about media.
+    ///
+    /// * Primary Key - `id` - number tracking the ID of the media content.
+    fn create_media_content_object_store(db: &Database) -> Result<(), Error> {
+        let _ = db
+            .create_object_store(keys::MEDIA_CONTENT)
+            .with_key_path(keys::MEDIA_CONTENT_KEY_PATH.into())
             .build()?;
         Ok(())
     }
