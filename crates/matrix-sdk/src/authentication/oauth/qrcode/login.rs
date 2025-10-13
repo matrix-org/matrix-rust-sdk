@@ -353,19 +353,29 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
+            // Before we get here, the other device has created a new rendezvous session
+            // and presented a QR code which this device has scanned.
+            // -- MSC4108 step 1, 2 & 3
+
             // First things first, establish the secure channel. Since we're the one that
             // scanned the QR code, we're certain that the secure channel is
             // secure, under the assumption that we didn't scan the wrong QR code.
+            // -- MSC4108 step 3, 4 & 5
             let channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
             // The other side isn't yet sure that it's talking to the right device, show
             // a check code so they can confirm.
+            // -- MSC4108 step 6
             let check_code = channel.check_code().to_owned();
-
             self.state.set(LoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
+            // The user now enters the checkcode on the other device which verifies it
+            // and will only facilitate the login if the code matches.
+            // -- MSC4108 step 7
+
+            // Now attempt to finish the login.
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
@@ -473,28 +483,39 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
     ) -> Result<EstablishedSecureChannel, SecureChannelError> {
         let http_client = self.client.inner.http_client.clone();
 
+        // Create a new ephemeral key pair and a rendezvous session to request a login
+        // with. -- MSC4108 step 1 & 2
         let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
 
+        // Extract the QR code data and emit a progress update so that the caller can
+        // present the QR code for scanning by the other device.
+        // -- MSC4108 step 3
         let qr_code_data = secure_channel.qr_code_data().clone();
-
         trace!("Generated QR code.");
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
             qr_code_data,
         )));
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
+        // Wait for the secure channel to connect. The other device now needs to scan
+        // the QR code and send us the LoginInitiateMessage which we respond to
+        // with the LoginOkMessage. -- MSC4108 step 4 & 5
         let channel = secure_channel.connect().await?;
 
+        // The other device now verifies our message, computes the checkcode and
+        // displays it. We emit a progress update to let the caller prompt the
+        // user to enter the checkcode and feed it back to us.
+        // -- MSC4108 step 6
         trace!("Waiting for checkcode.");
+        let (tx, rx) = tokio::sync::oneshot::channel();
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
             CheckCodeSender::new(tx),
         )));
 
+        // Retrieve the entered checkcode and verify it to confirm that the channel is
+        // actually secure.
+        // -- MSC4108 step 7
         let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
-
         trace!("Received check code.");
-
         channel.confirm(check_code)
     }
 }
