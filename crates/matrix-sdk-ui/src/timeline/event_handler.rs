@@ -600,7 +600,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             &self.meta.room_version_rules,
         ) {
             // Update all events that replied to this message with the edited content.
-            Self::maybe_update_responses(self.meta, self.items, &edited_event_id, &new_item);
+            Self::maybe_update_responses(
+                self.meta,
+                self.items,
+                &edited_event_id,
+                EmbeddedEvent::from_timeline_item(&new_item),
+            );
         }
     }
 
@@ -711,7 +716,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         ) {
             // Look for any timeline event that's a reply to the redacted event, and redact
             // the replied-to event there as well.
-            Self::maybe_update_responses(self.meta, self.items, &redacted, &new_item);
+            Self::maybe_update_responses(
+                self.meta,
+                self.items,
+                &redacted,
+                EmbeddedEvent::from_timeline_item(&new_item),
+            );
         }
     }
 
@@ -965,7 +975,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Updating timeline item at position {idx}");
 
                 // Update all events that replied to this previously encrypted message.
-                Self::maybe_update_responses(self.meta, self.items, decrypted_event_id, &item);
+                Self::maybe_update_responses(
+                    self.meta,
+                    self.items,
+                    decrypted_event_id,
+                    EmbeddedEvent::from_timeline_item(&item),
+                );
 
                 let internal_id = self.items[*idx].internal_id.clone();
                 self.items.replace(*idx, TimelineItem::new(item, internal_id));
@@ -1036,7 +1051,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         meta: &mut TimelineMetadata,
         items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
-        new_item: &EventTimelineItem,
+        new_embedded_event: EmbeddedEvent,
     ) {
         let Some(replies) = meta.replies.get(target_event_id) else {
             trace!("item has no replies");
@@ -1065,9 +1080,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
             let in_reply_to = InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
-                event: TimelineDetails::Ready(Box::new(EmbeddedEvent::from_timeline_item(
-                    new_item,
-                ))),
+                event: TimelineDetails::Ready(Box::new(new_embedded_event.clone())),
             };
 
             let new_reply_content = TimelineItemContent::MsgLike(
