@@ -423,6 +423,14 @@ pub enum ThreadSummaryStatus {
 }
 
 impl ThreadSummaryStatus {
+    /// Create a [`ThreadSummaryStatus`] from an optional thread summary.
+    pub fn from_opt(summary: Option<ThreadSummary>) -> Self {
+        match summary {
+            None => ThreadSummaryStatus::None,
+            Some(summary) => ThreadSummaryStatus::Some(summary),
+        }
+    }
+
     /// Is the thread status of this event unknown?
     fn is_unknown(&self) -> bool {
         matches!(self, ThreadSummaryStatus::Unknown)

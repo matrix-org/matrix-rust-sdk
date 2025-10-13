@@ -1546,7 +1546,7 @@ mod private {
             // knew about it.
 
             let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
-                trace!(%thread_root, "thread root event is missing from the linked chunk");
+                trace!(%thread_root, "thread root event is missing from the room linked chunk");
                 return Ok(());
             };
 
@@ -1568,16 +1568,20 @@ mod private {
                 thread_replies.len().try_into().unwrap_or(u32::MAX)
             };
 
-            let new_summary = ThreadSummary { num_replies, latest_reply: latest_event_id };
+            let new_summary = if num_replies > 0 {
+                Some(ThreadSummary { num_replies, latest_reply: latest_event_id })
+            } else {
+                None
+            };
 
-            if prev_summary == Some(&new_summary) {
+            if prev_summary == new_summary.as_ref() {
                 trace!(%thread_root, "thread summary is already up-to-date");
                 return Ok(());
             }
 
             // Trigger an update to observers.
             trace!(%thread_root, "updating thread summary: {new_summary:?}");
-            target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
+            target_event.thread_summary = ThreadSummaryStatus::from_opt(new_summary);
             self.replace_event_at(location, target_event).await
         }
 
