@@ -45,6 +45,8 @@ pub enum TransactionError {
     ItemIsNotUnique,
     #[error("item not found")]
     ItemNotFound,
+    #[error("a numerical operation overflowed")]
+    NumericalOverflow,
     #[error("backend: {0}")]
     Backend(Box<dyn AsyncErrorDeps>),
 }
