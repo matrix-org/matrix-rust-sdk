@@ -1696,15 +1696,15 @@ mod private {
                 // Note: there is an ordering issue here: the above `replace_event_at` must
                 // happen BEFORE we recompute the summary, otherwise the set of
                 // replies may include the to-be-redacted event.
-                if let Some(thread_root) = thread_root {
-                    if let Some(thread_cache) = self.threads.get_mut(&thread_root) {
-                        thread_cache.try_remove_event(event_id);
+                if let Some(thread_root) = thread_root
+                    && let Some(thread_cache) = self.threads.get_mut(&thread_root)
+                {
+                    thread_cache.try_remove_event(event_id);
 
-                        // The number of replies may have changed, so update the thread summary if
-                        // needs be.
-                        let latest_event_id = thread_cache.latest_event_id();
-                        self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
-                    }
+                    // The number of replies may have changed, so update the thread summary if
+                    // needs be.
+                    let latest_event_id = thread_cache.latest_event_id();
+                    self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
                 }
             }
 
