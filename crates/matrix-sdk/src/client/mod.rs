@@ -98,7 +98,7 @@ use crate::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
-    http_client::HttpClient,
+    http_client::{HttpClient, SupportedAuthScheme},
     latest_events::LatestEvents,
     media::MediaError,
     notification_settings::NotificationSettings,
@@ -1863,6 +1863,7 @@ impl Client {
     pub fn send<Request>(&self, request: Request) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
+        Request::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         SendRequest {
@@ -1881,6 +1882,7 @@ impl Client {
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
+        Request::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let homeserver = self.homeserver().to_string();
