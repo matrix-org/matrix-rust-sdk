@@ -237,30 +237,10 @@ impl<'a> Transaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
     {
-        let range = self.serializer.encode_key_range::<T, K>(range);
-        let direction = CursorDirection::Prev;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        if let Some(index) = K::INDEX {
-            let index = object_store.index(index)?;
-            if let Some(mut cursor) =
-                index.open_cursor().with_query(range).with_direction(direction).serde()?.await?
-            {
-                if let Some(record) = cursor.next_record_ser().await? {
-                    return T::from_indexed(record, self.serializer.inner())
-                        .map(Some)
-                        .map_err(|e| TransactionError::Serialization(Box::new(e)));
-                }
-            }
-        } else if let Some(mut cursor) =
-            object_store.open_cursor().with_query(range).with_direction(direction).serde()?.await?
-        {
-            if let Some(record) = cursor.next_record_ser().await? {
-                return T::from_indexed(record, self.serializer.inner())
-                    .map(Some)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)));
-            }
+        if let Some(key) = self.get_max_key::<T, K>(range).await? {
+            return self.get_item_by_key::<T, K>(key).await;
         }
         Ok(None)
     }
@@ -287,6 +267,37 @@ impl<'a> Transaction<'a> {
             return cursor.key_stream_ser().try_collect().await.map_err(Into::into);
         }
         Ok(Vec::new())
+    }
+
+    /// Query IndexedDB for the maximum key in the given range.
+    pub async fn get_max_key<T, K>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<Option<K>, TransactionError>
+    where
+        T: Indexed,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(range);
+        let direction = CursorDirection::Prev;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        if let Some(index) = K::INDEX {
+            let index = object_store.index(index)?;
+            if let Some(mut cursor) =
+                index.open_key_cursor().with_query(range).with_direction(direction).serde()?.await?
+            {
+                return cursor.next_key_ser().await.map_err(Into::into);
+            }
+        } else if let Some(mut cursor) = object_store
+            .open_key_cursor()
+            .with_query(range)
+            .with_direction(direction)
+            .serde()?
+            .await?
+        {
+            return cursor.next_key_ser().await.map_err(Into::into);
+        }
+        Ok(None)
     }
 
     /// Query IndexedDB for keys that match the given key range. Iterate over
