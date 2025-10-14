@@ -482,9 +482,25 @@ pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use proptest::prelude::*;
 
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{room_id, user_id};
+
     use super::*;
+
+    use crate::{RoomState, StateChanges, StateStore, store::MemoryStore};
+
+    fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
+        let store = Arc::new(MemoryStore::new());
+        let user_id = user_id!("@me:example.org");
+        let room_id = room_id!("!test:localhost");
+        let (sender, _receiver) = tokio::sync::broadcast::channel(1);
+
+        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
+    }
 
     prop_compose! {
         fn arb_int()(id in any::<i64>()) -> Int {
@@ -529,5 +545,80 @@ mod tests {
         let normalized = i64::from(normalized);
         assert!(normalized >= 0);
         assert!(normalized <= 100);
+    }
+
+    #[async_test]
+    async fn test_room_member_from_parts() {
+        let (store, room) = make_room_test_helper(RoomState::Joined);
+
+        let carol = user_id!("@carol:example.org");
+        let denis = user_id!("@denis:example.org");
+        let erica = user_id!("@erica:example.org");
+        let fred = user_id!("@fred:example.org");
+        let fredo = user_id!("@fredo:example.org");
+        let bob = user_id!("@bob:example.org");
+        let julie = user_id!("@julie:example.org");
+        let me = user_id!("@me:example.org");
+        let mewto = user_id!("@mewto:example.org");
+
+        let mut changes = StateChanges::new("".to_owned());
+
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
+        {
+            let members = changes
+                .state
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default();
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into());
+
+            members.insert(fred.into(), f.member(fred).display_name("Fred").into());
+            members.insert(
+                fredo.into(),
+                f.member(fredo).display_name("Fred").membership(MembershipState::Knock).into(),
+            );
+            members.insert(
+                denis.into(),
+                f.member(denis).display_name("Fred").membership(MembershipState::Leave).into(),
+            );
+            members.insert(
+                erica.into(),
+                f.member(erica).display_name("Fred").membership(MembershipState::Ban).into(),
+            );
+
+            members.insert(
+                bob.into(),
+                f.member(bob).display_name("Bob").membership(MembershipState::Invite).into(),
+            );
+            members.insert(julie.into(), f.member(me).display_name("Bob").into());
+
+            members.insert(me.into(), f.member(me).display_name("Me").into());
+            members.insert(mewto.into(), f.member(mewto).display_name("Me").into());
+
+            store.save_changes(&changes).await.unwrap();
+        }
+
+        assert!(!room.get_member(carol).await.unwrap().expect("Carol user").name_ambiguous());
+
+        assert!(!room.get_member(fred).await.unwrap().expect("Fred user").name_ambiguous());
+        assert!(!room.get_member(fredo).await.unwrap().expect("Fredo user").name_ambiguous());
+        assert!(!room.get_member(denis).await.unwrap().expect("Denis user").name_ambiguous());
+        assert!(!room.get_member(erica).await.unwrap().expect("Erica user").name_ambiguous());
+
+        assert!(!room.get_member(bob).await.unwrap().expect("Bob user").name_ambiguous());
+
+        assert!(!room.get_member(julie).await.unwrap().expect("Julie user").name_ambiguous());
+        assert!(!room.get_member(bob).await.unwrap().expect("Bob user").name_ambiguous());
+
+        assert_eq!(room.get_member(me).await.unwrap().expect("Me user").display_name(), Some("Me"));
+        assert_eq!(
+            room.get_member(mewto).await.unwrap().expect("Mewto user").display_name(),
+            Some("Me")
+        );
+
+        assert!(room.get_member(me).await.unwrap().expect("Me user").name_ambiguous());
+        assert!(room.get_member(mewto).await.unwrap().expect("Mewto user").name_ambiguous());
     }
 }
