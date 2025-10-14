@@ -51,6 +51,7 @@ use crate::{
         types::{Lease, Media, MediaCleanupTime, MediaContent, UnixTime},
     },
     serializer::{
+        indexed_type::constants::{INDEXED_KEY_LOWER_U64, INDEXED_KEY_UPPER_U64},
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
         MaybeEncrypted, SafeEncodeSerializer, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_STRING,
     },
@@ -653,5 +654,15 @@ impl IndexedKey<MediaContent> for IndexedMediaContentIdKey {
 
     fn encode(components: Self::KeyComponents<'_>, _: &SafeEncodeSerializer) -> Self {
         Self(components)
+    }
+}
+
+impl IndexedKeyComponentBounds<MediaContent> for IndexedMediaContentIdKey {
+    fn lower_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_LOWER_U64
+    }
+
+    fn upper_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_UPPER_U64
     }
 }
