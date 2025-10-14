@@ -797,9 +797,15 @@ async fn test_redact_touches_threads() {
     let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
     let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
 
+    let room = s.server.sync_joined_room(&s.client, &s.room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (thread_events, mut thread_stream) =
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+
     // Receive a thread root, and a threaded reply.
-    let room = s
-        .server
+    s.server
         .sync_room(
             &s.client,
             JoinedRoomBuilder::new(&s.room_id)
@@ -809,15 +815,11 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-    let (thread_events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
-
     // Sanity check: both events are present in the thread, and the thread summary
     // is correct.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
-    assert_eq!(thread_events.len(), 2);
+    assert_eq!(thread_events.len(), 3);
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_root_id));
     assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp1));
     assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp2));
 
@@ -851,7 +853,7 @@ async fn test_redact_touches_threads() {
     {
         assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
         assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
 
         assert!(thread_stream.is_empty());
     }
@@ -907,7 +909,7 @@ async fn test_redact_touches_threads() {
     {
         assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
         assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
 
         assert!(thread_stream.is_empty());
     }
