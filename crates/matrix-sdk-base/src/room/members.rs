@@ -217,8 +217,10 @@ impl RoomMember {
         let display_name = event.display_name();
         let membership = event.membership();
         let display_name_ambiguous = users_display_names.get(&display_name).is_some_and(|s| {
-            is_display_name_ambiguous(&display_name, s)
-                && (*membership == MembershipState::Join || *membership == MembershipState::Invite)
+            if !is_display_name_ambiguous(&display_name, s) {
+                return false;
+            }
+            matches!(*membership, MembershipState::Join | MembershipState::Invite)
         });
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
 
