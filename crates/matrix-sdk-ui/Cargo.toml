@@ -77,6 +77,7 @@ eyeball-im-util.workspace = true
 matrix-sdk = { workspace = true, features = ["testing", "sqlite"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+proptest.workspace = true
 stream_assert.workspace = true
 tempfile.workspace = true
 url.workspace = true

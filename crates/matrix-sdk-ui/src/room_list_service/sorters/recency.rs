@@ -20,13 +20,15 @@ fn cmp<F>(scores: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
     F: Fn(&RoomListItem, &RoomListItem) -> (Option<Score>, Option<Score>),
 {
-    match scores(left, right) {
+    let (a, b) = scores(left, right);
+    cmp_impl(a, b)
+}
+
+fn cmp_impl(a: Option<Score>, b: Option<Score>) -> Ordering {
+    match (a, b) {
         (Some(left), Some(right)) => left.cmp(&right).reverse(),
-
         (Some(_), None) => Ordering::Less,
-
         (None, Some(_)) => Ordering::Greater,
-
         (None, None) => Ordering::Equal,
     }
 }
@@ -106,6 +108,7 @@ mod tests {
     };
     use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
+    use proptest::prelude::*;
     use ruma::{
         MilliSecondsSinceUnixEpoch,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
@@ -300,6 +303,76 @@ mod tests {
         // `room_a` and `room_b` has no score: they are equal.
         {
             assert_eq!(cmp(|_left, _right| (None, None), &room_a, &room_b), Ordering::Equal);
+        }
+    }
+
+    prop_compose! {
+        fn arb_score()(score in any::<Option<u64>>()) -> Option<Score> {
+            score
+        }
+    }
+
+    // Property tests to ensure that our comparison implementation for the `Score`
+    // is total[1]. If it wasn't so, a call to `sort_by()` with the given
+    // `cmp()` method could panic.
+    //
+    // [1]: https://en.wikipedia.org/wiki/Total_order
+    proptest! {
+        // Test that the ordering is reflexive, that is, each `Score` needs to be equal to itself.
+        // a <= a.
+        #![proptest_config(ProptestConfig::with_cases(10_000))]
+        #[test]
+        fn test_cmp_reflexive(score in arb_score()) {
+            let result = cmp_impl(score, score);
+            assert!(result == Ordering::Less || result == Ordering::Equal);
+        }
+
+        // Test that the ordering is transitive, that is, if a <= b and b <= c then a <= c.
+        #[test]
+        fn test_cmp_transitive(a in arb_score(), b in arb_score(), c in arb_score()) {
+            use Ordering::*;
+
+            let a_b_comparison = cmp_impl(a, b);
+            let b_c_comparison = cmp_impl(b, c);
+            let a_c_comparison = cmp_impl(a, c);
+
+            if matches!(a_b_comparison, Less | Equal) && matches!(b_c_comparison, Less | Equal) {
+                assert!(a_c_comparison == Less || a_c_comparison == Equal);
+            }
+        }
+
+        // Test that the ordering is antisymetric, that is, if a <= b and b <= a then a = b.
+        #[test]
+        fn test_cmp_antisymetric(a in arb_score(), b in arb_score()) {
+            use Ordering::*;
+
+            let a_b_comparison = cmp_impl(a, b);
+            let b_a_comparison = cmp_impl(b, a);
+
+            eprintln!("a.cmp(b) = {a_b_comparison:?}");
+            eprintln!("b.cmp(a) = {b_a_comparison:?}");
+
+            if matches!(a_b_comparison, Less | Equal) && matches!(b_a_comparison, Less | Equal) {
+                assert!(a == b);
+            }
+        }
+
+        // Test that the ordering is total, that is, we have either a <= b or b <= a.
+        #[test]
+        fn test_cmp_reverse(a in arb_score(), b in arb_score()) {
+            use Ordering::*;
+
+            let a_b_comparison = cmp_impl(a, b);
+            let b_a_comparison = cmp_impl(b, a);
+
+            if a_b_comparison == Less {
+                assert_eq!(b_a_comparison, Greater);
+            } else if a_b_comparison == Greater {
+                assert_eq!(b_a_comparison, Less);
+            } else {
+                assert_eq!(a_b_comparison, Equal);
+                assert_eq!(b_a_comparison, Equal);
+            }
         }
     }
 }
