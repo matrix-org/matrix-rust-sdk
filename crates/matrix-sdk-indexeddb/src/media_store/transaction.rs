@@ -348,6 +348,25 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_item_by_key_components::<MediaContent, IndexedMediaContentIdKey>(id).await
     }
 
+    /// Query IndexedDB for the maximum [`IndexedMediaContentIdKey`] associated
+    /// with a [`MediaContent`]
+    pub async fn get_max_media_content_key_by_id(
+        &self,
+    ) -> Result<Option<IndexedMediaContentIdKey>, TransactionError> {
+        self.get_max_key::<MediaContent, IndexedMediaContentIdKey>(IndexedKeyRange::all(
+            self.serializer().inner(),
+        ))
+        .await
+    }
+
+    /// Query IndexedDB for the next available [`MediaContent::id`]
+    pub async fn get_next_media_content_id(&self) -> Result<u64, TransactionError> {
+        Ok(match self.get_max_media_content_key_by_id().await? {
+            Some(key) => key.checked_add(1).ok_or(TransactionError::NumericalOverflow)?,
+            None => 0,
+        })
+    }
+
     /// Adds [`MediaContent`] to IndexedDB. If an item with the same key already
     /// exists, it will be rejected.
     pub async fn add_media_content(&self, content: &MediaContent) -> Result<(), TransactionError> {
