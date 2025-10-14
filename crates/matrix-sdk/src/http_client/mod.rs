@@ -245,6 +245,9 @@ async fn response_to_http_response(
 
 /// Marker trait to identify the authentication schemes that the [`HttpClient`]
 /// supports.
+///
+/// This trait can also be implemented for custom
+/// [`AuthScheme`](auth_scheme::AuthScheme)s if necessary.
 pub trait SupportedAuthScheme: auth_scheme::AuthScheme {}
 
 impl SupportedAuthScheme for auth_scheme::NoAuthentication {}
