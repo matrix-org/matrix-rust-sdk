@@ -22,6 +22,7 @@ where
 {
     // We want local latest event to come first. When there is a remote latest event
     // or no latest event, we don't want to sort them.
+    // NOTE: This is the same as a.cmp(b).reverse() for booleans.
     match are_latest_events_locals(left, right) {
         // `false` and `false`, i.e.:
         // - `None` == `None`.
@@ -40,7 +41,7 @@ where
         // - `Local*` < `Remote`.
         (true, false) => Ordering::Less,
 
-        // `true` and `false, i.e.:
+        // `true` and `true`, i.e.:
         // - `Local*` == `Local*`
         (true, true) => Ordering::Equal,
     }
