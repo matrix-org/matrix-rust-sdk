@@ -151,7 +151,7 @@ impl ThreadEventCache {
     ///
     /// If the event has been found and removed, then an update will be
     /// propagated to observers.
-    pub(crate) fn try_remove_event(&mut self, event_id: &EventId) {
+    pub(crate) fn remove_if_present(&mut self, event_id: &EventId) {
         let Some(pos) = self.chunk.events().find_map(|(pos, event)| {
             (event.event_id().as_deref() == Some(event_id)).then_some(pos)
         }) else {

@@ -1699,7 +1699,7 @@ mod private {
                 if let Some(thread_root) = thread_root
                     && let Some(thread_cache) = self.threads.get_mut(&thread_root)
                 {
-                    thread_cache.try_remove_event(event_id);
+                    thread_cache.remove_if_present(event_id);
 
                     // The number of replies may have changed, so update the thread summary if
                     // needs be.
