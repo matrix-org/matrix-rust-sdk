@@ -96,10 +96,6 @@ pub enum HttpError {
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),
 
-    /// Queried endpoint is not meant for clients.
-    #[error("the queried endpoint is not meant for clients")]
-    NotClientRequest,
-
     /// API response error (deserialization, or a Matrix-specific error).
     // `Box` its inner value to reduce the enum size.
     #[error(transparent)]

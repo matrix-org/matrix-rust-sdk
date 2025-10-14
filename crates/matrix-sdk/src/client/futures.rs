@@ -33,6 +33,7 @@ use crate::{
     authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
+    http_client::SupportedAuthScheme,
     media::MediaError,
 };
 
@@ -77,6 +78,7 @@ impl<R> SendRequest<R> {
 impl<R> IntoFuture for SendRequest<R>
 where
     R: OutgoingRequest + Clone + Debug + SendOutsideWasm + SyncOutsideWasm + 'static,
+    R::Authentication: SupportedAuthScheme,
     R::IncomingResponse: SendOutsideWasm + SyncOutsideWasm,
     HttpError: From<FromHttpResponseError<R::EndpointError>>,
 {

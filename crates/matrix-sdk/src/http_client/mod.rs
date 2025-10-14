@@ -28,7 +28,7 @@ use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::Method;
 use ruma::api::{
-    AuthScheme, OutgoingRequest, SendAccessToken, SupportedVersions,
+    OutgoingRequest, SendAccessToken, SupportedVersions, auth_scheme,
     error::{FromHttpResponseError, IntoHttpError},
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -151,6 +151,7 @@ impl HttpClient {
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
+        R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         let config = match config {
@@ -167,18 +168,6 @@ impl HttpClient {
             // At this point in the code, the config isn't behind an Option anymore, that's
             // why we record it here, instead of in the #[instrument] macro.
             span.record("config", debug(config)).record("request_id", request_id);
-
-            let auth_scheme = R::METADATA.authentication;
-            match auth_scheme {
-                AuthScheme::AccessToken
-                | AuthScheme::AccessTokenOptional
-                | AuthScheme::AppserviceToken
-                | AuthScheme::AppserviceTokenOptional
-                | AuthScheme::None => {}
-                AuthScheme::ServerSignatures => {
-                    return Err(HttpError::NotClientRequest);
-                }
-            }
 
             let request = self
                 .serialize_request(request, config, homeserver, access_token, supported_versions)
@@ -253,6 +242,20 @@ async fn response_to_http_response(
 
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
+
+/// Marker trait to identify the authentication schemes that the [`HttpClient`]
+/// supports.
+pub trait SupportedAuthScheme: auth_scheme::AuthScheme {}
+
+impl SupportedAuthScheme for auth_scheme::NoAuthentication {}
+
+impl SupportedAuthScheme for auth_scheme::AccessToken {}
+
+impl SupportedAuthScheme for auth_scheme::AccessTokenOptional {}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceToken {}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceTokenOptional {}
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
