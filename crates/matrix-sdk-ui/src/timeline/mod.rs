@@ -84,7 +84,6 @@ mod subscriber;
 mod tasks;
 #[cfg(test)]
 mod tests;
-mod to_device;
 mod traits;
 mod virtual_item;
 
