@@ -1347,6 +1347,9 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// the private cross-signing keys and the backup key from the existing
     /// device to the new device.
     ///
+    /// For the reverse flow where this device generates the QR code for the
+    /// existing device to scan, use [`LoginWithQrCodeBuilder::generate`].
+    ///
     /// # Arguments
     ///
     /// * `data` - The data scanned from a QR code.
@@ -1430,6 +1433,9 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// as verified and transfer all end-to-end encryption related secrets, like
     /// the private cross-signing keys and the backup key from the existing
     /// device to the new device.
+    ///
+    /// For the reverse flow where the existing device generates the QR code
+    /// for this device to scan, use [`LoginWithQrCodeBuilder::scan`].
     ///
     /// # Example
     ///
