@@ -22,11 +22,10 @@ use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
-    Client, Room,
+    Room,
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
     encryption::backups::BackupState,
-    event_cache::{self, RedecryptorReport},
-    event_handler::EventHandlerHandle,
+    event_cache::RedecryptorReport,
     executor::{JoinHandle, spawn},
 };
 use matrix_sdk_base::crypto::store::types::RoomKeyInfo;
@@ -41,7 +40,6 @@ use crate::timeline::{
     EncryptedMessage, EventTimelineItem, TimelineController, TimelineItem, TimelineItemKind,
     controller::{TimelineSettings, TimelineState},
     event_item::EventTimelineItemKind,
-    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
     traits::{Decryptor, RoomDataProvider},
 };
 
@@ -49,22 +47,14 @@ use crate::timeline::{
 /// re-decryption, in the timeline.
 #[derive(Debug)]
 pub(in crate::timeline) struct CryptoDropHandles {
-    client: Client,
-    event_handler_handles: Vec<EventHandlerHandle>,
-    room_key_from_backups_join_handle: JoinHandle<()>,
-    room_keys_received_join_handle: JoinHandle<()>,
+    redecryption_report_join_handle: JoinHandle<()>,
     room_key_backup_enabled_join_handle: JoinHandle<()>,
     encryption_changes_handle: JoinHandle<()>,
 }
 
 impl Drop for CryptoDropHandles {
     fn drop(&mut self) {
-        for handle in self.event_handler_handles.drain(..) {
-            self.client.remove_event_handler(handle);
-        }
-
-        self.room_key_from_backups_join_handle.abort();
-        self.room_keys_received_join_handle.abort();
+        self.redecryption_report_join_handle.abort();
         self.room_key_backup_enabled_join_handle.abort();
         self.encryption_changes_handle.abort();
     }
@@ -232,49 +222,15 @@ pub(in crate::timeline) async fn spawn_crypto_tasks(
     room: Room,
     controller: TimelineController,
 ) -> CryptoDropHandles {
-    let room_key_handle = room
-        .client()
-        .add_event_handler(handle_room_key_event(controller.clone(), room.room_id().to_owned()));
-
     let client = room.client();
-    let forwarded_room_key_handle = client.add_event_handler(handle_forwarded_room_key_event(
-        controller.clone(),
-        room.room_id().to_owned(),
-    ));
-
-    let event_handlers = vec![room_key_handle, forwarded_room_key_handle];
-
-    // Not using room.add_event_handler here because RoomKey events are
-    // to-device events that are not received in the context of a room.
-
-    let room_key_from_backups_join_handle = spawn(room_keys_from_backups_task(
-        client.encryption().backups().room_keys_for_room_stream(controller.room().room_id()),
-        controller.clone(),
-    ));
 
     let room_key_backup_enabled_join_handle =
         spawn(backup_states_task(client.encryption().backups().state_stream(), controller.clone()));
 
-    // TODO: Technically, this should be the only stream we need to listen to get
-    // notified when we should retry to decrypt an event. We sadly can't do that,
-    // since the cross-process support kills the `OlmMachine` which then in
-    // turn kills this stream. Once this is solved remove all the other ways we
-    // listen for room keys.
-    let room_keys_received_join_handle = {
-        spawn(room_key_received_task(
-            client.encryption().room_keys_received_stream().await.expect(
-                "We should be logged in by now, so we should have access to an `OlmMachine` \
-                     to be able to listen to this stream",
-            ),
-            controller.clone(),
-        ))
-    };
+    let redecryption_report_join_handle = spawn(redecryption_report_task(controller.clone()));
 
     CryptoDropHandles {
-        client,
-        event_handler_handles: event_handlers,
-        room_key_from_backups_join_handle,
-        room_keys_received_join_handle,
+        redecryption_report_join_handle,
         room_key_backup_enabled_join_handle,
         encryption_changes_handle: spawn(async move {
             controller.handle_encryption_state_changes().await
