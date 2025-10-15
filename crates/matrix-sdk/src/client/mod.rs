@@ -534,6 +534,7 @@ impl Client {
     }
 
     /// Change to a different homeserver and re-resolve well-known.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn switch_homeserver_and_re_resolve_well_known(
         &self,
         homeserver_url: Url,
