@@ -104,7 +104,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
-                | SecureChannelError::InvalidCheckCode => HumanQrLoginError::ConnectionInsecure,
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::CannotReceiveCheckCode => {
+                    HumanQrLoginError::ConnectionInsecure
+                }
                 SecureChannelError::InvalidIntent => HumanQrLoginError::OtherDeviceNotSignedIn,
             },
 
@@ -113,7 +116,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             | QRCodeLoginError::DeviceKeyUpload(_)
             | QRCodeLoginError::SessionTokens(_)
             | QRCodeLoginError::UserIdDiscovery(_)
-            | QRCodeLoginError::SecretImport(_) => HumanQrLoginError::Unknown,
+            | QRCodeLoginError::SecretImport(_)
+            | QRCodeLoginError::ServerReset(_) => HumanQrLoginError::Unknown,
         }
     }
 }

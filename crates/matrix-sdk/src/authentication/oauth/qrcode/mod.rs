@@ -41,7 +41,9 @@ mod rendezvous_channel;
 mod secure_channel;
 
 pub use self::{
-    login::{LoginProgress, LoginWithQrCode, QrProgress},
+    login::{
+        GeneratedQrProgress, LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress,
+    },
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
 use super::CrossProcessRefreshLockError;
@@ -104,6 +106,11 @@ pub enum QRCodeLoginError {
     /// imported.
     #[error(transparent)]
     SecretImport(#[from] SecretImportError),
+
+    /// The other party told us to use a different homeserver but we failed to
+    /// reset the server URL.
+    #[error(transparent)]
+    ServerReset(crate::Error),
 }
 
 /// Error type describing failures in the interaction between the device
@@ -192,4 +199,12 @@ pub enum SecureChannelError {
          the two devices have the same login intent"
     )]
     InvalidIntent,
+
+    /// The secure channel could not have been established, the check code
+    /// cannot be received.
+    #[error(
+        "The secure channel could not have been established, \
+         the check code cannot be received"
+    )]
+    CannotReceiveCheckCode,
 }

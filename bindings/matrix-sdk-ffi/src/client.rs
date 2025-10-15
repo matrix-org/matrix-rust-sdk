@@ -565,7 +565,7 @@ impl Client {
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
         let oauth = self.inner.oauth();
-        let login = oauth.login_with_qr_code(&qr_code_data.inner, Some(&registration_data));
+        let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
 
         let mut progress = login.subscribe_to_progress();
 

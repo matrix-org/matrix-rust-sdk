@@ -533,6 +533,22 @@ impl Client {
         *self.inner.homeserver.write().unwrap() = homeserver_url;
     }
 
+    /// Change to a different homeserver and re-resolve well-known.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn switch_homeserver_and_re_resolve_well_known(
+        &self,
+        homeserver_url: Url,
+    ) -> Result<()> {
+        self.set_homeserver(homeserver_url);
+        self.reset_server_info().await?;
+        if let ServerInfo { well_known: Some(well_known), .. } =
+            self.load_or_fetch_server_info().await?
+        {
+            self.set_homeserver(Url::parse(&well_known.homeserver.base_url)?);
+        }
+        Ok(())
+    }
+
     /// Get the capabilities of the homeserver.
     ///
     /// This method should be used to check what features are supported by the
