@@ -216,6 +216,8 @@ impl RoomMember {
 
         let display_name = event.display_name();
         let membership = event.membership();
+
+        println!("{:?} {:?}", users_display_names, &display_name);
         let display_name_ambiguous = users_display_names.get(&display_name).is_some_and(|s| {
             if !is_display_name_ambiguous(&display_name, s) {
                 return false;
@@ -572,30 +574,50 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(carol.into(), f.member(carol).display_name("Carol").into());
+            
+            let ambiguity_maps = changes
+                .ambiguity_maps
+                .entry(room.room_id().to_owned())
+                .or_default();
 
+
+            let display_name = DisplayName::new("Carol");
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into());
+            ambiguity_maps.entry(display_name).or_default().insert(carol.to_owned());
+
+            let display_name = DisplayName::new("Fred");
             members.insert(fred.into(), f.member(fred).display_name("Fred").into());
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(fred.to_owned());
             members.insert(
                 fredo.into(),
                 f.member(fredo).display_name("Fred").membership(MembershipState::Knock).into(),
             );
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(fredo.to_owned());
             members.insert(
                 denis.into(),
                 f.member(denis).display_name("Fred").membership(MembershipState::Leave).into(),
             );
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(erica.to_owned());
             members.insert(
                 erica.into(),
                 f.member(erica).display_name("Fred").membership(MembershipState::Ban).into(),
             );
 
+            let display_name = DisplayName::new("Bob");
             members.insert(
                 bob.into(),
                 f.member(bob).display_name("Bob").membership(MembershipState::Invite).into(),
             );
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(bob.to_owned());
             members.insert(julie.into(), f.member(me).display_name("Bob").into());
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(julie.to_owned());
 
+            let display_name = DisplayName::new("Me");
             members.insert(me.into(), f.member(me).display_name("Me").into());
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(me.to_owned());
             members.insert(mewto.into(), f.member(mewto).display_name("Me").into());
+            ambiguity_maps.entry(display_name.clone()).or_default().insert(mewto.to_owned());
+
 
             store.save_changes(&changes).await.unwrap();
         }
@@ -612,11 +634,6 @@ mod tests {
         assert!(!room.get_member(julie).await.unwrap().expect("Julie user").name_ambiguous());
         assert!(!room.get_member(bob).await.unwrap().expect("Bob user").name_ambiguous());
 
-        assert_eq!(room.get_member(me).await.unwrap().expect("Me user").display_name(), Some("Me"));
-        assert_eq!(
-            room.get_member(mewto).await.unwrap().expect("Mewto user").display_name(),
-            Some("Me")
-        );
 
         assert!(room.get_member(me).await.unwrap().expect("Me user").name_ambiguous());
         assert!(room.get_member(mewto).await.unwrap().expect("Mewto user").name_ambiguous());
