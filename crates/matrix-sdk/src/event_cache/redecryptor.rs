@@ -12,16 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The Redecryptor (Rd) is a layer and long-running background task which
-//! handles redecryption of events in case we couldn't decrypt them imediatelly.
+//! The Redecryptor (affectionately known as R2D2) is a layer and long-running
+//! background task which handles redecryption of events in case we couldn't
+//! decrypt them imediatelly.
 //!
-//! Rd listens to the OlmMachine for received room keys and new
+//! There are various reasons why a room key might not be available imediatelly
+//! when the event becomes available:
+//!     - The to-device message containing the room key just arrives late, i.e.
+//!       after the room event.
+//!     - The event is a historic event and we need to first download the room
+//!       key from the backup.
+//!     - The event is a historic event in a previously unjoined room, we need
+//!       to receive historic room keys as defined in [MSC3061](https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255).
+//!
+//! R2D2 listens to the OlmMachine for received room keys and new
 //! m.room_key.withheld events.
 //!
 //! If a new room key has been received it attempts to find any UTDs in the
-//! [`EventCache`]. If Rd decrypts any UTDs from the event cache it will replace
-//! the events in the cache and send out new [`RoomEventCacheUpdates`] to any of
-//! its listeners.
+//! [`EventCache`]. If R2D2 decrypts any UTDs from the event cache it will
+//! replace the events in the cache and send out new [`RoomEventCacheUpdates`]
+//! to any of its listeners.
 //!
 //! If a new withheld info has been received it attempts to find any relevant
 //! events and updates the [`EncryptionInfo`] of an event.
@@ -31,28 +41,49 @@
 //! a `None` on the room keys stream and we need to re-listen to it.
 //!
 //! Another gotcha is that room keys might be received on another process if the
-//! Client is operating on a iOS device. A separate process is used in this case
-//! to receive push notifications. In this case the room key will be received
-//! and Rd won't get notified about it. To work around this decryption requests
-//! can be explicitly sent to Rd.
+//! Client is operating on a Apple device. A separate process is used in this
+//! case to receive push notifications. In this case the room key will be
+//! received and R2D2 won't get notified about it. To work around this
+//! decryption requests can be explicitly sent to R2D2.
 //!
+//! ```markdown
+//! 
+//!      .----------------------.
+//!     |                        |
+//!     |      Beeb, boop!       |
+//!     |                        .
+//!      ----------------------._ \
+//!                               -;  _____
+//!                                 .`/L|__`.
+//!                                / =[_]O|` \
+//!                                |"+_____":|
+//!                              __:='|____`-:__
+//!                             ||[] ||====|| []||
+//!                             ||[] ||====|| []||
+//!                             |:== ||====|| ==:|
+//!                             ||[] ||====|| []||
+//!                             ||[] ||====|| []||
+//!                            _||_  ||====||  _||_
+//!                           (====) |:====:| (====)
+//!                            }--{  | |  | |  }--{
+//!                           (____) |_|  |_| (____)
 //!
 //!                              ┌─────────────┐
 //!                              │             │
-//!                  ┌───────────┤  Timeline   │◄────────────┐
+//!                  ┌───────────┤   Timeline  │◄────────────┐
 //!                  │           │             │             │
-//!                  │           └─────▲───────┘             │
-//!                  │                 │                     │
-//!                  │                 │                     │
-//!                  │                 │                     │
-//!              Decryption            │                 Redecryptor
-//!                request             │                   report
-//!                  │       RoomEventCacheUpdates           │         
-//!                  │                 │                     │
-//!                  │                 │                     │
-//!                  │      ┌──────────┴────────────┐        │
+//!                  │           └──────▲──────┘             │
+//!                  │                  │                    │
+//!                  │                  │                    │
+//!                  │                  │                    │
+//!              Decryption             │                Redecryptor
+//!                request              │                  report
+//!                  │        RoomEventCacheUpdates          │         
+//!                  │                  │                    │
+//!                  │                  │                    │
+//!                  │      ┌───────────┴───────────┐        │
 //!                  │      │                       │        │
-//!                  └──────►      Redecryptor      │────────┘
+//!                  └──────►         R2D2          │────────┘
 //!                         │                       │
 //!                         └───────────▲───────────┘
 //!                                     │
@@ -67,6 +98,7 @@
 //!                             │  OlmMachine  │
 //!                             │              │
 //!                             └──────────────┘
+//! ```
 
 use std::{collections::BTreeSet, pin::Pin, sync::Weak};
 
@@ -101,6 +133,8 @@ use tokio_stream::wrappers::{
 };
 use tracing::{info, instrument, trace, warn};
 
+#[cfg(doc)]
+use super::RoomEventCache;
 use crate::{
     Room,
     event_cache::{
@@ -434,7 +468,44 @@ impl EventCache {
 
     /// Explicitly request the redecryption of a set of events.
     ///
-    /// TODO: Explain when and why this might be useful.
+    /// The redecryption logic in the event cache might sometimes miss that a
+    /// room key has become available and that a certain set of events has
+    /// become decryptable.
+    ///
+    /// This might happen because some room keys might arrive in a separate
+    /// process handling push notifications or if a room key arrives but the
+    /// process shuts down before we could have decrypted the events.
+    ///
+    /// For this reason it is useful to tell the event cache explicitly that
+    /// some events should be retried to be redecrypted.
+    ///
+    /// This method allows you to do so. The events that get decrypted, if any,
+    /// will be advertised over the usual event cache subscription mechanism
+    /// which can be accessed using the [`RoomEventCache::subscribe()`]
+    /// method.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, event_cache::DecryptionRetryRequest};
+    /// # use url::Url;
+    /// # use ruma::owned_room_id;
+    /// # use std::collections::BTreeSet;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let event_cache = client.event_cache();
+    /// let room_id = owned_room_id!("!my_room:localhost");
+    ///
+    /// let request = DecryptionRetryRequest {
+    ///     room_id,
+    ///     utd_session_ids: BTreeSet::from(["session_id".into()]),
+    ///     refresh_info_session_ids: BTreeSet::new(),
+    /// };
+    ///
+    /// event_cache.request_decryption(request);
+    /// # anyhow::Ok(()) };
+    /// ```
     pub fn request_decryption(&self, request: DecryptionRetryRequest) {
         let _ =
             self.inner.redecryption_channels.decryption_request_sender.send(request).inspect_err(
@@ -444,8 +515,47 @@ impl EventCache {
 
     /// Subscribe to reports that the redecryptor generates.
     ///
-    /// TODO: Explain when the redecryptor might send such reports.
-    pub fn subscrube_to_decryption_reports(
+    /// The redecryption logic in the event cache might sometimes miss that a
+    /// room key has become available and that a certain set of events has
+    /// become decryptable.
+    ///
+    /// This might happen because some room keys might arrive in a separate
+    /// process handling push notifications or if room keys arrive faster than
+    /// we can handle them.
+    ///
+    /// This stream can be used to get notified about such situations as well as
+    /// a general channel where the event cache reports which events got
+    /// successfully redecrypted.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, event_cache::RedecryptorReport};
+    /// # use url::Url;
+    /// # use tokio_stream::StreamExt;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let event_cache = client.event_cache();
+    ///
+    /// let mut stream = event_cache.subscribe_to_decryption_reports();
+    ///
+    /// while let Some(Ok(report)) = stream.next().await {
+    ///     match report {
+    ///         RedecryptorReport::Lagging => {
+    ///             // The event cache might have missed to redecrypt some events. We should tell
+    ///             // it which events we care about, i.e. which events we're displaying to the
+    ///             // user, and let it redecrypt things with an explicit request.
+    ///         }
+    ///         RedecryptorReport::ResolvedUtds { .. } => {
+    ///             // This may be interesting for statistical reasons or in case we'd like to
+    ///             // fetch and inspect these events in some manner.
+    ///         }
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn subscribe_to_decryption_reports(
         &self,
     ) -> impl Stream<Item = Result<RedecryptorReport, BroadcastStreamRecvError>> {
         BroadcastStream::new(self.inner.redecryption_channels.utd_reporter.subscribe())
