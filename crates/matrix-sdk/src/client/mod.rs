@@ -529,8 +529,24 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    pub(crate) fn set_homeserver(&self, homeserver_url: Url) {
+    fn set_homeserver(&self, homeserver_url: Url) {
         *self.inner.homeserver.write().unwrap() = homeserver_url;
+    }
+
+    /// Change to a different homeserver and re-resolve well-known.
+    pub(crate) async fn switch_homeserver_and_re_resolve_well_known(
+        &self,
+        homeserver_url: Url,
+    ) -> Result<()> {
+        self.set_homeserver(homeserver_url);
+        self.reset_server_info().await?;
+        if let ServerInfo { well_known: Some(well_known), .. } =
+            self.load_or_fetch_server_info().await?
+            && let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url)
+        {
+            self.set_homeserver(homeserver);
+        }
+        Ok(())
     }
 
     /// Get the capabilities of the homeserver.

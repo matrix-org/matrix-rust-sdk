@@ -479,8 +479,10 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
             // Change the login homeserver if it is different from the server hosting the
             // secure channel.
             if self.client.homeserver() != homeserver {
-                self.client.set_homeserver(homeserver);
-                self.client.reset_server_info().await.map_err(QRCodeLoginError::ServerReset)?;
+                self.client
+                    .switch_homeserver_and_re_resolve_well_known(homeserver)
+                    .await
+                    .map_err(QRCodeLoginError::ServerReset)?;
             }
 
             // Proceed with logging in.
@@ -927,6 +929,7 @@ mod test {
 
         server.mock_versions().ok().expect(1..).named("versions").mount().await;
 
+        login_server.mock_well_known().ok().expect(1).named("well_known").mount().await;
         login_server.mock_versions().ok().expect(1..).named("versions").mount().await;
         login_server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
         login_server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
