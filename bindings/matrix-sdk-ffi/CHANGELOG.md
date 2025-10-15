@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file.
   ([#5786](https://github.com/matrix-org/matrix-rust-sdk/pull/5786))
 - `ComposerDraft` now includes attachments alongside the text message.
   ([#5794](https://github.com/matrix-org/matrix-rust-sdk/pull/5794))
+- Add `Client::subscribe_to_send_queue_updates` to observe global send queue updates.
+  ([#5784](https://github.com/matrix-org/matrix-rust-sdk/pull/5784))
 
 ### Features:
 

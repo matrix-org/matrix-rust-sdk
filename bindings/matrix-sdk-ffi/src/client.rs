@@ -103,7 +103,7 @@ use crate::{
     notification::NotificationClient,
     notification_settings::NotificationSettings,
     qr_code::LoginWithQrCodeHandler,
-    room::{RoomHistoryVisibility, RoomInfoListener},
+    room::{RoomHistoryVisibility, RoomInfoListener, RoomSendQueueUpdate},
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
@@ -193,6 +193,13 @@ pub trait ClientSessionDelegate: SyncOutsideWasm + SendOutsideWasm {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ProgressWatcher: SyncOutsideWasm + SendOutsideWasm {
     fn transmission_progress(&self, progress: TransmissionProgress);
+}
+
+/// A listener to the global (client-wide) update reporter of the send queue.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SendQueueRoomUpdateListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called every time the send queue emits an update for a given room.
+    fn on_update(&self, room_id: String, update: RoomSendQueueUpdate);
 }
 
 /// A listener to the global (client-wide) error reporter of the send queue.
@@ -605,6 +612,49 @@ impl Client {
     /// queue.
     pub fn enable_send_queue_upload_progress(&self, enable: bool) {
         self.inner.send_queue().enable_upload_progress(enable);
+    }
+
+    /// Subscribe to the global send queue update reporter, at the
+    /// client-wide level.
+    ///
+    /// The given listener will be immediately called with
+    /// `RoomSendQueueUpdate::NewLocalEvent` for each local echo existing in
+    /// the queue.
+    pub async fn subscribe_to_send_queue_updates(
+        &self,
+        listener: Box<dyn SendQueueRoomUpdateListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let q = self.inner.send_queue();
+        let local_echoes = q.local_echoes().await?;
+        let mut subscriber = q.subscribe();
+
+        for (room_id, local_echoes) in local_echoes {
+            for local_echo in local_echoes {
+                listener.on_update(
+                    room_id.clone().into(),
+                    RoomSendQueueUpdate::NewLocalEvent {
+                        transaction_id: local_echo.transaction_id.into(),
+                    },
+                );
+            }
+        }
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            loop {
+                match subscriber.recv().await {
+                    Ok(update) => {
+                        let room_id = update.room_id.to_string();
+                        match update.update.try_into() {
+                            Ok(update) => listener.on_update(room_id, update),
+                            Err(err) => error!("error when converting send queue update: {err}"),
+                        }
+                    }
+                    Err(err) => {
+                        error!("error when listening to the send queue update reporter: {err}");
+                    }
+                }
+            }
+        }))))
     }
 
     /// Subscribe to the global enablement status of the send queue, at the
