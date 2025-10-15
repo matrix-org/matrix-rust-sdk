@@ -122,10 +122,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         current_time: impl Into<UnixTime>,
     ) -> Result<Option<Media>, TransactionError> {
         if let Some(mut media) = self.get_media_by_id(request_parameters).await? {
-            let last_access = media.metadata.last_access;
-            media.metadata.last_access = current_time.into();
+            let last_access = media.last_access;
+            media.last_access = current_time.into();
             self.put_item(&media).await?;
-            media.metadata.last_access = last_access;
+            media.last_access = last_access;
             Ok(Some(media))
         } else {
             Ok(None)
@@ -149,10 +149,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         let current_time = current_time.into();
         let mut medias = Vec::new();
         for mut media in self.get_media_by_uri(uri).await? {
-            let last_access = media.metadata.last_access;
-            media.metadata.last_access = current_time;
+            let last_access = media.last_access;
+            media.last_access = current_time;
             self.put_item(&media).await?;
-            media.metadata.last_access = last_access;
+            media.last_access = last_access;
             medias.push(media);
         }
         Ok(medias)

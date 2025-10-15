@@ -47,7 +47,7 @@ use tracing::instrument;
 use crate::{
     media_store::{
         transaction::IndexeddbMediaStoreTransaction,
-        types::{Lease, Media, MediaCleanupTime, MediaMetadata, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, UnixTime},
     },
     serializer::{Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
@@ -153,7 +153,7 @@ impl MediaStore for IndexeddbMediaStore {
         if let Some(mut media) = transaction.get_media_by_id(from).await? {
             // delete before adding, in case `from` and `to` generate the same key
             transaction.delete_media_by_id(from).await?;
-            media.metadata.request_parameters = to.clone();
+            media.request_parameters = to.clone();
             transaction.add_media(&media).await?;
             transaction.commit().await?;
         }
@@ -277,11 +277,9 @@ impl MediaStoreInner for IndexeddbMediaStore {
         let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
 
         let media = Media {
-            metadata: MediaMetadata {
-                request_parameters: request.clone(),
-                last_access: current_time.into(),
-                ignore_policy,
-            },
+            request_parameters: request.clone(),
+            last_access: current_time.into(),
+            ignore_policy,
             content,
         };
 
@@ -299,8 +297,8 @@ impl MediaStoreInner for IndexeddbMediaStore {
 
         let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
         if let Some(mut media) = transaction.get_media_by_id(request).await? {
-            if media.metadata.ignore_policy != ignore_policy {
-                media.metadata.ignore_policy = ignore_policy;
+            if media.ignore_policy != ignore_policy {
+                media.ignore_policy = ignore_policy;
                 transaction.put_media(&media).await?;
                 transaction.commit().await?;
             }
