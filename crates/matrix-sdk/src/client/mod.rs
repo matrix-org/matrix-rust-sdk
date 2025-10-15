@@ -543,9 +543,8 @@ impl Client {
         self.reset_server_info().await?;
         if let ServerInfo { well_known: Some(well_known), .. } =
             self.load_or_fetch_server_info().await?
-            && let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url)
         {
-            self.set_homeserver(homeserver);
+            self.set_homeserver(Url::parse(&well_known.homeserver.base_url)?);
         }
         Ok(())
     }
