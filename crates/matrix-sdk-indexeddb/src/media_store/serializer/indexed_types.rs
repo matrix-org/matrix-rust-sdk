@@ -258,12 +258,8 @@ pub struct IndexedMedia {
     /// The last the media was accessed, the size (in bytes) of the media
     /// content, and whether to ignore the [`MediaRetentionPolicy`]
     pub retention_metadata: IndexedMediaRetentionMetadataKey,
-    /// The (possibly) encrypted metadata - i.e., [`MediaMetadata`][1]
-    ///
-    /// [1]: crate::media_store::types::MediaMetadata
-    pub metadata: IndexedMediaMetadata,
     /// The (possibly) encrypted content - i.e., [`Media::content`]
-    pub content: Vec<u8>,
+    pub content: MaybeEncrypted,
 }
 
 #[derive(Debug, Error)]
@@ -293,27 +289,31 @@ impl Indexed for Media {
         };
         Ok(Self::IndexedType {
             id: <IndexedMediaIdKey as IndexedKey<Self>>::encode(
-                &self.metadata.request_parameters,
+                &self.request_parameters,
                 serializer,
             ),
             uri: <IndexedMediaUriKey as IndexedKey<Self>>::encode(
-                self.metadata.request_parameters.uri(),
+                self.request_parameters.uri(),
                 serializer,
             ),
             content_size: IndexedMediaContentSizeKey::encode(
-                (self.metadata.ignore_policy, content.len()),
+                (self.ignore_policy, content.len()),
                 serializer,
             ),
             last_access: IndexedMediaLastAccessKey::encode(
-                (self.metadata.ignore_policy, self.metadata.last_access),
+                (self.ignore_policy, self.last_access),
                 serializer,
             ),
             retention_metadata: IndexedMediaRetentionMetadataKey::encode(
-                (self.metadata.ignore_policy, self.metadata.last_access, content.len()),
+                (self.ignore_policy, self.last_access, content.len()),
                 serializer,
             ),
-            metadata: serializer.maybe_encrypt_value(&self.metadata)?,
-            content,
+            content: serializer.maybe_encrypt_value(Media {
+                request_parameters: self.request_parameters.clone(),
+                last_access: self.last_access,
+                ignore_policy: self.ignore_policy,
+                content,
+            })?,
         })
     }
 
@@ -321,12 +321,15 @@ impl Indexed for Media {
         indexed: Self::IndexedType,
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
+        let media: Media = serializer.maybe_decrypt_value(indexed.content)?;
         Ok(Self {
-            metadata: serializer.maybe_decrypt_value(indexed.metadata)?,
+            request_parameters: media.request_parameters,
+            last_access: media.last_access,
+            ignore_policy: media.ignore_policy,
             content: if serializer.has_store_cipher() {
-                serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?
+                serializer.maybe_decrypt_value(rmp_serde::from_slice(&media.content)?)?
             } else {
-                indexed.content
+                media.content
             },
         })
     }
