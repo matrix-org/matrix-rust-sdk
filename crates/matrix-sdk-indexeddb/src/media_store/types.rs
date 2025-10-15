@@ -57,16 +57,20 @@ pub struct Media {
 /// A representation of media metadata which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MediaMetadata {
-    /// The parameters specifying the type and source of the media contained in
-    /// [`Media::content`]
+    /// The parameters specifying the type and source of the associated
+    /// [`MediaContent`]
     pub request_parameters: MediaRequestParameters,
-    /// The last time the media was accessed in IndexedDB
+    /// The last time the associated [`MediaContent`] was accessed in IndexedDB
     pub last_access: UnixTime,
     /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
     ///
     /// [1]: matrix_sdk_base::media::store::MediaRetentionPolicy
     #[serde(with = "crate::media_store::serializer::foreign::ignore_media_retention_policy")]
     pub ignore_policy: IgnoreMediaRetentionPolicy,
+    /// The identifier of the associated [`MediaContent`]
+    pub content_id: u64,
+    /// The size in bytes of the associated [`MediaContent`]
+    pub content_size: usize,
 }
 
 /// A representation of media content which can be stored in IndexedDB.
