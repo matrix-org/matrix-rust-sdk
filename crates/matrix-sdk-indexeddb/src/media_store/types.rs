@@ -37,11 +37,19 @@ impl Lease {
     }
 }
 
-/// A representation of media data which can be stored in IndexedDB.
+/// A representation of media which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Media {
-    /// The metadata associated with [`Media::content`]
-    pub metadata: MediaMetadata,
+    /// The parameters specifying the type and source of the media contained in
+    /// [`Media::content`]
+    pub request_parameters: MediaRequestParameters,
+    /// The last time the media was accessed in IndexedDB
+    pub last_access: UnixTime,
+    /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
+    ///
+    /// [1]: matrix_sdk_base::media::store::MediaRetentionPolicy
+    #[serde(with = "crate::media_store::serializer::foreign::ignore_media_retention_policy")]
+    pub ignore_policy: IgnoreMediaRetentionPolicy,
     /// The content of the media
     pub content: Vec<u8>,
 }
