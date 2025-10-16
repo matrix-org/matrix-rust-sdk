@@ -241,7 +241,7 @@ impl EventCache {
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
-
+        let mut new_events = Vec::with_capacity(events.len());
 
         for (event_id, decrypted, actions) in events {
             // The event isn't in the cache, nothing to replace. Realistically this can't
@@ -256,9 +256,14 @@ impl EventCache {
 
                 // TODO: `replace_event_at()` propagates changes to the store for every event,
                 // we should probably have a bulk version of this?
-                state.replace_event_at(location, target_event).await?
+                state.replace_event_at(location, target_event.clone()).await?;
+                new_events.push(target_event);
             }
         }
+
+        // TODO: Is this useful? Do I need to call this once per event as well because
+        // replace event at works on a single event?
+        state.post_process_new_events(new_events, false).await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.

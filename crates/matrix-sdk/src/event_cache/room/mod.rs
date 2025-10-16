@@ -1439,7 +1439,7 @@ mod private {
         /// linked chunk.
         ///
         /// Flushes updates to disk first.
-        async fn post_process_new_events(
+        pub(crate) async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
             is_sync: bool,
