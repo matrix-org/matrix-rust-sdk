@@ -229,6 +229,11 @@ impl EventCache {
         room_id: &RoomId,
         events: Vec<(OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>)>,
     ) -> Result<(), EventCacheError> {
+        if events.is_empty() {
+            trace!("No events were redecrypted or updated, nothing to replace");
+            return Ok(());
+        }
+
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
@@ -237,7 +242,6 @@ impl EventCache {
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
-        trace!(?event_ids, "Replacing successfully re-decrypted events");
 
         for (event_id, decrypted, actions) in events {
             // The event isn't in the cache, nothing to replace. Realistically this can't
@@ -330,7 +334,7 @@ impl EventCache {
 
     /// Attempt to redecrypt events after a room key with the given session ID
     /// has been received.
-    #[instrument(skip_all, fields(room_key_info))]
+    #[instrument(skip_all, fields(room_id, session_id))]
     async fn retry_decryption(
         &self,
         room_id: &RoomId,
@@ -364,6 +368,13 @@ impl EventCache {
             }
         }
 
+        let event_ids: BTreeSet<_> =
+            decrypted_events.iter().map(|(event_id, _, _)| event_id).collect();
+
+        if !event_ids.is_empty() {
+            trace!(?event_ids, "Successfully redecrypted events");
+        }
+
         // Replace the events and notify listeners that UTDs have been replaced with
         // decrypted events.
         self.on_resolved_utds(room_id, decrypted_events).await?;
@@ -371,6 +382,7 @@ impl EventCache {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(room_id, session_id))]
     async fn update_encryption_info(
         &self,
         room_id: &RoomId,
@@ -401,6 +413,13 @@ impl EventCache {
                 event.encryption_info = new_encryption_info;
                 updated_events.push((event_id, event, None));
             }
+        }
+
+        let event_ids: BTreeSet<_> =
+            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
+
+        if !event_ids.is_empty() {
+            trace!(?event_ids, "Replacing the encryption info of some events");
         }
 
         self.on_resolved_utds(room_id, updated_events).await?;
