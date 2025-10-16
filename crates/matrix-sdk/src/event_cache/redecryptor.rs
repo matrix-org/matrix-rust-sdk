@@ -650,25 +650,31 @@ impl Redecryptor {
 #[cfg(not(target_family = "wasm"))]
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::BTreeSet, time::Duration};
 
     use assert_matches2::assert_matches;
     use eyeball_im::VectorDiff;
-    use matrix_sdk_base::deserialized_responses::TimelineEventKind;
+    use matrix_sdk_base::deserialized_responses::{TimelineEventKind, VerificationState};
     use matrix_sdk_test::{
         JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
     };
-    use ruma::{device_id, event_id, room_id, user_id};
+    use ruma::{RoomId, device_id, event_id, room_id, user_id};
     use serde_json::json;
+    use tracing::Instrument;
 
     use crate::{
-        assert_let_timeout, encryption::EncryptionSettings, event_cache::RoomEventCacheUpdate,
+        Client, assert_let_timeout,
+        encryption::EncryptionSettings,
+        event_cache::{DecryptionRetryRequest, RoomEventCacheUpdate},
         test_utils::mocks::MatrixMockServer,
     };
 
-    #[async_test]
-    async fn test_redecryptor() {
-        let room_id = room_id!("!test:localhost");
+    async fn set_up_clients(
+        room_id: &RoomId,
+        alice_enables_cross_signing: bool,
+    ) -> (Client, Client, MatrixMockServer) {
+        let alice_span = tracing::info_span!("alice");
+        let bob_span = tracing::info_span!("bob");
 
         let alice_user_id = user_id!("@alice:localhost");
         let alice_device_id = device_id!("ALICEDEVICE");
@@ -678,8 +684,10 @@ mod tests {
         let matrix_mock_server = MatrixMockServer::new().await;
         matrix_mock_server.mock_crypto_endpoints_preset().await;
 
-        let encryption_settings =
-            EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+        let encryption_settings = EncryptionSettings {
+            auto_enable_cross_signing: alice_enables_cross_signing,
+            ..Default::default()
+        };
 
         // Create some clients for Alice and Bob.
 
@@ -691,7 +699,11 @@ mod tests {
                     .with_encryption_settings(encryption_settings)
             })
             .build()
+            .instrument(alice_span.clone())
             .await;
+
+        let encryption_settings =
+            EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
         let bob = matrix_mock_server
             .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
@@ -701,16 +713,13 @@ mod tests {
                     .with_encryption_settings(encryption_settings)
             })
             .build()
+            .instrument(bob_span.clone())
             .await;
 
         bob.event_cache().subscribe().expect("Bob should be able to enable the event cache");
 
         // Ensure that Alice and Bob are aware of their devices and identities.
         matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
-
-        let event_factory = EventFactory::new().room(room_id);
-        let alice_member_event = event_factory.member(alice_user_id).into_raw();
-        let bob_member_event = event_factory.member(bob_user_id).into_raw();
 
         // Let us now create a room for them.
         let room_builder = JoinedRoomBuilder::new(room_id)
@@ -722,6 +731,7 @@ mod tests {
             .ok_and_run(&alice, |builder| {
                 builder.add_joined_room(room_builder.clone());
             })
+            .instrument(alice_span)
             .await;
 
         matrix_mock_server
@@ -729,7 +739,24 @@ mod tests {
             .ok_and_run(&bob, |builder| {
                 builder.add_joined_room(room_builder);
             })
+            .instrument(bob_span)
             .await;
+
+        (alice, bob, matrix_mock_server)
+    }
+
+    #[async_test]
+    async fn test_redecryptor() {
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, true).await;
+
+        let alice_user_id = alice.user_id().unwrap();
+        let bob_user_id = bob.user_id().unwrap();
+
+        let alice_member_event = event_factory.member(alice_user_id).into_raw();
+        let bob_member_event = event_factory.member(bob_user_id).into_raw();
 
         let room = alice
             .get_room(room_id)
@@ -827,5 +854,159 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Set { index, value });
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+    }
+
+    #[async_test]
+    async fn test_redecryptor_updating_encryption_info() {
+        let alice_span = tracing::info_span!("alice");
+        let bob_span = tracing::info_span!("bob");
+
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, false).await;
+
+        let alice_user_id = alice.user_id().unwrap();
+        let bob_user_id = bob.user_id().unwrap();
+
+        let alice_member_event = event_factory.member(alice_user_id).into_raw();
+        let bob_member_event = event_factory.member(bob_user_id).into_raw();
+
+        let room = alice
+            .get_room(room_id)
+            .expect("Alice should have access to the room now that we synced");
+
+        // Alice will send a single event to the room, but this will trigger a to-device
+        // message containing the room key to be sent as well. We capture both the event
+        // and the to-device message.
+
+        let event_type = "m.room.message";
+        let content = json!({"body": "It's a secret to everybody", "msgtype": "m.text"});
+
+        let event_id = event_id!("$some_id");
+        let (event_receiver, mock) =
+            matrix_mock_server.mock_room_send().ok_with_capture(event_id, alice_user_id);
+        let (_guard, room_key) = matrix_mock_server.mock_capture_put_to_device(alice_user_id).await;
+
+        {
+            let _guard = mock.mock_once().mount_as_scoped().await;
+
+            matrix_mock_server
+                .mock_get_members()
+                .ok(vec![alice_member_event.clone(), bob_member_event.clone()])
+                .mock_once()
+                .mount()
+                .await;
+
+            room.send_raw(event_type, content)
+                .into_future()
+                .instrument(alice_span.clone())
+                .await
+                .expect("We should be able to send an initial message");
+        };
+
+        // Let's now see what Bob's event cache does.
+
+        let (room_cache, _) = bob
+            .event_cache()
+            .for_room(room_id)
+            .instrument(bob_span.clone())
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+
+        let (_, mut subscriber) = room_cache.subscribe().await;
+
+        // Let us retrieve the captured event and to-device message.
+        let event = event_receiver.await.expect("Alice should have sent the event by now");
+        let room_key = room_key.await;
+
+        // Let us forward the event to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .instrument(bob_span.clone())
+            .await;
+
+        // Alright, Bob has received an update from the cache.
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // There should be a single new event, and it should be a UTD as we did not
+        // receive the room key yet.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // Now we send the room key to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(
+                    room_key
+                        .deserialize_as()
+                        .expect("We should be able to deserialize the room key"),
+                );
+            })
+            .instrument(bob_span.clone())
+            .await;
+
+        // Bob should receive a new update from the cache.
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // It should replace the UTD with a decrypted event.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Set { index: 0, value });
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+
+        let encryption_info = value.encryption_info().unwrap();
+        assert_matches!(&encryption_info.verification_state, VerificationState::Unverified(_));
+        let session_id = encryption_info.session_id().unwrap().to_owned();
+
+        // Alice now creates the identity.
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to create the cross-signing keys");
+
+        bob.update_tracked_users_for_testing([alice_user_id]).instrument(bob_span.clone()).await;
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_change_device(alice_user_id);
+            })
+            .instrument(bob_span.clone())
+            .await;
+
+        bob.event_cache().request_decryption(DecryptionRetryRequest {
+            room_id: room_id.into(),
+            utd_session_ids: BTreeSet::new(),
+            refresh_info_session_ids: BTreeSet::from([session_id]),
+        });
+
+        // Bob should again receive a new update from the cache, this time updating the
+        // encryption info.
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Set { index: 0, value });
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+        let encryption_info = value.encryption_info().unwrap();
+
+        assert_matches!(
+            &encryption_info.verification_state,
+            VerificationState::Unverified(_),
+            "The event should now know about the identity but still be unverified"
+        );
     }
 }
