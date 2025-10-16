@@ -42,10 +42,7 @@ use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
-        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -58,7 +55,7 @@ use ruma::{
                 get_supported_versions,
             },
             error::ErrorKind,
-            filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
+            filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -68,13 +65,8 @@ use ruma::{
             threads::get_thread_subscriptions_changes,
             uiaa,
             user_directory::search_users,
-        },
-        error::FromHttpResponseError,
-        federation::discovery::get_server_version,
-    },
-    assign,
-    push::Ruleset,
-    time::Instant,
+        }, error::FromHttpResponseError, federation::discovery::get_server_version, FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions
+    }, assign, events::direct::DirectUserIdentifier, push::Ruleset, time::Instant, DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
@@ -1800,6 +1792,20 @@ impl Client {
         self.create_room(request).await
     }
 
+    /// Get the existing DM room with the given user, if any.
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<Room> {
+        let rooms = self.joined_rooms();
+
+        // Find the room we share with the `user_id` and only with `user_id`
+        let room = rooms.into_iter().find(|r| {
+            let targets = r.direct_targets();
+            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
+        });
+
+        trace!(?user_id, ?room, "Found DM room with user");
+        room
+    }
+
     /// Search the homeserver's directory for public rooms with a filter.
     ///
     /// # Arguments
@@ -3109,20 +3115,15 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
-        RoomId, ServerName, UserId,
         api::{
-            FeatureFlag, MatrixVersion,
             client::{
                 discovery::discover_homeserver::RtcFocusInfo,
                 room::create_room::v3::Request as CreateRoomRequest,
-            },
-        },
-        assign,
-        events::{
+            }, FeatureFlag, MatrixVersion
+        }, assign, events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
-        },
-        owned_room_id, owned_user_id, room_alias_id, room_id,
+        }, owned_room_id, owned_user_id, room_alias_id, room_id, user_id, RoomId, ServerName, UserId
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -4111,5 +4112,84 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[async_test]
+    async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        // This is the user ID that is inside MemberAdditional.
+        // Note the confusing username, so we can share
+        // GlobalAccountDataTestEvent::Direct with the invited test.
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
+            )
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn test_get_dm_room_still_finds_room_where_participant_is_only_invited() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        // This is the user ID that is inside MemberInvite
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
+            )
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn test_get_dm_room_still_finds_left_room() {
+        // See the discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/2017
+        // and the high-level issue at https://github.com/vector-im/element-x-ios/issues/1077
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        // This is the user ID that is inside MemberAdditional.
+        // Note the confusing username, so we can share
+        // GlobalAccountDataTestEvent::Direct with the invited test.
+        let user_id = user_id!("@invited:localhost");
+
+        // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
+        let response = SyncResponseBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
+            )
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
+            .build_sync_response();
+        client.base_client().receive_sync_response(response).await.unwrap();
+
+        // Then get_dm_room finds this room
+        let found_room = client.get_dm_room(user_id).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
     }
 }
