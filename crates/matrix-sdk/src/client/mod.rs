@@ -42,7 +42,10 @@ use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
+    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
+        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -55,7 +58,7 @@ use ruma::{
                 get_supported_versions,
             },
             error::ErrorKind,
-            filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
+            filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -65,8 +68,14 @@ use ruma::{
             threads::get_thread_subscriptions_changes,
             uiaa,
             user_directory::search_users,
-        }, error::FromHttpResponseError, federation::discovery::get_server_version, FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions
-    }, assign, events::direct::DirectUserIdentifier, push::Ruleset, time::Instant, DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId
+        },
+        error::FromHttpResponseError,
+        federation::discovery::get_server_version,
+    },
+    assign,
+    events::direct::DirectUserIdentifier,
+    push::Ruleset,
+    time::Instant,
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
@@ -3115,15 +3124,20 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
+        RoomId, ServerName, UserId,
         api::{
+            FeatureFlag, MatrixVersion,
             client::{
                 discovery::discover_homeserver::RtcFocusInfo,
                 room::create_room::v3::Request as CreateRoomRequest,
-            }, FeatureFlag, MatrixVersion
-        }, assign, events::{
+            },
+        },
+        assign,
+        events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
-        }, owned_room_id, owned_user_id, room_alias_id, room_id, user_id, RoomId, ServerName, UserId
+        },
+        owned_room_id, owned_user_id, room_alias_id, room_id, user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};

@@ -64,9 +64,7 @@ use ruma::{
         uiaa::{AuthData, UiaaInfo},
     },
     assign,
-    events::
-        room::{MediaSource, ThumbnailInfo}
-    ,
+    events::room::{MediaSource, ThumbnailInfo},
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
