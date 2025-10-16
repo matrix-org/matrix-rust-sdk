@@ -16,7 +16,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
+use matrix_sdk_common::timer;
 use ruma::{
     OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
     serde::Raw,
@@ -27,9 +27,7 @@ use super::BaseClient;
 use crate::{
     RequestedRequiredStates,
     error::Result,
-    read_receipts::compute_unread_counts,
     response_processors as processors,
-    room::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
     sync::{RoomUpdates, SyncResponse},
 };
@@ -257,8 +255,6 @@ impl BaseClient {
         &self,
         room_id: &OwnedRoomId,
         response: &http::Response,
-        new_sync_events: Vec<TimelineEvent>,
-        room_previous_events: Vec<TimelineEvent>,
     ) -> Result<Option<Raw<SyncReceiptEvent>>> {
         let mut context = processors::Context::default();
 
@@ -278,35 +274,6 @@ impl BaseClient {
         } else {
             None
         };
-
-        let user_id = &self.session_meta().expect("logged in user").user_id;
-
-        // Rooms in `room_updates.joined` either have a timeline update, or a new read
-        // receipt. Update the read receipt accordingly.
-        if let Some(mut room_info) = self.get_room(room_id).map(|room| room.clone_info()) {
-            let prev_read_receipts = room_info.read_receipts.clone();
-
-            compute_unread_counts(
-                user_id,
-                room_id,
-                context.state_changes.receipts.get(room_id),
-                room_previous_events,
-                &new_sync_events,
-                &mut room_info.read_receipts,
-                self.threading_support,
-            );
-
-            if prev_read_receipts != room_info.read_receipts {
-                context
-                    .room_info_notable_updates
-                    .entry(room_id.clone())
-                    .or_default()
-                    .insert(RoomInfoNotableUpdateReasons::READ_RECEIPT);
-
-                context.state_changes.add_room(room_info);
-                save_context = true;
-            }
-        }
 
         // Save the new `RoomInfo` if updated.
         if save_context {

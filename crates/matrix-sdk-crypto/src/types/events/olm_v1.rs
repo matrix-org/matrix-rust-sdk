@@ -177,6 +177,21 @@ impl AnyDecryptedOlmEvent {
     }
 }
 
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+#[cfg(not(feature = "test-send-sync"))]
+unsafe impl Sync for AnyDecryptedOlmEvent {}
+
+#[cfg(feature = "test-send-sync")]
+#[test]
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+fn test_send_sync_for_room() {
+    fn assert_send_sync<
+        T: matrix_sdk_common::SendOutsideWasm + matrix_sdk_common::SyncOutsideWasm,
+    >() {
+    }
+    assert_send_sync::<AnyDecryptedOlmEvent>();
+}
+
 /// An `m.olm.v1.curve25519-aes-sha2` decrypted to-device event.
 ///
 /// **Note**: This event will reserialize events lossily; unknown fields will be

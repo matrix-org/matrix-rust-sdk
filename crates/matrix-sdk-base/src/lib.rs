@@ -36,7 +36,6 @@ pub mod notification_settings;
 mod response_processors;
 mod room;
 
-pub mod read_receipts;
 pub mod sliding_sync;
 
 pub mod store;
@@ -58,10 +57,10 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use room::{
-    EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
+    EncryptionState, InviteAcceptanceDetails, LatestReadReceipt, PredecessorRoom, Room,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp,
-    RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
+    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomReadReceipts,
+    RoomRecencyStamp, RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,

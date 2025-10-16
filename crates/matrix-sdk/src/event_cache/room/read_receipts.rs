@@ -117,11 +117,9 @@
 //!   target of the latest active read receipt.
 #![allow(dead_code)] // too many different build configurations, I give up
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
+use matrix_sdk_base::{LatestReadReceipt, RoomReadReceipts, ThreadingSupport};
 use matrix_sdk_common::{
     deserialized_responses::TimelineEvent, ring_buffer::RingBuffer,
     serde_helpers::extract_thread_root,
@@ -137,70 +135,28 @@ use ruma::{
     },
     serde::Raw,
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
 
-use crate::ThreadingSupport;
+trait RoomReadReceiptsExt {
+    fn process_event(
+        &mut self,
+        event: &TimelineEvent,
+        user_id: &UserId,
+        threading_support: ThreadingSupport,
+    );
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-struct LatestReadReceipt {
-    /// The id of the event the read receipt is referring to. (Not the read
-    /// receipt event id.)
-    event_id: OwnedEventId,
+    fn reset(&mut self);
+
+    fn find_and_process_events<'a>(
+        &mut self,
+        receipt_event_id: &EventId,
+        user_id: &UserId,
+        events: impl IntoIterator<Item = &'a TimelineEvent>,
+        threading_support: ThreadingSupport,
+    ) -> bool;
 }
 
-/// Public data about read receipts collected during processing of that room.
-///
-/// Remember that each time a field of `RoomReadReceipts` is updated in
-/// `compute_unread_counts`, this function must return true!
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct RoomReadReceipts {
-    /// Does the room have unread messages?
-    pub num_unread: u64,
-
-    /// Does the room have unread events that should notify?
-    pub num_notifications: u64,
-
-    /// Does the room have messages causing highlights for the users? (aka
-    /// mentions)
-    pub num_mentions: u64,
-
-    /// The latest read receipt (main-threaded or unthreaded) known for the
-    /// room.
-    #[serde(default)]
-    latest_active: Option<LatestReadReceipt>,
-
-    /// Read receipts that haven't been matched to their event.
-    ///
-    /// This might mean that the read receipt is in the past further than we
-    /// recall (i.e. before the first event we've ever cached), or in the
-    /// future (i.e. the event is lagging behind because of federation).
-    ///
-    /// Note: this contains event ids of the event *targets* of the receipts,
-    /// not the event ids of the receipt events themselves.
-    #[serde(default = "new_nonempty_ring_buffer")]
-    pending: RingBuffer<OwnedEventId>,
-}
-
-impl Default for RoomReadReceipts {
-    fn default() -> Self {
-        Self {
-            num_unread: Default::default(),
-            num_notifications: Default::default(),
-            num_mentions: Default::default(),
-            latest_active: Default::default(),
-            pending: new_nonempty_ring_buffer(),
-        }
-    }
-}
-
-fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
-    // 10 pending read receipts per room should be enough for everyone.
-    // SAFETY: `unwrap` is safe because 10 is not zero.
-    RingBuffer::new(NonZeroUsize::new(10).unwrap())
-}
-
-impl RoomReadReceipts {
+impl RoomReadReceiptsExt for RoomReadReceipts {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
     /// event.
     ///
@@ -628,6 +584,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
 
+    use matrix_sdk_base::RoomReadReceipts;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
@@ -644,7 +601,9 @@ mod tests {
     use super::compute_unread_counts;
     use crate::{
         ThreadingSupport,
-        read_receipts::{ReceiptSelector, RoomReadReceipts, marks_as_unread},
+        event_cache::room::read_receipts::{
+            ReceiptSelector, RoomReadReceiptsExt as _, marks_as_unread,
+        },
     };
 
     #[test]

@@ -44,8 +44,8 @@ use matrix_sdk_common::ring_buffer::RingBuffer;
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
-    BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomRecencyStamp, apply_redaction,
+    BaseRoomInfo, InviteAcceptanceDetails, LatestReadReceipt, RoomInfo, RoomInfoNotableUpdate,
+    RoomInfoNotableUpdateReasons, RoomReadReceipts, RoomRecencyStamp, apply_redaction,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
@@ -76,7 +76,6 @@ use crate::{
     Error, MinimalStateEvent,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
 };

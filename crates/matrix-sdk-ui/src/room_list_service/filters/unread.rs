@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::read_receipts::RoomReadReceipts;
+use matrix_sdk_base::RoomReadReceipts;
 
 use super::{super::RoomListItem, Filter};
 
@@ -41,7 +41,7 @@ mod tests {
     use std::ops::Not;
 
     use matrix_sdk::test_utils::logged_in_client_with_server;
-    use matrix_sdk_base::read_receipts::RoomReadReceipts;
+    use matrix_sdk_base::RoomReadReceipts;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 

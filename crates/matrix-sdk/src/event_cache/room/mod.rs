@@ -57,6 +57,7 @@ use crate::{
 };
 
 pub(super) mod events;
+mod read_receipts;
 mod threads;
 
 pub use threads::ThreadEventCacheUpdate;
@@ -1491,6 +1492,44 @@ mod private {
             if self.enabled_thread_support {
                 self.update_threads(new_events_by_thread).await?;
             }
+
+            // Need:
+            // - room info (read receipts field): client?
+            // - user id: client?
+            // - room id: OK
+            // - new receipt for the room, if any
+            // - the room previous' events (linked chunk)
+            // - the new events (back-paginated or sync)
+            // - threading support: OK
+
+            /*
+            // Rooms in `room_updates.joined` either have a timeline update, or a new read
+            // receipt. Update the read receipt accordingly.
+            if let Some(mut room_info) = self.get_room(room_id).map(|room| room.clone_info()) {
+                let prev_read_receipts = room_info.read_receipts.clone();
+
+                compute_unread_counts(
+                    user_id,
+                    room_id,
+                    context.state_changes.receipts.get(room_id),
+                    room_previous_events,
+                    &new_sync_events,
+                    &mut room_info.read_receipts,
+                    self.threading_support,
+                );
+
+                if prev_read_receipts != room_info.read_receipts {
+                    context
+                        .room_info_notable_updates
+                        .entry(room_id.clone())
+                        .or_default()
+                        .insert(RoomInfoNotableUpdateReasons::READ_RECEIPT);
+
+                    context.state_changes.add_room(room_info);
+                    save_context = true;
+                }
+            }
+             */
 
             Ok(())
         }

@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
+    num::NonZeroUsize,
     sync::{Arc, atomic::AtomicBool},
 };
 
@@ -21,6 +22,7 @@ use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, deserialized_responses::TimelineEventKind,
+    ring_buffer::RingBuffer,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
@@ -64,7 +66,6 @@ use crate::{
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::{LatestEvent, LatestEventValue},
     notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
 };
@@ -1275,6 +1276,65 @@ impl Default for RoomInfoNotableUpdateReasons {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+/// The latest read receipt known for a room.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LatestReadReceipt {
+    /// The id of the event the read receipt is referring to. (Not the read
+    /// receipt event id.)
+    pub event_id: OwnedEventId,
+}
+
+/// Public data about read receipts collected during processing of that room.
+///
+/// Remember that each time a field of `RoomReadReceipts` is updated in
+/// `compute_unread_counts`, this function must return true!
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RoomReadReceipts {
+    /// Does the room have unread messages?
+    pub num_unread: u64,
+
+    /// Does the room have unread events that should notify?
+    pub num_notifications: u64,
+
+    /// Does the room have messages causing highlights for the users? (aka
+    /// mentions)
+    pub num_mentions: u64,
+
+    /// The latest read receipt (main-threaded or unthreaded) known for the
+    /// room.
+    #[serde(default)]
+    pub latest_active: Option<LatestReadReceipt>,
+
+    /// Read receipts that haven't been matched to their event.
+    ///
+    /// This might mean that the read receipt is in the past further than we
+    /// recall (i.e. before the first event we've ever cached), or in the
+    /// future (i.e. the event is lagging behind because of federation).
+    ///
+    /// Note: this contains event ids of the event *targets* of the receipts,
+    /// not the event ids of the receipt events themselves.
+    #[serde(default = "new_nonempty_ring_buffer")]
+    pub pending: RingBuffer<OwnedEventId>,
+}
+
+impl Default for RoomReadReceipts {
+    fn default() -> Self {
+        Self {
+            num_unread: Default::default(),
+            num_notifications: Default::default(),
+            num_mentions: Default::default(),
+            latest_active: Default::default(),
+            pending: new_nonempty_ring_buffer(),
+        }
+    }
+}
+
+fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
+    // 10 pending read receipts per room should be enough for everyone.
+    // SAFETY: `unwrap` is safe because 10 is not zero.
+    RingBuffer::new(NonZeroUsize::new(10).unwrap())
 }
 
 #[cfg(test)]
