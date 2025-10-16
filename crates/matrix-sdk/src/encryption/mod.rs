@@ -64,10 +64,7 @@ use ruma::{
         uiaa::{AuthData, UiaaInfo},
     },
     assign,
-    events::{
-        direct::DirectUserIdentifier,
-        room::{MediaSource, ThumbnailInfo},
-    },
+    events::room::{MediaSource, ThumbnailInfo},
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -75,7 +72,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -89,7 +86,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, RumaApiError, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -667,20 +664,6 @@ impl Client {
         }
 
         Ok(())
-    }
-
-    /// Get the existing DM room with the given user, if any.
-    pub fn get_dm_room(&self, user_id: &UserId) -> Option<Room> {
-        let rooms = self.joined_rooms();
-
-        // Find the room we share with the `user_id` and only with `user_id`
-        let room = rooms.into_iter().find(|r| {
-            let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
-        });
-
-        trace!(?room, "Found room");
-        room
     }
 
     async fn send_outgoing_request(&self, r: OutgoingRequest) -> Result<()> {
@@ -2034,12 +2017,11 @@ mod tests {
 
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-        event_factory::EventFactory, test_json,
+        test_json,
     };
     use ruma::{
         event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
-        user_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -2104,85 +2086,6 @@ mod tests {
         room.send(reaction).await.expect("Sending the reaction should not fail");
 
         room.send_raw("m.reaction", json!({})).await.expect("Sending the reaction should not fail");
-    }
-
-    #[async_test]
-    async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        // This is the user ID that is inside MemberAdditional.
-        // Note the confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
-
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
-            )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
-
-        // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
-    }
-
-    #[async_test]
-    async fn test_get_dm_room_still_finds_room_where_participant_is_only_invited() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        // This is the user ID that is inside MemberInvite
-        let user_id = user_id!("@invited:localhost");
-
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
-            )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
-
-        // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
-    }
-
-    #[async_test]
-    async fn test_get_dm_room_still_finds_left_room() {
-        // See the discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/2017
-        // and the high-level issue at https://github.com/vector-im/element-x-ios/issues/1077
-
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        // This is the user ID that is inside MemberAdditional.
-        // Note the confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
-
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
-            )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
-
-        // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
     }
 
     #[cfg(feature = "sqlite")]
