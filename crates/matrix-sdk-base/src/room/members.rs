@@ -179,10 +179,13 @@ impl Room {
             .transpose()?
             .map(|e| e.content.ignored_users.into_keys().collect());
 
+        let active_users = self.store.get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
+
         Ok(MemberRoomInfo {
             power_levels: power_levels.into(),
             max_power_level,
             users_display_names,
+            active_users,
             ignored_users,
         })
     }
@@ -211,18 +214,23 @@ impl RoomMember {
         presence: Option<PresenceEvent>,
         room_info: &MemberRoomInfo<'_>,
     ) -> Self {
-        let MemberRoomInfo { power_levels, max_power_level, users_display_names, ignored_users } =
-            room_info;
+        let MemberRoomInfo {
+            power_levels,
+            max_power_level,
+            users_display_names,
+            ignored_users,
+            active_users,
+        } = room_info;
 
         let display_name = event.display_name();
-        let membership = event.membership();
 
-        println!("{:?} {:?}", users_display_names, &display_name);
         let display_name_ambiguous = users_display_names.get(&display_name).is_some_and(|s| {
+            // s.filter(|n| )
             if !is_display_name_ambiguous(&display_name, s) {
                 return false;
             }
-            matches!(*membership, MembershipState::Join | MembershipState::Invite)
+            //We check of many active_users with the same surname exist
+            active_users.iter().filter(|u| s.contains(*u)).count() > 1
         });
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
 
@@ -396,6 +404,7 @@ pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) max_power_level: i64,
     pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>,
     pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
+    pub(crate) active_users: Vec<OwnedUserId>,
 }
 
 /// The kind of room member updates that just happened.
@@ -574,12 +583,9 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            
-            let ambiguity_maps = changes
-                .ambiguity_maps
-                .entry(room.room_id().to_owned())
-                .or_default();
 
+            let ambiguity_maps =
+                changes.ambiguity_maps.entry(room.room_id().to_owned()).or_default();
 
             let display_name = DisplayName::new("Carol");
             members.insert(carol.into(), f.member(carol).display_name("Carol").into());
@@ -618,7 +624,6 @@ mod tests {
             members.insert(mewto.into(), f.member(mewto).display_name("Me").into());
             ambiguity_maps.entry(display_name.clone()).or_default().insert(mewto.to_owned());
 
-
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -633,7 +638,6 @@ mod tests {
 
         assert!(!room.get_member(julie).await.unwrap().expect("Julie user").name_ambiguous());
         assert!(!room.get_member(bob).await.unwrap().expect("Bob user").name_ambiguous());
-
 
         assert!(room.get_member(me).await.unwrap().expect("Me user").name_ambiguous());
         assert!(room.get_member(mewto).await.unwrap().expect("Mewto user").name_ambiguous());
