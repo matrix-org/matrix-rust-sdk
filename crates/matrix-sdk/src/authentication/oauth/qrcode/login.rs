@@ -289,8 +289,8 @@ pub enum GeneratedQrProgress {
     QrScanned(CheckCodeSender),
 }
 
-/// Used to send the [`CheckCode`] to the new device that generated the
-/// QR code.
+/// Used to pass back the [`CheckCode`] entered by the user to verify that the
+/// secure channel is indeed secure.
 #[derive(Clone, Debug)]
 pub struct CheckCodeSender {
     inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,

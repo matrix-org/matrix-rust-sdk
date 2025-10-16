@@ -1,12 +1,130 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    authentication::oauth::qrcode::{
-        self, DeviceCodeErrorResponseType, LoginFailureReason, QrProgress,
+    authentication::oauth::{
+        qrcode::{
+            self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
+            DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+        },
+        OAuth,
     },
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
 };
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+
+use crate::{
+    authentication::OidcConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
+};
+
+/// Handler for logging in with a QR code.
+#[derive(uniffi::Object)]
+pub struct LoginWithQrCodeHandler {
+    oauth: OAuth,
+    oidc_configuration: OidcConfiguration,
+}
+
+impl LoginWithQrCodeHandler {
+    pub(crate) fn new(oauth: OAuth, oidc_configuration: OidcConfiguration) -> Self {
+        Self { oauth, oidc_configuration }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl LoginWithQrCodeHandler {
+    /// This method allows you to log in with a scanned QR code.
+    ///
+    /// The existing device needs to display the QR code which this device can
+    /// scan, call this method and handle its progress updates to log in.
+    ///
+    /// For the login to succeed, the [`Client`] associated with the
+    /// [`LoginWithQrCodeHandler`] must have been built with
+    /// [`QrCodeData::server_name`] as the server name.
+    ///
+    /// This method uses the login mechanism described in [MSC4108]. As such,
+    /// it requires OAuth 2.0 support as well as Sliding Sync support.
+    ///
+    /// For the reverse flow where this device generates the QR code for the
+    /// existing device to scan, use [`LoginWithQrCodeHandler::generate`].
+    ///
+    /// # Arguments
+    ///
+    /// * `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
+    /// * `progress_listener` - A progress listener that must also be used to
+    ///   transfer the [`CheckCode`] to the existing device.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    pub async fn scan(
+        self: Arc<Self>,
+        qr_code_data: &QrCodeData,
+        progress_listener: Box<dyn QrLoginProgressListener>,
+    ) -> Result<(), HumanQrLoginError> {
+        let registration_data = self
+            .oidc_configuration
+            .registration_data()
+            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+
+        let login =
+            self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
+
+        let mut progress = login.subscribe_to_progress();
+
+        // We create this task, which will get cancelled once it's dropped, just in case
+        // the progress stream doesn't end.
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(state) = progress.next().await {
+                progress_listener.on_update(state.into());
+            }
+        }));
+
+        login.await?;
+
+        Ok(())
+    }
+
+    /// This method allows you to log in by generating a QR code.
+    ///
+    /// This device needs to call this method and handle its progress updates to
+    /// generate a QR code which the existing device can scan and grant the
+    /// log in.
+    ///
+    /// This method uses the login mechanism described in [MSC4108]. As such,
+    /// it requires OAuth 2.0 support as well as Sliding Sync support.
+    ///
+    /// For the reverse flow where the existing device generates the QR code
+    /// for this device to scan, use [`LoginWithQrCodeHandler::scan`].
+    ///
+    /// # Arguments
+    ///
+    /// * `progress_listener` - A progress listener that must also be used to
+    ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    pub async fn generate(
+        self: Arc<Self>,
+        progress_listener: Box<dyn GeneratedQrLoginProgressListener>,
+    ) -> Result<(), HumanQrLoginError> {
+        let registration_data = self
+            .oidc_configuration
+            .registration_data()
+            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+
+        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+
+        let mut progress = login.subscribe_to_progress();
+
+        // We create this task, which will get cancelled once it's dropped, just in case
+        // the progress stream doesn't end.
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(state) = progress.next().await {
+                progress_listener.on_update(state.into());
+            }
+        }));
+
+        login.await?;
+
+        Ok(())
+    }
+}
 
 /// Data for the QR code login mechanism.
 ///
@@ -71,6 +189,10 @@ pub enum HumanQrLoginError {
     OidcMetadataInvalid,
     #[error("The other device is not signed in and as such can't sign in other devices.")]
     OtherDeviceNotSignedIn,
+    #[error("The check code was already sent.")]
+    CheckCodeAlreadySent,
+    #[error("The check code could not be sent.")]
+    CheckCodeCannotBeSent,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
@@ -122,7 +244,17 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
     }
 }
 
-/// Enum describing the progress of the QR-code login.
+impl From<CheckCodeSenderError> for HumanQrLoginError {
+    fn from(value: CheckCodeSenderError) -> Self {
+        match value {
+            CheckCodeSenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
+            CheckCodeSenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
+        }
+    }
+}
+
+/// Enum describing the progress of logging in by scanning a QR code that was
+/// generated on an existing device.
 #[derive(Debug, Default, Clone, uniffi::Enum)]
 pub enum QrLoginProgress {
     /// The login process is starting.
@@ -170,5 +302,73 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
             LoginProgress::SyncingSecrets => Self::SyncingSecrets,
             LoginProgress::Done => Self::Done,
         }
+    }
+}
+
+/// Enum describing the progress of logging in by generating a QR code and
+/// having an existing device scan it.
+#[derive(Debug, Default, Clone, uniffi::Enum)]
+pub enum GeneratedQrLoginProgress {
+    /// The login process is starting.
+    #[default]
+    Starting,
+    /// We have established the secure channel and now need to display the
+    /// QR code so that the existing device can scan it.
+    QrReady { qr_code: Arc<QrCodeData> },
+    /// The existing device has scanned the QR code and is displaying the
+    /// checkcode. We now need to ask the user to enter the checkcode so that
+    /// we can verify that the channel is indeed secure.
+    QrScanned { check_code_sender: Arc<CheckCodeSender> },
+    /// We are waiting for the login and for the OAuth 2.0 authorization server
+    /// to give us an access token.
+    WaitingForToken { user_code: String },
+    /// We are syncing secrets.
+    SyncingSecrets,
+    /// The login has successfully finished.
+    Done,
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait GeneratedQrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, state: GeneratedQrLoginProgress);
+}
+
+impl From<qrcode::LoginProgress<GeneratedQrProgress>> for GeneratedQrLoginProgress {
+    fn from(value: qrcode::LoginProgress<GeneratedQrProgress>) -> Self {
+        use qrcode::LoginProgress;
+
+        match value {
+            LoginProgress::Starting => Self::Starting,
+            LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(inner)) => {
+                Self::QrReady { qr_code: Arc::new(QrCodeData { inner }) }
+            }
+            LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(inner)) => {
+                Self::QrScanned { check_code_sender: Arc::new(CheckCodeSender { inner }) }
+            }
+            LoginProgress::WaitingForToken { user_code } => Self::WaitingForToken { user_code },
+            LoginProgress::SyncingSecrets => Self::SyncingSecrets,
+            LoginProgress::Done => Self::Done,
+        }
+    }
+}
+
+#[derive(Debug, uniffi::Object)]
+/// Used to pass back the [`CheckCode`] entered by the user to verify that the
+/// secure channel is indeed secure.
+pub struct CheckCodeSender {
+    inner: SdkCheckCodeSender,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl CheckCodeSender {
+    /// Send the [`CheckCode`].
+    ///
+    /// Calling this method more than once will result in an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `check_code` - The check code in digits representation.
+    pub async fn send(&self, code: u8) -> Result<(), HumanQrLoginError> {
+        self.inner.send(code).await.map_err(HumanQrLoginError::from)
     }
 }
