@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Add `authentication::oauth::qrcode::login::LoginProgress::SyncingSecrets` to
   indicate that secrets are being synced between the two devices.
   ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
+- Allow `Client::get_dm_room()` to be called without the `e2e-encryption` crate feature.
+  ([#5787](https://github.com/matrix-org/matrix-rust-sdk/pull/5787))
 
 ### Refactor
 
