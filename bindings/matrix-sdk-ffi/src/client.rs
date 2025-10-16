@@ -102,7 +102,7 @@ use crate::{
     encryption::Encryption,
     notification::NotificationClient,
     notification_settings::NotificationSettings,
-    qr_code::{HumanQrLoginError, QrCodeData, QrLoginProgressListener},
+    qr_code::LoginWithQrCodeHandler,
     room::{RoomHistoryVisibility, RoomInfoListener},
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
@@ -543,43 +543,17 @@ impl Client {
         Ok(())
     }
 
-    /// Log in using the provided [`QrCodeData`]. The `Client` must be built
-    /// by providing [`QrCodeData::server_name`] as the server name for this
-    /// login to succeed.
+    /// Log in using a QR code.
     ///
-    /// This method uses the login mechanism described in [MSC4108]. As such
-    /// this method requires OAuth 2.0 support as well as sliding sync support.
+    /// # Arguments
     ///
-    /// The usage of the progress_listener is required to transfer the
-    /// [`CheckCode`] to the existing client.
-    ///
-    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn login_with_qr_code(
+    /// * `oidc_configuration` - The data to restore or register the client with
+    ///   the server.
+    pub fn login_with_qr_code(
         self: Arc<Self>,
-        qr_code_data: &QrCodeData,
-        oidc_configuration: &OidcConfiguration,
-        progress_listener: Box<dyn QrLoginProgressListener>,
-    ) -> Result<(), HumanQrLoginError> {
-        let registration_data = oidc_configuration
-            .registration_data()
-            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
-
-        let oauth = self.inner.oauth();
-        let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
-
-        let mut progress = login.subscribe_to_progress();
-
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(state) = progress.next().await {
-                progress_listener.on_update(state.into());
-            }
-        }));
-
-        login.await?;
-
-        Ok(())
+        oidc_configuration: OidcConfiguration,
+    ) -> LoginWithQrCodeHandler {
+        LoginWithQrCodeHandler::new(self.inner.oauth(), oidc_configuration)
     }
 
     /// Restores the client from a `Session`.

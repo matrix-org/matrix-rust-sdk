@@ -42,7 +42,8 @@ mod secure_channel;
 
 pub use self::{
     login::{
-        GeneratedQrProgress, LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress,
+        CheckCodeSender, CheckCodeSenderError, GeneratedQrProgress, LoginProgress,
+        LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress,
     },
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };

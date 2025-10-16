@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
   ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
 - Add `Room::subscribe_to_send_queue_updates` to observe room send queue updates.
   ([#5761](https://github.com/matrix-org/matrix-rust-sdk/pull/5761))
+- `Client::login_with_qr_code` now returns a handler that allows performing the flow with either the
+  current device scanning or generating the QR code. Additionally, new errors `HumanQrLoginError::CheckCodeAlreadySent`
+  and `HumanQrLoginError::CheckCodeCannotBeSent` were added.
+  ([#5786](https://github.com/matrix-org/matrix-rust-sdk/pull/5786))
 
 ### Features:
 
