@@ -495,13 +495,11 @@ pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
 mod tests {
     use std::sync::Arc;
 
-    use proptest::prelude::*;
-
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use proptest::prelude::*;
     use ruma::{room_id, user_id};
 
     use super::*;
-
     use crate::{RoomState, StateChanges, StateStore, store::MemoryStore};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
