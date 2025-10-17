@@ -124,6 +124,16 @@ pub mod v1 {
         pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
         pub const MEDIA_RETENTION_METADATA: &str = "media_retention_metadata";
         pub const MEDIA_RETENTION_METADATA_KEY_PATH: &str = "retention_metadata";
+        pub const MEDIA_METADATA: &str = "media_metadata";
+        pub const MEDIA_METADATA_KEY_PATH: &str = "id";
+        pub const MEDIA_METADATA_URI: &str = "media_metadata_uri";
+        pub const MEDIA_METADATA_URI_KEY_PATH: &str = "uri";
+        pub const MEDIA_METADATA_CONTENT_SIZE: &str = "media_metadata_content_size";
+        pub const MEDIA_METADATA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
+        pub const MEDIA_METADATA_LAST_ACCESS: &str = "media_metadata_last_access";
+        pub const MEDIA_METADATA_LAST_ACCESS_KEY_PATH: &str = "last_access";
+        pub const MEDIA_METADATA_RETENTION: &str = "media_metadata_retention";
+        pub const MEDIA_METADATA_RETENTION_KEY_PATH: &str = "retention";
         pub const MEDIA_CONTENT: &str = "media_content";
         pub const MEDIA_CONTENT_KEY_PATH: &str = "id";
     }
@@ -133,6 +143,7 @@ pub mod v1 {
         create_core_object_store(db)?;
         create_lease_object_store(db)?;
         create_media_object_store(db)?;
+        create_media_metadata_object_store(db)?;
         create_media_content_object_store(db)?;
         Ok(())
     }
@@ -184,6 +195,49 @@ pub mod v1 {
             .create_index(
                 keys::MEDIA_RETENTION_METADATA,
                 keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
+            )
+            .build()?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about media metadata.
+    ///
+    /// * Primary Key - `id` - unique key derived from
+    ///   [`MediaRequestParameters`] of the associated media
+    /// * Index - `uri` - tracks the [`MxcUri`][1] of the associated media
+    /// * Index - `content_size` - tracks the size of the media content and
+    ///   whether to ignore the [`MediaRetentionPolicy`][2]
+    /// * Index - `last_access` - tracks the last time the associated media was
+    ///   accessed
+    /// * Index - `retention` - tracks all retention metadata - i.e., joins
+    ///   `content_size` and `last_access`
+    ///
+    /// [1]: ruma::MxcUri
+    /// [2]: matrix_sdk_base::media::store::MediaRetentionPolicy
+    fn create_media_metadata_object_store(db: &Database) -> Result<(), Error> {
+        let media = db
+            .create_object_store(keys::MEDIA_METADATA)
+            .with_key_path(keys::MEDIA_METADATA_KEY_PATH.into())
+            .build()?;
+        let _ = media
+            .create_index(keys::MEDIA_METADATA_URI, keys::MEDIA_METADATA_URI_KEY_PATH.into())
+            .build()?;
+        let _ = media
+            .create_index(
+                keys::MEDIA_METADATA_CONTENT_SIZE,
+                keys::MEDIA_METADATA_CONTENT_SIZE_KEY_PATH.into(),
+            )
+            .build()?;
+        let _ = media
+            .create_index(
+                keys::MEDIA_METADATA_LAST_ACCESS,
+                keys::MEDIA_METADATA_LAST_ACCESS_KEY_PATH.into(),
+            )
+            .build()?;
+        let _ = media
+            .create_index(
+                keys::MEDIA_METADATA_RETENTION,
+                keys::MEDIA_METADATA_RETENTION_KEY_PATH.into(),
             )
             .build()?;
         Ok(())
