@@ -1,15 +1,21 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use matrix_sdk::{config::SyncSettings, notification_settings::RoomNotificationMode};
+use matrix_sdk::{
+    SlidingSyncList, config::SyncSettings, notification_settings::RoomNotificationMode,
+    test_utils::mocks::MatrixMockServer,
+};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
 };
 use ruma::{
+    api::client::sync::sync_events::v5,
+    events::AnyGlobalAccountDataEvent,
     push::{Action, ConditionalPushRule, NewSimplePushRule, Ruleset, Tweak},
     room_id,
+    serde::Raw,
 };
 use serde_json::json;
 use wiremock::{
@@ -101,4 +107,88 @@ async fn test_get_notification_mode() {
     assert_eq!(room.state(), RoomState::Invited);
     let mode = room.notification_mode().await;
     assert_eq!(mode, None);
+}
+
+#[async_test]
+async fn test_cached_notification_mode_is_updated_when_syncing() {
+    let server = MatrixMockServer::new().await;
+    let (client, _) = server.set_up_alice_and_bob_for_encryption().await;
+
+    server.mock_crypto_endpoints_preset().await;
+    server.mock_room_state_encryption().encrypted().mount().await;
+
+    // If we receive a sliding sync response with custom rules for a room
+    let mut ruleset = Ruleset::default();
+    ruleset.override_ =
+        [ConditionalPushRule::master(), ConditionalPushRule::suppress_notices()].into();
+    ruleset.room.insert(
+        NewSimplePushRule::new(
+            (*DEFAULT_TEST_ROOM_ID).into(),
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+        )
+        .into(),
+    );
+    ruleset.underride = [
+        ConditionalPushRule::call(),
+        ConditionalPushRule::room_one_to_one(),
+        ConditionalPushRule::invite_for_me(client.user_id().unwrap()),
+        ConditionalPushRule::member_event(),
+        ConditionalPushRule::message(),
+    ]
+    .into();
+    let f = EventFactory::new();
+    let push_rules: Raw<AnyGlobalAccountDataEvent> = f.push_rules(ruleset).into_raw();
+    let mut response = v5::Response::new("pos".to_owned());
+    response.extensions.account_data.global.push(push_rules);
+    response.rooms.insert(DEFAULT_TEST_ROOM_ID.to_owned(), v5::response::Room::default());
+
+    server
+        .mock_sliding_sync()
+        .ok_and_run(
+            &client,
+            |builder| builder.add_list(SlidingSyncList::builder("rooms")),
+            response,
+        )
+        .await;
+
+    server.verify_and_reset().await;
+
+    // We can later check the custom mode is applied
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room not found");
+    assert_eq!(
+        room.cached_user_defined_notification_mode(),
+        Some(RoomNotificationMode::AllMessages)
+    );
+
+    // Now if we receive a response with no custom push rules for the room, just the
+    // base ones
+    let mut ruleset = Ruleset::default();
+    ruleset.underride = [
+        ConditionalPushRule::call(),
+        ConditionalPushRule::room_one_to_one(),
+        ConditionalPushRule::invite_for_me(client.user_id().unwrap()),
+        ConditionalPushRule::member_event(),
+        ConditionalPushRule::message(),
+    ]
+    .into();
+
+    let f = EventFactory::new();
+    let push_rules: Raw<AnyGlobalAccountDataEvent> = f.push_rules(ruleset).into_raw();
+    let mut response = v5::Response::new("pos".to_owned());
+    response.extensions.account_data.global.push(push_rules);
+
+    server
+        .mock_sliding_sync()
+        .ok_and_run(
+            &client,
+            |builder| builder.add_list(SlidingSyncList::builder("rooms")),
+            response,
+        )
+        .await;
+
+    server.verify_and_reset().await;
+
+    // And the custom notification mode for the room has been removed
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room not found");
+    assert!(room.cached_user_defined_notification_mode().is_none());
 }
