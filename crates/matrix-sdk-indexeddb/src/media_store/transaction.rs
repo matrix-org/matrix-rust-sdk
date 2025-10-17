@@ -26,9 +26,11 @@ use crate::{
         serializer::indexed_types::{
             IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentIdKey,
             IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaLastAccessKey,
+            IndexedMediaMetadataContentSizeKey, IndexedMediaMetadataIdKey,
+            IndexedMediaMetadataRetentionKey, IndexedMediaMetadataUriKey,
             IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
-        types::{Lease, Media, MediaCleanupTime, MediaContent, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
     serializer::{IndexedKeyRange, IndexedPrefixKeyComponentBounds, IndexedTypeSerializer},
     transaction::{Transaction, TransactionError},
@@ -339,6 +341,113 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Query IndexedDB for [`MediaMetadata`] that matches the given
+    /// [`MediaRequestParameters`]. If more than one item is found, an error
+    /// is returned.
+    pub async fn get_media_metadata_by_id(
+        &self,
+        request_parameters: &MediaRequestParameters,
+    ) -> Result<Option<MediaMetadata>, TransactionError> {
+        self.get_item_by_key_components::<MediaMetadata, IndexedMediaMetadataIdKey>(
+            request_parameters,
+        )
+        .await
+    }
+
+    /// Query IndexedDB for [`MediaMetadata`] that matches the given
+    /// [`MediaRequestParameters`]. If an item is found, update
+    /// [`MediaMetadata::last_access`] using `current_time`. If more than one
+    /// item is found, an error is returned.
+    pub async fn access_media_metadata_by_id(
+        &self,
+        request_parameters: &MediaRequestParameters,
+        current_time: impl Into<UnixTime>,
+    ) -> Result<Option<MediaMetadata>, TransactionError> {
+        if let Some(mut media_metadata) = self.get_media_metadata_by_id(request_parameters).await? {
+            let last_access = media_metadata.last_access;
+            media_metadata.last_access = current_time.into();
+            self.put_item(&media_metadata).await?;
+            media_metadata.last_access = last_access;
+            Ok(Some(media_metadata))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Query IndexedDB for [`MediaMetadata`] that match the given [`MxcUri`].
+    pub async fn get_media_metadata_by_uri(
+        &self,
+        uri: &MxcUri,
+    ) -> Result<Vec<MediaMetadata>, TransactionError> {
+        self.get_items_by_key_components::<MediaMetadata, IndexedMediaMetadataUriKey>(uri).await
+    }
+
+    /// Query IndexedDB for [`MediaMetadata`] that matches the given
+    /// [`MxcUri`]. If an item is found, update [`MediaMetadata::last_access`]
+    /// using `current_time`. If more than one item is found, an error
+    /// is returned.
+    pub async fn access_media_metadata_by_uri(
+        &self,
+        uri: &MxcUri,
+        current_time: impl Into<UnixTime>,
+    ) -> Result<Vec<MediaMetadata>, TransactionError> {
+        let current_time = current_time.into();
+        let mut media_metadatas = Vec::new();
+        for mut media_metadata in self.get_media_metadata_by_uri(uri).await? {
+            let last_access = media_metadata.last_access;
+            media_metadata.last_access = current_time;
+            self.put_item(&media_metadata).await?;
+            media_metadata.last_access = last_access;
+            media_metadatas.push(media_metadata);
+        }
+        Ok(media_metadatas)
+    }
+
+    /// Query IndexedDB for all [content size][1] keys whose associated
+    /// [`MediaMetadata`] matches the given [`IgnoreMediaRetentionPolicy`].
+    ///
+    /// [1]: crate::media_store::serializer::indexed_types::IndexedMediaMetadataContentSizeKey
+    pub async fn get_media_metadata_keys_by_content_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<Vec<IndexedMediaMetadataContentSizeKey>, TransactionError> {
+        self.get_keys::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(
+            IndexedKeyRange::all_with_prefix(ignore_policy, self.serializer().inner()),
+        )
+        .await
+    }
+
+    /// Query IndexedDB for [retention metadata][1] keys that match the given
+    /// key range. Iterate over the keys in the given
+    /// [`direction`](CursorDirection) using a cursor and fold them into an
+    /// accumulator while the given function `f` returns [`Some`].
+    ///
+    /// This function returns the final value of the accumulator and the key, if
+    /// any, which caused the fold to short circuit.
+    ///
+    /// Note that the use of cursor means that keys are read lazily from
+    /// IndexedDB.
+    ///
+    /// [1]: crate::media_store::serializer::indexed_types::IndexedMediaMetadataRetentionKey
+    pub async fn fold_media_metadata_keys_by_retention_while<Acc, F>(
+        &self,
+        direction: CursorDirection,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        init: Acc,
+        f: F,
+    ) -> Result<(Acc, Option<IndexedMediaMetadataRetentionKey>), TransactionError>
+    where
+        F: FnMut(&Acc, &IndexedMediaMetadataRetentionKey) -> Option<Acc>,
+    {
+        self.fold_keys_while::<MediaMetadata, IndexedMediaMetadataRetentionKey, Acc, F>(
+            direction,
+            IndexedKeyRange::all_with_prefix(ignore_policy, self.serializer().inner()),
+            init,
+            f,
+        )
+        .await
+    }
+
+    /// Query IndexedDB for [`Media`] that matches the given
     /// identifier. If more than one item is found, an error
     /// is returned.
     pub async fn get_media_content_by_id(
