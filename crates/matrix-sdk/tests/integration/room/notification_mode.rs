@@ -112,10 +112,7 @@ async fn test_get_notification_mode() {
 #[async_test]
 async fn test_cached_notification_mode_is_updated_when_syncing() {
     let server = MatrixMockServer::new().await;
-    let (client, _) = server.set_up_alice_and_bob_for_encryption().await;
-
-    server.mock_crypto_endpoints_preset().await;
-    server.mock_room_state_encryption().encrypted().mount().await;
+    let client = server.client_builder().build().await;
 
     // If we receive a sliding sync response with custom rules for a room
     let mut ruleset = Ruleset::default();
