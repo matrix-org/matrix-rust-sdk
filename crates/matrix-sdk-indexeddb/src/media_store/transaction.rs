@@ -447,6 +447,24 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         .await
     }
 
+    /// Adds [`MediaMetadata`] to IndexedDB. If an item with the same key
+    /// already exists, it will be rejected.
+    pub async fn add_media_metadata(
+        &self,
+        media_metadata: &MediaMetadata,
+    ) -> Result<(), TransactionError> {
+        self.add_item(media_metadata).await
+    }
+
+    /// Puts [`MediaMetadata`] in IndexedDB object. If an item with the same key
+    /// already exists, it will be overwritten.
+    pub async fn put_media_metadata(
+        &self,
+        media_metadata: &MediaMetadata,
+    ) -> Result<(), TransactionError> {
+        self.put_item(media_metadata).await
+    }
+
     /// Query IndexedDB for [`Media`] that matches the given
     /// identifier. If more than one item is found, an error
     /// is returned.
