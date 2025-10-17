@@ -277,6 +277,8 @@ async fn update_in_memory_caches(
         for room in client.joined_rooms() {
             if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
                 room.update_cached_user_defined_notification_mode(mode);
+            } else {
+                room.clear_user_defined_notification_mode();
             }
         }
     } else {

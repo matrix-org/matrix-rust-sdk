@@ -429,6 +429,19 @@ impl Room {
         self.info.read().cached_user_defined_notification_mode
     }
 
+    /// Removes any existing cached value for the user defined notification
+    /// mode.
+    pub fn clear_user_defined_notification_mode(&self) {
+        self.info.update_if(|info| {
+            if info.cached_user_defined_notification_mode.is_some() {
+                info.cached_user_defined_notification_mode = None;
+                true
+            } else {
+                false
+            }
+        })
+    }
+
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
     pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
