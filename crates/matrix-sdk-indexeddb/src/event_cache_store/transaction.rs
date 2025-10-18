@@ -26,8 +26,9 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position},
     },
@@ -248,9 +249,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// Add a chunk and ensure that the next and previous
     /// chunks are properly linked to the chunk being added. If a chunk with
     /// the same identifier already exists, the given chunk will be
-    /// rejected.
-    pub async fn add_chunk(&self, chunk: &Chunk) -> Result<(), TransactionError> {
-        self.add_item(chunk).await?;
+    /// rejected. When the item is successfully added, the
+    /// function returns the intermediary type [`IndexedChunk`] in case
+    /// inspection is needed.
+    pub async fn add_chunk(&self, chunk: &Chunk) -> Result<IndexedChunk, TransactionError> {
+        let indexed = self.add_item(chunk).await?;
         if let Some(previous) = chunk.previous {
             let previous_identifier = ChunkIdentifier::new(previous);
             if let Some(mut previous_chunk) =
@@ -269,7 +272,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 self.put_item(&next_chunk).await?;
             }
         }
-        Ok(())
+        Ok(indexed)
     }
 
     /// Delete chunk that matches the given id and the given linked chunk id and
