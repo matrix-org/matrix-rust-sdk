@@ -24,12 +24,12 @@ use ruma::MxcUri;
 use crate::{
     media_store::{
         serializer::indexed_types::{
-            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMedia, IndexedMediaContent,
-            IndexedMediaContentIdKey, IndexedMediaContentSizeKey, IndexedMediaIdKey,
-            IndexedMediaLastAccessKey, IndexedMediaMetadata, IndexedMediaMetadataContentSizeKey,
-            IndexedMediaMetadataIdKey, IndexedMediaMetadataLastAccessKey,
-            IndexedMediaMetadataRetentionKey, IndexedMediaMetadataUriKey,
-            IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
+            IndexedCoreIdKey, IndexedLease, IndexedLeaseIdKey, IndexedMedia,
+            IndexedMediaCleanupTime, IndexedMediaContent, IndexedMediaContentIdKey,
+            IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaLastAccessKey,
+            IndexedMediaMetadata, IndexedMediaMetadataContentSizeKey, IndexedMediaMetadataIdKey,
+            IndexedMediaMetadataLastAccessKey, IndexedMediaMetadataRetentionKey,
+            IndexedMediaMetadataUriKey, IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
@@ -74,8 +74,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts a lease into IndexedDB. If a media with the same key already
-    /// exists, it will be overwritten.
-    pub async fn put_lease(&self, lease: &Lease) -> Result<(), TransactionError> {
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`IndexedLease`] in case
+    /// inspection is needed.
+    pub async fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
         self.transaction.put_item(lease).await
     }
 
@@ -96,11 +98,13 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts a media clean up time into IndexedDB. If one already exists, it
-    /// will be overwritten.
+    /// will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`IndexedMediaCLeanupTime`] in
+    /// case inspection is needed.
     pub async fn put_media_cleanup_time(
         &self,
         time: impl Into<MediaCleanupTime>,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<IndexedMediaCleanupTime, TransactionError> {
         let time: MediaCleanupTime = time.into();
         self.transaction.put_item(&time).await
     }
@@ -232,21 +236,23 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts [`Media`] in IndexedDB object. If an item with the same key already
-    /// exists, it will be overwritten.
-    pub async fn put_media(&self, media: &Media) -> Result<(), TransactionError> {
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`IndexedMedia`] in case
+    /// inspection is needed.
+    pub async fn put_media(&self, media: &Media) -> Result<IndexedMedia, TransactionError> {
         self.put_item(media).await
     }
 
-    /// Adds [`Media`] to IndexedDB if the size of [`IndexedMedia::content`][1]
+    /// Adds [`Media`] to IndexedDB if the size of [`IndexedMedia::content`]
     /// does not exceed [`MediaRetentionPolicy::max_file_size]. If an item with
-    /// the same key already exists, it will be overwritten.
-    ///
-    /// [1]: crate::event_cache_store::serializer::types::IndexedMedia::content
+    /// the same key already exists, it will be overwritten.  When the item is
+    /// successfully put, the function returns the intermediary type
+    /// [`IndexedMedia`] in case inspection is needed.
     pub async fn put_media_if_policy_compliant(
         &self,
         media: &Media,
         policy: MediaRetentionPolicy,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<Option<IndexedMedia>, TransactionError> {
         self.put_item_if(media, |indexed| {
             indexed.content_size.ignore_policy().is_yes()
                 || !policy.exceeds_max_file_size(indexed.content_size.content_size() as u64)
@@ -462,11 +468,13 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts [`MediaMetadata`] in IndexedDB object. If an item with the same key
-    /// already exists, it will be overwritten.
+    /// already exists, it will be overwritten. When the item is successfully
+    /// put, the function returns the intermediary type
+    /// [`IndexedMediaMetadata`] in case inspection is needed.
     pub async fn put_media_metadata(
         &self,
         media_metadata: &MediaMetadata,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<IndexedMediaMetadata, TransactionError> {
         self.put_item(media_metadata).await
     }
 
@@ -619,22 +627,27 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts [`MediaContent`] in IndexedDB object. If an item with the same key
-    /// already exists, it will be overwritten.
-    pub async fn put_media_content(&self, content: &MediaContent) -> Result<(), TransactionError> {
+    /// already exists, it will be overwritten. When the item is successfully
+    /// put, the function returns the intermediary type
+    /// [`IndexedMediaContent`] in case inspection is needed.
+    pub async fn put_media_content(
+        &self,
+        content: &MediaContent,
+    ) -> Result<IndexedMediaContent, TransactionError> {
         self.put_item(content).await
     }
 
     /// Adds [`MediaContent`] to IndexedDB if the size of
-    /// [`IndexedMediaContent::content`][1] does not exceed
+    /// [`IndexedMediaContent::content`] does not exceed
     /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
-    /// already exists, it will be overwritten.
-    ///
-    /// [1]: crate::media_store::serializer::indexed_types::IndexedMediaContent::content
+    /// already exists, it will be overwritten. When the item is successfully
+    /// put, the function returns the intermediary type
+    /// [`IndexedMediaContent`] in case inspection is needed.
     pub async fn put_media_content_if_policy_compliant(
         &self,
         media: &MediaContent,
         policy: MediaRetentionPolicy,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<Option<IndexedMediaContent>, TransactionError> {
         self.put_item_if(media, |indexed| {
             !policy.exceeds_max_file_size(indexed.content.len() as u64)
         })
