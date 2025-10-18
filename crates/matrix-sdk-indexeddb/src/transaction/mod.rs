@@ -371,7 +371,8 @@ impl<'a> Transaction<'a> {
             .add(
                 self.serializer
                     .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?,
+                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?
+                    .value,
             )
             .await
             .map_err(Into::into)
@@ -391,7 +392,8 @@ impl<'a> Transaction<'a> {
             .put(
                 self.serializer
                     .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?,
+                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?
+                    .value,
             )
             .await
             .map_err(Into::into)
@@ -415,8 +417,8 @@ impl<'a> Transaction<'a> {
             .serializer
             .serialize_if(item, f)
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
-        if let Some(value) = option {
-            self.transaction.object_store(T::OBJECT_STORE)?.put(value).await?;
+        if let Some(output) = option {
+            self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
         }
         Ok(())
     }
