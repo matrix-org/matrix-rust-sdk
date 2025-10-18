@@ -378,34 +378,34 @@ impl<'a> Transaction<'a> {
 
     /// Puts an item in the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be overwritten.
-    pub async fn put_item<T>(&self, item: &T) -> Result<(), TransactionError>
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
+    pub async fn put_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
         T::Error: AsyncErrorDeps,
     {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .put(
-                self.serializer
-                    .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?
-                    .value,
-            )
-            .await
-            .map_err(Into::into)
+        let output = self
+            .serializer
+            .serialize(item)
+            .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+        self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+        Ok(output.indexed)
     }
 
     /// Puts an item in the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`, if `T::IndexedType` meets the criteria
     /// defined by `f`. If an item with the same key already
-    /// exists, it will be overwritten.
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
     pub async fn put_item_if<T>(
         &self,
         item: &T,
         f: impl Fn(&T::IndexedType) -> bool,
-    ) -> Result<(), TransactionError>
+    ) -> Result<Option<T::IndexedType>, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
@@ -417,8 +417,10 @@ impl<'a> Transaction<'a> {
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
         if let Some(output) = option {
             self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+            Ok(Some(output.indexed))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 
     /// Delete items in given key range from IndexedDB
