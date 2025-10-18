@@ -359,23 +359,21 @@ impl<'a> Transaction<'a> {
 
     /// Adds an item to the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be rejected.
-    pub async fn add_item<T>(&self, item: &T) -> Result<(), TransactionError>
+    /// exists, it will be rejected. When the item is successfully added, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
+    pub async fn add_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
         T::Error: AsyncErrorDeps,
     {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .add(
-                self.serializer
-                    .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?
-                    .value,
-            )
-            .await
-            .map_err(Into::into)
+        let output = self
+            .serializer
+            .serialize(item)
+            .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+        self.transaction.object_store(T::OBJECT_STORE)?.add(output.value).await?;
+        Ok(output.indexed)
     }
 
     /// Puts an item in the corresponding IndexedDB object
