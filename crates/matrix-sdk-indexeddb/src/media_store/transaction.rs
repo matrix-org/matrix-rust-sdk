@@ -24,11 +24,12 @@ use ruma::MxcUri;
 use crate::{
     media_store::{
         serializer::indexed_types::{
-            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMediaContentIdKey,
-            IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaLastAccessKey,
-            IndexedMediaMetadataContentSizeKey, IndexedMediaMetadataIdKey,
-            IndexedMediaMetadataLastAccessKey, IndexedMediaMetadataRetentionKey,
-            IndexedMediaMetadataUriKey, IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
+            IndexedCoreIdKey, IndexedLeaseIdKey, IndexedMedia, IndexedMediaContent,
+            IndexedMediaContentIdKey, IndexedMediaContentSizeKey, IndexedMediaIdKey,
+            IndexedMediaLastAccessKey, IndexedMediaMetadata, IndexedMediaMetadataContentSizeKey,
+            IndexedMediaMetadataIdKey, IndexedMediaMetadataLastAccessKey,
+            IndexedMediaMetadataRetentionKey, IndexedMediaMetadataUriKey,
+            IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
@@ -223,8 +224,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Adds [`Media`] to IndexedDB. If an item with the same key already
-    /// exists, it will be rejected.
-    pub async fn add_media(&self, media: &Media) -> Result<(), TransactionError> {
+    /// exists, it will be rejected. When the item is successfully added, the
+    /// function returns the intermediary type [`IndexedMedia`] in case
+    /// inspection is needed.
+    pub async fn add_media(&self, media: &Media) -> Result<IndexedMedia, TransactionError> {
         self.add_item(media).await
     }
 
@@ -448,11 +451,13 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Adds [`MediaMetadata`] to IndexedDB. If an item with the same key
-    /// already exists, it will be rejected.
+    /// already exists, it will be rejected. When the item is successfully
+    /// added, the function returns the intermediary type
+    /// [`IndexedMediaMetadata`] in case inspection is needed.
     pub async fn add_media_metadata(
         &self,
         media_metadata: &MediaMetadata,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<IndexedMediaMetadata, TransactionError> {
         self.add_item(media_metadata).await
     }
 
@@ -603,8 +608,13 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Adds [`MediaContent`] to IndexedDB. If an item with the same key already
-    /// exists, it will be rejected.
-    pub async fn add_media_content(&self, content: &MediaContent) -> Result<(), TransactionError> {
+    /// exists, it will be rejected. When the item is successfully added, the
+    /// function returns the intermediary type [`IndexedMediaContent`] in case
+    /// inspection is needed.
+    pub async fn add_media_content(
+        &self,
+        content: &MediaContent,
+    ) -> Result<IndexedMediaContent, TransactionError> {
         self.add_item(content).await
     }
 
