@@ -46,6 +46,19 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexedTypeSerializerError<T> {
     }
 }
 
+/// A type encapsulating the output of serializing a value through
+/// [`IndexedTypeSerializer`]. This contains both the intermediary type - i.e.,
+/// [`Indexed::IndexedType`] - and the fully-serialized type - i.e.,
+/// [`JsValue`]. It is convenient for cases where one may want to examine the
+/// intermediary type.
+#[derive(Debug)]
+pub struct IndexedTypeSerializationOutput<T: Indexed> {
+    /// The intermediary value created in the process of serialization
+    pub indexed: T::IndexedType,
+    /// The fully-serialzed value
+    pub value: JsValue,
+}
+
 /// A (de)serializer for an IndexedDB implementation of [`EventCacheStore`][1].
 ///
 /// This is primarily a wrapper around [`SafeEncodeSerializer`] with
@@ -135,30 +148,37 @@ impl IndexedTypeSerializer {
         self.encode_key_range::<T, K>(range)
     }
 
-    /// Serializes an [`Indexed`] type into a [`JsValue`]
-    pub fn serialize<T>(&self, t: &T) -> Result<JsValue, IndexedTypeSerializerError<T::Error>>
+    /// Serializes an [`Indexed`] type into a [`JsValue`] and returns both the
+    /// [`JsValue`] and the intermediary [`Indexed::IndexedType`]
+    pub fn serialize<T>(
+        &self,
+        t: &T,
+    ) -> Result<IndexedTypeSerializationOutput<T>, IndexedTypeSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: Serialize,
     {
         let indexed = t.to_indexed(&self.inner).map_err(IndexedTypeSerializerError::Indexing)?;
-        serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
+        let value = serde_wasm_bindgen::to_value(&indexed)?;
+        Ok(IndexedTypeSerializationOutput { indexed, value })
     }
 
     /// Serializes an [`Indexed`] type into a [`JsValue`] if the
-    /// [`Indexed::IndexedType`] meets criteria defined by `f`.
+    /// [`Indexed::IndexedType`] meets criteria defined by `f`. If successful,
+    /// returns both the [`JsValue`] and the [`Indexed::IndexedType`].
     pub fn serialize_if<T>(
         &self,
         t: &T,
         f: impl Fn(&T::IndexedType) -> bool,
-    ) -> Result<Option<JsValue>, IndexedTypeSerializerError<T::Error>>
+    ) -> Result<Option<IndexedTypeSerializationOutput<T>>, IndexedTypeSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: Serialize,
     {
         let indexed = t.to_indexed(&self.inner).map_err(IndexedTypeSerializerError::Indexing)?;
         if f(&indexed) {
-            serde_wasm_bindgen::to_value(&indexed).map(Some).map_err(Into::into)
+            let value = serde_wasm_bindgen::to_value(&indexed)?;
+            Ok(Some(IndexedTypeSerializationOutput { indexed, value }))
         } else {
             Ok(None)
         }
