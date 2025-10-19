@@ -14,6 +14,7 @@
 
 use std::{
     any::type_name,
+    borrow::Cow,
     fmt::Debug,
     num::NonZeroUsize,
     sync::{
@@ -27,14 +28,16 @@ use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::Method;
+use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest, SendAccessToken, SupportedVersions, auth_scheme,
+    OutgoingRequest, SendAccessToken, auth_scheme,
     error::{FromHttpResponseError, IntoHttpError},
+    path_builder,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, field::debug, instrument, trace};
 
-use crate::{config::RequestConfig, error::HttpError};
+use crate::{HttpResult, config::RequestConfig, error::HttpError};
 
 #[cfg(not(target_family = "wasm"))]
 mod native;
@@ -101,7 +104,7 @@ impl HttpClient {
         config: RequestConfig,
         homeserver: String,
         access_token: Option<&str>,
-        supported_versions: &SupportedVersions,
+        path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
     ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
         R: OutgoingRequest + Debug,
@@ -120,7 +123,7 @@ impl HttpClient {
         };
 
         let request = request
-            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, supported_versions)?
+            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, path_builder_input)?
             .map(|body| body.freeze());
 
         Ok(request)
@@ -128,7 +131,7 @@ impl HttpClient {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        skip(self, request, config, homeserver, access_token, supported_versions, send_progress),
+        skip(self, request, config, homeserver, access_token, path_builder_input, send_progress),
         fields(
             uri,
             method,
@@ -146,7 +149,7 @@ impl HttpClient {
         config: Option<RequestConfig>,
         homeserver: String,
         access_token: Option<&str>,
-        supported_versions: &SupportedVersions,
+        path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
@@ -170,7 +173,7 @@ impl HttpClient {
             span.record("config", debug(config)).record("request_id", request_id);
 
             let request = self
-                .serialize_request(request, config, homeserver, access_token, supported_versions)
+                .serialize_request(request, config, homeserver, access_token, path_builder_input)
                 .map_err(HttpError::IntoHttp)?;
 
             let method = request.method();
@@ -259,6 +262,31 @@ impl SupportedAuthScheme for auth_scheme::AccessTokenOptional {}
 impl SupportedAuthScheme for auth_scheme::AppserviceToken {}
 
 impl SupportedAuthScheme for auth_scheme::AppserviceTokenOptional {}
+
+/// Marker trait to identify the authentication schemes that the
+/// [`Client`](crate::Client) supports.
+///
+/// This trait can also be implemented for custom
+/// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
+pub trait SupportedPathBuilder: path_builder::PathBuilder {
+    fn get_path_builder_input(
+        client: &crate::Client,
+    ) -> impl Future<Output = HttpResult<Self::Input<'static>>> + SendOutsideWasm;
+}
+
+impl SupportedPathBuilder for path_builder::VersionHistory {
+    async fn get_path_builder_input(
+        client: &crate::Client,
+    ) -> HttpResult<Cow<'static, ruma::api::SupportedVersions>> {
+        client.supported_versions().await.map(Cow::Owned)
+    }
+}
+
+impl SupportedPathBuilder for path_builder::SinglePath {
+    async fn get_path_builder_input(_client: &crate::Client) -> HttpResult<()> {
+        Ok(())
+    }
+}
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {

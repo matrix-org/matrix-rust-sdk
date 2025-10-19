@@ -45,7 +45,7 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
-        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
+        FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -71,6 +71,7 @@ use ruma::{
         },
         error::FromHttpResponseError,
         federation::discovery::get_server_version,
+        path_builder::PathBuilder,
     },
     assign,
     events::direct::DirectUserIdentifier,
@@ -99,7 +100,7 @@ use crate::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
-    http_client::{HttpClient, SupportedAuthScheme},
+    http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
     media::MediaError,
     notification_settings::NotificationSettings,
@@ -1895,6 +1896,8 @@ impl Client {
     where
         Request: OutgoingRequest + Clone + Debug,
         Request::Authentication: SupportedAuthScheme,
+        Request::PathBuilder: SupportedPathBuilder,
+        for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         SendRequest {
@@ -1914,10 +1917,13 @@ impl Client {
     where
         Request: OutgoingRequest + Debug,
         Request::Authentication: SupportedAuthScheme,
+        Request::PathBuilder: SupportedPathBuilder,
+        for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let homeserver = self.homeserver().to_string();
         let access_token = self.access_token();
+        let path_builder_input = Request::PathBuilder::get_path_builder_input(self).await?;
 
         self.inner
             .http_client
@@ -1926,7 +1932,7 @@ impl Client {
                 config,
                 homeserver,
                 access_token.as_deref(),
-                &self.supported_versions().await?,
+                path_builder_input,
                 send_progress,
             )
             .await
@@ -1946,19 +1952,7 @@ impl Client {
         request_config: Option<RequestConfig>,
     ) -> HttpResult<get_supported_versions::Response> {
         let server_versions = self
-            .inner
-            .http_client
-            .send(
-                get_supported_versions::Request::new(),
-                request_config,
-                self.homeserver().to_string(),
-                None,
-                &SupportedVersions {
-                    versions: [MatrixVersion::V1_0].into(),
-                    features: Default::default(),
-                },
-                Default::default(),
-            )
+            .send_inner(get_supported_versions::Request::new(), request_config, Default::default())
             .await?;
 
         Ok(server_versions)
@@ -1983,10 +1977,7 @@ impl Client {
                 Some(RequestConfig::short_retry()),
                 server_url_string,
                 None,
-                &SupportedVersions {
-                    versions: [MatrixVersion::V1_0].into(),
-                    features: Default::default(),
-                },
+                (),
                 Default::default(),
             )
             .await;
@@ -2925,8 +2916,8 @@ impl Client {
 
         // Use the authenticated endpoint when the server supports it.
         let supported_versions = self.supported_versions().await?;
-        let use_auth =
-            authenticated_media::get_media_config::v1::Request::is_supported(&supported_versions);
+        let use_auth = authenticated_media::get_media_config::v1::Request::PATH_BUILDER
+            .is_supported(&supported_versions);
 
         let upload_size = if use_auth {
             self.send(authenticated_media::get_media_config::v1::Request::default())

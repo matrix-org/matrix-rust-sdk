@@ -24,6 +24,7 @@ use ruma::api::{
     OutgoingRequest,
     client::{error::ErrorKind, media},
     error::FromHttpResponseError,
+    path_builder::PathBuilder,
 };
 use tracing::{error, trace};
 
@@ -33,7 +34,7 @@ use crate::{
     authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    http_client::SupportedAuthScheme,
+    http_client::{SupportedAuthScheme, SupportedPathBuilder},
     media::MediaError,
 };
 
@@ -79,6 +80,8 @@ impl<R> IntoFuture for SendRequest<R>
 where
     R: OutgoingRequest + Clone + Debug + SendOutsideWasm + SyncOutsideWasm + 'static,
     R::Authentication: SupportedAuthScheme,
+    R::PathBuilder: SupportedPathBuilder,
+    for<'a> <R::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
     R::IncomingResponse: SendOutsideWasm + SyncOutsideWasm,
     HttpError: From<FromHttpResponseError<R::EndpointError>>,
 {
