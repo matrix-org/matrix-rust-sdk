@@ -113,6 +113,8 @@ impl RendezvousChannel {
         client: HttpClient,
         rendezvous_server: &Url,
     ) -> Result<Self, HttpError> {
+        use std::borrow::Cow;
+
         use ruma::api::{SupportedVersions, client::rendezvous::create_rendezvous_session};
 
         let request = create_rendezvous_session::unstable::Request::default();
@@ -122,7 +124,10 @@ impl RendezvousChannel {
                 None,
                 rendezvous_server.to_string(),
                 None,
-                &SupportedVersions { versions: Default::default(), features: Default::default() },
+                Cow::Owned(SupportedVersions {
+                    versions: Default::default(),
+                    features: Default::default(),
+                }),
                 Default::default(),
             )
             .await?;

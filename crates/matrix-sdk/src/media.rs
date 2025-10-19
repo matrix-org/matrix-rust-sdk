@@ -29,7 +29,7 @@ use mime::Mime;
 use ruma::{
     MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
     api::{
-        OutgoingRequest,
+        Metadata,
         client::{authenticated_media, error::ErrorKind, media},
     },
     assign,
@@ -442,8 +442,8 @@ impl Media {
 
         // Use the authenticated endpoints when the server supports it.
         let supported_versions = self.client.supported_versions().await?;
-        let use_auth =
-            authenticated_media::get_content::v1::Request::is_supported(&supported_versions);
+        let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
+            .is_supported(&supported_versions);
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
