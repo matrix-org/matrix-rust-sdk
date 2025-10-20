@@ -81,6 +81,9 @@ pub type IndexedMediaMetadataContent = MaybeEncrypted;
 /// is suitable for use in an IndexedDB key
 pub type IndexedMediaContentSize = usize;
 
+/// A representation of the identifier [`MediaContent::id`]
+pub type IndexedMediaContentId = u64;
+
 /// A (possibly) encrypted representation of [`MediaContent::data`]
 pub type IndexedMediaContentData = Vec<u8>;
 
@@ -952,7 +955,7 @@ impl Indexed for MediaContent {
 ///
 /// [1]: crate::media_store::migrations::v1::create_media_content_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedMediaContentIdKey(u64);
+pub struct IndexedMediaContentIdKey(IndexedMediaContentId);
 
 impl Deref for IndexedMediaContentIdKey {
     type Target = u64;
@@ -963,7 +966,7 @@ impl Deref for IndexedMediaContentIdKey {
 }
 
 impl IndexedKey<MediaContent> for IndexedMediaContentIdKey {
-    type KeyComponents<'a> = u64;
+    type KeyComponents<'a> = IndexedMediaContentId;
 
     fn encode(components: Self::KeyComponents<'_>, _: &SafeEncodeSerializer) -> Self {
         Self(components)
