@@ -23,8 +23,9 @@ pub use bytes;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
-    ComposerDraft, ComposerDraftType, EncryptionState, PredecessorRoom, QueueWedgeError,
-    Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
+    ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
+    EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
+    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
     StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
     store::{self, DynStateStore, MemoryStore, StateStoreExt},

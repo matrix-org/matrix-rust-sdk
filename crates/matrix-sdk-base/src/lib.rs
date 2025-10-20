@@ -64,8 +64,9 @@ pub use room::{
     RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
 };
 pub use store::{
-    ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,
-    StateStoreDataValue, StoreError, ThreadSubscriptionCatchupToken,
+    ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
+    QueueWedgeError, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
+    ThreadSubscriptionCatchupToken,
 };
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,

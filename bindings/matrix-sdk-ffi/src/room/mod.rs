@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::pin, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
@@ -9,7 +9,8 @@ use matrix_sdk::{
         TryFromReportedContentScoreError,
     },
     send_queue::RoomSendQueueUpdate as SdkRoomSendQueueUpdate,
-    ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
+    ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
+    DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
 };
@@ -45,11 +46,14 @@ use crate::{
     live_location_share::{LastLocation, LiveLocationShare},
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{ImageInfo, LocationContent, MediaSource},
+    ruma::{
+        AudioInfo, FileInfo, ImageInfo, LocationContent, MediaSource, ThumbnailInfo, VideoInfo,
+    },
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
         AbstractProgress, EventTimelineItem, LatestEventValue, ReceiptType, SendHandle, Timeline,
+        UploadSource,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
     TaskHandle,
@@ -1442,21 +1446,257 @@ pub struct ComposerDraft {
     pub html_text: Option<String>,
     /// The type of draft.
     pub draft_type: ComposerDraftType,
+    /// Attachments associated with this draft.
+    pub attachments: Vec<DraftAttachment>,
 }
 
 impl From<SdkComposerDraft> for ComposerDraft {
     fn from(value: SdkComposerDraft) -> Self {
-        let SdkComposerDraft { plain_text, html_text, draft_type } = value;
-        Self { plain_text, html_text, draft_type: draft_type.into() }
+        let SdkComposerDraft { plain_text, html_text, draft_type, attachments } = value;
+        Self {
+            plain_text,
+            html_text,
+            draft_type: draft_type.into(),
+            attachments: attachments.into_iter().map(|a| a.into()).collect(),
+        }
     }
 }
 
 impl TryFrom<ComposerDraft> for SdkComposerDraft {
-    type Error = ruma::IdParseError;
+    type Error = ClientError;
 
     fn try_from(value: ComposerDraft) -> std::result::Result<Self, Self::Error> {
-        let ComposerDraft { plain_text, html_text, draft_type } = value;
-        Ok(Self { plain_text, html_text, draft_type: draft_type.try_into()? })
+        let ComposerDraft { plain_text, html_text, draft_type, attachments } = value;
+        Ok(Self {
+            plain_text,
+            html_text,
+            draft_type: draft_type.try_into()?,
+            attachments: attachments
+                .into_iter()
+                .map(|a| a.try_into())
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// An attachment stored with a composer draft.
+#[derive(uniffi::Enum)]
+pub enum DraftAttachment {
+    Audio { audio_info: AudioInfo, source: UploadSource },
+    File { file_info: FileInfo, source: UploadSource },
+    Image { image_info: ImageInfo, source: UploadSource, thumbnail_source: Option<UploadSource> },
+    Video { video_info: VideoInfo, source: UploadSource, thumbnail_source: Option<UploadSource> },
+}
+
+impl From<SdkDraftAttachment> for DraftAttachment {
+    fn from(value: SdkDraftAttachment) -> Self {
+        match value.content {
+            DraftAttachmentContent::Image {
+                data,
+                mimetype,
+                size,
+                width,
+                height,
+                blurhash,
+                thumbnail,
+            } => {
+                let thumbnail_source = thumbnail.as_ref().map(|t| UploadSource::Data {
+                    bytes: t.data.clone(),
+                    filename: t.filename.clone(),
+                });
+                let thumbnail_info = thumbnail.map(|t| ThumbnailInfo {
+                    width: t.width,
+                    height: t.height,
+                    mimetype: t.mimetype,
+                    size: t.size,
+                });
+                DraftAttachment::Image {
+                    image_info: ImageInfo {
+                        height,
+                        width,
+                        mimetype,
+                        size,
+                        thumbnail_info,
+                        thumbnail_source: None,
+                        blurhash,
+                        is_animated: None,
+                    },
+                    source: UploadSource::Data { bytes: data, filename: value.filename },
+                    thumbnail_source,
+                }
+            }
+            DraftAttachmentContent::Video {
+                data,
+                mimetype,
+                size,
+                width,
+                height,
+                duration,
+                blurhash,
+                thumbnail,
+            } => {
+                let thumbnail_source = thumbnail.as_ref().map(|t| UploadSource::Data {
+                    bytes: t.data.clone(),
+                    filename: t.filename.clone(),
+                });
+                let thumbnail_info = thumbnail.map(|t| ThumbnailInfo {
+                    width: t.width,
+                    height: t.height,
+                    mimetype: t.mimetype,
+                    size: t.size,
+                });
+                DraftAttachment::Video {
+                    video_info: VideoInfo {
+                        duration,
+                        height,
+                        width,
+                        mimetype,
+                        size,
+                        thumbnail_info,
+                        thumbnail_source: None,
+                        blurhash,
+                    },
+                    source: UploadSource::Data { bytes: data, filename: value.filename },
+                    thumbnail_source,
+                }
+            }
+            DraftAttachmentContent::Audio { data, mimetype, size, duration } => {
+                DraftAttachment::Audio {
+                    audio_info: AudioInfo { duration, size, mimetype },
+                    source: UploadSource::Data { bytes: data, filename: value.filename },
+                }
+            }
+            DraftAttachmentContent::File { data, mimetype, size } => DraftAttachment::File {
+                file_info: FileInfo {
+                    mimetype,
+                    size,
+                    thumbnail_info: None,
+                    thumbnail_source: None,
+                },
+                source: UploadSource::Data { bytes: data, filename: value.filename },
+            },
+        }
+    }
+}
+
+/// Resolve the bytes and filename from an `UploadSource`, reading the file
+/// contents if needed.
+fn read_upload_source(source: UploadSource) -> Result<(Vec<u8>, String), ClientError> {
+    match source {
+        UploadSource::Data { bytes, filename } => Ok((bytes, filename)),
+        UploadSource::File { filename } => {
+            let path: PathBuf = filename.into();
+            let filename = path
+                .file_name()
+                .ok_or(ClientError::Generic {
+                    msg: "Invalid attachment path".to_owned(),
+                    details: None,
+                })?
+                .to_str()
+                .ok_or(ClientError::Generic {
+                    msg: "Invalid attachment path".to_owned(),
+                    details: None,
+                })?
+                .to_owned();
+
+            let bytes = fs::read(&path).map_err(|_| ClientError::Generic {
+                msg: "Could not load file".to_owned(),
+                details: None,
+            })?;
+
+            Ok((bytes, filename))
+        }
+    }
+}
+
+impl TryFrom<DraftAttachment> for SdkDraftAttachment {
+    type Error = ClientError;
+
+    fn try_from(value: DraftAttachment) -> Result<Self, Self::Error> {
+        match value {
+            DraftAttachment::Image { image_info, source, thumbnail_source, .. } => {
+                let (data, filename) = read_upload_source(source)?;
+                let thumbnail = match (image_info.thumbnail_info, thumbnail_source) {
+                    (Some(info), Some(source)) => {
+                        let (data, filename) = read_upload_source(source)?;
+                        Some(DraftThumbnail {
+                            filename,
+                            data,
+                            mimetype: info.mimetype,
+                            width: info.width,
+                            height: info.height,
+                            size: info.size,
+                        })
+                    }
+                    _ => None,
+                };
+                Ok(Self {
+                    filename,
+                    content: DraftAttachmentContent::Image {
+                        data,
+                        mimetype: image_info.mimetype,
+                        size: image_info.size,
+                        width: image_info.width,
+                        height: image_info.height,
+                        blurhash: image_info.blurhash,
+                        thumbnail,
+                    },
+                })
+            }
+            DraftAttachment::Video { video_info, source, thumbnail_source, .. } => {
+                let (data, filename) = read_upload_source(source)?;
+                let thumbnail = match (video_info.thumbnail_info, thumbnail_source) {
+                    (Some(info), Some(source)) => {
+                        let (data, filename) = read_upload_source(source)?;
+                        Some(DraftThumbnail {
+                            filename,
+                            data,
+                            mimetype: info.mimetype,
+                            width: info.width,
+                            height: info.height,
+                            size: info.size,
+                        })
+                    }
+                    _ => None,
+                };
+                Ok(Self {
+                    filename,
+                    content: DraftAttachmentContent::Video {
+                        data,
+                        mimetype: video_info.mimetype,
+                        size: video_info.size,
+                        width: video_info.width,
+                        height: video_info.height,
+                        duration: video_info.duration,
+                        blurhash: video_info.blurhash,
+                        thumbnail,
+                    },
+                })
+            }
+            DraftAttachment::Audio { audio_info, source, .. } => {
+                let (data, filename) = read_upload_source(source)?;
+                Ok(Self {
+                    filename,
+                    content: DraftAttachmentContent::Audio {
+                        data,
+                        mimetype: audio_info.mimetype,
+                        size: audio_info.size,
+                        duration: audio_info.duration,
+                    },
+                })
+            }
+            DraftAttachment::File { file_info, source, .. } => {
+                let (data, filename) = read_upload_source(source)?;
+                Ok(Self {
+                    filename,
+                    content: DraftAttachmentContent::File {
+                        data,
+                        mimetype: file_info.mimetype,
+                        size: file_info.size,
+                    },
+                })
+            }
+        }
     }
 }
 

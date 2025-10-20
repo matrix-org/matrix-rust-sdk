@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file.
   current device scanning or generating the QR code. Additionally, new errors `HumanQrLoginError::CheckCodeAlreadySent`
   and `HumanQrLoginError::CheckCodeCannotBeSent` were added.
   ([#5786](https://github.com/matrix-org/matrix-rust-sdk/pull/5786))
+- `ComposerDraft` now includes attachments alongside the text message.
+  ([#5794](https://github.com/matrix-org/matrix-rust-sdk/pull/5794))
 
 ### Features:
 
