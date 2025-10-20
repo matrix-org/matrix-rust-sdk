@@ -14,9 +14,12 @@
 
 use std::sync::Arc;
 
+use assert_matches2::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk::assert_next_matches_with_timeout;
-use matrix_sdk_test::{ALICE, BOB, CAROL, async_test, event_factory::EventFactory};
+use matrix_sdk::assert_next_with_timeout;
+use matrix_sdk_test::{
+    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
+};
 use ruma::{
     event_id,
     events::{
@@ -32,9 +35,9 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
-    MsgLikeContent, MsgLikeKind, TimelineFocus,
+    MsgLikeContent, MsgLikeKind, RoomExt, TimelineFocus,
     controller::TimelineSettings,
-    tests::{TestDecryptor, TestTimelineBuilder},
+    tests::{TestTimelineBuilder, encryption::get_client},
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
@@ -376,15 +379,12 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_message_decryption() {
-    use std::{io::Cursor, iter};
+    use std::io::Cursor;
 
     use assert_matches2::assert_let;
-    use matrix_sdk_base::crypto::{OlmMachine, decrypt_room_key_export};
-    use ruma::{
-        events::room::encrypted::{
-            EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
-        },
-        user_id,
+    use matrix_sdk_base::crypto::decrypt_room_key_export;
+    use ruma::events::room::encrypted::{
+        EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
     };
 
     use crate::timeline::{EncryptedMessage, TimelineItemContent};
@@ -413,65 +413,69 @@ async fn test_read_receipts_updates_on_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let (client, server, event_factory) = get_client(room_id, None).await;
 
-    let timeline = TestTimelineBuilder::new()
-        .settings(TimelineSettings {
-            track_read_receipts: true,
-            event_filter: Arc::new(filter_text_msg),
-            ..Default::default()
-        })
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            &olm_machine,
-        )))
-        .build();
-    let mut stream = timeline.subscribe().await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room
+        .timeline_builder()
+        .event_filter(filter_text_msg)
+        .track_read_marker_and_receipts()
+        .build()
+        .await
+        .unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
 
-    let f = &timeline.factory;
-    timeline.handle_live_event(f.notice("I am not encrypted").sender(&CAROL)).await;
-
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(
-                EncryptedEventScheme::MegolmV1AesSha2(
-                    MegolmV1AesSha2ContentInit {
-                        ciphertext: "\
+    let event = event_factory.notice("I am not encrypted").sender(&CAROL);
+    let encrypted_event = event_factory
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "\
                             AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
                             cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
                             YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
                             CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
                             hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
                             QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                            .to_owned(),
-                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
-                        device_id: "NLAZCWIOCO".into(),
-                        session_id: SESSION_ID.into(),
-                    }
-                    .into(),
-                ),
-                None,
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+                        .to_owned(),
+                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                    device_id: "NLAZCWIOCO".into(),
+                    session_id: SESSION_ID.into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(event)
+                    .add_timeline_event(encrypted_event),
+            );
+        })
         .await;
 
     assert_eq!(timeline.controller.items().await.len(), 3);
+    let updates = assert_next_with_timeout!(stream);
 
     // The first event only has Carol's receipt.
-    let clear_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let clear_event = clear_item.as_event().unwrap();
+    assert_matches!(&updates[0], VectorDiff::PushBack { value });
+    let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
-    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert_matches!(&updates[2], VectorDiff::PushFront { value });
+    assert!(value.is_date_divider());
 
     // The second event is encrypted and only has Bob's receipt.
-    let encrypted_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let encrypted_event = encrypted_item.as_event().unwrap();
+    assert_matches!(&updates[1], VectorDiff::PushBack { value });
+    let encrypted_event = value.as_event().unwrap();
 
     assert_let!(
         TimelineItemContent::MsgLike(MsgLikeContent {
@@ -490,24 +494,27 @@ async fn test_read_receipts_updates_on_message_decryption() {
     // Decrypt encrypted message.
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(exported_keys, |_, _| {})
+        .await
+        .unwrap();
 
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
-
+    let updates = assert_next_with_timeout!(stream);
     // The first event now has both receipts.
-    let clear_item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
-    let clear_event = clear_item.as_event().unwrap();
+    assert_matches!(&updates[0], VectorDiff::Set { index: 1, value });
+    let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 2);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
     assert!(clear_event.read_receipts().get(*BOB).is_some());
 
     // The second event is removed.
-    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
+    assert_matches!(&updates[1], VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
 }
