@@ -4656,7 +4656,7 @@ pub struct RoomMemberWithSenderInfo {
 mod tests {
     use std::collections::BTreeMap;
 
-    use matrix_sdk_base::{ComposerDraft, store::ComposerDraftType};
+    use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
         JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
         event_factory::EventFactory, test_json,
@@ -4852,6 +4852,14 @@ mod tests {
             plain_text: "Hello, world!".to_owned(),
             html_text: Some("<strong>Hello</strong>, world!".to_owned()),
             draft_type: ComposerDraftType::NewMessage,
+            attachments: vec![DraftAttachment {
+                filename: "cat.txt".to_owned(),
+                content: matrix_sdk_base::DraftAttachmentContent::File {
+                    data: b"meow".to_vec(),
+                    mimetype: Some("text/plain".to_owned()),
+                    size: Some(5),
+                },
+            }],
         };
 
         room.save_composer_draft(draft.clone(), None).await.unwrap();
@@ -4861,6 +4869,14 @@ mod tests {
             plain_text: "Hello, thread!".to_owned(),
             html_text: Some("<strong>Hello</strong>, thread!".to_owned()),
             draft_type: ComposerDraftType::NewMessage,
+            attachments: vec![DraftAttachment {
+                filename: "dog.txt".to_owned(),
+                content: matrix_sdk_base::DraftAttachmentContent::File {
+                    data: b"wuv".to_vec(),
+                    mimetype: Some("text/plain".to_owned()),
+                    size: Some(4),
+                },
+            }],
         };
 
         room.save_composer_draft(thread_draft.clone(), Some(&thread_root)).await.unwrap();

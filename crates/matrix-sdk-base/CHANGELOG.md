@@ -11,6 +11,11 @@ All notable changes to this project will be documented in this file.
 - `Client::sync_lock` has been renamed `Client::state_store_lock`.
   ([#5707](https://github.com/matrix-org/matrix-rust-sdk/pull/5707))
 
+### Features
+
+- `ComposerDraft` can now store attachments alongside text messages.
+  ([#5794](https://github.com/matrix-org/matrix-rust-sdk/pull/5794))
+
 ## [0.14.1] - 2025-09-10
 
 ### Security Fixes

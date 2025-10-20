@@ -1195,6 +1195,97 @@ pub struct ComposerDraft {
     pub html_text: Option<String>,
     /// The type of draft.
     pub draft_type: ComposerDraftType,
+    /// Attachments associated with this draft.
+    #[serde(default)]
+    pub attachments: Vec<DraftAttachment>,
+}
+
+/// An attachment stored with a composer draft.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DraftAttachment {
+    /// The filename of the attachment.
+    pub filename: String,
+    /// The attachment content with type-specific data.
+    pub content: DraftAttachmentContent,
+}
+
+/// The content of a draft attachment with type-specific data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum DraftAttachmentContent {
+    /// Image attachment.
+    Image {
+        /// The image file data.
+        data: Vec<u8>,
+        /// MIME type.
+        mimetype: Option<String>,
+        /// File size in bytes.
+        size: Option<u64>,
+        /// Width in pixels.
+        width: Option<u64>,
+        /// Height in pixels.
+        height: Option<u64>,
+        /// BlurHash string.
+        blurhash: Option<String>,
+        /// Optional thumbnail.
+        thumbnail: Option<DraftThumbnail>,
+    },
+    /// Video attachment.
+    Video {
+        /// The video file data.
+        data: Vec<u8>,
+        /// MIME type.
+        mimetype: Option<String>,
+        /// File size in bytes.
+        size: Option<u64>,
+        /// Width in pixels.
+        width: Option<u64>,
+        /// Height in pixels.
+        height: Option<u64>,
+        /// Duration.
+        duration: Option<std::time::Duration>,
+        /// BlurHash string.
+        blurhash: Option<String>,
+        /// Optional thumbnail.
+        thumbnail: Option<DraftThumbnail>,
+    },
+    /// Audio attachment.
+    Audio {
+        /// The audio file data.
+        data: Vec<u8>,
+        /// MIME type.
+        mimetype: Option<String>,
+        /// File size in bytes.
+        size: Option<u64>,
+        /// Duration.
+        duration: Option<std::time::Duration>,
+    },
+    /// Generic file attachment.
+    File {
+        /// The file data.
+        data: Vec<u8>,
+        /// MIME type.
+        mimetype: Option<String>,
+        /// File size in bytes.
+        size: Option<u64>,
+    },
+}
+
+/// Thumbnail data for a draft attachment.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DraftThumbnail {
+    /// The filename of the thumbnail.
+    pub filename: String,
+    /// The thumbnail image data.
+    pub data: Vec<u8>,
+    /// MIME type of the thumbnail.
+    pub mimetype: Option<String>,
+    /// Width in pixels.
+    pub width: Option<u64>,
+    /// Height in pixels.
+    pub height: Option<u64>,
+    /// File size in bytes.
+    pub size: Option<u64>,
 }
 
 /// The type of draft of the composer.

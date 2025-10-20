@@ -94,9 +94,9 @@ pub use self::{
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     traits::{
-        ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerInfo, StateStore,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, ThreadSubscriptionCatchupToken,
-        WellKnownResponse,
+        ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
+        DynStateStore, IntoStateStore, ServerInfo, StateStore, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt, ThreadSubscriptionCatchupToken, WellKnownResponse,
     },
 };
 
