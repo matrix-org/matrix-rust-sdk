@@ -87,10 +87,6 @@ pub type IndexedMediaContentId = u64;
 /// A (possibly) encrypted representation of [`MediaContent::data`]
 pub type IndexedMediaContentData = Vec<u8>;
 
-/// A representation of time in seconds since the [Unix
-/// Epoch](std::time::UNIX_EPOCH) which is suitable for use in an IndexedDB key
-pub type IndexedSecondsSinceUnixEpoch = u64;
-
 /// Represents the [`LEASES`][1] object store.
 ///
 /// [1]: crate::media_store::migrations::v1::create_lease_object_store
