@@ -603,7 +603,7 @@ impl Indexed for MediaMetadata {
     const OBJECT_STORE: &'static str = keys::MEDIA_METADATA;
 
     type IndexedType = IndexedMediaMetadata;
-    type Error = IndexedMediaError;
+    type Error = CryptoStoreError;
 
     fn to_indexed(
         &self,
@@ -638,7 +638,7 @@ impl Indexed for MediaMetadata {
         indexed: Self::IndexedType,
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
-        Ok(serializer.maybe_decrypt_value(indexed.content)?)
+        serializer.maybe_decrypt_value(indexed.content)
     }
 }
 
