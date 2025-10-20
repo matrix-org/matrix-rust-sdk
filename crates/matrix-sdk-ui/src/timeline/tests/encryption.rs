@@ -26,22 +26,22 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
-    assert_next_matches_with_timeout,
+    self, Client, assert_next_matches_with_timeout, assert_next_with_timeout,
     crypto::{OlmMachine, decrypt_room_key_export, types::events::UtdCause},
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationLevel, VerificationState,
     },
-    test_utils::test_client_builder,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::deserialized_responses::{TimelineEvent, UnableToDecryptReason};
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    assign, event_id,
+    RoomId, UserId, assign, event_id,
     events::room::encrypted::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    owned_device_id, owned_user_id, room_id,
+    owned_device_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -52,7 +52,8 @@ use tokio::time::sleep;
 use super::TestTimeline;
 use crate::{
     timeline::{
-        EncryptedMessage, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
+        EncryptedMessage, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
+        TimelineItemContent,
         tests::{TestDecryptor, TestRoomDataProvider, TestTimelineBuilder},
     },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
@@ -67,6 +68,29 @@ impl UnableToDecryptHook for DummyUtdHook {
     fn on_utd(&self, info: UnableToDecryptInfo) {
         self.utds.lock().unwrap().push(info);
     }
+}
+
+pub(super) async fn get_client(
+    room_id: &RoomId,
+    user_id: Option<&UserId>,
+) -> (Client, MatrixMockServer, EventFactory) {
+    let server = MatrixMockServer::new().await;
+    let client = if let Some(user_id) = user_id {
+        server
+            .client_builder()
+            .logged_in_with_token("1234".into(), user_id.into(), "SomeDeviceId".into())
+            .build()
+            .await
+    } else {
+        server.client_builder().logged_in_with_oauth().build().await
+    };
+    client.event_cache().subscribe().unwrap();
+
+    let event_factory = EventFactory::new().room(room_id);
+    let member_event = event_factory.member(client.user_id().unwrap()).display_name("Alice");
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_event(member_event)).await;
+
+    (client, server, event_factory)
 }
 
 #[async_test]
@@ -86,53 +110,51 @@ async fn test_retry_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let (client, server, event_factory) = get_client(room_id, None).await;
+
     let hook = Arc::new(DummyUtdHook::default());
-    let client = test_client_builder(None).build().await.unwrap();
-    let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client));
+    let hook_manager = UtdHookManager::new(hook.clone(), client.clone());
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room
+        .timeline_builder()
+        .with_unable_to_decrypt_hook(hook_manager.into())
+        .build()
+        .await
+        .unwrap();
+    let (_, mut stream) = timeline.subscribe_filter_map(Some).await;
 
-    let timeline = TestTimelineBuilder::new()
-        .unable_to_decrypt_hook(utd_hook.clone())
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            &olm_machine,
-        )))
-        .build();
-
-    let mut stream = timeline.subscribe().await;
-
-    let f = &timeline.factory;
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(
-                EncryptedEventScheme::MegolmV1AesSha2(
-                    MegolmV1AesSha2ContentInit {
-                        ciphertext: "\
+    let event = event_factory
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "\
                             AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
                             cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
                             YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
                             CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
                             hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
                             QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                            .to_owned(),
-                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
-                        device_id: "NLAZCWIOCO".into(),
-                        session_id: SESSION_ID.into(),
-                    }
-                    .into(),
-                ),
-                None,
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+                        .to_owned(),
+                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                    device_id: "NLAZCWIOCO".into(),
+                    session_id: SESSION_ID.into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
-    assert_eq!(timeline.controller.items().await.len(), 2);
-
-    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let item = assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
         TimelineItemContent::MsgLike(MsgLikeContent {
@@ -158,12 +180,15 @@ async fn test_retry_message_decryption() {
 
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
-
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(exported_keys, |_, _| {})
+        .await
+        .unwrap();
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 
@@ -195,49 +220,50 @@ async fn test_retry_message_decryption() {
 #[async_test]
 async fn test_false_positive_late_decryption_regression() {
     const SESSION_ID: &str = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let (client, server, event_factory) = get_client(room_id, None).await;
 
     let hook = Arc::new(DummyUtdHook::default());
-    let client = test_client_builder(None).build().await.unwrap();
     let utd_hook = Arc::new(
-        UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_millis(500)),
+        UtdHookManager::new(hook.clone(), client.clone())
+            .with_max_delay(Duration::from_millis(500)),
     );
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room
+        .timeline_builder()
+        .with_unable_to_decrypt_hook(utd_hook.clone())
+        .build()
+        .await
+        .unwrap();
 
-    let timeline = TestTimelineBuilder::new()
-        .unable_to_decrypt_hook(utd_hook.clone())
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            &olm_machine,
-        )))
-        .build();
-
-    let f = &timeline.factory;
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(
-                EncryptedEventScheme::MegolmV1AesSha2(
-                    MegolmV1AesSha2ContentInit {
-                        ciphertext: "\
+    let event = event_factory
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "\
                             AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
                             cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
                             YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
                             CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
                             hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
                             QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                            .to_owned(),
-                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
-                        device_id: "NLAZCWIOCO".into(),
-                        session_id: SESSION_ID.into(),
-                    }
-                    .into(),
-                ),
-                None,
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+                        .to_owned(),
+                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                    device_id: "NLAZCWIOCO".into(),
+                    session_id: SESSION_ID.into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
     sleep(Duration::from_millis(200)).await;
@@ -247,7 +273,7 @@ async fn test_false_positive_late_decryption_regression() {
     // retry
     timeline
         .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
+        .retry_event_decryption(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
     assert_eq!(timeline.controller.items().await.len(), 2);
 
@@ -293,18 +319,13 @@ async fn test_retry_edit_decryption() {
         rHCyB4ElRjU\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let room_id = room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost");
+    let (client, server, event_factory) = get_client(room_id, None).await;
 
-    let timeline = TestTimelineBuilder::new()
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
-            &olm_machine,
-        )))
-        .build();
-
-    let f = &timeline.factory;
-    let mut stream = timeline.subscribe_events().await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (initial, mut stream) = timeline.subscribe_filter_map(|e| e.as_event().cloned()).await;
+    assert!(initial.is_empty(), "Initially we don't have any events in the timeline");
 
     // Given there are 2 UTD events in the timeline: one message and one edit of
     // that message
@@ -322,12 +343,13 @@ async fn test_retry_edit_decryption() {
         }
         .into(),
     );
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(encrypted, None))
-                .sender(&BOB)
-                .into_utd_sync_timeline_event(),
-        )
+    let event = event_factory.event(RoomEncryptedEventContent::new(encrypted, None)).sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
     let event_id =
@@ -352,30 +374,43 @@ async fn test_retry_edit_decryption() {
         }
         .into(),
     );
-    timeline
-        .handle_live_event(
-            f.event(assign!(RoomEncryptedEventContent::new(encrypted, None), {
-                relates_to: Some(Relation::Replacement(Replacement::new(event_id))),
-            }))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+
+    let event = event_factory
+        .event(RoomEncryptedEventContent::new(
+            encrypted,
+            Some(Relation::Replacement(Replacement::new(event_id))),
+        ))
+        .sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, .. });
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { .. });
 
-    // When we provide the keys for them and request redecryption
+    // When we provide the keys for them a redecryption will trigger.
     let mut keys = decrypt_room_key_export(Cursor::new(SESSION1_KEY), "1234").unwrap();
     keys.extend(decrypt_room_key_export(Cursor::new(SESSION2_KEY), "1234").unwrap());
 
-    olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
-
-    timeline.controller.retry_event_decryption_test(None).await;
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(keys, |_, _| {})
+        .await
+        .unwrap();
 
     // Then first, the first item gets decrypted on its own
     assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, .. });
 
     // And second, they get resolved into a single event after the edit is decrypted
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
     let item =
         assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
 
@@ -545,24 +580,17 @@ async fn test_retry_message_decryption_highlighted() {
         R36ruSneNIpFsVqemSCVF2irnHWgtYHvH8EUOAbsK8KLMHiCg8HxlkLd5GL1lpBwwR+c\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let own_user_id = owned_user_id!("@willow:matrix.local");
-    let olm_machine = OlmMachine::new(&own_user_id, "SomeDeviceId".into()).await;
+    let room_id = room_id!("!TWUdbkXUixrqPXtWbN:matrix.local");
+    let user_id = user_id!("@willow:matrix.local");
+    let (client, server, event_factory) = get_client(room_id, Some(user_id)).await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
 
-    let timeline = TestTimelineBuilder::new()
-        .provider(TestRoomDataProvider::default().with_own_user_id(own_user_id).with_decryptor(
-            TestDecryptor::new(room_id!("!TWUdbkXUixrqPXtWbN:matrix.local"), &olm_machine),
-        ))
-        .build();
-
-    let f = &timeline.factory;
-    let mut stream = timeline.subscribe().await;
-
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(
-                EncryptedEventScheme::MegolmV1AesSha2(
-                    MegolmV1AesSha2ContentInit {
-                        ciphertext: "\
+    let content = RoomEncryptedEventContent::new(
+        EncryptedEventScheme::MegolmV1AesSha2(
+            MegolmV1AesSha2ContentInit {
+                ciphertext: "\
                             AwgBEuAC3YC8wNxHOlnuXuyoBwRhtbwE+sVm1CMRZylzapX4uHEB/xP8QFoH6yN5KzGi34h\
                             6QEb2b3Y+dwNHzHhuSHhtqGNOncJKT3KoPamXzlapmqpF3EjbfN07M9ZMuRNGC6EMF7cCRN\
                             yy7h4S9erzXs73uRZV9t0dMpk5FJ9/vHFBfEic4p26eQjltnk7CCJ0sMukAsLzkZOPFOdoP\
@@ -572,23 +600,28 @@ async fn test_retry_message_decryption_highlighted() {
                             CQhXEqcFWKqWLg9+LpTeg0IrUhVhRpQiztqN44vH8xfWpCHDOwbFhJ6DV9NTWQUzDkJjZVI\
                             W6pEbevP8tyDbQtSDSfpdSHoEPor7WVV9rp9FFqznXZxH9G39dWxI7h40vKdNTiqKkfQNZc\
                             dwAyDw"
-                            .to_owned(),
-                        sender_key: "RfaXABigv2vPj0TciwpZTBU0uwWg7iSHvRHA2V2NFiM".to_owned(),
-                        device_id: "KFWPUYHXZA".into(),
-                        session_id: SESSION_ID.into(),
-                    }
-                    .into(),
-                ),
-                None,
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+                    .to_owned(),
+                sender_key: "RfaXABigv2vPj0TciwpZTBU0uwWg7iSHvRHA2V2NFiM".to_owned(),
+                device_id: "KFWPUYHXZA".into(),
+                session_id: SESSION_ID.into(),
+            }
+            .into(),
+        ),
+        None,
+    );
+    let event = event_factory.event(content).sender(&BOB);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 
-    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let updates = assert_next_with_timeout!(stream);
+    let item = assert_matches!(&updates[0], VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
         TimelineItemContent::MsgLike(MsgLikeContent {
@@ -601,22 +634,26 @@ async fn test_retry_message_decryption_highlighted() {
     );
     assert_eq!(session_id, SESSION_ID);
 
-    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let date_divider = assert_matches!(&updates[1], VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
 
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(exported_keys, |_, _| {})
+        .await
+        .unwrap();
 
-    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
-
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
+    timeline.controller.retry_event_decryption_test(None).await;
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 
-    let item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
+    let updates = assert_next_with_timeout!(stream);
+    let item = assert_matches!(&updates[0], VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
     assert_let!(Some(message) = event.content().as_message());
@@ -817,7 +854,7 @@ async fn test_utd_cause_for_missing_membership_is_unknown() {
 }
 
 #[async_test]
-async fn test_retry_decryption_updates_response() {
+async fn test_retry_decryption_updates_reply() {
     const SESSION_ID: &str = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
     const SESSION_KEY: &[u8] = b"\
         -----BEGIN MEGOLM SESSION DATA-----\n\
@@ -833,49 +870,47 @@ async fn test_retry_decryption_updates_response() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+    let (client, server, event_factory) = get_client(room_id, None).await;
 
-    let timeline = TestTimelineBuilder::new()
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            &olm_machine,
-        )))
-        .build();
-
-    let mut stream = timeline.subscribe_events().await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe_filter_map(|e| e.as_event().cloned()).await;
 
     let original_event_id = event_id!("$original");
-    let f = &timeline.factory;
-    timeline
-        .handle_live_event(
-            f.event(RoomEncryptedEventContent::new(
-                EncryptedEventScheme::MegolmV1AesSha2(
-                    MegolmV1AesSha2ContentInit {
-                        ciphertext: "\
+
+    let event = event_factory
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "\
                             AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
                             cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
                             YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
                             CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
                             hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
                             QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                            .to_owned(),
-                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
-                        device_id: "NLAZCWIOCO".into(),
-                        session_id: SESSION_ID.into(),
-                    }
-                    .into(),
-                ),
-                None,
-            ))
-            .event_id(original_event_id)
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
-        .await;
+                        .to_owned(),
+                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                    device_id: "NLAZCWIOCO".into(),
+                    session_id: SESSION_ID.into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .event_id(original_event_id)
+        .sender(&BOB);
 
-    timeline
-        .handle_live_event(f.text_msg("well said!").reply_to(original_event_id).sender(&ALICE))
+    let reply = event_factory.text_msg("well said!").reply_to(original_event_id).sender(&ALICE);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_event(event).add_timeline_event(reply),
+            );
+        })
         .await;
 
     // We receive the UTD.
@@ -893,7 +928,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(session_id, SESSION_ID);
     }
 
-    // We receive the text response.
+    // We receive the reply.
     {
         let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
         let msglike = event.content().as_msglike().unwrap();
@@ -910,13 +945,15 @@ async fn test_retry_decryption_updates_response() {
     // Import a room key backup.
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
-
-    // Retry decrypting the UTD.
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(exported_keys, |_, _| {})
+        .await
+        .unwrap();
 
     // The response is updated.
     {

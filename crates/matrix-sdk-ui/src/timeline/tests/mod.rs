@@ -107,13 +107,6 @@ impl TestTimelineBuilder {
         self
     }
 
-    fn unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
-        self.utd_hook = Some(hook);
-        // It only makes sense to have a UTD hook for an encrypted room.
-        self.is_room_encrypted = true;
-        self
-    }
-
     fn room_encrypted(mut self, encrypted: bool) -> Self {
         self.is_room_encrypted = encrypted;
         self
@@ -281,11 +274,6 @@ struct TestRoomDataProvider {
 }
 
 impl TestRoomDataProvider {
-    fn with_own_user_id(mut self, user_id: OwnedUserId) -> Self {
-        self.own_user_id = Some(user_id);
-        self
-    }
-
     fn with_initial_user_receipts(mut self, initial_user_receipts: ReadReceiptMap) -> Self {
         self.initial_user_receipts = initial_user_receipts;
         self
