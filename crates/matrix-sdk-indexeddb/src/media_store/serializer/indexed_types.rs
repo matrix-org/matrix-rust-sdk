@@ -43,7 +43,8 @@ use crate::{
         migrations::current::keys,
         serializer::{
             constants::{
-                INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE, INDEXED_KEY_LOWER_UNIX_TIME,
+                INDEXED_KEY_LOWER_MEDIA_CONTENT_ID, INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE,
+                INDEXED_KEY_LOWER_UNIX_TIME, INDEXED_KEY_UPPER_MEDIA_CONTENT_ID,
                 INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE, INDEXED_KEY_UPPER_UNIX_TIME,
             },
             foreign::{ignore_media_retention_policy, unix_time},
@@ -51,7 +52,6 @@ use crate::{
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
     serializer::{
-        indexed_type::constants::{INDEXED_KEY_LOWER_U64, INDEXED_KEY_UPPER_U64},
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
         MaybeEncrypted, SafeEncodeSerializer, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_STRING,
     },
@@ -971,10 +971,10 @@ impl IndexedKey<MediaContent> for IndexedMediaContentIdKey {
 
 impl IndexedKeyComponentBounds<MediaContent> for IndexedMediaContentIdKey {
     fn lower_key_components() -> Self::KeyComponents<'static> {
-        INDEXED_KEY_LOWER_U64
+        INDEXED_KEY_LOWER_MEDIA_CONTENT_ID
     }
 
     fn upper_key_components() -> Self::KeyComponents<'static> {
-        INDEXED_KEY_UPPER_U64
+        INDEXED_KEY_UPPER_MEDIA_CONTENT_ID
     }
 }
