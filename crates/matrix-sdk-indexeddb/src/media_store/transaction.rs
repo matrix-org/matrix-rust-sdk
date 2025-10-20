@@ -411,19 +411,6 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         Ok(media_metadatas)
     }
 
-    /// Query IndexedDB for all [content
-    /// size](IndexedMediaMetadataContentSizeKey) keys whose associated
-    /// [`MediaMetadata`] matches the given [`IgnoreMediaRetentionPolicy`].
-    pub async fn get_all_media_metadata_keys_by_content_size(
-        &self,
-        ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<Vec<IndexedMediaMetadataContentSizeKey>, TransactionError> {
-        self.get_keys::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(
-            IndexedKeyRange::all_with_prefix(ignore_policy, self.serializer().inner()),
-        )
-        .await
-    }
-
     /// Query IndexedDB for [content size](IndexedMediaMetadataContentSizeKey)
     /// keys whose associated [`MediaMetadata`] matches the given
     /// [`IgnoreMediaRetentionPolicy`] and content size range.
@@ -436,6 +423,20 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
             .map(|last_access| (ignore_policy, last_access))
             .into_prefix(self.serializer().inner());
         self.get_keys::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(range).await
+    }
+
+    /// Query IndexedDB for all [content
+    /// size](IndexedMediaMetadataContentSizeKey) keys whose associated
+    /// [`MediaMetadata`] matches the given [`IgnoreMediaRetentionPolicy`].
+    pub async fn get_all_media_metadata_keys_by_content_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<Vec<IndexedMediaMetadataContentSizeKey>, TransactionError> {
+        let (_, lower, _) =
+            IndexedMediaMetadataContentSizeKey::lower_key_components_with_prefix(ignore_policy);
+        let (_, upper, _) =
+            IndexedMediaMetadataContentSizeKey::upper_key_components_with_prefix(ignore_policy);
+        self.get_media_metadata_keys_by_content_size(ignore_policy, (lower, upper)).await
     }
 
     /// Query IndexedDB for [last access](IndexedMediaMetadataLastAccessKey)
