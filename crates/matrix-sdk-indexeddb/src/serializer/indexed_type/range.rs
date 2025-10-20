@@ -60,6 +60,9 @@ impl<'a, C: 'a> IndexedKeyRange<C> {
 }
 
 impl<K> IndexedKeyRange<K> {
+    /// Applies the function `f` to transform keys of type `K` to keys of type
+    /// `T`. The function `f` is applied to all values - i.e., the value in
+    /// [`IndexedKeyRange::Only`] and both bounds in [`IndexedKeyRange::Bound`].
     pub fn map<T, F>(self, f: F) -> IndexedKeyRange<T>
     where
         F: Fn(K) -> T,
@@ -70,6 +73,7 @@ impl<K> IndexedKeyRange<K> {
         }
     }
 
+    /// Represents all keys of type `K`
     pub fn all<T>(serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
@@ -78,6 +82,7 @@ impl<K> IndexedKeyRange<K> {
         IndexedKeyRange::Bound(K::lower_key(serializer), K::upper_key(serializer))
     }
 
+    /// Represents all keys of type `K` which begin with `prefix`
     pub fn all_with_prefix<T, P>(prefix: P, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
@@ -88,6 +93,32 @@ impl<K> IndexedKeyRange<K> {
             K::lower_key_with_prefix(prefix.clone(), serializer),
             K::upper_key_with_prefix(prefix, serializer),
         )
+    }
+
+    /// Transforms keys of type `K` into keys of type `K2` by using `K` as the
+    /// prefix for `K2`.
+    ///
+    /// For [`IndexedKeyRange::Only`] variants, the resulting value will be an
+    /// [`IndexedKeyRange::Bound`] that represents all keys that begin with
+    /// [`IndexedKeyRange::Only::0`].
+    ///
+    /// For [`IndexedKeyRange::Bound`] variants, the resulting value will be an
+    /// [`IndexedKeyRange::Bound`] that represents all keys in a range where
+    /// the lower bound begins with [`IndexedKeyRange::Bound::0`] and the upper
+    /// bound begins with [`IndexedKeyRange::Bound::1`].
+    pub fn into_prefix<T, K2>(self, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K2>
+    where
+        T: Indexed,
+        K: Clone,
+        K2: IndexedPrefixKeyBounds<T, K>,
+    {
+        match self {
+            IndexedKeyRange::Only(key) => IndexedKeyRange::all_with_prefix(key, serializer),
+            IndexedKeyRange::Bound(lower, upper) => IndexedKeyRange::Bound(
+                K2::lower_key_with_prefix(lower, serializer),
+                K2::upper_key_with_prefix(upper, serializer),
+            ),
+        }
     }
 }
 
