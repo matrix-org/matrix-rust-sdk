@@ -424,6 +424,49 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         .await
     }
 
+    /// Query IndexedDB for [content size](IndexedMediaMetadataContentSizeKey)
+    /// keys whose associated [`MediaMetadata`] matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and content size range.
+    pub async fn get_media_metadata_keys_by_content_size(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        content_size: impl Into<IndexedKeyRange<usize>>,
+    ) -> Result<Vec<IndexedMediaMetadataContentSizeKey>, TransactionError> {
+        let range = Into::<IndexedKeyRange<usize>>::into(content_size)
+            .map(|last_access| (ignore_policy, last_access))
+            .into_prefix(self.serializer().inner());
+        self.get_keys::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(range).await
+    }
+
+    /// Query IndexedDB for [last access](IndexedMediaMetadataLastAccessKey)
+    /// keys whose associated [`MediaMetadata`] matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and last access time range.
+    pub async fn get_media_metadata_keys_by_last_access(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        last_access: impl Into<IndexedKeyRange<UnixTime>>,
+    ) -> Result<Vec<IndexedMediaMetadataLastAccessKey>, TransactionError> {
+        let range = Into::<IndexedKeyRange<UnixTime>>::into(last_access)
+            .map(|last_access| (ignore_policy, last_access))
+            .into_prefix(self.serializer().inner());
+        self.get_keys::<MediaMetadata, IndexedMediaMetadataLastAccessKey>(range).await
+    }
+
+    /// Query IndexedDB for [retention](IndexedMediaMetadataRetentionKey)
+    /// keys whose associated [`MediaMetadata`] matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and last access time and content size
+    /// range.
+    pub async fn get_media_metadata_keys_by_retention(
+        &self,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+        range: impl Into<IndexedKeyRange<(UnixTime, usize)>>,
+    ) -> Result<Vec<IndexedMediaMetadataRetentionKey>, TransactionError> {
+        let range = Into::<IndexedKeyRange<(UnixTime, usize)>>::into(range)
+            .map(|(last_access, content_size)| (ignore_policy, last_access, content_size))
+            .into_prefix(self.serializer().inner());
+        self.get_keys::<MediaMetadata, IndexedMediaMetadataRetentionKey>(range).await
+    }
+
     /// Query IndexedDB for [retention metadata][1] keys that match the given
     /// key range. Iterate over the keys in the given
     /// [`direction`](CursorDirection) using a cursor and fold them into an
