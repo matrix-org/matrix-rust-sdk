@@ -13,8 +13,14 @@
 // limitations under the License
 
 use crate::{
-    media_store::{serializer::indexed_types::IndexedMediaContentSize, types::UnixTime},
-    serializer::INDEXED_KEY_UPPER_DURATION_SECONDS,
+    media_store::{
+        serializer::indexed_types::{IndexedMediaContentId, IndexedMediaContentSize},
+        types::UnixTime,
+    },
+    serializer::{
+        indexed_type::constants::{INDEXED_KEY_LOWER_U64, INDEXED_KEY_UPPER_U64},
+        INDEXED_KEY_UPPER_DURATION_SECONDS,
+    },
 };
 
 /// An [`IndexedMediaContentSize`] set to it's minimal value - i.e., `0`.
@@ -49,3 +55,19 @@ pub const INDEXED_KEY_LOWER_UNIX_TIME: UnixTime =
 /// [`INDEXED_KEY_LOWER_UNIX_TIME`].
 pub const INDEXED_KEY_UPPER_UNIX_TIME: UnixTime =
     UnixTime::AfterEpoch(INDEXED_KEY_UPPER_DURATION_SECONDS);
+
+/// The minimum value for an [`IndexedMediaContentId`] - i.e.,
+/// [`INDEXED_KEY_LOWER_U64`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`IndexedMediaContentId`] values when used in conjunction with
+/// [`INDEXED_KEY_UPPER_MEDIA_CONTENT_ID`].
+pub const INDEXED_KEY_LOWER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_LOWER_U64;
+
+/// The maximum value for an [`IndexedMediaContentId`] - i.e.,
+/// [`INDEXED_KEY_UPPER_U64`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`IndexedMediaContentId`] values when used in conjunction with
+/// [`INDEXED_KEY_LOWER_MEDIA_CONTENT_ID`].
+pub const INDEXED_KEY_UPPER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_UPPER_U64;
