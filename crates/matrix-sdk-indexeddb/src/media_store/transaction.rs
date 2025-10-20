@@ -505,11 +505,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
         content_size: impl Into<IndexedKeyRange<usize>>,
     ) -> Result<(), TransactionError> {
-        let range = content_size.into().map(|size| (ignore_policy, size));
-        self.delete_items_by_key_components::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(
-            range,
-        )
-        .await
+        let range = Into::<IndexedKeyRange<usize>>::into(content_size)
+            .map(|size| (ignore_policy, size))
+            .into_prefix(self.serializer().inner());
+        self.delete_items_by_key::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(range).await
     }
 
     /// Delete [`MediaMetadata`] that matches the given
@@ -520,7 +519,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
         content_size: usize,
     ) -> Result<(), TransactionError> {
-        let (_, upper) =
+        let (_, upper, _) =
             IndexedMediaMetadataContentSizeKey::upper_key_components_with_prefix(ignore_policy);
         self.delete_media_metadata_by_content_size(ignore_policy, (content_size + 1, upper)).await
     }
@@ -533,11 +532,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
         last_access: impl Into<IndexedKeyRange<UnixTime>>,
     ) -> Result<(), TransactionError> {
-        let range = last_access.into().map(|last_access| (ignore_policy, last_access));
-        self.delete_items_by_key_components::<MediaMetadata, IndexedMediaMetadataLastAccessKey>(
-            range,
-        )
-        .await
+        let range = Into::<IndexedKeyRange<UnixTime>>::into(last_access)
+            .map(|last_access| (ignore_policy, last_access))
+            .into_prefix(self.serializer().inner());
+        self.delete_items_by_key::<MediaMetadata, IndexedMediaMetadataLastAccessKey>(range).await
     }
 
     /// Delete [`MediaMetadata`] that matches the given
@@ -548,7 +546,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
         time: UnixTime,
     ) -> Result<(), TransactionError> {
-        let (_, lower) =
+        let (_, lower, _) =
             IndexedMediaMetadataLastAccessKey::lower_key_components_with_prefix(ignore_policy);
         self.delete_media_metadata_by_last_access(ignore_policy, (lower, time)).await
     }
@@ -561,13 +559,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
         range: impl Into<IndexedKeyRange<(UnixTime, usize)>>,
     ) -> Result<(), TransactionError> {
-        let range = range
-            .into()
-            .map(|(last_access, content_size)| (ignore_policy, last_access, content_size));
-        self.delete_items_by_key_components::<MediaMetadata, IndexedMediaMetadataRetentionKey>(
-            range,
-        )
-        .await
+        let range = Into::<IndexedKeyRange<(UnixTime, usize)>>::into(range)
+            .map(|(last_access, content_size)| (ignore_policy, last_access, content_size))
+            .into_prefix(self.serializer().inner());
+        self.delete_items_by_key::<MediaMetadata, IndexedMediaMetadataRetentionKey>(range).await
     }
 
     /// Delete [`MediaMetadata`] that matches the given
@@ -579,7 +574,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         last_access: UnixTime,
         content_size: usize,
     ) -> Result<(), TransactionError> {
-        let (_, lower_last_access, lower_content_size) =
+        let (_, lower_last_access, lower_content_size, _) =
             IndexedMediaMetadataRetentionKey::lower_key_components_with_prefix(ignore_policy);
         let lower = (lower_last_access, lower_content_size);
         self.delete_media_metadata_by_retention(ignore_policy, (lower, (last_access, content_size)))
