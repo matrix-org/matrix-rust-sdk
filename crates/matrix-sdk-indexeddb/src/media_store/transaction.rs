@@ -26,8 +26,8 @@ use crate::{
         serializer::indexed_types::{
             IndexedCoreIdKey, IndexedLease, IndexedLeaseIdKey, IndexedMedia,
             IndexedMediaCleanupTime, IndexedMediaContent, IndexedMediaContentIdKey,
-            IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaLastAccessKey,
-            IndexedMediaMetadata, IndexedMediaMetadataContentSizeKey, IndexedMediaMetadataIdKey,
+            IndexedMediaContentSizeKey, IndexedMediaIdKey, IndexedMediaMetadata,
+            IndexedMediaMetadataContentSizeKey, IndexedMediaMetadataIdKey,
             IndexedMediaMetadataLastAccessKey, IndexedMediaMetadataRetentionKey,
             IndexedMediaMetadataUriKey, IndexedMediaRetentionMetadataKey, IndexedMediaUriKey,
         },
@@ -119,21 +119,28 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_item_by_key_components::<Media, IndexedMediaIdKey>(request_parameters).await
     }
 
-    /// Query IndexedDB for [`Media`] that matches the given
-    /// [`MediaRequestParameters`]. If an item is found, update
-    /// [`Media::last_access`] using `current_time`. If more than one item
-    /// is found, an error is returned.
+    /// Query IndexedDB for [`MediaMetadata`] and [`MediaContent`] that matches
+    /// the given [`MediaRequestParameters`]. If an item is found, update
+    /// [`MediaMetadata::last_access`] using `current_time`. If more than one
+    /// item is found, an error is returned.
     pub async fn access_media_by_id(
         &self,
         request_parameters: &MediaRequestParameters,
         current_time: impl Into<UnixTime>,
     ) -> Result<Option<Media>, TransactionError> {
-        if let Some(mut media) = self.get_media_by_id(request_parameters).await? {
-            let last_access = media.last_access;
-            media.last_access = current_time.into();
-            self.put_item(&media).await?;
-            media.last_access = last_access;
-            Ok(Some(media))
+        if let Some(metadata) =
+            self.access_media_metadata_by_id(request_parameters, current_time).await?
+        {
+            let content = self
+                .get_media_content_by_id(metadata.content_id)
+                .await?
+                .ok_or(TransactionError::ItemNotFound)?;
+            Ok(Some(Media {
+                request_parameters: metadata.request_parameters,
+                last_access: metadata.last_access,
+                ignore_policy: metadata.ignore_policy,
+                content: content.data,
+            }))
         } else {
             Ok(None)
         }
@@ -144,23 +151,27 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_items_by_key_components::<Media, IndexedMediaUriKey>(uri).await
     }
 
-    /// Query IndexedDB for [`Media`] that matches the given
-    /// [`MxcUri`]. If an item is found, update [`Media::last_access`]
-    /// using `current_time`. If more than one item is found, an error
-    /// is returned.
+    /// Query IndexedDB for [`MediaMetadata`] and [`MediaContent`] that matches
+    /// the given [`MxcUri`]. If an item is found, update
+    /// [`MediaMetadata::last_access`] using `current_time`. If more than
+    /// one item is found, an error is returned.
     pub async fn access_media_by_uri(
         &self,
         uri: &MxcUri,
         current_time: impl Into<UnixTime>,
     ) -> Result<Vec<Media>, TransactionError> {
-        let current_time = current_time.into();
         let mut medias = Vec::new();
-        for mut media in self.get_media_by_uri(uri).await? {
-            let last_access = media.last_access;
-            media.last_access = current_time;
-            self.put_item(&media).await?;
-            media.last_access = last_access;
-            medias.push(media);
+        for metadata in self.access_media_metadata_by_uri(uri, current_time).await? {
+            let content = self
+                .get_media_content_by_id(metadata.content_id)
+                .await?
+                .ok_or(TransactionError::ItemNotFound)?;
+            medias.push(Media {
+                request_parameters: metadata.request_parameters,
+                last_access: metadata.last_access,
+                ignore_policy: metadata.ignore_policy,
+                content: content.data,
+            });
         }
         Ok(medias)
     }
@@ -210,9 +221,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         .await
     }
 
-    /// Query IndexedDB for the accumulated size of all [`Media`] which match
-    /// the given [`IgnoreMediaRetentionPolicy`]. Returns [`None`] if the size
-    /// of the cache overflows [`usize::MAX`].
+    /// Query IndexedDB for the size recorded in each
+    /// [`MediaMetadata::content_size`] which match
+    /// the given [`IgnoreMediaRetentionPolicy`]. Returns the sum of all sizes
+    /// or [`None`] if the size of the cache overflows [`usize::MAX`].
     ///
     /// Note that this operation is not constant, but rather iterates over all
     /// keys and extracts the content size from each key.
@@ -221,7 +233,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<Option<usize>, TransactionError> {
         Ok(self
-            .get_media_keys_by_content_size(ignore_policy)
+            .get_all_media_metadata_keys_by_content_size(ignore_policy)
             .await?
             .iter()
             .try_fold(0usize, |size, key| size.checked_add(key.content_size())))
@@ -243,107 +255,147 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.put_item(media).await
     }
 
-    /// Adds [`Media`] to IndexedDB if the size of [`IndexedMedia::content`]
-    /// does not exceed [`MediaRetentionPolicy::max_file_size]. If an item with
-    /// the same key already exists, it will be overwritten.  When the item is
-    /// successfully put, the function returns the intermediary type
-    /// [`IndexedMedia`] in case inspection is needed.
+    /// Adds [`MediaMetadata`] and [`MediaContent`] to IndexedDB if the size of
+    /// [`IndexedMediaContent::content`] does not exceed
+    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
+    /// already exists, it will be overwritten.  When the item is
+    /// successfully put, the function returns the intermediary types
+    /// [`IndexedMediaMetadata`] and [`IndexedMediaContent`] in case inspection
+    /// is needed.
     pub async fn put_media_if_policy_compliant(
         &self,
-        media: &Media,
+        media: Media,
         policy: MediaRetentionPolicy,
-    ) -> Result<Option<IndexedMedia>, TransactionError> {
-        self.put_item_if(media, |indexed| {
-            indexed.content_size.ignore_policy().is_yes()
-                || !policy.exceeds_max_file_size(indexed.content_size.content_size() as u64)
-        })
-        .await
+    ) -> Result<Option<(IndexedMediaMetadata, IndexedMediaContent)>, TransactionError> {
+        let content_id = match self.get_media_metadata_by_id(&media.request_parameters).await? {
+            Some(metadata) => metadata.content_id,
+            None => self.get_next_media_content_id().await?,
+        };
+        let content = MediaContent { id: content_id, data: media.content };
+        let option = if media.ignore_policy.is_yes() {
+            self.put_media_content(&content).await.map(Some)?
+        } else {
+            self.put_media_content_if_policy_compliant(&content, policy).await?
+        };
+        if let Some(indexed_content) = option {
+            let indexed_metadata = self
+                .put_media_metadata(&MediaMetadata {
+                    request_parameters: media.request_parameters,
+                    last_access: media.last_access,
+                    ignore_policy: media.ignore_policy,
+                    content_id,
+                    content_size: indexed_content.content.len(),
+                })
+                .await?;
+            Ok(Some((indexed_metadata, indexed_content)))
+        } else {
+            Ok(None)
+        }
     }
 
-    /// Delete [`Media`] that match the given [`MediaRequestParameters`]
-    /// from IndexedDB
+    /// Delete [`MediaMetadat`] and [`MediaContent`] that matches the given
+    /// [`MediaRequestParameters`] from IndexedDB
     pub async fn delete_media_by_id(
         &self,
         request_parameters: &MediaRequestParameters,
     ) -> Result<(), TransactionError> {
-        self.delete_item_by_key::<Media, IndexedMediaIdKey>(request_parameters).await
+        if let Some(metadata) = self.get_media_metadata_by_id(request_parameters).await? {
+            self.delete_media_content_by_id(metadata.content_id).await?;
+        }
+        self.delete_media_metadata_by_id(request_parameters).await
     }
 
-    /// Delete [`Media`] that matches the given [`MxcUri`]
-    /// from IndexedDB
-    pub async fn delete_media_by_uri(&self, source: &MxcUri) -> Result<(), TransactionError> {
-        self.delete_item_by_key::<Media, IndexedMediaUriKey>(source).await
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`MxcUri`] from IndexedDB
+    pub async fn delete_media_by_uri(&self, uri: &MxcUri) -> Result<(), TransactionError> {
+        for metadata in self.get_media_metadata_by_uri(uri).await? {
+            self.delete_media_content_by_id(metadata.content_id).await?;
+        }
+        self.delete_media_metadata_by_uri(uri).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and the given content size range from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and the given content size range from
+    /// IndexedDB
     pub async fn delete_media_by_content_size(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         content_size: impl Into<IndexedKeyRange<usize>>,
     ) -> Result<(), TransactionError> {
-        let range = content_size.into().map(|size| (ignore_policy, size));
-        self.delete_items_by_key_components::<Media, IndexedMediaContentSizeKey>(range).await
+        let range = content_size.into();
+        for key in self.get_media_metadata_keys_by_content_size(ignore_policy, range).await? {
+            self.delete_media_content_by_id(key.content_id()).await?;
+        }
+        self.delete_media_metadata_by_content_size(ignore_policy, range).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and is strictly larger than the given content size from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and is strictly larger than the given
+    /// content size from IndexedDB
     pub async fn delete_media_by_content_size_greater_than(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         content_size: usize,
     ) -> Result<(), TransactionError> {
-        let (_, upper) =
-            IndexedMediaContentSizeKey::upper_key_components_with_prefix(ignore_policy);
+        let (_, upper, _) =
+            IndexedMediaMetadataContentSizeKey::upper_key_components_with_prefix(ignore_policy);
         self.delete_media_by_content_size(ignore_policy, (content_size + 1, upper)).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and the given last access time range from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and the given last access time range
+    /// from IndexedDB
     pub async fn delete_media_by_last_access(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         last_access: impl Into<IndexedKeyRange<UnixTime>>,
     ) -> Result<(), TransactionError> {
-        let range = last_access.into().map(|last_access| (ignore_policy, last_access));
-        self.delete_items_by_key_components::<Media, IndexedMediaLastAccessKey>(range).await
+        let range = last_access.into();
+        for key in self.get_media_metadata_keys_by_last_access(ignore_policy, range).await? {
+            self.delete_media_content_by_id(key.content_id()).await?;
+        }
+        self.delete_media_metadata_by_last_access(ignore_policy, range).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and is earlier than the given last access time from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and is earlier than the given last
+    /// access time from IndexedDB
     pub async fn delete_media_by_last_access_earlier_than(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         time: UnixTime,
     ) -> Result<(), TransactionError> {
-        let (_, lower) = IndexedMediaLastAccessKey::lower_key_components_with_prefix(ignore_policy);
+        let (_, lower, _) =
+            IndexedMediaMetadataLastAccessKey::lower_key_components_with_prefix(ignore_policy);
         self.delete_media_by_last_access(ignore_policy, (lower, time)).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and the given last access time and content size range from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and the given last access time and
+    /// content size range from IndexedDB
     pub async fn delete_media_by_retention_metadata(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         range: impl Into<IndexedKeyRange<(UnixTime, usize)>>,
     ) -> Result<(), TransactionError> {
-        let range = range
-            .into()
-            .map(|(last_access, content_size)| (ignore_policy, last_access, content_size));
-        self.delete_items_by_key_components::<Media, IndexedMediaRetentionMetadataKey>(range).await
+        let range = range.into();
+        for key in self.get_media_metadata_keys_by_retention(ignore_policy, range).await? {
+            self.delete_media_content_by_id(key.content_id()).await?;
+        }
+        self.delete_media_metadata_by_retention(ignore_policy, range).await
     }
 
-    /// Delete [`Media`] that matches the given [`IgnoreMediaRetentionPolicy`]
-    /// and is sorted before the given last access time and content size
-    /// from IndexedDB
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
+    /// [`IgnoreMediaRetentionPolicy`] and is sorted before the given last
+    /// access time and content size from IndexedDB
     pub async fn delete_media_by_retention_metadata_to(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
         last_access: UnixTime,
         content_size: usize,
     ) -> Result<(), TransactionError> {
-        let (_, lower_last_access, lower_content_size) =
-            IndexedMediaRetentionMetadataKey::lower_key_components_with_prefix(ignore_policy);
+        let (_, lower_last_access, lower_content_size, _) =
+            IndexedMediaMetadataRetentionKey::lower_key_components_with_prefix(ignore_policy);
         let lower = (lower_last_access, lower_content_size);
         self.delete_media_by_retention_metadata(ignore_policy, (lower, (last_access, content_size)))
             .await

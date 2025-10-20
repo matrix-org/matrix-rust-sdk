@@ -47,7 +47,7 @@ use tracing::instrument;
 use crate::{
     media_store::{
         transaction::IndexeddbMediaStoreTransaction,
-        types::{Lease, Media, MediaCleanupTime, UnixTime},
+        types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
     serializer::{Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
@@ -149,12 +149,13 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
-        if let Some(mut media) = transaction.get_media_by_id(from).await? {
+        let transaction =
+            self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readwrite)?;
+        if let Some(mut metadata) = transaction.get_media_metadata_by_id(from).await? {
             // delete before adding, in case `from` and `to` generate the same key
-            transaction.delete_media_by_id(from).await?;
-            media.request_parameters = to.clone();
-            transaction.add_media(&media).await?;
+            transaction.delete_media_metadata_by_id(from).await?;
+            metadata.request_parameters = to.clone();
+            transaction.add_media_metadata(&metadata).await?;
             transaction.commit().await?;
         }
         Ok(())
@@ -176,7 +177,10 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
+        let transaction = self.transaction(
+            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
+            TransactionMode::Readwrite,
+        )?;
         transaction.delete_media_by_id(request).await?;
         transaction.commit().await.map_err(Into::into)
     }
@@ -197,7 +201,10 @@ impl MediaStore for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
+        let transaction = self.transaction(
+            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
+            TransactionMode::Readwrite,
+        )?;
         transaction.delete_media_by_uri(uri).await?;
         transaction.commit().await.map_err(Into::into)
     }
@@ -274,7 +281,10 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
+        let transaction = self.transaction(
+            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
+            TransactionMode::Readwrite,
+        )?;
 
         let media = Media {
             request_parameters: request.clone(),
@@ -283,7 +293,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
             content,
         };
 
-        transaction.put_media_if_policy_compliant(&media, policy).await?;
+        transaction.put_media_if_policy_compliant(media, policy).await?;
         transaction.commit().await.map_err(Into::into)
     }
 
@@ -295,11 +305,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
-        if let Some(mut media) = transaction.get_media_by_id(request).await? {
-            if media.ignore_policy != ignore_policy {
-                media.ignore_policy = ignore_policy;
-                transaction.put_media(&media).await?;
+        let transaction =
+            self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readwrite)?;
+        if let Some(mut metadata) = transaction.get_media_metadata_by_id(request).await? {
+            if metadata.ignore_policy != ignore_policy {
+                metadata.ignore_policy = ignore_policy;
+                transaction.put_media_metadata(&metadata).await?;
                 transaction.commit().await?;
             }
         }
@@ -314,7 +325,10 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
+        let transaction = self.transaction(
+            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
+            TransactionMode::Readwrite,
+        )?;
         let media = transaction.access_media_by_id(request, current_time).await?;
         transaction.commit().await?;
         Ok(media.map(|m| m.content))
@@ -328,7 +342,10 @@ impl MediaStoreInner for IndexeddbMediaStore {
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[Media::OBJECT_STORE], TransactionMode::Readwrite)?;
+        let transaction = self.transaction(
+            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
+            TransactionMode::Readwrite,
+        )?;
         let media = transaction.access_media_by_uri(uri, current_time).await?.pop();
         transaction.commit().await?;
         Ok(media.map(|m| m.content))
@@ -347,7 +364,11 @@ impl MediaStoreInner for IndexeddbMediaStore {
         }
 
         let transaction = self.transaction(
-            &[Media::OBJECT_STORE, MediaCleanupTime::OBJECT_STORE],
+            &[
+                MediaMetadata::OBJECT_STORE,
+                MediaContent::OBJECT_STORE,
+                MediaCleanupTime::OBJECT_STORE,
+            ],
             TransactionMode::Readwrite,
         )?;
 
@@ -373,7 +394,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
                 .ok_or(Self::Error::CacheSizeTooBig)?;
             if cache_size > (max_cache_size as usize) {
                 let (_, upper_key) = transaction
-                    .fold_media_keys_by_retention_metadata_while(
+                    .fold_media_metadata_keys_by_retention_while(
                         CursorDirection::Prev,
                         ignore_policy,
                         0usize,
