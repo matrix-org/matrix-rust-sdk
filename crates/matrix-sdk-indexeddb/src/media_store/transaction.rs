@@ -411,11 +411,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         Ok(media_metadatas)
     }
 
-    /// Query IndexedDB for all [content size][1] keys whose associated
+    /// Query IndexedDB for all [content
+    /// size](IndexedMediaMetadataContentSizeKey) keys whose associated
     /// [`MediaMetadata`] matches the given [`IgnoreMediaRetentionPolicy`].
-    ///
-    /// [1]: crate::media_store::serializer::indexed_types::IndexedMediaMetadataContentSizeKey
-    pub async fn get_media_metadata_keys_by_content_size(
+    pub async fn get_all_media_metadata_keys_by_content_size(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<Vec<IndexedMediaMetadataContentSizeKey>, TransactionError> {
