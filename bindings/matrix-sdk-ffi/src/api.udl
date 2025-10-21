@@ -5,6 +5,7 @@ dictionary Mentions {
   boolean room;
 };
 
+[Remote]
 interface RoomMessageEventContentWithoutRelation {
     RoomMessageEventContentWithoutRelation with_mentions(Mentions mentions);
 };

@@ -14,6 +14,7 @@ test = false
 
 [dependencies]
 camino = "1.0.8"
+cargo_metadata = "0.19.2"
 clap = { version = "4.0.18", features = ["derive"] }
 fs_extra = "1"
 serde = { workspace = true, features = ["derive"] }
