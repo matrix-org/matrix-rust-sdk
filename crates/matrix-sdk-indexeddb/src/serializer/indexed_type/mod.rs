@@ -55,7 +55,7 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexedTypeSerializerError<T> {
 pub struct IndexedTypeSerializationOutput<T: Indexed> {
     /// The intermediary value created in the process of serialization
     pub indexed: T::IndexedType,
-    /// The fully-serialzed value
+    /// The fully-serialized value
     pub value: JsValue,
 }
 
