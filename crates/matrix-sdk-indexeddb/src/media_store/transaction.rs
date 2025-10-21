@@ -216,7 +216,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         }
     }
 
-    /// Delete [`MediaMetadat`] and [`MediaContent`] that matches the given
+    /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
     /// [`MediaRequestParameters`] from IndexedDB
     pub async fn delete_media_by_id(
         &self,
