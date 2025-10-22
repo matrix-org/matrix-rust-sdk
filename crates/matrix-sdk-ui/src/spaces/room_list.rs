@@ -371,8 +371,8 @@ impl SpaceRoomList {
                         .cmp(b_order)
                         .then(a_state.origin_server_ts.cmp(&b_state.origin_server_ts))
                         .then(a.room_id.cmp(&b.room_id)),
-                    (Some(_), None) => Ordering::Greater,
-                    (None, Some(_)) => Ordering::Less,
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
                     (None, None) => a_state
                         .origin_server_ts
                         .cmp(&b_state.origin_server_ts)
@@ -850,8 +850,8 @@ mod tests {
             Ordering::Less
         );
 
-        // Finally, when one of the rooms is missing `children_state` data the
-        // other one should take precedence
+        // When one of the rooms is missing `children_state` data the other one
+        // should take precedence
         assert_eq!(
             SpaceRoomList::compare_rooms(
                 &make_space_room(owned_room_id!("!Viola:a.b"), None, None, &mut children_state),
@@ -866,6 +866,8 @@ mod tests {
             Ordering::Greater
         );
 
+        // If the `order` is missing from one of the rooms but `children_state`
+        // is present then the other one should come first
         assert_eq!(
             SpaceRoomList::compare_rooms(
                 &make_space_room(
@@ -882,7 +884,7 @@ mod tests {
                 ),
                 &children_state,
             ),
-            Ordering::Less
+            Ordering::Greater
         );
     }
 
@@ -923,9 +925,8 @@ mod tests {
         order: Option<&str>,
         origin_server_ts: u32,
     ) -> HierarchySpaceChildEvent {
-        let json = json!({
+        let mut json = json!({
             "content": {
-                "order": order.unwrap_or(""),
                 "via": []
             },
             "origin_server_ts": origin_server_ts,
@@ -933,6 +934,10 @@ mod tests {
             "state_key": room_id.to_string(),
             "type": "m.space.child"
         });
+
+        if let Some(order) = order {
+            json["content"]["order"] = json!(order);
+        }
 
         from_value::<HierarchySpaceChildEvent>(json).unwrap()
     }
