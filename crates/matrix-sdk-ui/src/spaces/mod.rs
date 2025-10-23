@@ -27,11 +27,12 @@
 //! - `SpaceRoomList`: A component for retrieving a space's children rooms and
 //!   their details.
 
-use std::sync::Arc;
+use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
+use itertools::Itertools;
 use matrix_sdk::{
     Client, Error as SDKError, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop,
 };
@@ -39,7 +40,7 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId, RoomId,
     events::{
-        SyncStateEvent,
+        self, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
@@ -291,20 +292,46 @@ impl SpaceService {
 
         let root_nodes = graph.root_nodes();
 
-        let joined_space_rooms = joined_spaces
+        // Proceed with filtering to the top level spaces, sorting them by their
+        // (optional) order field (as defined in MSC3230) and then mapping them
+        // to `SpaceRoom`s.
+        let top_level_spaces = joined_spaces
             .iter()
-            .filter_map(|room| {
-                let room_id = room.room_id();
+            .filter(|room| root_nodes.contains(&room.room_id()))
+            .collect::<Vec<_>>();
 
-                if root_nodes.contains(&room_id) {
-                    Some(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64))
-                } else {
-                    None
+        let mut top_level_space_order = HashMap::new();
+        for space in &top_level_spaces {
+            if let Ok(Some(raw_event)) =
+                space.account_data_static::<events::space_order::SpaceOrderEventContent>().await
+                && let Ok(event) = raw_event.deserialize()
+            {
+                top_level_space_order.insert(space.room_id().to_owned(), event.content.order);
+            }
+        }
+
+        let top_level_spaces = top_level_spaces
+            .iter()
+            .sorted_by(|a, b| {
+                // MSC3230: lexicographically by `order` and then by room ID
+                match (
+                    top_level_space_order.get(a.room_id()),
+                    top_level_space_order.get(b.room_id()),
+                ) {
+                    (Some(a_order), Some(b_order)) => {
+                        a_order.cmp(b_order).then(a.room_id().cmp(b.room_id()))
+                    }
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => a.room_id().cmp(b.room_id()),
                 }
+            })
+            .map(|room| {
+                SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64)
             })
             .collect();
 
-        (joined_space_rooms, graph)
+        (top_level_spaces, graph)
     }
 }
 
@@ -315,9 +342,11 @@ mod tests {
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
+        JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
+        event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, owned_room_id, room_id};
+    use ruma::{RoomVersionId, UserId, owned_room_id, room_id};
+    use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
 
     use super::*;
@@ -553,5 +582,65 @@ mod tests {
             space_service.joined_spaces().await,
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
+    }
+
+    #[async_test]
+    async fn test_top_level_space_order() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        add_space_rooms_with(
+            vec![
+                (room_id!("!2:a.b"), Some("2")),
+                (room_id!("!4:a.b"), None),
+                (room_id!("!3:a.b"), None),
+                (room_id!("!1:a.b"), Some("1")),
+            ],
+            &client,
+            &server,
+            &EventFactory::new(),
+            client.user_id().unwrap(),
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // Space with an `order` field set should come first in lexicographic
+        // order and rest sorted by room ID.
+        assert_eq!(
+            space_service.joined_spaces().await,
+            vec![
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0),
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0),
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
+            ]
+        );
+    }
+
+    async fn add_space_rooms_with(
+        rooms: Vec<(&RoomId, Option<&str>)>,
+        client: &Client,
+        server: &MatrixMockServer,
+        factory: &EventFactory,
+        user_id: &UserId,
+    ) {
+        for (room_id, order) in rooms {
+            let mut builder = JoinedRoomBuilder::new(room_id)
+                .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
+
+            if let Some(order) = order {
+                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "type": "m.space_order",
+                      "content": {
+                        "order": order
+                      }
+                })));
+            }
+
+            server.sync_room(client, builder).await;
+        }
     }
 }
