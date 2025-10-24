@@ -85,8 +85,8 @@ pub type IndexedMediaContentSize = usize;
 /// A representation of the identifier [`MediaContent::content_id`]
 pub type IndexedMediaContentId = Uuid;
 
-/// A (possibly) encrypted representation of [`MediaContent`]
-pub type IndexedMediaContentContent = Vec<u8>;
+/// A (possibly) encrypted representation of [`MediaContent::data`]
+pub type IndexedMediaContentData = Vec<u8>;
 
 /// Represents the [`LEASES`][1] object store.
 ///
@@ -651,8 +651,8 @@ impl<'a>
 pub struct IndexedMediaContent {
     /// The primary key of the object store
     pub id: IndexedMediaContentIdKey,
-    /// The (possibly) encrypted content - i.e., [`MediaContent`]
-    pub content: IndexedMediaContentContent,
+    /// The (possibly) encrypted content - i.e., [`MediaContent::data`]
+    pub content: IndexedMediaContentData,
 }
 
 #[derive(Debug, Error)]
