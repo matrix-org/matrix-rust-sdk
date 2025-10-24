@@ -37,6 +37,7 @@ use matrix_sdk_crypto::CryptoStoreError;
 use ruma::MxcUri;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
 
 use crate::{
     media_store::{
@@ -82,7 +83,7 @@ pub type IndexedMediaMetadataContent = MaybeEncrypted;
 pub type IndexedMediaContentSize = usize;
 
 /// A representation of the identifier [`MediaContent::content_id`]
-pub type IndexedMediaContentId = u64;
+pub type IndexedMediaContentId = Uuid;
 
 /// A (possibly) encrypted representation of [`MediaContent::data`]
 pub type IndexedMediaContentData = Vec<u8>;
@@ -369,7 +370,7 @@ impl IndexedMediaMetadataContentSizeKey {
     }
 
     /// Returns the identifier of the associated [`IndexedMediaContent`]
-    pub fn content_id(&self) -> u64 {
+    pub fn content_id(&self) -> Uuid {
         self.2
     }
 }
@@ -465,7 +466,7 @@ impl IndexedMediaMetadataLastAccessKey {
     }
 
     /// Returns the identifier of the associated [`IndexedMediaContent`]
-    pub fn content_id(&self) -> u64 {
+    pub fn content_id(&self) -> Uuid {
         self.2
     }
 }
@@ -562,7 +563,7 @@ impl IndexedMediaMetadataRetentionKey {
     }
 
     /// Returns the identifier of the associated [`IndexedMediaContent`]
-    pub fn content_id(&self) -> u64 {
+    pub fn content_id(&self) -> Uuid {
         self.3
     }
 }
@@ -709,7 +710,7 @@ impl Indexed for MediaContent {
 pub struct IndexedMediaContentIdKey(IndexedMediaContentId);
 
 impl Deref for IndexedMediaContentIdKey {
-    type Target = u64;
+    type Target = Uuid;
 
     fn deref(&self) -> &Self::Target {
         &self.0

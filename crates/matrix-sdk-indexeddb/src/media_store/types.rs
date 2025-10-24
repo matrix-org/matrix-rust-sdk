@@ -20,6 +20,7 @@ use std::{
 use matrix_sdk_base::media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters};
 use ruma::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Representation of a time-based lock on the entire
 /// [`IndexeddbMediaStore`](crate::media_store::IndexeddbMediaStore)
@@ -69,7 +70,7 @@ pub struct MediaMetadata {
     #[serde(with = "crate::media_store::serializer::foreign::ignore_media_retention_policy")]
     pub ignore_policy: IgnoreMediaRetentionPolicy,
     /// The identifier of the associated [`MediaContent`]
-    pub content_id: u64,
+    pub content_id: Uuid,
     /// The size in bytes of the associated [`MediaContent`]
     pub content_size: usize,
 }
@@ -78,7 +79,7 @@ pub struct MediaMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaContent {
     /// The identifier associated with the given [`MediaContent::data`].
-    pub content_id: u64,
+    pub content_id: Uuid,
     /// The bytes to be stored in IndexedDB
     pub data: Vec<u8>,
 }

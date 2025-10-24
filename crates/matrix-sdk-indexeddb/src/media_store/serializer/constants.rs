@@ -18,7 +18,7 @@ use crate::{
         types::UnixTime,
     },
     serializer::{
-        indexed_type::constants::{INDEXED_KEY_LOWER_U64, INDEXED_KEY_UPPER_U64},
+        indexed_type::constants::{INDEXED_KEY_LOWER_UUID, INDEXED_KEY_UPPER_UUID},
         INDEXED_KEY_UPPER_DURATION_SECONDS,
     },
 };
@@ -57,17 +57,17 @@ pub const INDEXED_KEY_UPPER_UNIX_TIME: UnixTime =
     UnixTime::AfterEpoch(INDEXED_KEY_UPPER_DURATION_SECONDS);
 
 /// The minimum value for an [`IndexedMediaContentId`] - i.e.,
-/// [`INDEXED_KEY_LOWER_U64`].
+/// [`INDEXED_KEY_LOWER_UUID`].
 ///
 /// This value is useful for constructing a key range over all keys which
 /// contain [`IndexedMediaContentId`] values when used in conjunction with
 /// [`INDEXED_KEY_UPPER_MEDIA_CONTENT_ID`].
-pub const INDEXED_KEY_LOWER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_LOWER_U64;
+pub const INDEXED_KEY_LOWER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_LOWER_UUID;
 
 /// The maximum value for an [`IndexedMediaContentId`] - i.e.,
-/// [`INDEXED_KEY_UPPER_U64`].
+/// [`INDEXED_KEY_UPPER_UUID`].
 ///
 /// This value is useful for constructing a key range over all keys which
 /// contain [`IndexedMediaContentId`] values when used in conjunction with
 /// [`INDEXED_KEY_LOWER_MEDIA_CONTENT_ID`].
-pub const INDEXED_KEY_UPPER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_UPPER_U64;
+pub const INDEXED_KEY_UPPER_MEDIA_CONTENT_ID: IndexedMediaContentId = INDEXED_KEY_UPPER_UUID;
