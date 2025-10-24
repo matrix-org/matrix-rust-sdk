@@ -20,6 +20,7 @@ use matrix_sdk_base::media::{
     MediaRequestParameters,
 };
 use ruma::MxcUri;
+use uuid::Uuid;
 
 use crate::{
     media_store::{
@@ -192,7 +193,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     ) -> Result<Option<(IndexedMediaMetadata, IndexedMediaContent)>, TransactionError> {
         let content_id = match self.get_media_metadata_by_id(&media.request_parameters).await? {
             Some(metadata) => metadata.content_id,
-            None => self.get_next_media_content_id().await?,
+            None => Uuid::new_v4(),
         };
         let content = MediaContent { content_id, data: media.content };
         let option = if media.ignore_policy.is_yes() {
@@ -604,28 +605,9 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// is returned.
     pub async fn get_media_content_by_id(
         &self,
-        id: u64,
+        id: Uuid,
     ) -> Result<Option<MediaContent>, TransactionError> {
         self.get_item_by_key_components::<MediaContent, IndexedMediaContentIdKey>(id).await
-    }
-
-    /// Query IndexedDB for the maximum [`IndexedMediaContentIdKey`] associated
-    /// with a [`MediaContent`]
-    pub async fn get_max_media_content_key_by_id(
-        &self,
-    ) -> Result<Option<IndexedMediaContentIdKey>, TransactionError> {
-        self.get_max_key::<MediaContent, IndexedMediaContentIdKey>(IndexedKeyRange::all(
-            self.serializer().inner(),
-        ))
-        .await
-    }
-
-    /// Query IndexedDB for the next available [`MediaContent::id`]
-    pub async fn get_next_media_content_id(&self) -> Result<u64, TransactionError> {
-        Ok(match self.get_max_media_content_key_by_id().await? {
-            Some(key) => key.checked_add(1).ok_or(TransactionError::NumericalOverflow)?,
-            None => 0,
-        })
     }
 
     /// Adds [`MediaContent`] to IndexedDB. If an item with the same key already
@@ -668,7 +650,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Delete [`MediaContent`] that match the given identifier from IndexedDB
-    pub async fn delete_media_content_by_id(&self, id: u64) -> Result<(), TransactionError> {
+    pub async fn delete_media_content_by_id(&self, id: Uuid) -> Result<(), TransactionError> {
         self.delete_item_by_key::<MediaContent, IndexedMediaContentIdKey>(id).await
     }
 }
