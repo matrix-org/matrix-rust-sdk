@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::IntoFuture, sync::Arc};
+use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -26,7 +26,6 @@ use ruma::{
     OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
-use tokio::sync::Mutex;
 use tracing::trace;
 use vodozemac::{Curve25519PublicKey, ecies::CheckCode};
 
@@ -37,7 +36,10 @@ use super::{
 };
 use crate::{
     Client,
-    authentication::oauth::{ClientRegistrationData, OAuth, OAuthError, qrcode::LoginProtocolType},
+    authentication::oauth::{
+        ClientRegistrationData, OAuth, OAuthError,
+        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType},
+    },
 };
 
 async fn send_unexpected_message_error(
@@ -272,59 +274,6 @@ pub enum LoginProgress<Q> {
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
     pub check_code: CheckCode,
-}
-
-/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
-/// this device is the one generating the QR code.
-///
-/// We have established the secure channel, but we need to let the
-/// other side know about the [`QrCodeData`] so they can send us the
-/// [`CheckCode`] and verify that the secure channel is indeed secure.
-#[derive(Clone, Debug)]
-pub enum GeneratedQrProgress {
-    /// The QR code data that must be sent to the existing device.
-    QrReady(QrCodeData),
-    /// Used to send the [`CheckCode`] to the login task once we receive
-    /// it from the existing device.
-    QrScanned(CheckCodeSender),
-}
-
-/// Used to pass back the [`CheckCode`] entered by the user to verify that the
-/// secure channel is indeed secure.
-#[derive(Clone, Debug)]
-pub struct CheckCodeSender {
-    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,
-}
-
-impl CheckCodeSender {
-    fn new(tx: tokio::sync::oneshot::Sender<u8>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Some(tx))) }
-    }
-
-    /// Send the [`CheckCode`].
-    ///
-    /// Calling this method more than once will result in an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `check_code` - The check code in digits representation.
-    pub async fn send(&self, check_code: u8) -> Result<(), CheckCodeSenderError> {
-        match self.inner.lock().await.take() {
-            Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
-            None => Err(CheckCodeSenderError::AlreadySent),
-        }
-    }
-}
-
-/// Possible errors when calling [`CheckCodeSender::send`].
-#[derive(Debug, thiserror::Error)]
-pub enum CheckCodeSenderError {
-    /// The check code has already been sent.
-    #[error("check code already sent.")]
-    AlreadySent,
-    /// The check code cannot be sent.
-    #[error("check code cannot be sent.")]
-    CannotSend,
 }
 
 /// Named future for logging in by scanning a QR code with the
