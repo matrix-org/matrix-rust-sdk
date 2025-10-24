@@ -37,6 +37,7 @@ pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
 
 mod login;
 mod messages;
+mod reciprocate;
 mod rendezvous_channel;
 mod secure_channel;
 
@@ -46,6 +47,7 @@ pub use self::{
         LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress,
     },
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
+    reciprocate::{Error as ReciprocateQrCodeAuthError, scanned},
 };
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]

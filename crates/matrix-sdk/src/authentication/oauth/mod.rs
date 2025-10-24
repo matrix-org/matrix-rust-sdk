@@ -225,6 +225,8 @@ use self::{
     registration::{ClientMetadata, ClientRegistrationResponse, register_client},
 };
 use super::{AuthData, SessionTokens};
+#[cfg(feature = "e2e-encryption")]
+use crate::authentication::oauth::qrcode::{ReciprocateQrCodeAuthError, scanned};
 use crate::{Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn};
 
 pub(crate) struct OAuthCtx {
@@ -364,7 +366,7 @@ impl OAuth {
         as_variant!(data, AuthData::OAuth)
     }
 
-    /// Log in using a QR code.
+    /// Log in this device using a QR code.
     ///
     /// # Arguments
     ///
@@ -378,6 +380,12 @@ impl OAuth {
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCodeBuilder<'a> {
         LoginWithQrCodeBuilder { client: &self.client, registration_data }
+    }
+
+    /// Grant login to a new device using a QR code.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn grant_login_with_qr_code<'a>(&'a self) -> GrantLoginWithQrCodeBuilder<'a> {
+        GrantLoginWithQrCodeBuilder { client: &self.client }
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given
@@ -1505,6 +1513,82 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     }
 }
 
+/// Builder for QR login reciprocation handlers.
+#[cfg(feature = "e2e-encryption")]
+#[derive(Debug)]
+pub struct GrantLoginWithQrCodeBuilder<'a> {
+    /// The underlying Matrix API client.
+    client: &'a Client,
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> GrantLoginWithQrCodeBuilder<'a> {
+    /// Grant login by generating a QR code on this device to be scanned by the
+    /// new device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     Client, authentication::oauth::{
+    ///         qrcode::scanned::ReciprocateProgress
+    ///     }
+    /// };
+    /// use std::io::stdin;
+    /// # _ = async {
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .server_name_or_homeserver_url("matrix.org")
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oauth = client.oauth();
+    ///
+    /// // Subscribing to the progress is necessary since we need to capture the
+    /// // verification URL and open it in a browser to let the user consent to
+    /// // the new login.
+    /// let mut handler = oauth.grant_login_with_qr_code().scanned().await?;
+    /// let mut progress = handler.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and allows us to capture
+    /// // and open the verification URL.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             ReciprocateProgress::Created | ReciprocateProgress::WaitingForCheckCode | ReciprocateProgress::SyncingSecrets => (),
+    ///             ReciprocateProgress::WaitingForAuth { verification_uri } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             },
+    ///             ReciprocateProgress::Done => break,
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Now wait for the other device to scan the QR code
+    /// println!("Please scan the QR code on your other device: {:?}", handler.qr_code_data());
+    /// handler.wait_for_scan().await?;
+    ///
+    /// // Let the user put in the checkcode so we can verify the channel is secure and
+    /// // then attempt to finish the grant.
+    /// println!("Please enter the code displayed on your other device");
+    /// let mut s = String::new();
+    /// stdin().read_line(&mut s).unwrap();
+    /// let check_code = s.trim().parse::<u8>().unwrap();
+    /// handler.confirm_check_code_and_finish(check_code).await;
+    ///
+    /// // Now wait for the process to finish.
+    /// task.await;
+    ///
+    /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn scanned(&self) -> Result<scanned::ReciprocateHandler, ReciprocateQrCodeAuthError> {
+        scanned::ReciprocateHandler::new(self.client.clone()).await
+    }
+}
 /// A full session for the OAuth 2.0 API.
 #[derive(Debug, Clone)]
 pub struct OAuthSession {
