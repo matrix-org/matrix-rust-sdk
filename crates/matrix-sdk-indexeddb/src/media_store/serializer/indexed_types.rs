@@ -81,7 +81,7 @@ pub type IndexedMediaMetadataContent = MaybeEncrypted;
 /// is suitable for use in an IndexedDB key
 pub type IndexedMediaContentSize = usize;
 
-/// A representation of the identifier [`MediaContent::id`]
+/// A representation of the identifier [`MediaContent::content_id`]
 pub type IndexedMediaContentId = u64;
 
 /// A (possibly) encrypted representation of [`MediaContent::data`]
@@ -675,7 +675,7 @@ impl Indexed for MediaContent {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(Self::IndexedType {
-            id: IndexedMediaContentIdKey::encode(self.id, serializer),
+            id: IndexedMediaContentIdKey::encode(self.content_id, serializer),
             content: if serializer.has_store_cipher() {
                 rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.data)?)?
             } else {
@@ -689,7 +689,7 @@ impl Indexed for MediaContent {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: *indexed.id,
+            content_id: *indexed.id,
             data: if serializer.has_store_cipher() {
                 serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?
             } else {

@@ -194,7 +194,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
             Some(metadata) => metadata.content_id,
             None => self.get_next_media_content_id().await?,
         };
-        let content = MediaContent { id: content_id, data: media.content };
+        let content = MediaContent { content_id, data: media.content };
         let option = if media.ignore_policy.is_yes() {
             self.put_media_content(&content).await.map(Some)?
         } else {
