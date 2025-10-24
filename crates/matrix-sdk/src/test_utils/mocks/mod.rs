@@ -1428,6 +1428,12 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, DevicesEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to query a single device.
+    pub fn mock_get_device(&self) -> MockEndpoint<'_, GetDeviceEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex("/_matrix/client/v3/devices/.*"));
+        self.mock_endpoint(mock, GetDeviceEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to search in the user
     /// directory.
     pub fn mock_user_directory(&self) -> MockEndpoint<'_, UserDirectoryEndpoint> {
@@ -4177,6 +4183,16 @@ impl<'a> MockEndpoint<'a, DevicesEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICES))
+    }
+}
+
+/// A prebuilt mock for `GET /devices/{deviceId}` requests.
+pub struct GetDeviceEndpoint;
+
+impl<'a> MockEndpoint<'a, GetDeviceEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICE))
     }
 }
 
