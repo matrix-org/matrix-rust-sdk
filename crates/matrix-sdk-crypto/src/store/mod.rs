@@ -1632,60 +1632,74 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        match sender_data {
+        if matches!(
+            &sender_data,
             SenderData::UnknownDevice { .. }
-            | SenderData::VerificationViolation(_)
-            | SenderData::DeviceInfo { .. } => {
-                warn!("Not accepting a historic room key bundle due to insufficient trust in the sender");
-                Ok(())
+                | SenderData::VerificationViolation(_)
+                | SenderData::DeviceInfo { .. }
+        ) {
+            warn!(
+                "Not accepting a historic room key bundle due to insufficient trust in the sender"
+            );
+            return Ok(());
+        }
+
+        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+
+        Ok(())
+    }
+
+    async fn import_room_key_bundle_sessions(
+        &self,
+        bundle_info: &StoredRoomKeyBundleData,
+        bundle: &RoomKeyBundle,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<(), CryptoStoreError> {
+        let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
+            if key.room_id != bundle_info.bundle_data.room_id {
+                trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                Either::Right(key)
+            } else {
+                Either::Left(key)
             }
-            SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => {
-                let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
-                    if key.room_id != bundle_info.bundle_data.room_id {
-                        trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
-                        Either::Right(key)
-                    } else {
-                        Either::Left(key)
-                    }
-                });
+        });
 
-                match (bad.is_empty(), good.is_empty()) {
-                    // Case 1: Completely empty bundle.
-                    (true, true) => {
-                        warn!("Received a completely empty room key bundle");
-                    }
+        match (bad.is_empty(), good.is_empty()) {
+            // Case 1: Completely empty bundle.
+            (true, true) => {
+                warn!("Received a completely empty room key bundle");
+            }
 
-                    // Case 2: A bundle for the wrong room.
-                    (false, true) => {
-                        let bad_keys: Vec<_> =
-                            bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
+            // Case 2: A bundle for the wrong room.
+            (false, true) => {
+                let bad_keys: Vec<_> =
+                    bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
 
-                        warn!(
+                warn!(
                     ?bad_keys,
                     "Received a room key bundle for the wrong room, ignoring all room keys from the bundle"
                 );
-                    }
+            }
 
-                    // Case 3: A bundle containing useful room keys.
-                    (_, false) => {
-                        // We have at least some good keys, if we also have some bad ones let's
-                        // mention that here.
-                        if !bad.is_empty() {
-                            warn!(
-                                bad_key_count = bad.len(),
-                                "The room key bundle contained some room keys \
+            // Case 3: A bundle containing useful room keys.
+            (_, false) => {
+                // We have at least some good keys, if we also have some bad ones let's
+                // mention that here.
+                if !bad.is_empty() {
+                    warn!(
+                        bad_key_count = bad.len(),
+                        "The room key bundle contained some room keys \
                          that were meant for a different room"
-                            );
-                        }
-
-                        self.import_sessions_impl(good, None, progress_listener).await?;
-                    }
+                    );
                 }
 
-                Ok(())
+                self.import_sessions_impl(good, None, progress_listener).await?;
             }
         }
+
+        Ok(())
     }
+
 }
 
 impl Deref for Store {
