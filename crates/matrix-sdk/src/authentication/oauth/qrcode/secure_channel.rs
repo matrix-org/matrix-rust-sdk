@@ -54,12 +54,12 @@ impl SecureChannel {
         Ok(Self { channel, qr_code_data, ecies })
     }
 
-    /// Create a new login to reciprocate an existing login with.
-    #[cfg(test)]
-    pub(super) async fn new(http_client: HttpClient, homeserver_url: &Url) -> Result<Self, Error> {
+    /// Create a new secure channel to reciprocate an existing login with.
+    pub(super) async fn reciprocate(
+        http_client: HttpClient,
+        homeserver_url: &Url,
+    ) -> Result<Self, Error> {
         let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
-        // We're a bit abusing the QR code data here, since we're passing the homeserver
-        // URL, but for our tests this is fine.
         channel.qr_code_data.mode_data =
             QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
         Ok(channel)
@@ -354,7 +354,7 @@ pub(super) mod test {
         let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let alice = SecureChannel::new(client, &rendezvous_server.homeserver_url)
+        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url)
             .await
             .expect("Alice should be able to create a secure channel.");
 
