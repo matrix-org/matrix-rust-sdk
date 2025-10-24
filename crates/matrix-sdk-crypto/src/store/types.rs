@@ -34,7 +34,10 @@ use crate::{
         SenderData,
     },
     types::{
-        events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldEvent},
+        events::{
+            room_key_bundle::RoomKeyBundleContent,
+            room_key_withheld::{RoomKeyWithheldContent, RoomKeyWithheldEvent},
+        },
         EventEncryptionAlgorithm,
     },
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
@@ -75,7 +78,7 @@ pub struct Changes {
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
     /// Stores when a `m.room_key.withheld` is received
-    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEvent>>,
+    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
     pub next_batch_token: Option<String>,
@@ -484,9 +487,31 @@ pub struct RoomKeyWithheldInfo {
     /// The ID of the session that the key is for.
     pub session_id: String,
 
-    /// The `m.room_key.withheld` event that notified us that the key is being
-    /// withheld.
-    pub withheld_event: RoomKeyWithheldEvent,
+    /// The withheld entry from a `m.room_key.withheld` event or [MSC4268] room
+    /// key bundle.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub withheld_event: RoomKeyWithheldEntry,
+}
+
+/// Represents an entry for a withheld room key event, which can be either a
+/// to-device event or a bundle entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoomKeyWithheldEntry {
+    /// The user ID responsible for this entry, either from a
+    /// `m.room_key.withheld` to-device event or an [MSC4268] room key bundle.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub sender: OwnedUserId,
+    /// The content of the entry, which provides details about the reason the
+    /// key was withheld.
+    pub content: RoomKeyWithheldContent,
+}
+
+impl From<RoomKeyWithheldEvent> for RoomKeyWithheldEntry {
+    fn from(value: RoomKeyWithheldEvent) -> Self {
+        Self { sender: value.sender, content: value.content }
+    }
 }
 
 /// Information about a received historic room key bundle.

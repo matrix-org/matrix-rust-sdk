@@ -76,6 +76,7 @@ use crate::{
         Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
         Session, StaticAccountData,
     },
+    store::types::RoomKeyWithheldEntry,
     types::{
         BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
         SecretsBundle,
@@ -1642,59 +1643,111 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        match sender_data {
+        if matches!(
+            &sender_data,
             SenderData::UnknownDevice { .. }
-            | SenderData::VerificationViolation(_)
-            | SenderData::DeviceInfo { .. } => {
-                warn!("Not accepting a historic room key bundle due to insufficient trust in the sender");
-                Ok(())
+                | SenderData::VerificationViolation(_)
+                | SenderData::DeviceInfo { .. }
+        ) {
+            warn!(
+                "Not accepting a historic room key bundle due to insufficient trust in the sender"
+            );
+            return Ok(());
+        }
+
+        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
+
+        Ok(())
+    }
+
+    async fn import_room_key_bundle_sessions(
+        &self,
+        bundle_info: &StoredRoomKeyBundleData,
+        bundle: &RoomKeyBundle,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<(), CryptoStoreError> {
+        let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
+            if key.room_id != bundle_info.bundle_data.room_id {
+                trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                Either::Right(key)
+            } else {
+                Either::Left(key)
             }
-            SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => {
-                let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
-                    if key.room_id != bundle_info.bundle_data.room_id {
-                        trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
-                        Either::Right(key)
-                    } else {
-                        Either::Left(key)
-                    }
-                });
+        });
 
-                match (bad.is_empty(), good.is_empty()) {
-                    // Case 1: Completely empty bundle.
-                    (true, true) => {
-                        warn!("Received a completely empty room key bundle");
-                    }
+        match (bad.is_empty(), good.is_empty()) {
+            // Case 1: Completely empty bundle.
+            (true, true) => {
+                warn!("Received a completely empty room key bundle");
+            }
 
-                    // Case 2: A bundle for the wrong room.
-                    (false, true) => {
-                        let bad_keys: Vec<_> =
-                            bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
+            // Case 2: A bundle for the wrong room.
+            (false, true) => {
+                let bad_keys: Vec<_> =
+                    bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
 
-                        warn!(
+                warn!(
                     ?bad_keys,
                     "Received a room key bundle for the wrong room, ignoring all room keys from the bundle"
                 );
-                    }
+            }
 
-                    // Case 3: A bundle containing useful room keys.
-                    (_, false) => {
-                        // We have at least some good keys, if we also have some bad ones let's
-                        // mention that here.
-                        if !bad.is_empty() {
-                            warn!(
-                                bad_key_count = bad.len(),
-                                "The room key bundle contained some room keys \
+            // Case 3: A bundle containing useful room keys.
+            (_, false) => {
+                // We have at least some good keys, if we also have some bad ones let's
+                // mention that here.
+                if !bad.is_empty() {
+                    warn!(
+                        bad_key_count = bad.len(),
+                        "The room key bundle contained some room keys \
                          that were meant for a different room"
-                            );
-                        }
-
-                        self.import_sessions_impl(good, None, progress_listener).await?;
-                    }
+                    );
                 }
 
-                Ok(())
+                self.import_sessions_impl(good, None, progress_listener).await?;
             }
         }
+
+        Ok(())
+    }
+
+    async fn import_room_key_bundle_withheld_info(
+        &self,
+        bundle_info: &StoredRoomKeyBundleData,
+        bundle: &RoomKeyBundle,
+    ) -> Result<(), CryptoStoreError> {
+        let mut changes = Changes::default();
+        for withheld in &bundle.withheld {
+            let (room_id, session_id) = match withheld {
+                RoomKeyWithheldContent::MegolmV1AesSha2(c) => match (c.room_id(), c.session_id()) {
+                    (Some(room_id), Some(session_id)) => (room_id, session_id),
+                    _ => continue,
+                },
+                #[cfg(feature = "experimental-algorithms")]
+                RoomKeyWithheldContent::MegolmV2AesSha2(c) => match (c.room_id(), c.session_id()) {
+                    (Some(room_id), Some(session_id)) => (room_id, session_id),
+                    _ => continue,
+                },
+                RoomKeyWithheldContent::Unknown(_) => continue,
+            };
+
+            if room_id != bundle_info.bundle_data.room_id {
+                trace!("Ignoring withheld info for incorrect room {} in bundle", room_id);
+                continue;
+            }
+
+            changes.withheld_session_info.entry(room_id.to_owned()).or_default().insert(
+                session_id.to_owned(),
+                RoomKeyWithheldEntry {
+                    sender: bundle_info.sender_user.clone(),
+                    content: withheld.to_owned(),
+                },
+            );
+        }
+        self.save_changes(changes).await?;
+
+        Ok(())
     }
 }
 
@@ -1727,17 +1780,31 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 mod tests {
     use std::pin::pin;
 
+    use assert_matches2::assert_matches;
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, RoomId};
+    use ruma::{
+        device_id,
+        events::room::{EncryptedFileInit, JsonWebKeyInit},
+        owned_device_id, owned_mxc_uri, room_id,
+        serde::Base64,
+        user_id, RoomId,
+    };
+    use serde_json::json;
     use vodozemac::megolm::SessionKey;
 
     use crate::{
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
-        store::types::DehydratedDeviceKey,
-        types::EventEncryptionAlgorithm,
+        store::types::{DehydratedDeviceKey, RoomKeyWithheldEntry, StoredRoomKeyBundleData},
+        types::{
+            events::{
+                room_key_bundle::RoomKeyBundleContent,
+                room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
+            },
+            EventEncryptionAlgorithm,
+        },
         OlmMachine,
     };
 
@@ -1958,6 +2025,17 @@ mod tests {
         // We sort the sessions in the bundle, so that the snapshot is stable.
         bundle.room_keys.sort_by_key(|session| session.session_id.clone());
 
+        // We substitute the algorithm, since this changes based on feature flags.
+        let algorithm = if cfg!(feature = "experimental-algorithms") {
+            "m.megolm.v2.aes-sha2"
+        } else {
+            "m.megolm.v1.aes-sha2"
+        };
+        let map_algorithm = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), algorithm);
+            "[algorithm]"
+        };
+
         // We also substitute alice's keys in the snapshot with placeholders
         let alice_curve_key = alice.identity_keys().curve25519.to_base64();
         let map_alice_curve_key = move |value: Content, _path: ContentPath<'_>| {
@@ -1972,6 +2050,8 @@ mod tests {
 
         insta::with_settings!({ sort_maps => true }, {
             assert_json_snapshot!(bundle, {
+                ".withheld[].algorithm" => insta::dynamic_redaction(map_algorithm),
+                ".room_keys[].algorithm" => insta::dynamic_redaction(map_algorithm),
                 ".room_keys[].sender_key" => insta::dynamic_redaction(map_alice_curve_key.clone()),
                 ".withheld[].sender_key" => insta::dynamic_redaction(map_alice_curve_key),
                 ".room_keys[].sender_claimed_keys.ed25519" => insta::dynamic_redaction(map_alice_ed25519_key),
@@ -1979,10 +2059,156 @@ mod tests {
         });
     }
 
+    #[async_test]
+    async fn test_receive_room_key_bundle() {
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let alice_key = alice.identity_keys().curve25519;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
+
+        let room_id = room_id!("!room1:localhost");
+
+        let session_key1 = "AgAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFSya8DO/VxC9m5+/mF+WwYqdpKn9g4Y05Yw4uz7cdjTc3rXm7xK+8E7hI//5QD1nHPvuKYbjjM9u2JSL+Bzp61Cw";
+        let session_key2 = "AgAAAAC1BXreFTUQQSBGekTEuYxhdytRKyv4JgDGcG+VOBYdPNGgs807SdibCGJky4lJ3I+7ZDGHoUzZPZP/4ogGu4kxni0PWdtWuN7+5zsuamgoFF/BkaGeUUGv6kgIkx8pyPpM5SASTUEP9bN2loDSpUPYwfiIqz74DgC4WQ4435sTBctYvKz8n+TDJwdLXpyT6zKljuqADAioud+s/iqx9LYn9HpbBfezZcvbg67GtE113pLrvde3IcPI5s6dNHK2onGO2B2eoaobcen18bbEDnlUGPeIivArLya7Da6us14jBQ";
+
+        let sessions = [
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room_id,
+                &SessionKey::from_base64(session_key1).unwrap(),
+                true,
+            ),
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room_id,
+                &SessionKey::from_base64(session_key2).unwrap(),
+                false,
+            ),
+        ];
+
+        alice.store().save_inbound_group_sessions(&sessions).await.unwrap();
+        let bundle = alice.store().build_room_key_bundle(room_id).await.unwrap();
+
+        bob.store()
+            .receive_room_key_bundle(
+                &StoredRoomKeyBundleData {
+                    sender_user: alice.user_id().to_owned(),
+                    sender_key: alice_key,
+                    sender_data: SenderData::sender_verified(
+                        alice.user_id(),
+                        device_id!("ALICE"),
+                        alice.identity_keys().ed25519,
+                    ),
+
+                    bundle_data: RoomKeyBundleContent {
+                        room_id: room_id.to_owned(),
+                        // This isn't used at all in the method call, so we can fill it with
+                        // garbage.
+                        file: EncryptedFileInit {
+                            url: owned_mxc_uri!("mxc://example.com/0"),
+                            key: JsonWebKeyInit {
+                                kty: "oct".to_owned(),
+                                key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
+                                alg: "A256CTR.".to_owned(),
+                                k: Base64::new(vec![0u8; 128]),
+                                ext: true,
+                            }
+                            .into(),
+                            iv: Base64::new(vec![0u8; 128]),
+                            hashes: vec![("sha256".to_owned(), Base64::new(vec![0u8; 128]))]
+                                .into_iter()
+                                .collect(),
+                            v: "v2".to_owned(),
+                        }
+                        .into(),
+                    },
+                },
+                bundle,
+                |_, _| {},
+            )
+            .await
+            .unwrap();
+
+        // The room key should be imported successfully
+        let imported_sessions =
+            bob.store().get_inbound_group_sessions_by_room_id(room_id).await.unwrap();
+
+        assert_eq!(imported_sessions.len(), 1);
+        assert_eq!(imported_sessions[0].room_id(), room_id);
+
+        assert_matches!(
+            bob.store()
+                .get_withheld_info(room_id, sessions[1].session_id())
+                .await
+                .unwrap()
+                .expect("Withheld info should be present in the store."),
+            RoomKeyWithheldEntry {
+                #[cfg(not(feature = "experimental-algorithms"))]
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                ),
+                #[cfg(feature = "experimental-algorithms")]
+                content: RoomKeyWithheldContent::MegolmV2AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                ),
+                ..
+            }
+        );
+    }
+
+    /// Tests that the new store format introduced in [#5737][#5737] does not
+    /// conflict with items already in the store that were serialised with the
+    /// older format.
+    ///
+    /// [#5737]: https://github.com/matrix-org/matrix-rust-sdk/pull/5737
+    #[async_test]
+    async fn test_deserialize_room_key_withheld_entry_from_to_device_event() {
+        let entry: RoomKeyWithheldEntry = serde_json::from_value(json!(
+            {
+              "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "code": "m.unauthorised",
+                "from_device": "ALICE",
+                "reason": "You are not authorised to read the message.",
+                "room_id": "!roomid:s.co",
+                "sender_key": "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0",
+                "session_id": "session123"
+              },
+              "sender": "@alice:s.co",
+              "type": "m.room_key.withheld"
+            }
+        ))
+        .unwrap();
+
+        assert_matches!(
+            entry,
+            RoomKeyWithheldEntry {
+                sender,
+                content: RoomKeyWithheldContent::MegolmV1AesSha2(
+                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content,)
+                ),
+            }
+        );
+
+        assert_eq!(sender, "@alice:s.co");
+        assert_eq!(withheld_content.room_id, "!roomid:s.co");
+        assert_eq!(withheld_content.session_id, "session123");
+        assert_eq!(
+            withheld_content.sender_key.to_base64(),
+            "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0"
+        );
+        assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
+    }
+
     /// Create an inbound Megolm session for the given room.
     ///
     /// `olm_machine` is used to set the `sender_key` and `signing_key`
     /// fields of the resultant session.
+    ///
+    /// The encryption algorithm used for the session depends on the
+    /// `experimental-algorithms` feature flag:
+    ///
+    /// - When not set, the session uses `m.megolm.v1.aes-sha2`.
+    /// - When set, the session uses `m.megolm.v2.aes-sha2`.
     fn create_inbound_group_session_with_visibility(
         olm_machine: &OlmMachine,
         room_id: &RoomId,
@@ -1996,7 +2222,10 @@ mod tests {
             room_id,
             session_key,
             SenderData::unknown(),
+            #[cfg(not(feature = "experimental-algorithms"))]
             EventEncryptionAlgorithm::MegolmV1AesSha2,
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2,
             None,
             shared_history,
         )

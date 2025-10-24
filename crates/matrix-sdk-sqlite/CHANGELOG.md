@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
+- [**breaking**] `SqliteCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>>`.
+  ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
+
 - Implement a new constructor that allows to open `SqliteCryptoStore` with a cryptographic key
   ([#5472](https://github.com/matrix-org/matrix-rust-sdk/pull/5472))
 
@@ -85,5 +89,3 @@ No notable changes in this release.
 ### Refactor
 
 - Move `event_cache_store/` to `event_cache/store/` in `matrix-sdk-base`.
-
-

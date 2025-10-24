@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Improve feedback support for shared history when downloading room key bundles.
+  ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
+  - Add `RoomKeyWithheldEntry` enum, wrapping either a received to-device `m.room_key.withheld` event or
+    its content, if derived from a downloaded room key bundle.
+  - `OlmMachine::receive_room_key_bundle` now appends withheld key information to the store.
+  - [**breaking**] `Changes::withheld_session_info` now stores a `RoomKeyWithheldEntry` in each `room-id`-`session-id` entry.
+  - [**breaking**] `CryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>>`. This change also affects `MemoryStore`.
+
 ### Bug Fixes
 
 - Fix a bug which caused encrypted to-device messages from unknown devices to be ignored.
