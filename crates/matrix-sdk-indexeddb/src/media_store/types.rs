@@ -78,7 +78,7 @@ pub struct MediaMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaContent {
     /// The identifier associated with the given [`MediaContent::data`].
-    pub id: u64,
+    pub content_id: u64,
     /// The bytes to be stored in IndexedDB
     pub data: Vec<u8>,
 }
