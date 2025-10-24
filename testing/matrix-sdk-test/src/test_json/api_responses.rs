@@ -25,6 +25,16 @@ pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+/// `GET /_matrix/client/v3/device/{deviceId}`
+pub static DEVICE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "device_id": "QBUAZIFURK",
+        "display_name": "android",
+        "last_seen_ip": "1.2.3.4",
+        "last_seen_ts": 1474491775024u64
+    })
+});
+
 /// `GET /_matrix/client/v3/directory/room/{roomAlias}`
 pub static GET_ALIAS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
