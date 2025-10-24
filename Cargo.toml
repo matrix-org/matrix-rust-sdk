@@ -74,6 +74,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "bbb4a14e14864d364b78d60553
     "compat-encrypted-stickers",
     "compat-lax-room-create-deser",
     "compat-lax-room-topic-deser",
+    "unstable-msc3230",
     "unstable-msc3401",
     "unstable-msc3488",
     "unstable-msc3489",
@@ -85,7 +86,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "bbb4a14e14864d364b78d60553
     "unstable-msc4286",
     "unstable-msc4306",
     "unstable-msc4308",
-    "unstable-msc4310"
+    "unstable-msc4310",
 ] }
 sentry = { version = "0.42.0", default-features = false }
 sentry-tracing = "0.42.0"
