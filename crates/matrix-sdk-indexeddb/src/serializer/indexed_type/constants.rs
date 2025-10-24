@@ -14,6 +14,8 @@
 
 use std::{sync::LazyLock, time::Duration};
 
+use uuid::Uuid;
+
 /// The first unicode character, and hence the lower bound for IndexedDB keys
 /// (or key components) which are represented as strings.
 ///
@@ -54,6 +56,22 @@ pub const INDEXED_KEY_LOWER_U64: u64 = u64::MIN;
 /// contain [`u64`] values when used in conjunction with
 /// [`INDEXED_KEY_LOWER_U64`].
 pub const INDEXED_KEY_UPPER_U64: u64 = js_sys::Number::MAX_SAFE_INTEGER as u64;
+
+/// The minimum possible [`Uuid`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Uuid`] values when used in conjunction with
+/// [`INDEXED_KEY_UPPER_UUID`].
+pub const INDEXED_KEY_LOWER_UUID: Uuid = Uuid::from_u128(u128::MIN);
+
+/// The maximum possible [`Uuid`]. Note that this is not limited by
+/// [`js_sys::Number::MAX_SAFE_INTEGER`] as the [`Uuid`]s are serialized
+/// either as bytes or a string.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Uuid`] values when used in conjunction with
+/// [`INDEXED_KEY_LOWER_UUID`].
+pub const INDEXED_KEY_UPPER_UUID: Uuid = Uuid::from_u128(u128::MAX);
 
 /// The minimum possible [`Duration`].
 ///
