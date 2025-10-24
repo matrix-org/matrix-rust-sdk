@@ -200,7 +200,7 @@ pub mod v1 {
 
     /// Create an object store for tracking information about media.
     ///
-    /// * Primary Key - `id` - number tracking the ID of the media content.
+    /// * Primary Key - `id` - UUID tracking the ID of the media content.
     fn create_media_content_object_store(db: &Database) -> Result<(), Error> {
         let _ = db
             .create_object_store(keys::MEDIA_CONTENT)
