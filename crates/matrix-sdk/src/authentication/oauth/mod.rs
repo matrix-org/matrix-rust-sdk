@@ -214,7 +214,7 @@ mod tests;
 #[cfg(feature = "e2e-encryption")]
 use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager};
 #[cfg(feature = "e2e-encryption")]
-use self::qrcode::{LoginWithGeneratedQrCode, LoginWithQrCode};
+use self::qrcode::{GrantLoginWithGeneratedQrCode, LoginWithGeneratedQrCode, LoginWithQrCode};
 pub use self::{
     account_management_url::{AccountManagementActionFull, AccountManagementUrlBuilder},
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
@@ -364,7 +364,7 @@ impl OAuth {
         as_variant!(data, AuthData::OAuth)
     }
 
-    /// Log in using a QR code.
+    /// Log in this device using a QR code.
     ///
     /// # Arguments
     ///
@@ -378,6 +378,12 @@ impl OAuth {
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCodeBuilder<'a> {
         LoginWithQrCodeBuilder { client: &self.client, registration_data }
+    }
+
+    /// Grant login to a new device using a QR code.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn grant_login_with_qr_code<'a>(&'a self) -> GrantLoginWithQrCodeBuilder<'a> {
+        GrantLoginWithQrCodeBuilder { client: &self.client }
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given
@@ -1450,7 +1456,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///     ruma::serde::Raw,
     ///     Client,
     /// };
-    /// use std::io::stdin;
+    /// use std::{error::Error, io::stdin};
     /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() }
     /// # _ = async {
     /// // Build the client as usual.
@@ -1481,9 +1487,9 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///             LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(cctx)) => {
     ///                 println!("Please enter the code displayed on your other device");
     ///                 let mut s = String::new();
-    ///                 stdin().read_line(&mut s).unwrap();
-    ///                 let check_code = s.trim().parse::<u8>().unwrap();
-    ///                 cctx.send(check_code).await.unwrap()
+    ///                 stdin().read_line(&mut s)?;
+    ///                 let check_code = s.trim().parse::<u8>()?;
+    ///                 cctx.send(check_code).await?
     ///             }
     ///             LoginProgress::WaitingForToken { user_code } => {
     ///                 println!("Please use your other device to confirm the log in {user_code}")
@@ -1491,6 +1497,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///             LoginProgress::Done => break,
     ///         }
     ///     }
+    ///     Ok::<(), Box<dyn Error + Send + Sync>>(())
     /// });
     ///
     /// // Now run the future to complete the login.
@@ -1505,6 +1512,82 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     }
 }
 
+/// Builder for QR login grant handlers.
+#[cfg(feature = "e2e-encryption")]
+#[derive(Debug)]
+pub struct GrantLoginWithQrCodeBuilder<'a> {
+    /// The underlying Matrix API client.
+    client: &'a Client,
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> GrantLoginWithQrCodeBuilder<'a> {
+    /// Grant login by generating a QR code on this device to be scanned by the
+    /// new device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use anyhow::bail;
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     Client, authentication::oauth::{
+    ///         qrcode::{GeneratedQrProgress, GrantLoginProgress}
+    ///     }
+    /// };
+    /// use std::{error::Error, io::stdin};
+    /// # _ = async {
+    /// // Build the client as usual.
+    /// let client = Client::builder()
+    ///     .server_name_or_homeserver_url("matrix.org")
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let oauth = client.oauth();
+    ///
+    /// // Subscribing to the progress is necessary since we need to capture the
+    /// // QR code, feed the checkcode back in and obtain the verification URL to
+    /// // open it in a browser so the user can consent to the new login.
+    /// let mut grant = oauth.grant_login_with_qr_code().generate();
+    /// let mut progress = grant.subscribe_to_progress();
+    ///
+    /// // Create a task which will show us the progress and allows us to receive
+    /// // and feed back data.
+    /// let task = tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         match state {
+    ///             GrantLoginProgress::Starting | GrantLoginProgress::SyncingSecrets => (),
+    ///             GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(qr_code_data)) => {
+    ///                 println!("Please scan the QR code on your other device: {:?}", qr_code_data);
+    ///             }
+    ///             GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(checkcode_sender)) => {
+    ///                 println!("Please enter the code displayed on your other device");
+    ///                 let mut s = String::new();
+    ///                 stdin().read_line(&mut s)?;
+    ///                 let check_code = s.trim().parse::<u8>()?;
+    ///                 checkcode_sender.send(check_code).await?;
+    ///             }
+    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             },
+    ///             GrantLoginProgress::Done => break,
+    ///         }
+    ///     }
+    ///     Ok::<(), Box<dyn Error + Send + Sync>>(())
+    /// });
+    ///
+    /// // Now run the future to grant the login.
+    /// grant.await?;
+    /// task.abort();
+    ///
+    /// println!("Successfully granted login");
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
+        GrantLoginWithGeneratedQrCode::new(self.client)
+    }
+}
 /// A full session for the OAuth 2.0 API.
 #[derive(Debug, Clone)]
 pub struct OAuthSession {

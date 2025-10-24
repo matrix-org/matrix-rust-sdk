@@ -50,7 +50,7 @@ use ruma::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
             authenticated_media,
-            device::{delete_devices, get_devices, update_device},
+            device::{self, delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 discover_homeserver::{self, RtcFocusInfo},
@@ -2312,6 +2312,30 @@ impl Client {
         self.send(request).await
     }
 
+    /// Check whether a device with a specific ID exists on the server.
+    ///
+    /// Returns Ok(true) if the device exists, Ok(false) if the server responded
+    /// with 404 and the underlying error otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The ID of the device to query.
+    pub async fn device_exists(&self, device_id: OwnedDeviceId) -> Result<bool> {
+        let request = device::get_device::v3::Request::new(device_id);
+        match self.send(request).await {
+            Ok(_) => Ok(true),
+            Err(err) => {
+                if let Some(error) = err.as_client_api_error()
+                    && error.status_code == 404
+                {
+                    Ok(false)
+                } else {
+                    Err(err.into())
+                }
+            }
+        }
+    }
+
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// ## Syncing Events
@@ -3128,7 +3152,7 @@ pub(crate) mod tests {
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, owned_user_id, room_alias_id, room_id, user_id,
+        owned_device_id, owned_room_id, owned_user_id, room_alias_id, room_id, user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -4196,5 +4220,33 @@ pub(crate) mod tests {
         // Then get_dm_room finds this room
         let found_room = client.get_dm_room(user_id).expect("DM not found!");
         assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn test_device_exists() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_get_device().ok().expect(1).mount().await;
+
+        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Ok(true));
+    }
+
+    #[async_test]
+    async fn test_device_exists_404() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Ok(false));
+    }
+
+    #[async_test]
+    async fn test_device_exists_500() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_get_device().error500().expect(1).mount().await;
+
+        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Err(_));
     }
 }
