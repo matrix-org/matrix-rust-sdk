@@ -37,18 +37,11 @@ impl Lease {
     }
 }
 
-/// A representation of media data which can be stored in IndexedDB.
-#[derive(Debug, Serialize, Deserialize)]
+/// A representation of media which ignores storage schemas. This is type is not
+/// stored in IndexedDB, and is mostly useful for passing media around which may
+/// eventually be transformed into types which are storable in IndexedDB.
+#[derive(Debug)]
 pub struct Media {
-    /// The metadata associated with [`Media::content`]
-    pub metadata: MediaMetadata,
-    /// The content of the media
-    pub content: Vec<u8>,
-}
-
-/// A representation of media metadata which can be stored in IndexedDB.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MediaMetadata {
     /// The parameters specifying the type and source of the media contained in
     /// [`Media::content`]
     pub request_parameters: MediaRequestParameters,
@@ -57,8 +50,37 @@ pub struct MediaMetadata {
     /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
     ///
     /// [1]: matrix_sdk_base::media::store::MediaRetentionPolicy
+    pub ignore_policy: IgnoreMediaRetentionPolicy,
+    /// The content of the media
+    pub content: Vec<u8>,
+}
+
+/// A representation of media metadata which can be stored in IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MediaMetadata {
+    /// The parameters specifying the type and source of the associated
+    /// [`MediaContent`]
+    pub request_parameters: MediaRequestParameters,
+    /// The last time the associated [`MediaContent`] was accessed in IndexedDB
+    pub last_access: UnixTime,
+    /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
+    ///
+    /// [1]: matrix_sdk_base::media::store::MediaRetentionPolicy
     #[serde(with = "crate::media_store::serializer::foreign::ignore_media_retention_policy")]
     pub ignore_policy: IgnoreMediaRetentionPolicy,
+    /// The identifier of the associated [`MediaContent`]
+    pub content_id: u64,
+    /// The size in bytes of the associated [`MediaContent`]
+    pub content_size: usize,
+}
+
+/// A representation of media content which can be stored in IndexedDB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaContent {
+    /// The identifier associated with the given [`MediaContent::data`].
+    pub id: u64,
+    /// The bytes to be stored in IndexedDB
+    pub data: Vec<u8>,
 }
 
 /// A representation of time relative to the [`UNIX_EPOCH`].

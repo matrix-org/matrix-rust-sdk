@@ -81,7 +81,9 @@ impl From<TransactionError> for EventCacheStoreError {
         match value {
             DomException { .. } => Self::InvalidData { details: value.to_string() },
             Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
-            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
+            ItemIsNotUnique | ItemNotFound | NumericalOverflow => {
+                Self::InvalidData { details: value.to_string() }
+            }
             Backend(e) => GenericError::from(e.to_string()).into(),
         }
     }

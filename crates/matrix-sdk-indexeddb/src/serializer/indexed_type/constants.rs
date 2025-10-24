@@ -40,6 +40,21 @@ pub static INDEXED_KEY_LOWER_STRING: LazyLock<String> =
 pub static INDEXED_KEY_UPPER_STRING: LazyLock<String> =
     LazyLock::new(|| String::from(INDEXED_KEY_UPPER_CHARACTER));
 
+/// The minimum possible [`u64`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`u64`] values when used in conjunction with
+/// [`INDEXED_KEY_UPPER_U64`].
+pub const INDEXED_KEY_LOWER_U64: u64 = u64::MIN;
+
+/// The maximum [`u64`] which is expressible in IndexedDB - i.e.,
+/// [`js_sys::Number::MAX_SAFE_INTEGER`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`u64`] values when used in conjunction with
+/// [`INDEXED_KEY_LOWER_U64`].
+pub const INDEXED_KEY_UPPER_U64: u64 = js_sys::Number::MAX_SAFE_INTEGER as u64;
+
 /// The minimum possible [`Duration`].
 ///
 /// This value is useful for constructing a key range over all keys which
@@ -47,11 +62,10 @@ pub static INDEXED_KEY_UPPER_STRING: LazyLock<String> =
 /// [`INDEXED_KEY_UPPER_DURATION`].
 pub const INDEXED_KEY_LOWER_DURATION: Duration = Duration::ZERO;
 
-/// A [`Duration`] constructed with [`js_sys::Number::MAX_SAFE_INTEGER`]
+/// A [`Duration`] constructed with [`INDEXED_KEY_UPPER_U64`]
 /// seconds.
 ///
 /// This value is useful for constructing a key range over all keys which
 /// contain time-related values in seconds when used in conjunction with
 /// [`INDEXED_KEY_LOWER_DURATION`].
-pub const INDEXED_KEY_UPPER_DURATION_SECONDS: Duration =
-    Duration::from_secs(js_sys::Number::MAX_SAFE_INTEGER as u64);
+pub const INDEXED_KEY_UPPER_DURATION_SECONDS: Duration = Duration::from_secs(INDEXED_KEY_UPPER_U64);

@@ -45,6 +45,8 @@ pub enum TransactionError {
     ItemIsNotUnique,
     #[error("item not found")]
     ItemNotFound,
+    #[error("a numerical operation overflowed")]
+    NumericalOverflow,
     #[error("backend: {0}")]
     Backend(Box<dyn AsyncErrorDeps>),
 }
@@ -237,30 +239,10 @@ impl<'a> Transaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + Serialize,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
     {
-        let range = self.serializer.encode_key_range::<T, K>(range);
-        let direction = CursorDirection::Prev;
-        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
-        if let Some(index) = K::INDEX {
-            let index = object_store.index(index)?;
-            if let Some(mut cursor) =
-                index.open_cursor().with_query(range).with_direction(direction).serde()?.await?
-            {
-                if let Some(record) = cursor.next_record_ser().await? {
-                    return T::from_indexed(record, self.serializer.inner())
-                        .map(Some)
-                        .map_err(|e| TransactionError::Serialization(Box::new(e)));
-                }
-            }
-        } else if let Some(mut cursor) =
-            object_store.open_cursor().with_query(range).with_direction(direction).serde()?.await?
-        {
-            if let Some(record) = cursor.next_record_ser().await? {
-                return T::from_indexed(record, self.serializer.inner())
-                    .map(Some)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)));
-            }
+        if let Some(key) = self.get_max_key::<T, K>(range).await? {
+            return self.get_item_by_key::<T, K>(key).await;
         }
         Ok(None)
     }
@@ -287,6 +269,37 @@ impl<'a> Transaction<'a> {
             return cursor.key_stream_ser().try_collect().await.map_err(Into::into);
         }
         Ok(Vec::new())
+    }
+
+    /// Query IndexedDB for the maximum key in the given range.
+    pub async fn get_max_key<T, K>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<Option<K>, TransactionError>
+    where
+        T: Indexed,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(range);
+        let direction = CursorDirection::Prev;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        if let Some(index) = K::INDEX {
+            let index = object_store.index(index)?;
+            if let Some(mut cursor) =
+                index.open_key_cursor().with_query(range).with_direction(direction).serde()?.await?
+            {
+                return cursor.next_key_ser().await.map_err(Into::into);
+            }
+        } else if let Some(mut cursor) = object_store
+            .open_key_cursor()
+            .with_query(range)
+            .with_direction(direction)
+            .serde()?
+            .await?
+        {
+            return cursor.next_key_ser().await.map_err(Into::into);
+        }
+        Ok(None)
     }
 
     /// Query IndexedDB for keys that match the given key range. Iterate over
@@ -346,53 +359,53 @@ impl<'a> Transaction<'a> {
 
     /// Adds an item to the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be rejected.
-    pub async fn add_item<T>(&self, item: &T) -> Result<(), TransactionError>
+    /// exists, it will be rejected. When the item is successfully added, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
+    pub async fn add_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
         T::Error: AsyncErrorDeps,
     {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .add(
-                self.serializer
-                    .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?,
-            )
-            .await
-            .map_err(Into::into)
+        let output = self
+            .serializer
+            .serialize(item)
+            .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+        self.transaction.object_store(T::OBJECT_STORE)?.add(output.value).await?;
+        Ok(output.indexed)
     }
 
     /// Puts an item in the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be overwritten.
-    pub async fn put_item<T>(&self, item: &T) -> Result<(), TransactionError>
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
+    pub async fn put_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
         T::Error: AsyncErrorDeps,
     {
-        self.transaction
-            .object_store(T::OBJECT_STORE)?
-            .put(
-                self.serializer
-                    .serialize(item)
-                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?,
-            )
-            .await
-            .map_err(Into::into)
+        let output = self
+            .serializer
+            .serialize(item)
+            .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+        self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+        Ok(output.indexed)
     }
 
     /// Puts an item in the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`, if `T::IndexedType` meets the criteria
     /// defined by `f`. If an item with the same key already
-    /// exists, it will be overwritten.
+    /// exists, it will be overwritten. When the item is successfully put, the
+    /// function returns the intermediary type [`Indexed::IndexedType`] in case
+    /// inspection is needed.
     pub async fn put_item_if<T>(
         &self,
         item: &T,
         f: impl Fn(&T::IndexedType) -> bool,
-    ) -> Result<(), TransactionError>
+    ) -> Result<Option<T::IndexedType>, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
@@ -402,10 +415,12 @@ impl<'a> Transaction<'a> {
             .serializer
             .serialize_if(item, f)
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
-        if let Some(value) = option {
-            self.transaction.object_store(T::OBJECT_STORE)?.put(value).await?;
+        if let Some(output) = option {
+            self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+            Ok(Some(output.indexed))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 
     /// Delete items in given key range from IndexedDB
