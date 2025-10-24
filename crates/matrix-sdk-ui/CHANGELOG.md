@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+- Add support for top level space ordering through [MSC3230](https://github.com/matrix-org/matrix-spec-proposals/pull/3230)
+  and `m.space_order` room account data fields ([#5799](https://github.com/matrix-org/matrix-rust-sdk/pull/5799))
+
 ### Refactor
 
 - `TimelineFocusKind::Event` can now handle both the existing event pagination and thread pagination if the focused 
