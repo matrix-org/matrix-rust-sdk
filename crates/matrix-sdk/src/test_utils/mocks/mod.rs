@@ -35,6 +35,7 @@ use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
     OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::client::{
+        profile::{ProfileFieldName, ProfileFieldValue},
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
         sync::sync_events::v5,
@@ -1621,6 +1622,46 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v1/rooms/.*/hierarchy"));
         self.mock_endpoint(mock, GetHierarchyEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a profile field.
+    pub fn mock_get_profile_field(
+        &self,
+        user_id: &UserId,
+        field: ProfileFieldName,
+    ) -> MockEndpoint<'_, GetProfileFieldEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
+        self.mock_endpoint(mock, GetProfileFieldEndpoint { field })
+    }
+
+    /// Create a prebuilt mock for the endpoint used to set a profile field.
+    pub fn mock_set_profile_field(
+        &self,
+        user_id: &UserId,
+        field: ProfileFieldName,
+    ) -> MockEndpoint<'_, SetProfileFieldEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
+        self.mock_endpoint(mock, SetProfileFieldEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to delete a profile field.
+    pub fn mock_delete_profile_field(
+        &self,
+        user_id: &UserId,
+        field: ProfileFieldName,
+    ) -> MockEndpoint<'_, DeleteProfileFieldEndpoint> {
+        let mock = Mock::given(method("DELETE"))
+            .and(path(format!("/_matrix/client/v3/profile/{user_id}/{field}")));
+        self.mock_endpoint(mock, DeleteProfileFieldEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a profile.
+    pub fn mock_get_profile(&self, user_id: &UserId) -> MockEndpoint<'_, GetProfileEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path(format!("/_matrix/client/v3/profile/{user_id}")));
+        self.mock_endpoint(mock, GetProfileEndpoint)
     }
 }
 
@@ -4656,5 +4697,58 @@ impl<'a> MockEndpoint<'a, SlidingSyncEndpoint> {
             on_builder(client.sliding_sync("test_id").unwrap()).build().await.unwrap();
 
         let _summary = sliding_sync.sync_once().await.unwrap();
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/*/profile/{user_id}/{key_name}`.
+pub struct GetProfileFieldEndpoint {
+    field: ProfileFieldName,
+}
+
+impl<'a> MockEndpoint<'a, GetProfileFieldEndpoint> {
+    /// Returns a successful response containing the given value, if any.
+    pub fn ok_with_value(self, value: Option<Value>) -> MatrixMock<'a> {
+        if let Some(value) = value {
+            let field = self.endpoint.field.to_string();
+            self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                field: value,
+            })))
+        } else {
+            self.ok_empty_json()
+        }
+    }
+}
+
+/// A prebuilt mock for `PUT /_matrix/client/*/profile/{user_id}/{key_name}`.
+pub struct SetProfileFieldEndpoint;
+
+impl<'a> MockEndpoint<'a, SetProfileFieldEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `DELETE /_matrix/client/*/profile/{user_id}/{key_name}`.
+pub struct DeleteProfileFieldEndpoint;
+
+impl<'a> MockEndpoint<'a, DeleteProfileFieldEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/*/profile/{user_id}`.
+pub struct GetProfileEndpoint;
+
+impl<'a> MockEndpoint<'a, GetProfileEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok_with_fields(self, fields: Vec<ProfileFieldValue>) -> MatrixMock<'a> {
+        let profile = fields
+            .iter()
+            .map(|field| (field.field_name(), field.value()))
+            .collect::<BTreeMap<_, _>>();
+        self.respond_with(ResponseTemplate::new(200).set_body_json(profile))
     }
 }
