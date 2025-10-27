@@ -167,7 +167,7 @@ jobs:
       # The actual upload to Codecov is executed by a different workflow `upload_coverage.yml`.
       # The reason for this split is because `on.pull_request` workflows don't have access to secrets.
       - name: Store coverage report in artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: codecov_report
           path: |
