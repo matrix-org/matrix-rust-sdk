@@ -4,8 +4,12 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
+use cargo_metadata::MetadataCommand;
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{bindings::SwiftBindingGenerator, library_mode::generate_bindings};
+use uniffi_bindgen::{
+    bindings::SwiftBindingGenerator, cargo_metadata::CrateConfigSupplier,
+    library_mode::generate_bindings,
+};
 use xshell::cmd;
 
 use crate::{Result, sh, workspace};
@@ -185,7 +189,19 @@ fn build_library() -> Result<()> {
 }
 
 fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    generate_bindings(library_path, None, &SwiftBindingGenerator, None, ffi_directory, false)?;
+    let manifest_path = std::env::current_dir()?.join("Cargo.toml");
+    println!("manifest path {:?}", manifest_path);
+    let metadata = MetadataCommand::new().manifest_path(&manifest_path).exec()?;
+    let config_supplier: CrateConfigSupplier = metadata.into();
+    generate_bindings(
+        library_path,
+        None,
+        &SwiftBindingGenerator,
+        &config_supplier,
+        None,
+        ffi_directory,
+        false,
+    )?;
     Ok(())
 }
 
