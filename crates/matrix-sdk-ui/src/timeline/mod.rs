@@ -256,7 +256,13 @@ impl Timeline {
     /// Get the latest of the timeline's event items.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         if self.controller.is_live() {
-            self.controller.items().await.last()?.as_event().cloned()
+            self.controller.items().await.iter().rev().find_map(|item| {
+                if let TimelineItemKind::Event(event) = item.kind() {
+                    Some(event.to_owned())
+                } else {
+                    None
+                }
+            })
         } else {
             None
         }
