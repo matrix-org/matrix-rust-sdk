@@ -8,10 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- UniFFI was upgraded to `v0.30.0` ([#5808](https://github.com/matrix-org/matrix-rust-sdk/pull/5808)).
 - The `waveform` parameter in `Timeline::send_voice_message` format changed to a list of `f32`
   between 0 and 1.
   ([#5732](https://github.com/matrix-org/matrix-rust-sdk/pull/5732))
-
 - The `normalized_power_level` field has been removed from the `RoomMember`
   struct.
   ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
