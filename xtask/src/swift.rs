@@ -185,7 +185,16 @@ fn build_library() -> Result<()> {
 }
 
 fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    generate_bindings(library_path, None, &SwiftBindingGenerator, None, ffi_directory, false)?;
+    let config_supplier = uniffi_bindgen::cargo_metadata::CrateConfigSupplier::default();
+    generate_bindings(
+        library_path,
+        None,
+        &SwiftBindingGenerator,
+        &config_supplier,
+        None,
+        ffi_directory,
+        false,
+    )?;
     Ok(())
 }
 

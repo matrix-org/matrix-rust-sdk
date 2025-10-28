@@ -149,8 +149,16 @@ fn build_android_library(
 
 fn generate_uniffi_bindings(library_path: &Utf8Path, ffi_generated_dir: &Utf8Path) -> Result<()> {
     println!("-- library_path = {library_path}");
-
-    generate_bindings(library_path, None, &KotlinBindingGenerator, None, ffi_generated_dir, false)?;
+    let config_supplier = uniffi_bindgen::cargo_metadata::CrateConfigSupplier::default();
+    generate_bindings(
+        library_path,
+        None,
+        &KotlinBindingGenerator,
+        &config_supplier,
+        None,
+        ffi_generated_dir,
+        false,
+    )?;
     Ok(())
 }
 
