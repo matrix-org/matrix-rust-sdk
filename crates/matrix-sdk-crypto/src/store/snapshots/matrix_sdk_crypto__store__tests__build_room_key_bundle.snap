@@ -28,9 +28,9 @@ expression: bundle
   "withheld": [
     {
       "algorithm": "[algorithm]",
-      "code": "m.unauthorised",
+      "code": "io.element.msc4268.history_not_shared",
       "from_device": "BOB",
-      "reason": "You are not authorised to read the message.",
+      "reason": "The sender disabled sharing encrypted history.",
       "room_id": "!room1:localhost",
       "sender_key": "[alice curve key]",
       "session_id": "lpRzTgD3Nook/Wk62Fm9ECWGnKYZgeCwO1Y+uuPJz/I"

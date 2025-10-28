@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Use new withheld code in key bundles for sessions not marked as
+  `shared_history`.
+  ([#5807](https://github.com/matrix-org/matrix-rust-sdk/pull/5807)
 - Improve feedback support for shared history when downloading room key bundles.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
   - Add `RoomKeyWithheldEntry` enum, wrapping either a received to-device `m.room_key.withheld` event or

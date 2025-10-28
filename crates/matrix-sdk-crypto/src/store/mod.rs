@@ -1600,7 +1600,7 @@ impl Store {
             } else {
                 bundle.withheld.push(RoomKeyWithheldContent::new(
                     session.algorithm().to_owned(),
-                    WithheldCode::Unauthorised,
+                    WithheldCode::HistoryNotShared,
                     session.room_id().to_owned(),
                     session.session_id().to_owned(),
                     session.sender_key().to_owned(),
@@ -2154,11 +2154,11 @@ mod tests {
             RoomKeyWithheldEntry {
                 #[cfg(not(feature = "experimental-algorithms"))]
                 content: RoomKeyWithheldContent::MegolmV1AesSha2(
-                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                    MegolmV1AesSha2WithheldContent::HistoryNotShared(_)
                 ),
                 #[cfg(feature = "experimental-algorithms")]
                 content: RoomKeyWithheldContent::MegolmV2AesSha2(
-                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                    MegolmV1AesSha2WithheldContent::HistoryNotShared(_)
                 ),
                 ..
             }
