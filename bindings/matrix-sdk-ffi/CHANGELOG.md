@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add `Room::mark_as_fully_read_unchecked` so clients can mark a room as read without needing a `Timeline` instance. Note this method is not recommended as it can potentially cause incorrect read receipts, but it can needed in certain cases.
+- Add `Timeline::latest_event_id` to be able to fetch the event id of the latest event of the timeline.
 - Add `Room::load_or_fetch_event` so we can get a `TimelineEvent` given its event id ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
 - Add `TimelineEvent::thread_root_event_id` to expose the thread root event id for this type too ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
 - Add `NotificationSettings::get_raw_push_rules` so clients can fetch the raw JSON content of the push rules of the current user and include it in bug reports ([#5706](https://github.com/matrix-org/matrix-rust-sdk/pull/5706)).
