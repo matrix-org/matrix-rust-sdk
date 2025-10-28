@@ -365,6 +365,11 @@ impl Timeline {
         Ok(())
     }
 
+    /// Returns the [`EventId`] of the latest event in the timeline.
+    pub async fn latest_event_id(&self) -> Option<String> {
+        self.inner.latest_event().await.and_then(|event| event.event_id().map(ToString::to_string))
+    }
+
     /// Queues an event in the room's send queue so it's processed for
     /// sending later.
     ///
