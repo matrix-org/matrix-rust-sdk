@@ -13,6 +13,7 @@ name = "xtask"
 test = false
 
 [dependencies]
+cargo_metadata = "0.19.0"
 camino = "1.0.8"
 clap = { version = "4.0.18", features = ["derive"] }
 fs_extra = "1"
