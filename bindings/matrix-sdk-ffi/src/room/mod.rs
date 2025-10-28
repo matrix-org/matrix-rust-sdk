@@ -23,6 +23,7 @@ use mime::Mime;
 use ruma::{
     assign,
     events::{
+        receipt::ReceiptThread,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -672,6 +673,25 @@ impl Room {
         let timeline = TimelineBuilder::new(&self.inner).build().await?;
 
         timeline.mark_as_read(receipt_type.into()).await?;
+        Ok(())
+    }
+
+    /// Mark a room as fully read, by attaching a read receipt to the provided
+    /// `event_id`.
+    ///
+    /// **Warning:** using this method is **NOT** recommended, as providing the
+    /// latest event id can cause incorrect read receipts. This method won't
+    /// check if sending the read receipt is necessary or valid. It should
+    /// *only* be used when some constraint prevents you from instantiating a
+    /// [`Timeline`]. For any other case use [`Timeline::mark_as_read`]
+    /// instead.
+    pub async fn mark_as_fully_read_unchecked(&self, event_id: String) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        self.inner
+            .send_single_receipt(ReceiptType::FullyRead.into(), ReceiptThread::Unthreaded, event_id)
+            .await?;
+
         Ok(())
     }
 
