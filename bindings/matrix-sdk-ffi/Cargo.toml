@@ -25,7 +25,12 @@ crate-type = [
 
 [features]
 default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
-bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+# Use SQLite for the session storage.
+sqlite = ["matrix-sdk/sqlite"]
+# Use an embedded version of SQLite.
+bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
+# Use IndexedDB for the session storage.
+indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
@@ -51,7 +56,6 @@ matrix-sdk = { workspace = true, features = [
     "experimental-widgets",
     "markdown",
     "socks",
-    "sqlite",
     "uniffi",
 ] }
 matrix-sdk-base.workspace = true
