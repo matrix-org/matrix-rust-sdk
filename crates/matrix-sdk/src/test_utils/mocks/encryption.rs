@@ -37,6 +37,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::json;
+use tracing::Instrument;
 use wiremock::{
     Mock, MockGuard, Request, ResponseTemplate,
     matchers::{method, path_regex},
@@ -116,21 +117,24 @@ impl MatrixMockServer {
         let alice_user_id = alice.user_id().expect("Alice should have a user ID configured");
         let bob_user_id = bob.user_id().expect("Bob should have a user ID configured");
 
+        let alice_span = tracing::info_span!("alice", user_id=%alice_user_id);
+        let bob_span = tracing::info_span!("bob", user_id=%bob_user_id);
+
         // Have Alice track Bob, so she queries his keys later.
-        alice.update_tracked_users_for_testing([bob_user_id]).await;
+        alice.update_tracked_users_for_testing([bob_user_id]).instrument(alice_span.clone()).await;
 
         // let bob be aware of Alice keys in order to be able to decrypt custom
         // to-device (the device keys check are deferred for `m.room.key` so this is not
         // needed for sending room messages for example).
-        bob.update_tracked_users_for_testing([alice_user_id]).await;
+        bob.update_tracked_users_for_testing([alice_user_id]).instrument(bob_span.clone()).await;
 
         // Have Alice and Bob upload their signed device keys.
-        self.mock_sync().ok_and_run(alice, |_x| {}).await;
-        self.mock_sync().ok_and_run(bob, |_x| {}).await;
+        self.mock_sync().ok_and_run(alice, |_x| {}).instrument(alice_span.clone()).await;
+        self.mock_sync().ok_and_run(bob, |_x| {}).instrument(bob_span).await;
 
         // Run a sync so we do send outgoing requests, including the /keys/query for
         // getting bob's identity.
-        self.mock_sync().ok_and_run(alice, |_x| {}).await;
+        self.mock_sync().ok_and_run(alice, |_x| {}).instrument(alice_span).await;
     }
 
     /// Utility to properly setup two clients. These two clients will know about
