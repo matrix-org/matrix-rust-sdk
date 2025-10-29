@@ -291,6 +291,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 12 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/012_withheld_code_by_room.sql"
+            ))?;
+            txn.set_db_version(12)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
