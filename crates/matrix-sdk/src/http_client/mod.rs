@@ -30,7 +30,8 @@ use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest, SendAccessToken, auth_scheme,
+    OutgoingRequest,
+    auth_scheme::{AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
 };
@@ -108,6 +109,7 @@ impl HttpClient {
     ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
         R: OutgoingRequest + Debug,
+        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
@@ -154,7 +156,7 @@ impl HttpClient {
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
-        R::Authentication: SupportedAuthScheme,
+        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         let config = match config {
@@ -245,23 +247,6 @@ async fn response_to_http_response(
 
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
-
-/// Marker trait to identify the authentication schemes that the [`HttpClient`]
-/// supports.
-///
-/// This trait can also be implemented for custom
-/// [`AuthScheme`](auth_scheme::AuthScheme)s if necessary.
-pub trait SupportedAuthScheme: auth_scheme::AuthScheme {}
-
-impl SupportedAuthScheme for auth_scheme::NoAuthentication {}
-
-impl SupportedAuthScheme for auth_scheme::AccessToken {}
-
-impl SupportedAuthScheme for auth_scheme::AccessTokenOptional {}
-
-impl SupportedAuthScheme for auth_scheme::AppserviceToken {}
-
-impl SupportedAuthScheme for auth_scheme::AppserviceTokenOptional {}
 
 /// Marker trait to identify the authentication schemes that the
 /// [`Client`](crate::Client) supports.

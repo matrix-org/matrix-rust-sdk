@@ -33,7 +33,7 @@ use ruma::{
     IdParseError,
     api::{
         client::{
-            error::{ErrorBody, ErrorKind, RetryAfter},
+            error::{ErrorKind, RetryAfter},
             uiaa::{UiaaInfo, UiaaResponse},
         },
         error::{FromHttpResponseError, IntoHttpError},
@@ -139,8 +139,7 @@ impl HttpError {
     /// If `self` is a server error in the `errcode` + `error` format expected
     /// for client-API endpoints, returns the error kind (`errcode`).
     pub fn client_api_error_kind(&self) -> Option<&ErrorKind> {
-        self.as_client_api_error()
-            .and_then(|e| as_variant!(&e.body, ErrorBody::Standard { kind, .. } => kind))
+        self.as_client_api_error().and_then(ruma::api::client::Error::error_kind)
     }
 
     /// Try to destructure the error into an universal interactive auth info.
@@ -209,23 +208,14 @@ impl RetryKind {
     ///
     /// [spec]: https://spec.matrix.org/v1.11/client-server-api/#standard-error-response
     fn from_api_error(api_error: &RumaApiError) -> Self {
-        use ruma::api::client::Error;
-
         match api_error {
-            RumaApiError::ClientApi(client_error) => {
-                let Error { status_code, body, .. } = client_error;
-
-                match body {
-                    ErrorBody::Standard { kind, .. } => match kind {
-                        ErrorKind::LimitExceeded { retry_after } => {
-                            RetryKind::from_retry_after(retry_after.as_ref())
-                        }
-                        ErrorKind::Unrecognized => RetryKind::Permanent,
-                        _ => RetryKind::from_status_code(*status_code),
-                    },
-                    _ => RetryKind::from_status_code(*status_code),
+            RumaApiError::ClientApi(client_error) => match client_error.error_kind() {
+                Some(ErrorKind::LimitExceeded { retry_after }) => {
+                    RetryKind::from_retry_after(retry_after.as_ref())
                 }
-            }
+                Some(ErrorKind::Unrecognized) => RetryKind::Permanent,
+                _ => RetryKind::from_status_code(client_error.status_code),
+            },
             RumaApiError::Other(e) => RetryKind::from_status_code(e.status_code),
             RumaApiError::Uiaa(_) => RetryKind::Permanent,
         }
@@ -442,9 +432,7 @@ impl Error {
     /// If `self` is a server error in the `errcode` + `error` format expected
     /// for client-API endpoints, returns the error kind (`errcode`).
     pub fn client_api_error_kind(&self) -> Option<&ErrorKind> {
-        self.as_client_api_error().and_then(|e| {
-            as_variant!(&e.body, ErrorBody::Standard { kind, .. } => kind)
-        })
+        self.as_client_api_error().and_then(ruma::api::client::Error::error_kind)
     }
 
     /// Try to destructure the error into an universal interactive auth info.

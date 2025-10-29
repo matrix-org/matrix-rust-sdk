@@ -25,10 +25,14 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
-- [**breaking**]: `Client::send()` has an extra bound where
-  `Request::Authentication: SupportedAuthScheme`. This allows to drop the
-  `HttpError::NotClientRequest` error in favor of a compile-time error.
-  ([#5781](https://github.com/matrix-org/matrix-rust-sdk/pull/5781))
+- [**breaking**]: `Client::send()` has extra bounds where
+  `Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>` and
+  `Request::PathBuilder: SupportedPathBuilder`. This method should still work for any request to the
+  Client-Server API. This allows to drop the `HttpError::NotClientRequest` error in favor of a
+  compile-time error.
+  ([#5781](https://github.com/matrix-org/matrix-rust-sdk/pull/5781),
+   [#5789](https://github.com/matrix-org/matrix-rust-sdk/pull/5789),
+   [#5815](https://github.com/matrix-org/matrix-rust-sdk/pull/5815))
 - [**breaking**]: The `waveform` field was moved from `AttachmentInfo::Voice` to `BaseAudioInfo`,
   allowing to set it for any audio message. Its format also changed, and it is now a list of `f32`
   between 0 and 1.
