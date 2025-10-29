@@ -33,6 +33,7 @@ mod v10_to_v11;
 mod v11_to_v12;
 mod v12_to_v13;
 mod v13_to_v14;
+mod v14_to_v101;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -101,7 +102,7 @@ impl Drop for MigrationDb {
 /// as is version 200, but versions 101-199 are all backwards compatible with
 /// version 100. In other words, if you divide by 100, you get something
 /// approaching semver: version 200 is major version 2, minor version 0.
-const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 99;
+const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 199;
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
 /// of the schema if necessary.
@@ -174,6 +175,15 @@ pub async fn open_and_upgrade_db(
     if old_version < 14 {
         v13_to_v14::data_migrate(name, serializer).await?;
         v13_to_v14::schema_bump(name).await?;
+    }
+
+    if old_version < 100 {
+        v14_to_v101::schema_add(name).await?;
+    }
+
+    if old_version < 101 {
+        v14_to_v101::data_migrate(name, serializer).await?;
+        v14_to_v101::schema_delete(name).await?;
     }
 
     // If you add more migrations here, you'll need to update
@@ -254,16 +264,18 @@ mod tests {
     use indexed_db_futures::{
         database::VersionChangeEvent, prelude::*, transaction::TransactionMode,
     };
-    use matrix_sdk_common::js_tracing::make_tracing_subscriber;
+    use matrix_sdk_common::{
+        deserialized_responses::WithheldCode, js_tracing::make_tracing_subscriber,
+    };
     use matrix_sdk_crypto::{
         olm::{InboundGroupSession, SenderData, SessionKey},
-        store::CryptoStore,
-        types::EventEncryptionAlgorithm,
+        store::{types::RoomKeyWithheldEntry, CryptoStore},
+        types::{events::room_key_withheld::RoomKeyWithheldContent, EventEncryptionAlgorithm},
         vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey},
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, OwnedRoomId, RoomId};
+    use ruma::{device_id, owned_user_id, room_id, OwnedRoomId, RoomId};
     use serde::Serialize;
     use tracing_subscriber::util::SubscriberInitExt;
     use wasm_bindgen::JsValue;
@@ -278,7 +290,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     /// The schema version we expect after we open the store.
-    const EXPECTED_SCHEMA_VERSION: u32 = 14;
+    const EXPECTED_SCHEMA_VERSION: u32 = 101;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
@@ -784,6 +796,89 @@ mod tests {
         // Then I can read the backup settings
         let backup_data = store.load_backup_keys().await.unwrap();
         assert_eq!(backup_data.backup_version, Some("1".to_owned()));
+    }
+
+    /// Test migrating `withheld_sessions` data from store v14 to latest,
+    /// on a store with encryption disabled.
+    #[async_test]
+    async fn test_v14_v101_migration_unencrypted() {
+        test_v14_v101_migration_with_cipher("test_v101_migration_unencrypted", None).await
+    }
+
+    /// Test migrating `withheld_sessions` data from store v14 to latest,
+    /// on a store with encryption enabled.
+    #[async_test]
+    async fn test_v14_v101_migration_encrypted() {
+        let cipher = StoreCipher::new().unwrap();
+        test_v14_v101_migration_with_cipher(
+            "test_v101_migration_encrypted",
+            Some(Arc::new(cipher)),
+        )
+        .await;
+    }
+
+    /// Helper function for `test_v14_v101_migration_{un,}encrypted`: test
+    /// migrating `withheld_sessions` data from store v14 to store v101.
+    async fn test_v14_v101_migration_with_cipher(
+        db_prefix: &str,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) {
+        let serializer = SafeEncodeSerializer::new(store_cipher.clone());
+
+        let _ = make_tracing_subscriber(None).try_init();
+        let db_name = format!("{db_prefix:0}::matrix-sdk-crypto");
+
+        // delete the db in case it was used in a previous run
+        let _ = Database::delete_by_name(&db_name).unwrap().await.unwrap();
+
+        let room_id = room_id!("!test:example.com");
+        let session_id = "12345";
+
+        // Given a DB with data in it as it was at v5
+        {
+            let db = create_v5_db(&db_name).await.unwrap();
+
+            let txn = db
+                .transaction(old_keys::DIRECT_WITHHELD_INFO)
+                .with_mode(TransactionMode::Readwrite)
+                .build()
+                .unwrap();
+            let store = txn.object_store(old_keys::DIRECT_WITHHELD_INFO).unwrap();
+
+            let sender_key =
+                Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
+                    .unwrap();
+
+            let withheld_entry = RoomKeyWithheldEntry {
+                sender: owned_user_id!("@alice:example.com"),
+                content: RoomKeyWithheldContent::new(
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    WithheldCode::Blacklisted,
+                    room_id.to_owned(),
+                    session_id.to_owned(),
+                    sender_key,
+                    device_id!("ABC").to_owned(),
+                ),
+            };
+
+            let key = serializer.encode_key(old_keys::DIRECT_WITHHELD_INFO, (room_id, session_id));
+            let value = serializer.serialize_value(&withheld_entry).unwrap();
+            store.add(value).with_key(key).build().unwrap();
+            txn.commit().await.unwrap();
+            db.close();
+        }
+
+        // When I open a store based on that DB, triggering an upgrade
+        let store =
+            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
+
+        // Then I can read the withheld session settings
+        let withheld_entry = store
+            .get_withheld_info(room_id, session_id)
+            .await
+            .unwrap()
+            .expect("Should find a withheld entry in migrated data");
+        assert_eq!(withheld_entry.content.withheld_code(), WithheldCode::Blacklisted)
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<Database, OpenDbError> {

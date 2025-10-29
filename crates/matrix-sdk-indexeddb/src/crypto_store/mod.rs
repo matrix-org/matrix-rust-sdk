@@ -92,7 +92,7 @@ mod keys {
 
     pub const SECRETS_INBOX: &str = "secrets_inbox";
 
-    pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
+    pub const WITHHELD_SESSIONS: &str = "withheld_sessions";
 
     pub const RECEIVED_ROOM_KEY_BUNDLES: &str = "received_room_key_bundles";
 
@@ -689,13 +689,12 @@ impl IndexeddbCryptoStore {
         }
 
         if !withheld_session_info.is_empty() {
-            let mut withhelds = indexeddb_changes.get(keys::DIRECT_WITHHELD_INFO);
+            let mut withhelds = indexeddb_changes.get(keys::WITHHELD_SESSIONS);
 
             for (room_id, data) in withheld_session_info {
                 for (session_id, event) in data {
-                    let key = self
-                        .serializer
-                        .encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, &room_id));
+                    let key =
+                        self.serializer.encode_key(keys::WITHHELD_SESSIONS, (&room_id, session_id));
                     withhelds.put(key, self.serializer.serialize_value(&event)?);
                 }
             }
@@ -1481,11 +1480,11 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<RoomKeyWithheldEntry>> {
-        let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
+        let key = self.serializer.encode_key(keys::WITHHELD_SESSIONS, (room_id, session_id));
         if let Some(pickle) = self
             .inner
-            .transaction(keys::DIRECT_WITHHELD_INFO).with_mode( TransactionMode::Readonly).build()?
-            .object_store(keys::DIRECT_WITHHELD_INFO)?
+            .transaction(keys::WITHHELD_SESSIONS).with_mode(TransactionMode::Readonly).build()?
+            .object_store(keys::WITHHELD_SESSIONS)?
             .get(&key)
             .await?
         {

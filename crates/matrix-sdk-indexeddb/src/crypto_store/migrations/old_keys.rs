@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(doc)]
-use crate::crypto_store::keys::BACKUP_VERSION_V1;
+use crate::crypto_store::keys::{BACKUP_VERSION_V1, WITHHELD_SESSIONS};
 
 /// Old format of the `inbound_group_sessions` store which lacked indexes or
 /// a sensible structure
@@ -26,3 +26,7 @@ pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
 
 /// An old name for [`BACKUP_VERSION_V1`].
 pub const BACKUP_KEY_V1: &str = "backup_key_v1";
+
+/// Old format of the [`withheld_sessions`](WITHHELD_SESSIONS) store which
+/// lacked useful indexes.
+pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
