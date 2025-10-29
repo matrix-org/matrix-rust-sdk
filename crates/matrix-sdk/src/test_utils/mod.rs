@@ -136,8 +136,43 @@ macro_rules! assert_next_with_timeout {
 
 /// Asserts the next item in a `Receiver` can be loaded in the given timeout in
 /// milliseconds.
+///
+/// This macro waits for the next item from a `Receiver` or, if no
+/// item is received within the specified timeout, the macro panics.
+///
+/// # Parameters
+///
+/// - `$receiver`: The receiver to poll for the next item.
+/// - `$timeout_ms` (optional): The timeout in milliseconds to wait for the next
+///   item. Defaults to 500ms if not provided.
+///
+/// # Example
+///
+/// ```rust
+/// use matrix_sdk::assert_recv_with_timeout;
+/// use tokio::sync::mpsc;
+///
+/// # async {
+/// let (tx, mut rx) = mpsc::channel(10);
+/// tx.send(1);
+///
+/// let next_item = assert_recv_with_timeout!(rx, 1000); // Waits up to 1000ms
+/// assert_eq!(next_item, 1);
+///
+/// let (tx, mut rx) = mpsc::channel(10);
+/// tx.send(2);
+///
+/// // The timeout can be omitted, in which case it defaults to 500 ms.
+/// let next_item = assert_recv_with_timeout!(rx); // Waits up to 500ms
+/// assert_eq!(next_item, 2);
+/// # };
+/// ```
 #[macro_export]
 macro_rules! assert_recv_with_timeout {
+    ($receiver:expr) => {
+        $crate::assert_recv_with_timeout!($receiver, 500)
+    };
+
     ($receiver:expr, $timeout_ms:expr) => {{
         tokio::time::timeout(std::time::Duration::from_millis($timeout_ms), $receiver.recv())
             .await
