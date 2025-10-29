@@ -52,7 +52,7 @@ use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
     api::client::{
-        error::ErrorBody,
+        error::{ErrorBody, StandardErrorBody},
         keys::{
             get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
             upload_signing_keys::v3::Request as UploadSigningKeysRequest,
@@ -679,7 +679,8 @@ impl Client {
                 if let Err(e) = &response {
                     match e.as_ruma_api_error() {
                         Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
-                            if let ErrorBody::Standard { message, .. } = &e.body {
+                            if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
+                            {
                                 // This is one of the nastiest errors we can have. The server
                                 // telling us that we already have a one-time key uploaded means
                                 // that we forgot about some of our one-time keys. This will lead to

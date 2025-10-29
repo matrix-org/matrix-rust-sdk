@@ -73,9 +73,9 @@ impl FromWidgetErrorResponse {
             error: FromWidgetError {
                 message,
                 matrix_api_error: matrix_api_error.and_then(|api_error| match api_error.body {
-                    ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
+                    ErrorBody::Standard(response) => Some(FromWidgetMatrixErrorBody {
                         http_status: api_error.status_code.as_u16().into(),
-                        response: StandardErrorBody { kind, message },
+                        response,
                     }),
                     _ => None,
                 }),
