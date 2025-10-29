@@ -137,7 +137,7 @@ macro_rules! assert_next_with_timeout {
 /// Asserts the next item in a `Receiver` can be loaded in the given timeout in
 /// milliseconds.
 ///
-/// This macro waits for the next item from an `Receiver` or, if no
+/// This macro waits for the next item from a `Receiver` or, if no
 /// item is received within the specified timeout, the macro panics.
 ///
 /// # Parameters
