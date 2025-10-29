@@ -10,6 +10,8 @@ use anyhow::{anyhow, Context as _};
 use futures_util::pin_mut;
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
+#[cfg(feature = "sqlite")]
+use matrix_sdk::STATE_STORE_DATABASE_NAME;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -39,7 +41,6 @@ use matrix_sdk::{
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
-    STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -242,13 +243,18 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
+
     delegate: OnceLock<Arc<dyn ClientDelegate>>,
+
     pub(crate) utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
+
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
+
     /// The path to the directory where the state store and the crypto store are
-    /// located, if the `Client` instance has been built with a SQLite store
-    /// backend.
+    /// located, if the `Client` instance has been built with a store (either
+    /// SQLite or IndexedDB).
+    #[cfg_attr(not(feature = "sqlite"), allow(unused))]
     store_path: Option<PathBuf>,
 }
 
@@ -1597,6 +1603,7 @@ impl Client {
             self.inner.event_cache().clear_all_rooms().await?;
 
             // Delete the state store file, if it exists.
+            #[cfg(feature = "sqlite")]
             if let Some(store_path) = &self.store_path {
                 debug!("Removing the state store: {}", store_path.display());
 
