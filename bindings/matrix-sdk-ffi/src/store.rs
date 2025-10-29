@@ -56,6 +56,19 @@ mod sqlite {
         system_is_memory_constrained: bool,
     }
 
+    impl SqliteStoreBuilder {
+        pub(crate) fn raw_new(data_path: String, cache_path: String) -> Self {
+            Self {
+                paths: StorePaths { data_path, cache_path },
+                passphrase: Zeroizing::new(None),
+                pool_max_size: None,
+                cache_size: None,
+                journal_size_limit: None,
+                system_is_memory_constrained: false,
+            }
+        }
+    }
+
     #[matrix_sdk_ffi_macros::export]
     impl SqliteStoreBuilder {
         /// Construct a [`SqliteStoreBuilder`] and set the paths that the client
@@ -66,14 +79,7 @@ mod sqlite {
         /// same path for both stores on a single session.
         #[uniffi::constructor]
         pub fn new(data_path: String, cache_path: String) -> Arc<Self> {
-            Arc::new(Self {
-                paths: SessionPaths { data_path, cache_path },
-                passphrase: Zeroizing::new(None),
-                pool_max_size: None,
-                cache_size: None,
-                journal_size_limit: None,
-                system_is_memory_constrained: false,
-            })
+            Arc::new(Self::raw_new(data_path, cache_path))
         }
 
         /// Set the passphrase for the stores.
