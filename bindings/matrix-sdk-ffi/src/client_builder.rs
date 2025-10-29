@@ -1,3 +1,6 @@
+// Allow UniFFI to use methods marked as `#[deprecated]`.
+#![allow(deprecated)]
+
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 #[cfg(not(target_family = "wasm"))]
@@ -524,6 +527,20 @@ impl ClientBuilder {
     pub fn sqlite_store(self: Arc<Self>, config: Arc<store::SqliteStoreBuilder>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.store = Some(StoreBuilder::Sqlite(unwrap_or_clone_arc(config)));
+        Arc::new(builder)
+    }
+
+    /// Sets the paths that the client will use to store its data and caches
+    /// with SQLite.
+    ///
+    /// Both paths **must** be unique per session as the SDK
+    /// stores aren't capable of handling multiple users, however it is
+    /// valid to use the same path for both stores on a single session.
+    #[deprecated = "Use `ClientBuilder::session_store_with_sqlite` instead"]
+    pub fn session_paths(self: Arc<Self>, data_path: String, cache_path: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.store =
+            Some(StoreBuilder::Sqlite(store::SqliteStoreBuilder::raw_new(data_path, cache_path)));
         Arc::new(builder)
     }
 }
