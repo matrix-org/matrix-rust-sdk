@@ -142,6 +142,7 @@ mod sqlite {
     }
 
     impl SqliteStoreBuilder {
+        #[allow(clippy::result_large_err)]
         pub fn build(&self) -> Result<StoreBuilderOutcome, ClientBuildError> {
             let data_path = Path::new(&self.paths.data_path);
             let cache_path = Path::new(&self.paths.cache_path);
