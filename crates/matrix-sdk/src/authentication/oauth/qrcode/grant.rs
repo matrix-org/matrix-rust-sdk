@@ -47,6 +47,7 @@ async fn export_secrets_bundle(client: &Client) -> Result<SecretsBundle, QRCodeG
 async fn finish_login_grant<Q>(
     client: &Client,
     channel: &mut EstablishedSecureChannel,
+    device_creation_timeout: Duration,
     secrets_bundle: &SecretsBundle,
     state: &SharedObservable<GrantLoginProgress<Q>>,
 ) -> Result<(), QRCodeGrantLoginError> {
@@ -121,10 +122,9 @@ async fn finish_login_grant<Q>(
         ));
     };
 
-    // We check that the new device was created successfully allowing for up to 10
-    // seconds of delay. -- MSC4108 Secret sharing and device verification step
-    // 1
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // We check that the new device was created successfully, allowing for the
+    // specified delay. -- MSC4108 Secret sharing and device verification step 1
+    let deadline = Instant::now() + device_creation_timeout;
 
     loop {
         if matches!(client.device_exists(device_id.to_base64().into()).await, Ok(true)) {
@@ -186,12 +186,16 @@ pub enum GrantLoginProgress<Q> {
 #[derive(Debug)]
 pub struct GrantLoginWithGeneratedQrCode<'a> {
     client: &'a Client,
+    device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<GeneratedQrProgress>>,
 }
 
 impl<'a> GrantLoginWithGeneratedQrCode<'a> {
-    pub(crate) fn new(client: &'a Client) -> GrantLoginWithGeneratedQrCode<'a> {
-        GrantLoginWithGeneratedQrCode { client, state: Default::default() }
+    pub(crate) fn new(
+        client: &'a Client,
+        device_creation_timeout: Duration,
+    ) -> GrantLoginWithGeneratedQrCode<'a> {
+        GrantLoginWithGeneratedQrCode { client, device_creation_timeout, state: Default::default() }
     }
 }
 
@@ -256,6 +260,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             finish_login_grant(
                 self.client,
                 &mut channel,
+                self.device_creation_timeout,
                 &export_secrets_bundle(self.client).await?,
                 &self.state,
             )
@@ -471,7 +476,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let grant = oauth.grant_login_with_qr_code().generate();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
         let secrets_bundle = export_secrets_bundle(&alice)
             .await
             .expect("Alice should be able to export the secrets bundle");
@@ -603,7 +611,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let grant = oauth.grant_login_with_qr_code().generate();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
 
@@ -727,7 +738,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let grant = oauth.grant_login_with_qr_code().generate();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
 
@@ -850,7 +864,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let grant = oauth.grant_login_with_qr_code().generate();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
 
