@@ -202,8 +202,10 @@ impl<'a> GrantLoginWithGeneratedQrCode<'a> {
 impl GrantLoginWithGeneratedQrCode<'_> {
     /// Subscribe to the progress of QR code login.
     ///
-    /// It's necessary to subscribe to this to show the QR code to the existing
-    /// device so it can send the check code back to this device.
+    /// It's necessary to subscribe to this to capture the QR code in order to
+    /// display it to the other device, to feed the checkcode entered by the
+    /// user back in and to obtain the verification URL for consenting to
+    /// the login.
     pub fn subscribe_to_progress(
         &self,
     ) -> impl Stream<Item = GrantLoginProgress<GeneratedQrProgress>> + use<> {
