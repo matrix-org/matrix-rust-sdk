@@ -27,7 +27,7 @@ use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
 use tracing::trace;
-use vodozemac::{Curve25519PublicKey, ecies::CheckCode};
+use vodozemac::Curve25519PublicKey;
 
 use super::{
     DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
@@ -38,7 +38,7 @@ use crate::{
     Client,
     authentication::oauth::{
         ClientRegistrationData, OAuth, OAuthError,
-        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType},
+        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress},
     },
 };
 
@@ -247,7 +247,7 @@ pub enum LoginProgress<Q> {
     #[default]
     Starting,
     /// We have established the secure channel, but need to exchange the
-    /// [`CheckCode`] so the channel can be verified to indeed be secure.
+    /// checkcode so the channel can be verified to indeed be secure.
     EstablishingSecureChannel(Q),
     /// We're waiting for the OAuth 2.0 authorization server to give us the
     /// access token. This will only happen if the other device allows the
@@ -264,18 +264,6 @@ pub enum LoginProgress<Q> {
     Done,
 }
 
-/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
-/// this device is the one scanning the QR code.
-///
-/// We have established the secure channel, but we need to let the other
-/// side know about the [`CheckCode`] so they can verify that the secure
-/// channel is indeed secure.
-#[derive(Clone, Debug)]
-pub struct QrProgress {
-    /// The check code we need to, out of band, send to the other device.
-    pub check_code: CheckCode,
-}
-
 /// Named future for logging in by scanning a QR code with the
 /// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
@@ -290,7 +278,7 @@ impl LoginWithQrCode<'_> {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's usually necessary to subscribe to this to let the existing device
-    /// know about the [`CheckCode`] which is used to verify that the two
+    /// know about the checkcode which is used to verify that the two
     /// devices are communicating in a secure manner.
     pub fn subscribe_to_progress(&self) -> impl Stream<Item = LoginProgress<QrProgress>> + use<> {
         self.state.subscribe()
@@ -500,6 +488,7 @@ mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
+    use vodozemac::ecies::CheckCode;
 
     use super::*;
     use crate::{
