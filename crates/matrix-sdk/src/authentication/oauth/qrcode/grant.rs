@@ -304,7 +304,7 @@ mod test {
         DeviceNotCreated,
     }
 
-    async fn request_login(
+    async fn request_login_with_scanned_qr_code(
         behaviour: BobBehaviour,
         qr_code_rx: oneshot::Receiver<QrCodeData>,
         check_code_tx: oneshot::Sender<u8>,
@@ -555,7 +555,7 @@ mod test {
 
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
-            request_login(
+            request_login_with_scanned_qr_code(
                 BobBehaviour::HappyPath,
                 qr_code_rx,
                 checkcode_tx,
@@ -673,7 +673,7 @@ mod test {
 
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
-            request_login(
+            request_login_with_scanned_qr_code(
                 BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
                 qr_code_rx,
                 checkcode_tx,
@@ -799,7 +799,7 @@ mod test {
 
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
-            request_login(
+            request_login_with_scanned_qr_code(
                 BobBehaviour::DeviceAlreadyExists,
                 qr_code_rx,
                 checkcode_tx,
@@ -936,7 +936,7 @@ mod test {
 
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
-            request_login(
+            request_login_with_scanned_qr_code(
                 BobBehaviour::DeviceNotCreated,
                 qr_code_rx,
                 checkcode_tx,
