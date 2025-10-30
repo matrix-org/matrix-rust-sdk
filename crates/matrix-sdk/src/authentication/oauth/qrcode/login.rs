@@ -28,6 +28,8 @@ use ruma::{
 };
 use tracing::trace;
 use vodozemac::Curve25519PublicKey;
+#[cfg(doc)]
+use vodozemac::ecies::CheckCode;
 
 use super::{
     DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
@@ -247,7 +249,7 @@ pub enum LoginProgress<Q> {
     #[default]
     Starting,
     /// We have established the secure channel, but need to exchange the
-    /// checkcode so the channel can be verified to indeed be secure.
+    /// [`CheckCode`] so the channel can be verified to indeed be secure.
     EstablishingSecureChannel(Q),
     /// We're waiting for the OAuth 2.0 authorization server to give us the
     /// access token. This will only happen if the other device allows the
@@ -278,7 +280,7 @@ impl LoginWithQrCode<'_> {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's usually necessary to subscribe to this to let the existing device
-    /// know about the checkcode which is used to verify that the two
+    /// know about the [`CheckCode`] which is used to verify that the two
     /// devices are communicating in a secure manner.
     pub fn subscribe_to_progress(&self) -> impl Stream<Item = LoginProgress<QrProgress>> + use<> {
         self.state.subscribe()
