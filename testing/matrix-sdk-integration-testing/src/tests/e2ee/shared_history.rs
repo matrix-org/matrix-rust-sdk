@@ -5,19 +5,26 @@ use assert_matches2::{assert_let, assert_matches};
 use assign::assign;
 use futures::{FutureExt, StreamExt, future, pin_mut};
 use matrix_sdk::{
-    assert_decrypted_message_eq, assert_next_with_timeout,
+    Room, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
     encryption::EncryptionSettings,
+    room::power_levels::RoomPowerLevelChanges,
     ruma::{
+        EventId,
         api::client::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
             uiaa::Password,
         },
-        events::room::message::RoomMessageEventContent,
+        events::room::{
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            message::RoomMessageEventContent,
+        },
     },
     timeout::timeout,
 };
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::{
+    ProcessedToDeviceEvent, UnableToDecryptReason::MissingMegolmSession, WithheldCode,
+};
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
 use tracing::{Instrument, info};
@@ -359,4 +366,174 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Test history sharing where some sessions are withheld.
+///
+/// In this scenario we have three separate users:
+///
+///  1. Alice and Bob share a room, where the history visibility is set to
+///    "shared".
+///  2. Bob sends a message. This will be "shareable".
+///  3. Alice changes the history viz to "joined".
+///  4. Alice changes the history viz back to "shared", but Bob doesn't (yet)
+///     receive the memo.
+///  5. Bob sends a second message; the key is "unshareable" because Bob still
+///     thinks the history viz is "joined".
+///  6. Bob syncs, and sends a third message; the key is now "shareable".
+///  7. Alice invites Charlie.
+///  8. Charlie joins the room. He should see Bob's first message; the second
+///     should have an appropriate withheld code from Alice; the third should be
+///     decryptable.
+///
+/// This tests correct "withheld" code handling.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_transitive_history_share_with_withhelds() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let bob_span = tracing::info_span!("bob");
+    let charlie_span = tracing::info_span!("charlie");
+
+    let alice = create_encryption_enabled_client("alice").instrument(alice_span.clone()).await?;
+    let bob = create_encryption_enabled_client("bob").instrument(bob_span.clone()).await?;
+    let charlie =
+        create_encryption_enabled_client("charlie").instrument(charlie_span.clone()).await?;
+
+    // 1. Alice creates a room, and enables encryption
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PublicChat),
+        }))
+        .instrument(alice_span.clone())
+        .await?;
+    alice_room.enable_encryption().instrument(alice_span.clone()).await?;
+    // Allow regular users to send invites
+    alice.sync_once().instrument(alice_span.clone()).await?;
+    alice_room
+        .apply_power_level_changes(RoomPowerLevelChanges { invite: Some(0), ..Default::default() })
+        .instrument(alice_span.clone())
+        .await
+        .expect("Should be able to set power levels");
+
+    info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
+
+    // ... and invites Bob to the room
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).instrument(alice_span.clone()).await?;
+
+    // Bob joins
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let bob_room = bob
+        .join_room_by_id(alice_room.room_id())
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to accept the invitation from Alice");
+
+    // 2. Bob sends a message, which Alice should receive
+    let assert_event_received = async |room: &Room, event_id: &EventId, expected_content: &str| {
+        let event = room.event(event_id, None).await.unwrap_or_else(|err| {
+            panic!("Should receive Bob's event with content '{expected_content}': {err:?}")
+        });
+        assert_decrypted_message_eq!(
+            event,
+            expected_content,
+            "The decrypted event should match the message Bob has sent"
+        );
+    };
+
+    let bob_send_test_event = async |event_content: &str| {
+        let bob_event_id = bob_room
+            .send(RoomMessageEventContent::text_plain(event_content))
+            .into_future()
+            .instrument(bob_span.clone())
+            .await
+            .expect("We should be able to send a message to the room")
+            .event_id;
+
+        alice
+            .sync_once()
+            .instrument(alice_span.clone())
+            .await
+            .expect("Alice should be able to sync");
+
+        assert_event_received(&alice_room, &bob_event_id, event_content).await;
+
+        bob_event_id
+    };
+
+    let event_id_1 = bob_send_test_event("Event 1").await;
+
+    // 3. Alice changes the history visibility to "joined"
+    alice_room
+        .send_state_event(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Joined))
+        .into_future()
+        .instrument(alice_span.clone())
+        .await?;
+    bob.sync_once().instrument(bob_span.clone()).await?;
+    assert_eq!(bob_room.history_visibility(), Some(HistoryVisibility::Joined));
+
+    // 4. Alice changes the history visibility back to "shared", but Bob doesn't
+    //    know about it.
+    alice_room
+        .send_state_event(RoomHistoryVisibilityEventContent::new(HistoryVisibility::Shared))
+        .into_future()
+        .instrument(alice_span.clone())
+        .await?;
+
+    // 5. Bob sends a second message; the key is "unshareable" because Bob still
+    //    thinks the history viz is "joined".
+    assert_eq!(bob_room.history_visibility(), Some(HistoryVisibility::Joined));
+    let event_id_2 = bob_send_test_event("Event 2").await;
+
+    // 6. Bob syncs, and sends a third message; the key is now "shareable".
+    bob.sync_once().instrument(bob_span.clone()).await?;
+    assert_eq!(bob_room.history_visibility(), Some(HistoryVisibility::Shared));
+    let event_id_3 = bob_send_test_event("Event 3").await;
+
+    // 7. Alice invites Charlie.
+    alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
+    // Alice's identity.
+    charlie
+        .encryption()
+        .request_user_identity(alice.user_id().unwrap())
+        .instrument(charlie_span.clone())
+        .await?;
+
+    // 8. Charlie joins the room
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+    let charlie_room = charlie
+        .join_room_by_id(alice_room.room_id())
+        .instrument(charlie_span.clone())
+        .await
+        .expect("Charlie should be able to accept the invitation from Alice");
+
+    // Events 1 and 3 should be decryptable; 2 should be "history not shared".
+    assert_event_received(&charlie_room, &event_id_1, "Event 1").await;
+    assert_event_received(&charlie_room, &event_id_3, "Event 3").await;
+    let event = charlie_room.event(&event_id_2, None).await.expect("Should receive Bob's event 2");
+    assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
+    assert_eq!(
+        utd_info.reason,
+        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
+    );
+
+    Ok(())
+}
+
+async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwareClient> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let client = SyncTokenAwareClient::new(
+        TestClientBuilder::new(username)
+            .use_sqlite()
+            .encryption_settings(encryption_settings)
+            .enable_share_history_on_invite(true)
+            .build()
+            .await?,
+    );
+
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
+    Ok(client)
 }

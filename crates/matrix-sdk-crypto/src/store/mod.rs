@@ -1600,7 +1600,7 @@ impl Store {
             } else {
                 bundle.withheld.push(RoomKeyWithheldContent::new(
                     session.algorithm().to_owned(),
-                    WithheldCode::Unauthorised,
+                    WithheldCode::HistoryNotShared,
                     session.room_id().to_owned(),
                     session.session_id().to_owned(),
                     session.sender_key().to_owned(),
@@ -1717,6 +1717,8 @@ impl Store {
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
     ) -> Result<(), CryptoStoreError> {
+        let mut session_id_to_withheld_code_map = BTreeMap::new();
+
         let mut changes = Changes::default();
         for withheld in &bundle.withheld {
             let (room_id, session_id) = match withheld {
@@ -1744,8 +1746,16 @@ impl Store {
                     content: withheld.to_owned(),
                 },
             );
+            session_id_to_withheld_code_map.insert(session_id, withheld.withheld_code());
         }
+
         self.save_changes(changes).await?;
+
+        info!(
+            room_id = ?bundle_info.bundle_data.room_id,
+            ?session_id_to_withheld_code_map,
+            "Successfully imported withheld info from room key bundle",
+        );
 
         Ok(())
     }
@@ -2144,11 +2154,11 @@ mod tests {
             RoomKeyWithheldEntry {
                 #[cfg(not(feature = "experimental-algorithms"))]
                 content: RoomKeyWithheldContent::MegolmV1AesSha2(
-                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                    MegolmV1AesSha2WithheldContent::HistoryNotShared(_)
                 ),
                 #[cfg(feature = "experimental-algorithms")]
                 content: RoomKeyWithheldContent::MegolmV2AesSha2(
-                    MegolmV1AesSha2WithheldContent::Unauthorised(_)
+                    MegolmV1AesSha2WithheldContent::HistoryNotShared(_)
                 ),
                 ..
             }

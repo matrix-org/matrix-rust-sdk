@@ -150,6 +150,7 @@ impl UtdCause {
                     WithheldCode::Blacklisted
                     | WithheldCode::Unauthorised
                     | WithheldCode::Unavailable
+                    | WithheldCode::HistoryNotShared
                     | WithheldCode::NoOlm
                     | WithheldCode::_Custom(_) => UtdCause::WithheldBySender,
                 }

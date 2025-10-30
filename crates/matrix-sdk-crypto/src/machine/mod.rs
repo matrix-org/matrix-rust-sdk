@@ -897,7 +897,7 @@ impl OlmMachine {
         // This function is only ever called by add_room_key via
         // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ? content.room_id, session_id, message_index)
+        fields(room_id = ? content.room_id, session_id, message_index, shared_history = content.shared_history)
     )]
     async fn handle_key(
         &self,
