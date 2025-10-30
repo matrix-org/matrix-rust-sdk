@@ -1766,7 +1766,8 @@ impl StateStore for SqliteStateStore {
         let thread = self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(&thread)?);
         let event_id = self.encode_key(keys::RECEIPT, event_id);
 
-        self.read()
+        let _timer = timer!(tracing::Level::WARN, "get_event_room_receipt_events");
+        let ret = self.read()
             .await?
             .get_event_receipts(room_id, receipt_type, thread, event_id)
             .await?
@@ -1774,7 +1775,9 @@ impl StateStore for SqliteStateStore {
             .map(|value| {
                 self.deserialize_json::<ReceiptData>(value).map(|d| (d.user_id, d.receipt))
             })
-            .collect()
+            .collect();
+        drop(_timer);
+        ret
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {

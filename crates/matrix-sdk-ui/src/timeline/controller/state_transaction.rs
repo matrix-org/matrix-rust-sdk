@@ -24,7 +24,7 @@ use ruma::{
     events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
-
+use matrix_sdk_common::timer;
 use super::{
     super::{
         controller::ObservableItemsTransactionEntry,
@@ -592,6 +592,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
+        let outer_timer = timer!(tracing::Level::INFO, "handle_remote_event");
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
@@ -687,7 +688,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // Handle the event to create or update a timeline item.
         let item_added = if let Some(timeline_action) = timeline_action {
+            let timer = timer!("sender_profile");
             let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+            drop(timer);
 
             let ctx = TimelineEventContext {
                 sender,
@@ -735,6 +738,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         }
 
+        drop(outer_timer);
         item_removed
     }
 
@@ -876,7 +880,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     if settings.track_read_receipts {
                         // Since the event's visibility changed, we need to update the read
                         // receipts of the previous visible event.
+                        let timer = timer!("maybe_update_read_receipts_of_prev_event");
                         self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
+                        drop(timer);
                     }
                 }
             }
@@ -890,9 +896,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     | TimelineItemPosition::At { .. }
             )
         {
+            let timer = timer!("load_read_receipts_for_event");
             self.load_read_receipts_for_event(&event_id, room_data_provider).await;
+            drop(timer);
 
+            let timer = timer!("maybe_add_implicit_read_receipt");
             self.maybe_add_implicit_read_receipt(&event_id, sender, timestamp);
+            drop(timer);
         }
     }
 

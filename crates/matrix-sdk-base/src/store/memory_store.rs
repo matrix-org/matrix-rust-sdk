@@ -750,6 +750,7 @@ impl StateStore for MemoryStore {
         thread: ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+        warn!("Memory store used");
         Ok(self
             .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
             .unwrap_or_default())

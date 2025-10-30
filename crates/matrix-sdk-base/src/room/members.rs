@@ -32,7 +32,7 @@ use ruma::{
     },
 };
 use tracing::debug;
-
+use matrix_sdk_common::timer;
 use super::Room;
 use crate::{
     MinimalRoomMemberEvent,
@@ -140,20 +140,28 @@ impl Room {
     ///
     /// Async because it can read from storage.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
+        let timer = timer!(tracing::Level::INFO, "fetch and deserialize member event");
         let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
             debug!(%user_id, "Member event not found in state store");
             return Ok(None);
         };
 
         let event = raw_event.deserialize()?;
+        drop(timer);
 
+        let timer = timer!(tracing::Level::INFO, "fetch and deserialize presence");
         let presence =
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
+        drop(timer);
 
+        let timer = timer!(tracing::Level::INFO, "fetch and deserialize profile");
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
+        drop(timer);
 
         let display_names = [event.display_name()];
+        let timer = timer!(tracing::Level::INFO, "fetch and deserialize room info for member");
         let room_info = self.member_room_info(&display_names).await?;
+        drop(timer);
 
         Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
     }

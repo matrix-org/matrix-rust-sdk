@@ -23,7 +23,7 @@ use ruma::{
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, instrument, trace, warn};
-
+use matrix_sdk_common::timer;
 use super::{
     AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
     TimelineMetadata, TimelineState, rfind_event_by_id,
@@ -100,6 +100,7 @@ impl ReadReceipts {
         is_own_user_id: bool,
         timeline_items: &mut ObservableItemsTransaction<'_>,
     ) {
+        let _timer = timer!("maybe_update_read_receipt");
         let all_events = timeline_items.all_remote_events();
 
         // Get old receipt.
@@ -280,6 +281,8 @@ impl ReadReceipts {
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
 
+        let _timer = timer!("compute_event_receipts");
+
         if at_end {
             // No need to search for extra receipts, there are no events after.
             trace!(
@@ -353,6 +356,7 @@ impl ReadReceipts {
             "computed receipts: {}",
             all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
         );
+        drop(_timer);
         all_receipts
     }
 }
