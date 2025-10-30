@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
 - Add `authentication::oauth::OAuth::grant_login_with_qr_code` to reciprocate a login by
   generating a QR code on the existing device.
   ([#5801](https://github.com/matrix-org/matrix-rust-sdk/pull/5801))
+- Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
+  login by scanning a QR code on the existing device.
+  ([#5818](https://github.com/matrix-org/matrix-rust-sdk/pull/5818))
 
 ### Refactor
 
