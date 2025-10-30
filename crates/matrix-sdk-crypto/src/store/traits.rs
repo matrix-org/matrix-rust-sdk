@@ -118,6 +118,19 @@ pub trait CryptoStore: AsyncTraitDeps {
         session_id: &str,
     ) -> Result<Option<RoomKeyWithheldEntry>, Self::Error>;
 
+    /// Get all the sessions where we have received an `m.room_key.withheld`
+    /// event (or, post-[MSC4268], where there was a `withheld` entry in the key
+    /// bundle).
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    ///
+    /// # Arguments
+    /// * `room_id` - The ID of the room to return withheld sessions for.
+    async fn get_withheld_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<RoomKeyWithheldEntry>, Self::Error>;
+
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
@@ -590,6 +603,13 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         session_id: &str,
     ) -> Result<Option<RoomKeyWithheldEntry>, Self::Error> {
         self.0.get_withheld_info(room_id, session_id).await.map_err(Into::into)
+    }
+
+    async fn get_withheld_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<RoomKeyWithheldEntry>, Self::Error> {
+        self.0.get_withheld_sessions_by_room_id(room_id).await.map_err(Into::into)
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {

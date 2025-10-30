@@ -774,6 +774,14 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .optional()?)
     }
 
+    async fn get_withheld_sessions_by_room_id(&self, room_id: Key) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM direct_withheld_info WHERE room_id = ?1", |mut stmt| {
+                stmt.query((room_id,))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
@@ -1401,6 +1409,21 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok(info)
             })
             .transpose()
+    }
+
+    async fn get_withheld_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> matrix_sdk_crypto::store::Result<Vec<RoomKeyWithheldEntry>, Self::Error> {
+        let room_id = self.encode_key("direct_withheld_info", room_id);
+
+        self.acquire()
+            .await?
+            .get_withheld_sessions_by_room_id(room_id)
+            .await?
+            .into_iter()
+            .map(|value| self.deserialize_json(&value))
+            .collect()
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {

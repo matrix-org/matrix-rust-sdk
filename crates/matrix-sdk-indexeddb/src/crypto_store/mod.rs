@@ -1495,6 +1495,25 @@ impl_crypto_store! {
         }
     }
 
+    async fn get_withheld_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<RoomKeyWithheldEntry>> {
+        let range = self.serializer.encode_to_range(keys::WITHHELD_SESSIONS, room_id);
+
+        self
+            .inner
+            .transaction(keys::WITHHELD_SESSIONS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::WITHHELD_SESSIONS)?
+            .get_all()
+            .with_query(&range)
+            .await?
+            .map(|val| self.serializer.deserialize_value(val?).map_err(Into::into))
+            .collect()
+    }
+
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
         self.inner
