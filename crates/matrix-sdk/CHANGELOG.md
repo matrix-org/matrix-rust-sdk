@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
+  login by scanning a QR code on the existing device.
+  ([#5818](https://github.com/matrix-org/matrix-rust-sdk/pull/5818))
 - Add a new `RequestConfig::skip_auth()` option. This is useful to ensure that
   certain request won't ever include an authorization header.
   ([#5822](https://github.com/matrix-org/matrix-rust-sdk/pull/5822))

@@ -46,7 +46,7 @@ mod rendezvous_channel;
 mod secure_channel;
 
 pub use self::{
-    grant::{GrantLoginProgress, GrantLoginWithGeneratedQrCode},
+    grant::{GrantLoginProgress, GrantLoginWithGeneratedQrCode, GrantLoginWithScannedQrCode},
     login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode},
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
