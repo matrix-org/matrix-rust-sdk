@@ -1531,8 +1531,19 @@ pub struct GrantLoginWithQrCodeBuilder<'a> {
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> GrantLoginWithQrCodeBuilder<'a> {
-    /// Grant login by generating a QR code on this device to be scanned by the
-    /// new device.
+    /// This method allows you to grant login to a new device by generating a QR
+    /// code on this device to be scanned by the new device.
+    ///
+    /// This device needs to call this method to generate and display the
+    /// QR code which the new device can scan to initiate the grant process.
+    ///
+    /// A successful login grant using this method will automatically mark the
+    /// new device as verified and transfer all end-to-end encryption
+    /// related secrets, like the private cross-signing keys and the backup
+    /// key from this device device to the new device.
+    ///
+    /// For the reverse flow where the new device generates the QR code
+    /// for this device to scan, use [`GrantLoginWithQrCodeBuilder::scan`].
     ///
     /// # Example
     ///
