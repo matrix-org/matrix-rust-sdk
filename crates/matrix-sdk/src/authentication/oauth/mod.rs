@@ -160,6 +160,8 @@
 //! [`ErrorKind::UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
 //! [`examples/oauth_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oauth_cli
 
+#[cfg(feature = "e2e-encryption")]
+use std::time::Duration;
 use std::{
     borrow::Cow,
     collections::{BTreeSet, HashMap},
@@ -383,7 +385,7 @@ impl OAuth {
     /// Grant login to a new device using a QR code.
     #[cfg(feature = "e2e-encryption")]
     pub fn grant_login_with_qr_code<'a>(&'a self) -> GrantLoginWithQrCodeBuilder<'a> {
-        GrantLoginWithQrCodeBuilder { client: &self.client }
+        GrantLoginWithQrCodeBuilder::new(&self.client)
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given
@@ -1527,10 +1529,29 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
 pub struct GrantLoginWithQrCodeBuilder<'a> {
     /// The underlying Matrix API client.
     client: &'a Client,
+    /// The duration to wait for the homeserver to create the new device after
+    /// consenting the login before giving up.
+    device_creation_timeout: Duration,
 }
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> GrantLoginWithQrCodeBuilder<'a> {
+    /// Create a new builder with the default device creation timeout.
+    pub fn new(client: &'a Client) -> Self {
+        Self { client, device_creation_timeout: Duration::from_secs(10) }
+    }
+
+    /// Set the device creation timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_creation_timeout` - The duration to wait for the homeserver to
+    ///   create the new device after consenting the login before giving up.
+    pub fn device_creation_timeout(mut self, device_creation_timeout: Duration) -> Self {
+        self.device_creation_timeout = device_creation_timeout;
+        self
+    }
+
     /// This method allows you to grant login to a new device by generating a QR
     /// code on this device to be scanned by the new device.
     ///
@@ -1605,7 +1626,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
-        GrantLoginWithGeneratedQrCode::new(self.client)
+        GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout)
     }
 }
 /// A full session for the OAuth 2.0 API.
