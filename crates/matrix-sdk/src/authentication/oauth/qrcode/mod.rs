@@ -36,6 +36,7 @@ pub use oauth2::{
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
+use vodozemac::ecies::CheckCode;
 pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
 
 mod grant;
@@ -46,7 +47,7 @@ mod secure_channel;
 
 pub use self::{
     grant::{GrantLoginProgress, GrantLoginWithGeneratedQrCode},
-    login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode, QrProgress},
+    login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode},
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
 use super::CrossProcessRefreshLockError;
@@ -254,6 +255,19 @@ pub enum SecureChannelError {
          the check code cannot be received"
     )]
     CannotReceiveCheckCode,
+}
+
+/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]
+/// or [`GrantLoginProgress::EstablishingSecureChannel`] when
+/// this device is the one scanning the QR code.
+///
+/// We have established the secure channel, but we need to let the other
+/// side know about the [`CheckCode`] so they can verify that the secure
+/// channel is indeed secure.
+#[derive(Clone, Debug)]
+pub struct QrProgress {
+    /// The check code we need to, out of band, send to the other device.
+    pub check_code: CheckCode,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] and
