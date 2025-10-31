@@ -51,6 +51,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
@@ -771,9 +772,9 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        // Serialize calls to `save_pending_changes`; there are multiple await points below, and we're
-        // pickling data as we go, so we don't want to invalidate data we've previously read and
-        // overwrite it in the store.
+        // Serialize calls to `save_pending_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -809,9 +810,9 @@ impl_crypto_store! {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // Serialize calls to `save_changes`; there are multiple await points below, and we're
-        // pickling data as we go, so we don't want to invalidate data we've previously read and
-        // overwrite it in the store.
+        // Serialize calls to `save_changes`; there are multiple await points below, and
+        // we're pickling data as we go, so we don't want to invalidate data
+        // we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -1100,9 +1101,7 @@ impl_crypto_store! {
                 .collect();
         let upper_bound: Array =
             [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
-        let key = KeyRange::Bound(
-            lower_bound, true,
-            upper_bound, true);
+        let key = KeyRange::Bound(lower_bound, true, upper_bound, true);
 
         let tx = self
             .inner
@@ -1161,8 +1160,8 @@ impl_crypto_store! {
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
-        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
-        //   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
+        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't
+        // appear to be   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
         //   the behaviour with a cursor.
         let Some(mut cursor) = idx.open_cursor().await? else {
             return Ok(vec![]);
@@ -1331,7 +1330,9 @@ impl_crypto_store! {
             .with_mode(TransactionMode::Readonly)
             .build()?
             .object_store(keys::OLM_HASHES)?
-            .get::<JsValue, _, _>(&self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))
+            .get::<JsValue, _, _>(
+                &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+            )
             .await?
             .is_some())
     }
@@ -1362,14 +1363,12 @@ impl_crypto_store! {
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
 
-        let transaction = self.inner
+        let transaction = self
+            .inner
             .transaction(keys::SECRETS_INBOX)
             .with_mode(TransactionMode::Readwrite)
             .build()?;
-        transaction
-            .object_store(keys::SECRETS_INBOX)?
-            .delete(&range)
-            .build()?;
+        transaction.object_store(keys::SECRETS_INBOX)?.delete(&range).build()?;
         transaction.commit().await?;
 
         Ok(())
@@ -1383,7 +1382,9 @@ impl_crypto_store! {
 
         let val = self
             .inner
-            .transaction(keys::GOSSIP_REQUESTS).with_mode( TransactionMode::Readonly).build()?
+            .transaction(keys::GOSSIP_REQUESTS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::GOSSIP_REQUESTS)?
             .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
             .get(key)
@@ -1483,7 +1484,9 @@ impl_crypto_store! {
         let key = self.serializer.encode_key(keys::WITHHELD_SESSIONS, (room_id, session_id));
         if let Some(pickle) = self
             .inner
-            .transaction(keys::WITHHELD_SESSIONS).with_mode(TransactionMode::Readonly).build()?
+            .transaction(keys::WITHHELD_SESSIONS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::WITHHELD_SESSIONS)?
             .get(&key)
             .await?
@@ -1561,10 +1564,8 @@ impl_crypto_store! {
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        let transaction = self.inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let transaction =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
         transaction
             .object_store(keys::CORE)?
             .put(&self.serializer.serialize_value(&value)?)
@@ -1576,14 +1577,9 @@ impl_crypto_store! {
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
-        let transaction = self.inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        transaction
-            .object_store(keys::CORE)?
-            .delete(&JsValue::from_str(key))
-            .build()?;
+        let transaction =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+        transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(key)).build()?;
         transaction.commit().await?;
         Ok(())
     }
@@ -1851,7 +1847,7 @@ where
 }
 
 /// The objects we store in the gossip_requests indexeddb object store
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct GossipRequestIndexedDbObject {
     /// Encrypted hash of the [`SecretInfo`] structure.
     info: String,
@@ -1876,7 +1872,7 @@ struct GossipRequestIndexedDbObject {
 }
 
 /// The objects we store in the inbound_group_sessions3 indexeddb object store
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct InboundGroupSessionIndexedDbObject {
     /// Possibly encrypted
     /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]
