@@ -370,7 +370,7 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
 
 /// Test history sharing where some sessions are withheld.
 ///
-/// In this scenario we have three separate users:
+/// In this scenario we have four separate users:
 ///
 ///  1. Alice and Bob share a room, where the history visibility is set to
 ///    "shared".
@@ -385,18 +385,22 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
 ///  8. Charlie joins the room. He should see Bob's first message; the second
 ///     should have an appropriate withheld code from Alice; the third should be
 ///     decryptable.
+///  9. Charlie invites Derek.
+///  10. Derek joins the room, and sees the same as Charlie.
 ///
-/// This tests correct "withheld" code handling.
+/// This tests correct "withheld" code handling, even with transitive invites.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_transitive_history_share_with_withhelds() -> Result<()> {
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
     let charlie_span = tracing::info_span!("charlie");
+    let derek_span = tracing::info_span!("derek");
 
     let alice = create_encryption_enabled_client("alice").instrument(alice_span.clone()).await?;
     let bob = create_encryption_enabled_client("bob").instrument(bob_span.clone()).await?;
     let charlie =
         create_encryption_enabled_client("charlie").instrument(charlie_span.clone()).await?;
+    let derek = create_encryption_enabled_client("derek").instrument(derek_span.clone()).await?;
 
     // 1. Alice creates a room, and enables encryption
     let alice_room = alice
@@ -518,6 +522,38 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
     );
 
+    // 9. Charlie invites Derek.
+    charlie_room
+        .invite_user_by_id(derek.user_id().unwrap())
+        .instrument(charlie_span.clone())
+        .await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Derek needs a copy of
+    // Charlie's identity.
+    derek
+        .encryption()
+        .request_user_identity(charlie.user_id().unwrap())
+        .instrument(derek_span.clone())
+        .await?;
+
+    // 10. Derek joins the room, and sees the same as Charlie.
+    derek.sync_once().instrument(derek_span.clone()).await?;
+    let derek_room = derek
+        .join_room_by_id(alice_room.room_id())
+        .instrument(derek_span.clone())
+        .await
+        .expect("Derek should be able to accept the invitation from Charlie");
+
+    // As for Charlie: events 1 and 3 should be decryptable; 2 should be "history
+    // not shared".
+    assert_event_received(&derek_room, &event_id_1, "Event 1").await;
+    assert_event_received(&derek_room, &event_id_3, "Event 3").await;
+    let event = derek_room.event(&event_id_2, None).await.expect("Should receive Bob's event 2");
+    assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
+    assert_eq!(
+        utd_info.reason,
+        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
+    );
     Ok(())
 }
 

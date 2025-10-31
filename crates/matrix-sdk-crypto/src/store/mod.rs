@@ -1609,6 +1609,15 @@ impl Store {
             }
         }
 
+        // If we received a key bundle ourselves, in which one or more sessions was
+        // marked as "history not shared", pass that on to the new user.
+        let withhelds = self.get_withheld_sessions_by_room_id(room_id).await?;
+        for withheld in withhelds {
+            if withheld.content.withheld_code() == WithheldCode::HistoryNotShared {
+                bundle.withheld.push(withheld.content);
+            }
+        }
+
         Ok(bundle)
     }
 
