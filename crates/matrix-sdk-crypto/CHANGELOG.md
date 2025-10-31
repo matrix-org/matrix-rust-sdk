@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose new method `CryptoStore::get_withheld_sessions_by_room_id`.
+  ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
 - Use new withheld code in key bundles for sessions not marked as
   `shared_history`.
   ([#5807](https://github.com/matrix-org/matrix-rust-sdk/pull/5807)

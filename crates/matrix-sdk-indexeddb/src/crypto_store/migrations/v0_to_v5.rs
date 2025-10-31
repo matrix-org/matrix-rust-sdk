@@ -98,7 +98,7 @@ fn schema_add_v3(db: &Database) -> Result<(), Error> {
     db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS).build()?;
 
     // Support for MSC2399 withheld codes
-    db.create_object_store(keys::DIRECT_WITHHELD_INFO).build()?;
+    db.create_object_store(old_keys::DIRECT_WITHHELD_INFO).build()?;
 
     Ok(())
 }

@@ -428,6 +428,18 @@ impl CryptoStore for MemoryStore {
             .and_then(|e| Some(e.get(session_id)?.to_owned())))
     }
 
+    async fn get_withheld_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> crate::store::Result<Vec<RoomKeyWithheldEntry>, Self::Error> {
+        Ok(self
+            .direct_withheld_info
+            .read()
+            .get(room_id)
+            .map(|e| e.values().cloned().collect())
+            .unwrap_or_default())
+    }
+
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         let inbounds = self
             .inbound_group_sessions
@@ -1373,6 +1385,13 @@ mod integration_tests {
             session_id: &str,
         ) -> Result<Option<RoomKeyWithheldEntry>, Self::Error> {
             self.0.get_withheld_info(room_id, session_id).await
+        }
+
+        async fn get_withheld_sessions_by_room_id(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Vec<RoomKeyWithheldEntry>, Self::Error> {
+            self.0.get_withheld_sessions_by_room_id(room_id).await
         }
 
         async fn get_inbound_group_sessions(
