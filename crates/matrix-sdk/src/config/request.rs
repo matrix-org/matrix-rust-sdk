@@ -48,6 +48,7 @@ pub struct RequestConfig {
     pub(crate) max_retry_time: Option<Duration>,
     pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
     pub(crate) force_auth: bool,
+    pub(crate) skip_auth: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -60,6 +61,7 @@ impl Debug for RequestConfig {
             max_retry_time: retry_timeout,
             force_auth,
             max_concurrent_requests,
+            skip_auth: skip_optional_auth,
         } = self;
 
         let mut res = fmt.debug_struct("RequestConfig");
@@ -71,6 +73,10 @@ impl Debug for RequestConfig {
 
         if *force_auth {
             res.field("force_auth", &true);
+        }
+
+        if *skip_optional_auth {
+            res.field("skip_optional_auth", &true);
         }
 
         res.finish()
@@ -86,6 +92,7 @@ impl Default for RequestConfig {
             max_retry_time: Default::default(),
             max_concurrent_requests: Default::default(),
             force_auth: false,
+            skip_auth: false,
         }
     }
 }
@@ -166,6 +173,22 @@ impl RequestConfig {
     #[must_use]
     pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
+        self
+    }
+
+    /// Skip sending authorization headers even if the endpoint requires it.
+    ///
+    /// Default is to send authorization headers if the endpoint accepts or
+    /// requires it.
+    ///
+    /// This is useful for endpoints that may optionally accept authorization
+    /// but don't require it.
+    ///
+    /// Note: [`RequestConfig::force_auth`] takes precedence. If force auth is
+    /// set, this value will be ignored.
+    #[must_use]
+    pub fn skip_auth(mut self) -> Self {
+        self.skip_auth = true;
         self
     }
 }

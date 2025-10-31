@@ -30,7 +30,7 @@ use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest,
+    OutgoingRequest, SupportedVersions,
     auth_scheme::{AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
@@ -114,13 +114,11 @@ impl HttpClient {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
         let send_access_token = match access_token {
-            Some(access_token) => {
-                if config.force_auth {
-                    SendAccessToken::Always(access_token)
-                } else {
-                    SendAccessToken::IfRequired(access_token)
-                }
-            }
+            Some(access_token) => match (config.force_auth, config.skip_auth) {
+                (true, true) | (true, false) => SendAccessToken::Always(access_token),
+                (false, true) => SendAccessToken::None,
+                (false, false) => SendAccessToken::IfRequired(access_token),
+            },
             None => SendAccessToken::None,
         };
 
@@ -256,19 +254,38 @@ async fn response_to_http_response(
 pub trait SupportedPathBuilder: path_builder::PathBuilder {
     fn get_path_builder_input(
         client: &crate::Client,
+        skip_auth: bool,
     ) -> impl Future<Output = HttpResult<Self::Input<'static>>> + SendOutsideWasm;
 }
 
 impl SupportedPathBuilder for path_builder::VersionHistory {
     async fn get_path_builder_input(
         client: &crate::Client,
-    ) -> HttpResult<Cow<'static, ruma::api::SupportedVersions>> {
-        client.supported_versions().await.map(Cow::Owned)
+        skip_auth: bool,
+    ) -> HttpResult<Cow<'static, SupportedVersions>> {
+        if skip_auth {
+            let cached_versions = client.get_cached_versions().await;
+
+            let versions = if let Some(versions) = cached_versions {
+                versions
+            } else {
+                // If we're skipping auth we might not get all the supported features, so just
+                // fetch the versions and don't cache them.
+                let request_config = RequestConfig::default().retry_limit(5).skip_auth();
+                let response = client.fetch_server_versions(Some(request_config)).await?;
+
+                response.as_supported_versions()
+            };
+
+            Ok(Cow::Owned(versions))
+        } else {
+            client.supported_versions().await.map(Cow::Owned)
+        }
     }
 }
 
 impl SupportedPathBuilder for path_builder::SinglePath {
-    async fn get_path_builder_input(_client: &crate::Client) -> HttpResult<()> {
+    async fn get_path_builder_input(_client: &crate::Client, _skip_auth: bool) -> HttpResult<()> {
         Ok(())
     }
 }
