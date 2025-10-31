@@ -33,6 +33,7 @@ mod v10_to_v11;
 mod v11_to_v12;
 mod v12_to_v13;
 mod v13_to_v14;
+mod v14_to_v15;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -176,6 +177,10 @@ pub async fn open_and_upgrade_db(
         v13_to_v14::schema_bump(name).await?;
     }
 
+    if old_version < 15 {
+        v14_to_v15::schema_add(name).await?;
+    }
+
     // If you add more migrations here, you'll need to update
     // `tests::EXPECTED_SCHEMA_VERSION`.
 
@@ -278,7 +283,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     /// The schema version we expect after we open the store.
-    const EXPECTED_SCHEMA_VERSION: u32 = 14;
+    const EXPECTED_SCHEMA_VERSION: u32 = 15;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
