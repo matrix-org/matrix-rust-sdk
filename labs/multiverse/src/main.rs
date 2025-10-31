@@ -394,7 +394,7 @@ impl App {
 
             let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
 
-            let maybe_timeline_events = store.get_room_events(room_id).await;
+            let maybe_timeline_events = store.get_room_events(room_id, None, None).await;
             let Ok(timeline_events) = maybe_timeline_events else {
                 warn!("Failed to get room's events: {maybe_timeline_events:?}");
                 continue;

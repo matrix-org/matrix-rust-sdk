@@ -479,14 +479,34 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     async fn get_room_events(
         &self,
         room_id: &RoomId,
+        event_type: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
+
+        // TODO: Make this more efficient so we don't load all events and filter them
+        // here. We should instead only load the relevant events.
 
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
             .get_room_events(room_id)
             .await
-            .map(|vec| vec.into_iter().map(Into::into).collect())
+            .map(|vec| {
+                vec.into_iter()
+                    .map(Event::from)
+                    .filter(|e| match (event_type, session_id) {
+                        (None, None) => true,
+                        (None, Some(session_id)) => e.kind.session_id() == Some(session_id),
+                        (Some(event_type), None) => {
+                            e.kind.event_type().as_deref() == Some(event_type)
+                        }
+                        (Some(event_type), Some(session_id)) => {
+                            e.kind.session_id() == Some(session_id)
+                                && e.kind.event_type().as_deref() == Some(event_type)
+                        }
+                    })
+                    .collect()
+            })
             .map_err(Into::into)
     }
 

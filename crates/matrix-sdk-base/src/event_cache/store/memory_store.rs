@@ -217,11 +217,28 @@ impl EventCacheStore for MemoryStore {
         Ok(related_events)
     }
 
-    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error> {
+    async fn get_room_events(
+        &self,
+        room_id: &RoomId,
+        event_type: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event: Vec<_> =
-            inner.events.items(room_id).map(|(event, _pos)| event.clone()).collect();
+        let event: Vec<_> = inner
+            .events
+            .items(room_id)
+            .map(|(event, _pos)| event.clone())
+            .filter(|e| match (event_type, session_id) {
+                (None, None) => true,
+                (None, Some(session_id)) => e.kind.session_id() == Some(session_id),
+                (Some(event_type), None) => e.kind.event_type().as_deref() == Some(event_type),
+                (Some(event_type), Some(session_id)) => {
+                    e.kind.session_id() == Some(session_id)
+                        && e.kind.event_type().as_deref() == Some(event_type)
+                }
+            })
+            .collect();
 
         Ok(event)
     }
