@@ -30,6 +30,9 @@ use indexed_db_futures::{
     KeyRange,
 };
 use js_sys::Array;
+use matrix_sdk_base::cross_process_lock::{
+    CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
+};
 use matrix_sdk_crypto::{
     olm::{
         Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -51,6 +54,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
@@ -95,6 +99,8 @@ mod keys {
     pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 
     pub const RECEIVED_ROOM_KEY_BUNDLES: &str = "received_room_key_bundles";
+
+    pub const LEASE_LOCKS: &str = "lease_locks";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -772,9 +778,9 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        // Serialize calls to `save_pending_changes`; there are multiple await points below, and we're
-        // pickling data as we go, so we don't want to invalidate data we've previously read and
-        // overwrite it in the store.
+        // Serialize calls to `save_pending_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -810,9 +816,9 @@ impl_crypto_store! {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // Serialize calls to `save_changes`; there are multiple await points below, and we're
-        // pickling data as we go, so we don't want to invalidate data we've previously read and
-        // overwrite it in the store.
+        // Serialize calls to `save_changes`; there are multiple await points below, and
+        // we're pickling data as we go, so we don't want to invalidate data
+        // we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -1101,9 +1107,7 @@ impl_crypto_store! {
                 .collect();
         let upper_bound: Array =
             [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
-        let key = KeyRange::Bound(
-            lower_bound, true,
-            upper_bound, true);
+        let key = KeyRange::Bound(lower_bound, true, upper_bound, true);
 
         let tx = self
             .inner
@@ -1162,8 +1166,8 @@ impl_crypto_store! {
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
-        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
-        //   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
+        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't
+        // appear to be   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
         //   the behaviour with a cursor.
         let Some(mut cursor) = idx.open_cursor().await? else {
             return Ok(vec![]);
@@ -1332,7 +1336,9 @@ impl_crypto_store! {
             .with_mode(TransactionMode::Readonly)
             .build()?
             .object_store(keys::OLM_HASHES)?
-            .get::<JsValue, _, _>(&self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)))
+            .get::<JsValue, _, _>(
+                &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+            )
             .await?
             .is_some())
     }
@@ -1363,14 +1369,12 @@ impl_crypto_store! {
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
 
-        let transaction = self.inner
+        let transaction = self
+            .inner
             .transaction(keys::SECRETS_INBOX)
             .with_mode(TransactionMode::Readwrite)
             .build()?;
-        transaction
-            .object_store(keys::SECRETS_INBOX)?
-            .delete(&range)
-            .build()?;
+        transaction.object_store(keys::SECRETS_INBOX)?.delete(&range).build()?;
         transaction.commit().await?;
 
         Ok(())
@@ -1384,7 +1388,9 @@ impl_crypto_store! {
 
         let val = self
             .inner
-            .transaction(keys::GOSSIP_REQUESTS).with_mode( TransactionMode::Readonly).build()?
+            .transaction(keys::GOSSIP_REQUESTS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::GOSSIP_REQUESTS)?
             .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
             .get(key)
@@ -1484,7 +1490,9 @@ impl_crypto_store! {
         let key = self.serializer.encode_key(keys::DIRECT_WITHHELD_INFO, (session_id, room_id));
         if let Some(pickle) = self
             .inner
-            .transaction(keys::DIRECT_WITHHELD_INFO).with_mode( TransactionMode::Readonly).build()?
+            .transaction(keys::DIRECT_WITHHELD_INFO)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
             .object_store(keys::DIRECT_WITHHELD_INFO)?
             .get(&key)
             .await?
@@ -1543,10 +1551,8 @@ impl_crypto_store! {
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        let transaction = self.inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let transaction =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
         transaction
             .object_store(keys::CORE)?
             .put(&self.serializer.serialize_value(&value)?)
@@ -1558,14 +1564,9 @@ impl_crypto_store! {
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
-        let transaction = self.inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        transaction
-            .object_store(keys::CORE)?
-            .delete(&JsValue::from_str(key))
-            .build()?;
+        let transaction =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+        transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(key)).build()?;
         transaction.commit().await?;
         Ok(())
     }
@@ -1575,53 +1576,68 @@ impl_crypto_store! {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<CrossProcessLockGeneration>> {
         // As of 2023-06-23, the code below hasn't been tested yet.
         let key = JsValue::from_str(key);
-        let txn =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
-        let object_store = txn.object_store(keys::CORE)?;
+        let txn = self
+            .inner
+            .transaction(keys::LEASE_LOCKS)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        let object_store = txn.object_store(keys::LEASE_LOCKS)?;
 
-        #[derive(serde::Deserialize, serde::Serialize)]
+        #[derive(Deserialize, Serialize)]
         struct Lease {
             holder: String,
-            expiration_ts: u64,
+            expiration: u64,
+            generation: CrossProcessLockGeneration,
         }
 
-        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
-        let expiration_ts = now_ts + lease_duration_ms as u64;
+        let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration = now + lease_duration_ms as u64;
 
-        let prev = object_store.get(&key).await?;
-        match prev {
-            Some(prev) => {
-                let lease: Lease = self.serializer.deserialize_value(prev)?;
-                if lease.holder == holder || lease.expiration_ts < now_ts {
-                    object_store
-                        .put(
-                            &self.serializer.serialize_value(&Lease {
-                                holder: holder.to_owned(),
-                                expiration_ts,
-                            })?,
-                        )
-                        .with_key(key)
-                        .build()?;
-                    Ok(true)
+        let lease = match object_store.get(&key).await? {
+            Some(entry) => {
+                let mut lease: Lease = self.serializer.deserialize_value(entry)?;
+
+                if lease.holder == holder {
+                    // We had the lease before, extend it.
+                    lease.expiration = expiration;
+
+                    Some(lease)
                 } else {
-                    Ok(false)
+                    // We didn't have it.
+                    if lease.expiration < now {
+                        // Steal it!
+                        lease.holder = holder.to_owned();
+                        lease.expiration = expiration;
+                        lease.generation += 1;
+
+                        Some(lease)
+                    } else {
+                        // We tried our best.
+                        None
+                    }
                 }
             }
             None => {
-                object_store
-                    .put(
-                        &self
-                            .serializer
-                            .serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?,
-                    )
-                    .with_key(key)
-                    .build()?;
-                Ok(true)
+                let lease = Lease {
+                    holder: holder.to_owned(),
+                    expiration,
+                    generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
+                };
+
+                Some(lease)
             }
-        }
+        };
+
+        Ok(if let Some(lease) = lease {
+            object_store.put(&self.serializer.serialize_value(&lease)?).with_key(key).build()?;
+
+            Some(lease.generation)
+        } else {
+            None
+        })
     }
 }
 
@@ -1833,7 +1849,7 @@ where
 }
 
 /// The objects we store in the gossip_requests indexeddb object store
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct GossipRequestIndexedDbObject {
     /// Encrypted hash of the [`SecretInfo`] structure.
     info: String,
@@ -1858,7 +1874,7 @@ struct GossipRequestIndexedDbObject {
 }
 
 /// The objects we store in the inbound_group_sessions3 indexeddb object store
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct InboundGroupSessionIndexedDbObject {
     /// Possibly encrypted
     /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]

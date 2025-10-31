@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::store::extract_event_relation,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
@@ -29,13 +30,7 @@ pub struct Lease {
     pub key: String,
     pub holder: String,
     pub expiration: Duration,
-}
-
-impl Lease {
-    /// Determines whether the lease is expired at a given time `t`
-    pub fn has_expired(&self, t: Duration) -> bool {
-        self.expiration < t
-    }
+    pub generation: CrossProcessLockGeneration,
 }
 
 /// Representation of a [`Chunk`](matrix_sdk_base::linked_chunk::Chunk)

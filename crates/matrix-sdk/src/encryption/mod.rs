@@ -1698,8 +1698,9 @@ impl Encryption {
         // If we don't get the lock immediately, then it is already acquired by another
         // process, and we'll get to reload next time we acquire the lock.
         {
-            let guard = lock.try_lock_once().await?;
-            if guard.is_some() {
+            let lock_result = lock.try_lock_once().await?;
+
+            if lock_result.is_ok() {
                 olm_machine
                     .initialize_crypto_store_generation(
                         &self.client.locks().crypto_store_generation,
@@ -1773,9 +1774,9 @@ impl Encryption {
         &self,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let maybe_guard = lock.try_lock_once().await?;
+            let lock_result = lock.try_lock_once().await?;
 
-            let Some(guard) = maybe_guard else {
+            let Some(guard) = lock_result.ok() else {
                 return Ok(None);
             };
 

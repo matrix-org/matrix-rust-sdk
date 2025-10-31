@@ -17,7 +17,10 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters};
+use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockGeneration,
+    media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters},
+};
 use ruma::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -29,13 +32,7 @@ pub struct Lease {
     pub key: String,
     pub holder: String,
     pub expiration: Duration,
-}
-
-impl Lease {
-    /// Determines whether the lease is expired at a given time `t`
-    pub fn has_expired(&self, t: Duration) -> bool {
-        self.expiration < t
-    }
+    pub generation: CrossProcessLockGeneration,
 }
 
 /// A representation of media which ignores storage schemas. This is type is not
