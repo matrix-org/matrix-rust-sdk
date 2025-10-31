@@ -30,7 +30,7 @@ use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     Mock, ResponseTemplate,
-    matchers::{body_partial_json, header, method, path},
+    matchers::{body_partial_json, header, method, path, path_regex},
 };
 
 fn session() -> MatrixSession {
@@ -762,5 +762,76 @@ async fn test_oauth_handle_refresh_tokens() {
         session_changes.try_recv(),
         Err(TryRecvError::Empty),
         "There should be no more session changes"
+    );
+}
+
+#[async_test]
+async fn test_oauth_handle_refresh_tokens_without_versions() {
+    use matrix_sdk::test_utils::{
+        client::{
+            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+            oauth::mock_session,
+        },
+        mocks::MatrixMockServer,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    // If we provide an access token, we encounter a failure, likely because the
+    // token has expired.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/versions"))
+        .and(header("authorization", "Bearer prev-access-token"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(server.server())
+        .await;
+
+    // If we do not provide an access token, all is fine as the endpoint does not
+    // require one.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/versions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "versions": [
+                "r0.0.1",
+                "v1.1"
+            ]
+        })))
+        .expect(1..)
+        .mount(server.server())
+        .await;
+
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
+        .build()
+        .await;
+
+    let oauth = client.oauth();
+    oauth
+        .restore_session(
+            mock_session(mock_prev_session_tokens_with_refresh()),
+            RoomLoadSettings::default(),
+        )
+        .await
+        .unwrap();
+
+    // Ensure that we don't have any server info.
+    client.reset_server_info().await.unwrap();
+
+    assert_eq!(client.session_tokens(), Some(mock_prev_session_tokens_with_refresh()));
+
+    // Refresh token successfully.
+    oauth_server.mock_token().ok().mock_once().named("refresh_token").mount().await;
+    oauth.refresh_access_token().await.unwrap();
+
+    // The tokens were updated.
+    assert_eq!(
+        client.session_tokens(),
+        Some(mock_session_tokens_with_refresh()),
+        "The session tokens should have been updated with the new values"
     );
 }
