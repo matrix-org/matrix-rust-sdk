@@ -1924,7 +1924,10 @@ impl Client {
     {
         let homeserver = self.homeserver().to_string();
         let access_token = self.access_token();
-        let path_builder_input = Request::PathBuilder::get_path_builder_input(self).await?;
+        let skip_auth = config.map(|c| c.skip_auth).unwrap_or(self.request_config().skip_auth);
+
+        let path_builder_input =
+            Request::PathBuilder::get_path_builder_input(self, skip_auth).await?;
 
         self.inner
             .http_client
@@ -2037,6 +2040,16 @@ impl Client {
         }
 
         Ok(server_info)
+    }
+
+    pub(crate) async fn get_cached_versions(&self) -> Option<SupportedVersions> {
+        let server_info = &self.inner.caches.server_info;
+
+        if let CachedValue::Cached(val) = &server_info.read().await.supported_versions {
+            Some(val.clone())
+        } else {
+            None
+        }
     }
 
     async fn get_or_load_and_cache_server_info<
