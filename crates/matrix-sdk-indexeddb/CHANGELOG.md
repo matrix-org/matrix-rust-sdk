@@ -8,7 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>, ...>`
+- Implement new method `CryptoStore::get_withheld_sessions_by_room_id`.
+  ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
+- [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>, ...>`.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
 
 ### Performance

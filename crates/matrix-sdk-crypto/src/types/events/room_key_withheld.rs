@@ -154,6 +154,27 @@ impl RoomKeyWithheldContent {
             RoomKeyWithheldContent::Unknown(c) => c.algorithm.to_owned(),
         }
     }
+
+    /// Get the room ID of the withheld session, if known
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match &self {
+            RoomKeyWithheldContent::MegolmV1AesSha2(c) => c.room_id(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(c) => c.room_id(),
+            RoomKeyWithheldContent::Unknown(_) => None,
+        }
+    }
+
+    /// Get the megolm session ID of the withheld session, if it is in fact a
+    /// megolm session.
+    pub fn megolm_session_id(&self) -> Option<&str> {
+        match &self {
+            RoomKeyWithheldContent::MegolmV1AesSha2(c) => c.session_id(),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyWithheldContent::MegolmV2AesSha2(c) => c.session_id(),
+            RoomKeyWithheldContent::Unknown(_) => None,
+        }
+    }
 }
 
 impl EventType for RoomKeyWithheldContent {
