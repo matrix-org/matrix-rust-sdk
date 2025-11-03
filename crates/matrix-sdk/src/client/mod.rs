@@ -1956,8 +1956,7 @@ impl Client {
         request_config: Option<RequestConfig>,
     ) -> HttpResult<get_supported_versions::Response> {
         let server_versions = self
-            .send(get_supported_versions::Request::new())
-            .with_request_config(request_config)
+            .send_inner(get_supported_versions::Request::new(), request_config, Default::default())
             .await?;
 
         Ok(server_versions)
