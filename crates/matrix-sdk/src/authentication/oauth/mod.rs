@@ -505,17 +505,26 @@ impl OAuth {
                 .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
         };
 
-        let response =
-            self.client.send(get_authorization_server_metadata::v1::Request::new()).await.map_err(
-                |error| {
-                    // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
-                    if is_endpoint_unsupported(&error) {
-                        OAuthDiscoveryError::NotSupported
-                    } else {
-                        error.into()
-                    }
-                },
-            )?;
+        let response = self
+            .client
+            .send(get_authorization_server_metadata::v1::Request::new())
+            // Skip auth while sending this request. This request itself might not require auth,
+            // but as part of the building of the correct URL we might do a `/versions` call which
+            // optionally accepts it.
+            //
+            // If we're fetching the server metadata to refresh our token, then we don't have valid
+            // auth headers so the `/versions` call will fail and subsequently the refresh of the
+            // token as well.
+            .with_request_config(self.client.request_config().skip_auth())
+            .await
+            .map_err(|error| {
+                // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
+                if is_endpoint_unsupported(&error) {
+                    OAuthDiscoveryError::NotSupported
+                } else {
+                    error.into()
+                }
+            })?;
 
         let metadata = response.metadata.deserialize()?;
 
