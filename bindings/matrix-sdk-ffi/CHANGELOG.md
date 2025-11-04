@@ -62,6 +62,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::register_notification_handler` for observing notifications generated from sync responses.
+  ([#5831](https://github.com/matrix-org/matrix-rust-sdk/pull/5831))
 - Add `Room::mark_as_fully_read_unchecked` so clients can mark a room as read without needing a `Timeline` instance. Note this method is not recommended as it can potentially cause incorrect read receipts, but it can needed in certain cases.
 - Add `Timeline::latest_event_id` to be able to fetch the event id of the latest event of the timeline.
 - Add `Room::load_or_fetch_event` so we can get a `TimelineEvent` given its event id ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
