@@ -20,11 +20,15 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    cross_process_lock::memory_store_helper::try_take_leased_lock, locks::RwLock as StdRwLock,
+    cross_process_lock::{
+        memory_store_helper::{try_take_leased_lock, Lease},
+        CrossProcessLockGeneration,
+    },
+    locks::RwLock as StdRwLock,
 };
 use ruma::{
-    events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
@@ -99,7 +103,7 @@ pub struct MemoryStore {
     key_requests_by_info: StdRwLock<HashMap<String, OwnedTransactionId>>,
     direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEntry>>>,
     custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
-    leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    leases: StdRwLock<HashMap<String, Lease>>,
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
@@ -768,7 +772,7 @@ impl CryptoStore for MemoryStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<CrossProcessLockGeneration>> {
         Ok(try_take_leased_lock(&mut self.leases.write(), lease_duration_ms, key, holder))
     }
 }
@@ -1269,6 +1273,7 @@ mod integration_tests {
     };
 
     use async_trait::async_trait;
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockGeneration;
     use ruma::{
         events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
     };
@@ -1586,7 +1591,7 @@ mod integration_tests {
             lease_duration_ms: u32,
             key: &str,
             holder: &str,
-        ) -> Result<bool, Self::Error> {
+        ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
             self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
         }
 

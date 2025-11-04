@@ -19,6 +19,7 @@ use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::{
         store::{extract_event_relation, EventCacheStore},
@@ -66,7 +67,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 12;
+const DATABASE_VERSION: u8 = 13;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -485,6 +486,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 13 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
+            ))?;
+            txn.set_db_version(13)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -498,7 +509,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<CrossProcessLockGeneration>> {
         let _timer = timer!("method");
 
         let key = key.to_owned();
@@ -507,25 +518,37 @@ impl EventCacheStore for SqliteEventCacheStore {
         let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
         let expiration = now + lease_duration_ms as u64;
 
-        let num_touched = self
+        // Learn about the `excluded` keyword in https://sqlite.org/lang_upsert.html.
+        let generation = self
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.execute(
+                txn.query_row(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
                     ON CONFLICT (key)
                     DO
-                        UPDATE SET holder = ?2, expiration = ?3
-                        WHERE holder = ?2
-                        OR expiration < ?4
-                ",
+                        UPDATE SET
+                            holder = excluded.holder,
+                            expiration = excluded.expiration,
+                            generation =
+                                CASE holder
+                                    WHEN excluded.holder THEN generation
+                                    ELSE generation + 1
+                                END
+                        WHERE
+                            holder = excluded.holder
+                            OR expiration < ?4
+                    RETURNING generation
+                    ",
                     (key, holder, expiration, now),
+                    |row| row.get(0),
                 )
+                .optional()
             })
             .await?;
 
-        Ok(num_touched == 1)
+        Ok(generation)
     }
 
     #[instrument(skip(self, updates))]

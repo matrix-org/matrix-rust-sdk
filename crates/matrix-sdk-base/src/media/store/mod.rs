@@ -32,7 +32,8 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, TryLock,
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
+    TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -172,7 +173,7 @@ impl TryLock for LockableMediaStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> std::result::Result<bool, Self::LockError> {
+    ) -> std::result::Result<Option<CrossProcessLockGeneration>, Self::LockError> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
 }

@@ -15,7 +15,7 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockGeneration, AsyncTraitDeps};
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
 };
@@ -395,7 +395,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error>;
 
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
@@ -641,7 +641,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
     }
 

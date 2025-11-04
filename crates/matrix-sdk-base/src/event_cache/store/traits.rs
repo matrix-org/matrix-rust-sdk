@@ -17,6 +17,7 @@ use std::{fmt, sync::Arc};
 use async_trait::async_trait;
 use matrix_sdk_common::{
     AsyncTraitDeps,
+    cross_process_lock::CrossProcessLockGeneration,
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
         RawChunk, Update,
@@ -46,7 +47,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error>;
 
     /// An [`Update`] reflects an operation that has happened inside a linked
     /// chunk. The linked chunk is used by the event cache to store the events
@@ -196,7 +197,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
     }
 

@@ -100,7 +100,9 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    cross_process_lock::CrossProcessLock, deserialized_responses::WithheldCode, timeout::timeout,
+    cross_process_lock::{CrossProcessLock, CrossProcessLockGeneration},
+    deserialized_responses::WithheldCode,
+    timeout::timeout,
 };
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
@@ -1790,7 +1792,7 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> std::result::Result<bool, Self::LockError> {
+    ) -> std::result::Result<Option<CrossProcessLockGeneration>, Self::LockError> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
 }
