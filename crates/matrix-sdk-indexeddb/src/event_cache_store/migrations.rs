@@ -15,15 +15,16 @@
 use indexed_db_futures::{
     database::Database,
     error::{DomException, Error, OpenDbError},
+    transaction::Transaction,
 };
 use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{v1, Version};
+    use super::{v2, Version};
 
-    pub const VERSION: Version = Version::V1;
-    pub use v1::keys;
+    pub const VERSION: Version = Version::V2;
+    pub use v2::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -35,7 +36,7 @@ pub async fn open_and_upgrade_db(name: &str) -> Result<Database, OpenDbError> {
         .with_on_upgrade_needed(|event, transaction| {
             let mut version = Version::try_from(event.old_version() as u32)?;
             while version < current::VERSION {
-                version = match version.upgrade(transaction.db())? {
+                version = match version.upgrade(transaction)? {
                     Some(next) => next,
                     None => current::VERSION, /* No more upgrades to apply, jump forward! */
                 };
@@ -49,18 +50,21 @@ pub async fn open_and_upgrade_db(name: &str) -> Result<Database, OpenDbError> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Version {
-    /// Version 0 of the database, for details see [`v0`]
+    /// Version 0 of the database, for details see [`v0`].
     V0 = 0,
-    /// Version 1 of the database, for details see [`v1`]
+    /// Version 1 of the database, for details see [`v1`].
     V1 = 1,
+    /// Version 2 of the database, for details see [`v2`].
+    V2 = 2,
 }
 
 impl Version {
     /// Upgrade the database to the next version, if one exists.
-    pub fn upgrade(self, db: &Database) -> Result<Option<Self>, Error> {
+    pub fn upgrade(self, transaction: &Transaction<'_>) -> Result<Option<Self>, Error> {
         match self {
-            Self::V0 => v0::upgrade(db).map(Some),
-            Self::V1 => Ok(None),
+            Self::V0 => v0::upgrade(transaction).map(Some),
+            Self::V1 => v1::upgrade(transaction).map(Some),
+            Self::V2 => Ok(None),
         }
     }
 }
@@ -76,6 +80,7 @@ impl TryFrom<u32> for Version {
         match value {
             0 => Ok(Version::V0),
             1 => Ok(Version::V1),
+            2 => Ok(Version::V2),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -96,8 +101,8 @@ pub mod v0 {
     use super::*;
 
     /// Upgrade database from `v0` to `v1`
-    pub fn upgrade(db: &Database) -> Result<Version, Error> {
-        v1::create_object_stores(db)?;
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v1::create_object_stores(transaction.db())?;
         Ok(Version::V1)
     }
 }
@@ -195,6 +200,29 @@ pub mod v1 {
     fn create_gaps_object_store(db: &Database) -> Result<(), Error> {
         let _ =
             db.create_object_store(keys::GAPS).with_key_path(keys::GAPS_KEY_PATH.into()).build()?;
+        Ok(())
+    }
+
+    /// Upgrade database from `v1` to `v2`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v2::empty_leases(transaction)?;
+        Ok(Version::V2)
+    }
+}
+
+mod v2 {
+    // Re-use all the same keys from `v1`.
+    pub use super::v1::keys;
+    use super::*;
+
+    /// The format of [`Lease`][super::super::types::Lease] is changing. Let's
+    /// erase previous values.
+    pub fn empty_leases(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let object_store = transaction.object_store(keys::LEASES)?;
+
+        // Remove all previous leases.
+        object_store.clear()?;
+
         Ok(())
     }
 }
