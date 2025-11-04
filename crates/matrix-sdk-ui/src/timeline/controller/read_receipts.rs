@@ -449,9 +449,12 @@ impl ReadReceiptTimelineUpdate {
                 // Don't iterate over all items if the `old_item_pos` is known: the `item_pos`
                 // for the new item is necessarily _after_ the old item.
                 .skip_while(|(nth, _)| *nth < old_item_pos)
-                .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
-                .find_map(|(nth, event_item)| {
-                    (event_item.event_id() == Some(&event_id)).then_some(nth)
+                .find_map(|(nth, item)| {
+                    if let Some(event_item) = item.as_event() {
+                        (event_item.event_id() == Some(&event_id)).then_some(nth)
+                    } else {
+                        None
+                    }
                 })
         });
 
