@@ -67,6 +67,8 @@ All notable changes to this project will be documented in this file.
 - Add `Room::load_or_fetch_event` so we can get a `TimelineEvent` given its event id ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
 - Add `TimelineEvent::thread_root_event_id` to expose the thread root event id for this type too ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
 - Add `NotificationSettings::get_raw_push_rules` so clients can fetch the raw JSON content of the push rules of the current user and include it in bug reports ([#5706](https://github.com/matrix-org/matrix-rust-sdk/pull/5706)).
+- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
+  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 
 ## [0.14.0] - 2025-09-04
 
@@ -97,8 +99,6 @@ All notable changes to this project will be documented in this file.
   This is primarily for Element X to give a dedicated error message in case
   it connects a homeserver with only this method available.
   ([#5222](https://github.com/matrix-org/matrix-rust-sdk/pull/5222))
-- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
-  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 
 ### Breaking changes:
 
