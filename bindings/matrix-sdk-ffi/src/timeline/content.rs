@@ -16,7 +16,9 @@ use std::collections::HashMap;
 
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
-use ruma::events::FullStateEventContent;
+use ruma::events::{
+    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
+};
 
 use crate::{timeline::msg_like::MsgLikeContent, utils::Timestamp};
 
@@ -91,6 +93,51 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     error: error.to_string(),
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum HistoryVisibility {
+    /// Previous events are accessible to newly joined members from the point
+    /// they were invited onwards.
+    ///
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *invite* or *join*.
+    Invited,
+
+    /// Previous events are accessible to newly joined members from the point
+    /// they joined the room onwards.
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *join*.
+    Joined,
+
+    /// Previous events are always accessible to newly joined members.
+    ///
+    /// All events in the room are accessible, even those sent when the member
+    /// was not a part of the room.
+    Shared,
+
+    /// All events while this is the `HistoryVisibility` value may be shared by
+    /// any participating homeserver with anyone, regardless of whether they
+    /// have ever joined the room.
+    WorldReadable,
+
+    /// A custom history visibility, up for interpretation by the consumer.
+    Custom {
+        /// The string representation for this custom history visibility.
+        repr: String,
+    },
+}
+
+impl From<RumaHistoryVisibility> for HistoryVisibility {
+    fn from(value: RumaHistoryVisibility) -> Self {
+        match value {
+            RumaHistoryVisibility::Invited => Self::Invited,
+            RumaHistoryVisibility::Joined => Self::Joined,
+            RumaHistoryVisibility::Shared => Self::Shared,
+            RumaHistoryVisibility::WorldReadable => Self::WorldReadable,
+            _ => Self::Custom { repr: value.to_string() },
         }
     }
 }
@@ -203,10 +250,10 @@ pub enum OtherState {
     RoomAliases,
     RoomAvatar { url: Option<String> },
     RoomCanonicalAlias,
-    RoomCreate,
+    RoomCreate { federate: Option<bool> },
     RoomEncryption,
     RoomGuestAccess,
-    RoomHistoryVisibility,
+    RoomHistoryVisibility { history_visibility: Option<HistoryVisibility> },
     RoomJoinRules,
     RoomName { name: Option<String> },
     RoomPinnedEvents { change: RoomPinnedEventsChange },
@@ -240,10 +287,24 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 Self::RoomAvatar { url }
             }
             Content::RoomCanonicalAlias(_) => Self::RoomCanonicalAlias,
-            Content::RoomCreate(_) => Self::RoomCreate,
+            Content::RoomCreate(c) => {
+                let federate = match c {
+                    FullContent::Original { content, .. } => Some(content.federate),
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomCreate { federate }
+            }
             Content::RoomEncryption(_) => Self::RoomEncryption,
             Content::RoomGuestAccess(_) => Self::RoomGuestAccess,
-            Content::RoomHistoryVisibility(_) => Self::RoomHistoryVisibility,
+            Content::RoomHistoryVisibility(c) => {
+                let history_visibility = match c {
+                    FullContent::Original { content, .. } => {
+                        Some(content.history_visibility.clone().into())
+                    }
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomHistoryVisibility { history_visibility }
+            }
             Content::RoomJoinRules(_) => Self::RoomJoinRules,
             Content::RoomName(c) => {
                 let name = match c {
