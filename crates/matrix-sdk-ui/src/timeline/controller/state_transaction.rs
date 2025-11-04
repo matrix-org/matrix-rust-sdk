@@ -37,7 +37,7 @@ use super::{
     metadata::EventMeta,
 };
 use crate::timeline::{
-    EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, VirtualTimelineItem,
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
 };
@@ -93,6 +93,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let mut date_divider_adjuster =
             DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
+        let mut cached_profiles: HashMap<OwnedUserId, Option<Profile>> = HashMap::new();
+
         for diff in diffs {
             match diff {
                 VectorDiff::Append { values: events } => {
@@ -103,6 +105,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             room_data_provider,
                             settings,
                             &mut date_divider_adjuster,
+                            &mut cached_profiles,
                         )
                         .await;
                     }
@@ -115,6 +118,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         room_data_provider,
                         settings,
                         &mut date_divider_adjuster,
+                        &mut cached_profiles,
                     )
                     .await;
                 }
@@ -126,6 +130,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         room_data_provider,
                         settings,
                         &mut date_divider_adjuster,
+                        &mut cached_profiles,
                     )
                     .await;
                 }
@@ -137,6 +142,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         room_data_provider,
                         settings,
                         &mut date_divider_adjuster,
+                        &mut cached_profiles,
                     )
                     .await;
                 }
@@ -154,6 +160,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             room_data_provider,
                             settings,
                             &mut date_divider_adjuster,
+                            &mut cached_profiles,
                         )
                         .await;
                     } else {
@@ -591,6 +598,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
+        profiles: &mut HashMap<OwnedUserId, Option<Profile>>,
     ) -> RemovedItem {
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
@@ -687,7 +695,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // Handle the event to create or update a timeline item.
         let item_added = if let Some(timeline_action) = timeline_action {
-            let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+            let sender_profile = if let Some(profile) = profiles.get(&sender) {
+                profile.clone()
+            } else {
+                let profile = room_data_provider.profile_from_user_id(&sender).await;
+                profiles.insert(sender.clone(), profile.clone());
+                profile
+            };
 
             let ctx = TimelineEventContext {
                 sender,

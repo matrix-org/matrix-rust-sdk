@@ -230,6 +230,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                     room_data_provider,
                     settings,
                     &mut date_divider_adjuster,
+                    &mut Default::default(),
                 )
                 .await;
 
