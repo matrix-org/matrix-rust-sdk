@@ -250,6 +250,7 @@ fn build_xcframework(
     consolidate_modulemap_files(&generated_dir, &headers_module_dir)?;
 
     move_files("swift", &generated_dir, &swift_dir)?;
+    apply_uniffi_mocks_workaround(&swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -429,5 +430,28 @@ fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Res
     }
 
     std::fs::write(destination.join("module.modulemap"), modulemap)?;
+    Ok(())
+}
+
+// Temporary workaround for https://github.com/mozilla/uniffi-rs/issues/2717
+fn apply_uniffi_mocks_workaround(swift_dir: &Utf8Path) -> Result<()> {
+    let regex = regex::Regex::new(r#"(deinit\s*\{\n)(\s*try!\s*rustCall)"#)?;
+
+    for entry in swift_dir.read_dir_utf8()? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("swift") {
+                let mut contents = std::fs::read_to_string(path)?;
+                let new_contents =
+                    regex.replace_all(&contents, "$1        guard handle != 0 else { return }\n$2");
+                if new_contents != contents {
+                    contents = new_contents.to_string();
+                    std::fs::write(path, contents)?;
+                }
+            }
+        }
+    }
+
     Ok(())
 }
