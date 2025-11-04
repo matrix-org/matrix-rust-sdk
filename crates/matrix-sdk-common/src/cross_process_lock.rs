@@ -56,6 +56,16 @@ use crate::{
     sleep::sleep,
 };
 
+/// A lock generation is an integer incremented each time the lock is taken by
+/// a different holder.
+///
+/// This is used to know if a lock has been dirtied.
+pub type CrossProcessLockGeneration = u64;
+
+/// Describe the first lock generation value (see
+/// [`CrossProcessLockGeneration`]).
+pub const FIRST_CROSS_PROCESS_LOCK_GENERATION: CrossProcessLockGeneration = 1;
+
 /// Trait used to try to take a lock. Foundation of [`CrossProcessLock`].
 pub trait TryLock {
     #[cfg(not(target_family = "wasm"))]
@@ -80,7 +90,8 @@ pub trait TryLock {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> impl Future<Output = Result<bool, Self::LockError>> + SendOutsideWasm;
+    ) -> impl Future<Output = Result<Option<CrossProcessLockGeneration>, Self::LockError>>
+    + SendOutsideWasm;
 }
 
 /// Small state machine to handle wait times.
@@ -214,7 +225,8 @@ where
             .locker
             .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
-            .map_err(|err| CrossProcessLockError::TryLockError(Box::new(err)))?;
+            .map_err(|err| CrossProcessLockError::TryLockError(Box::new(err)))?
+            .is_some();
 
         if !acquired {
             trace!("Couldn't acquire the lock immediately.");
@@ -370,7 +382,6 @@ mod tests {
     use std::{
         collections::HashMap,
         sync::{Arc, RwLock, atomic},
-        time::Instant,
     };
 
     use assert_matches::assert_matches;
@@ -381,17 +392,23 @@ mod tests {
     };
 
     use super::{
-        CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, EXTEND_LEASE_EVERY_MS,
-        TryLock, memory_store_helper::try_take_leased_lock,
+        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
+        EXTEND_LEASE_EVERY_MS, TryLock,
+        memory_store_helper::{Lease, try_take_leased_lock},
     };
 
     #[derive(Clone, Default)]
     struct TestStore {
-        leases: Arc<RwLock<HashMap<String, (String, Instant)>>>,
+        leases: Arc<RwLock<HashMap<String, Lease>>>,
     }
 
     impl TestStore {
-        fn try_take_leased_lock(&self, lease_duration_ms: u32, key: &str, holder: &str) -> bool {
+        fn try_take_leased_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Option<CrossProcessLockGeneration> {
             try_take_leased_lock(&mut self.leases.write().unwrap(), lease_duration_ms, key, holder)
         }
     }
@@ -408,7 +425,7 @@ mod tests {
             lease_duration_ms: u32,
             key: &str,
             holder: &str,
-        ) -> Result<bool, Self::LockError> {
+        ) -> Result<Option<CrossProcessLockGeneration>, Self::LockError> {
             Ok(self.try_take_leased_lock(lease_duration_ms, key, holder))
         }
     }
@@ -533,48 +550,63 @@ pub mod memory_store_helper {
 
     use ruma::time::{Duration, Instant};
 
+    use super::{CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION};
+
+    #[derive(Debug)]
+    pub struct Lease {
+        holder: String,
+        expiration: Instant,
+        generation: CrossProcessLockGeneration,
+    }
+
     pub fn try_take_leased_lock(
-        leases: &mut HashMap<String, (String, Instant)>,
+        leases: &mut HashMap<String, Lease>,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> bool {
+    ) -> Option<CrossProcessLockGeneration> {
         let now = Instant::now();
         let expiration = now + Duration::from_millis(lease_duration_ms.into());
 
         match leases.entry(key.to_owned()) {
             // There is an existing holder.
             Entry::Occupied(mut entry) => {
-                let (current_holder, current_expiration) = entry.get_mut();
+                let Lease {
+                    holder: current_holder,
+                    expiration: current_expiration,
+                    generation: current_generation,
+                } = entry.get_mut();
 
                 if current_holder == holder {
                     // We had the lease before, extend it.
                     *current_expiration = expiration;
 
-                    true
+                    Some(*current_generation)
                 } else {
                     // We didn't have it.
                     if *current_expiration < now {
                         // Steal it!
                         *current_holder = holder.to_owned();
                         *current_expiration = expiration;
+                        *current_generation += 1;
 
-                        true
+                        Some(*current_generation)
                     } else {
                         // We tried our best.
-                        false
+                        None
                     }
                 }
             }
 
             // There is no holder, easy.
             Entry::Vacant(entry) => {
-                entry.insert((
-                    holder.to_owned(),
-                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
-                ));
+                entry.insert(Lease {
+                    holder: holder.to_owned(),
+                    expiration: Instant::now() + Duration::from_millis(lease_duration_ms.into()),
+                    generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
+                });
 
-                true
+                Some(FIRST_CROSS_PROCESS_LOCK_GENERATION)
             }
         }
     }

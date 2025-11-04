@@ -19,13 +19,16 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    cross_process_lock::memory_store_helper::try_take_leased_lock,
+    cross_process_lock::{
+        CrossProcessLockGeneration,
+        memory_store_helper::{Lease, try_take_leased_lock},
+    },
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
         RawChunk, Update, relational::RelationalLinkedChunk,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType, time::Instant};
+use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
 use tracing::error;
 
 use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
@@ -41,7 +44,7 @@ pub struct MemoryStore {
 
 #[derive(Debug)]
 struct MemoryStoreInner {
-    leases: HashMap<String, (String, Instant)>,
+    leases: HashMap<String, Lease>,
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
 }
 
@@ -73,7 +76,7 @@ impl EventCacheStore for MemoryStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
         let mut inner = self.inner.write().unwrap();
 
         Ok(try_take_leased_lock(&mut inner.leases, lease_duration_ms, key, holder))

@@ -15,7 +15,7 @@ default = ["state-store", "event-cache"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
-crypto-store = ["dep:matrix-sdk-crypto"]
+crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto"]
 event-cache = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
 

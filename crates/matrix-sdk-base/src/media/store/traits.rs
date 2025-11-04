@@ -17,7 +17,7 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration};
 use ruma::{MxcUri, time::SystemTime};
 
 #[cfg(doc)]
@@ -41,7 +41,7 @@ pub trait MediaStore: AsyncTraitDeps {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -313,7 +313,7 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
     }
 
