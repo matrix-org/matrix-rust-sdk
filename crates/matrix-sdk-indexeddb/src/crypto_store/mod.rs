@@ -30,6 +30,9 @@ use indexed_db_futures::{
     KeyRange,
 };
 use js_sys::Array;
+use matrix_sdk_base::cross_process_lock::{
+    CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
+};
 use matrix_sdk_crypto::{
     olm::{
         Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -96,6 +99,8 @@ mod keys {
     pub const WITHHELD_SESSIONS: &str = "withheld_sessions";
 
     pub const RECEIVED_ROOM_KEY_BUNDLES: &str = "received_room_key_bundles";
+
+    pub const LEASE_LOCKS: &str = "lease_locks";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -1589,53 +1594,68 @@ impl_crypto_store! {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<CrossProcessLockGeneration>> {
         // As of 2023-06-23, the code below hasn't been tested yet.
         let key = JsValue::from_str(key);
-        let txn =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
-        let object_store = txn.object_store(keys::CORE)?;
+        let txn = self
+            .inner
+            .transaction(keys::LEASE_LOCKS)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        let object_store = txn.object_store(keys::LEASE_LOCKS)?;
 
-        #[derive(serde::Deserialize, serde::Serialize)]
+        #[derive(Deserialize, Serialize)]
         struct Lease {
             holder: String,
-            expiration_ts: u64,
+            expiration: u64,
+            generation: CrossProcessLockGeneration,
         }
 
-        let now_ts: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
-        let expiration_ts = now_ts + lease_duration_ms as u64;
+        let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+        let expiration = now + lease_duration_ms as u64;
 
-        let prev = object_store.get(&key).await?;
-        match prev {
-            Some(prev) => {
-                let lease: Lease = self.serializer.deserialize_value(prev)?;
-                if lease.holder == holder || lease.expiration_ts < now_ts {
-                    object_store
-                        .put(
-                            &self.serializer.serialize_value(&Lease {
-                                holder: holder.to_owned(),
-                                expiration_ts,
-                            })?,
-                        )
-                        .with_key(key)
-                        .build()?;
-                    Ok(true)
+        let lease = match object_store.get(&key).await? {
+            Some(entry) => {
+                let mut lease: Lease = self.serializer.deserialize_value(entry)?;
+
+                if lease.holder == holder {
+                    // We had the lease before, extend it.
+                    lease.expiration = expiration;
+
+                    Some(lease)
                 } else {
-                    Ok(false)
+                    // We didn't have it.
+                    if lease.expiration < now {
+                        // Steal it!
+                        lease.holder = holder.to_owned();
+                        lease.expiration = expiration;
+                        lease.generation += 1;
+
+                        Some(lease)
+                    } else {
+                        // We tried our best.
+                        None
+                    }
                 }
             }
             None => {
-                object_store
-                    .put(
-                        &self
-                            .serializer
-                            .serialize_value(&Lease { holder: holder.to_owned(), expiration_ts })?,
-                    )
-                    .with_key(key)
-                    .build()?;
-                Ok(true)
+                let lease = Lease {
+                    holder: holder.to_owned(),
+                    expiration,
+                    generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
+                };
+
+                Some(lease)
             }
-        }
+        };
+
+        Ok(if let Some(lease) = lease {
+            object_store.put(&self.serializer.serialize_value(&lease)?).with_key(key).build()?;
+
+            Some(lease.generation)
+        } else {
+            None
+        })
     }
 }
 
