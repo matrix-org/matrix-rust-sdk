@@ -28,6 +28,16 @@ All notable changes to this project will be documented in this file.
 - Add `authentication::oauth::OAuth::grant_login_with_qr_code` to reciprocate a login by
   generating a QR code on the existing device.
   ([#5801](https://github.com/matrix-org/matrix-rust-sdk/pull/5801))
+- [**breaking**] `OAuth::login_with_qr_code` now returns a builder that allows performing the flow with either the
+  current device scanning or generating the QR code. Additionally, new errors `SecureChannelError::CannotReceiveCheckCode`
+  and `QRCodeLoginError::ServerReset` were added.
+  ([#5711](https://github.com/matrix-org/matrix-rust-sdk/pull/5711))
+- [**breaking**] `ThreadedEventsLoader::new` now takes optional `tokens` parameter to customise where the pagination
+  begins ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
+- Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so they can be assigned from other files
+  ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
+- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
+  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 
 ### Refactor
 
@@ -52,6 +62,41 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Make `LoginProgress::EstablishingSecureChannel` generic in order to reuse it
   for the currently missing QR login flow.
   ([#5750](https://github.com/matrix-org/matrix-rust-sdk/pull/5750))
+- [**breaking**] The `new_virtual_element_call_widget` now uses a `props` and a `config` parameter instead of only `props`.
+  This splits the configuration of the widget into required properties ("widget_id", "parent_url"...) so the widget can work
+  and optional config parameters ("skip_lobby", "header", "...").
+  The config option should in most cases only provide the `"intent"` property.
+  All other config options will then be chosen by EC based on platform + `intent`.
+
+  Before:
+
+  ```rust
+  new_virtual_element_call_widget(
+    VirtualElementCallWidgetProperties {
+      widget_id: "my_widget_id", // required property
+      skip_lobby: Some(true), // optional configuration
+      preload: Some(true), // optional configuration
+      // ...
+    }
+  )
+  ```
+
+  Now:
+
+  ```rust
+  new_virtual_element_call_widget(
+    VirtualElementCallWidgetProperties {
+      widget_id: "my_widget_id", // required property
+      // ... only required properties
+    },
+    VirtualElementCallWidgetConfig {
+      intend: Intend.StartCallDM, // defines the default values for all other configuration
+      skip_lobby: Some(false), // overwrite a specific default value
+      ..VirtualElementCallWidgetConfig::default() // set all other config options to `None`. Use defaults from intent.
+    }
+  )
+  ```
+  ([#5560](https://github.com/matrix-org/matrix-rust-sdk/pull/5560))
 
 ### Bugfix
 
@@ -96,19 +141,8 @@ All notable changes to this project will be documented in this file.
 - Add support to accept historic room key bundles that arrive out of order, i.e.
   the bundle arrives after the invite has already been accepted.
   ([#5322](https://github.com/matrix-org/matrix-rust-sdk/pull/5322))
-- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
-  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
-
 - [**breaking**] `OAuth::login` now allows requesting additional scopes for the authorization code grant.
   ([#5395](https://github.com/matrix-org/matrix-rust-sdk/pull/5395))
-- [**breaking**] `ThreadedEventsLoader::new` now takes optional `tokens` parameter to customise where the pagination
-  begins ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
-- Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so they can be assigned from other files
-  ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
-- [**breaking**] `OAuth::login_with_qr_code` now returns a builder that allows performing the flow with either the
-  current device scanning or generating the QR code. Additionally, new errors `SecureChannelError::CannotReceiveCheckCode`
-  and `QRCodeLoginError::ServerReset` were added.
-  ([#5711](https://github.com/matrix-org/matrix-rust-sdk/pull/5711))
 
 ### Refactor
 
@@ -141,40 +175,6 @@ All notable changes to this project will be documented in this file.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 - [**breaking**] `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
   ([#5452](https://github.com/matrix-org/matrix-rust-sdk/pull/5452))
-- [**breaking**] The `new_virtual_element_call_widget` now uses a `props` and a `config` parameter instead of only `props`.
-  This splits the configuration of the widget into required properties ("widget_id", "parent_url"...) so the widget can work
-  and optional config parameters ("skip_lobby", "header", "...").
-  The config option should in most cases only provide the `"intent"` property.
-  All other config options will then be chosen by EC based on platform + `intent`.
-
-  Before:
-
-  ```rust
-  new_virtual_element_call_widget(
-    VirtualElementCallWidgetProperties {
-      widget_id: "my_widget_id", // required property
-      skip_lobby: Some(true), // optional configuration
-      preload: Some(true), // optional configuration
-      // ...
-    }
-  )
-  ```
-
-  Now:
-
-  ```rust
-  new_virtual_element_call_widget(
-    VirtualElementCallWidgetProperties {
-      widget_id: "my_widget_id", // required property
-      // ... only required properties
-    },
-    VirtualElementCallWidgetConfig {
-      intend: Intend.StartCallDM, // defines the default values for all other configuration
-      skip_lobby: Some(false), // overwrite a specific default value
-      ..VirtualElementCallWidgetConfig::default() // set all other config options to `None`. Use defaults from intent.
-    }
-  )
-  ```
 
 ### Bugfix
 
