@@ -27,7 +27,9 @@ use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
 use tracing::trace;
-use vodozemac::{Curve25519PublicKey, ecies::CheckCode};
+use vodozemac::Curve25519PublicKey;
+#[cfg(doc)]
+use vodozemac::ecies::CheckCode;
 
 use super::{
     DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
@@ -38,7 +40,7 @@ use crate::{
     Client,
     authentication::oauth::{
         ClientRegistrationData, OAuth, OAuthError,
-        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType},
+        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress},
     },
 };
 
@@ -262,18 +264,6 @@ pub enum LoginProgress<Q> {
     SyncingSecrets,
     /// The login process has completed.
     Done,
-}
-
-/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] when
-/// this device is the one scanning the QR code.
-///
-/// We have established the secure channel, but we need to let the other
-/// side know about the [`CheckCode`] so they can verify that the secure
-/// channel is indeed secure.
-#[derive(Clone, Debug)]
-pub struct QrProgress {
-    /// The check code we need to, out of band, send to the other device.
-    pub check_code: CheckCode,
 }
 
 /// Named future for logging in by scanning a QR code with the
@@ -500,6 +490,7 @@ mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
+    use vodozemac::ecies::CheckCode;
 
     use super::*;
     use crate::{

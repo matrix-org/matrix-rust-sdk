@@ -7466,6 +7466,7 @@ dependencies = [
  "cargo_metadata",
  "clap",
  "fs_extra",
+ "regex",
  "serde",
  "serde_json",
  "uniffi_bindgen",

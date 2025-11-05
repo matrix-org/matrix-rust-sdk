@@ -16,6 +16,7 @@ use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
+    deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -101,7 +102,7 @@ use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
-    notification::NotificationClient,
+    notification::{NotificationClient, NotificationEvent},
     notification_settings::NotificationSettings,
     qr_code::LoginWithQrCodeHandler,
     room::{RoomHistoryVisibility, RoomInfoListener, RoomSendQueueUpdate},
@@ -223,6 +224,25 @@ pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a room account data event was changed.
     fn on_change(&self, event: RoomAccountDataEvent, room_id: String);
+}
+
+/// A listener for notifications generated from sync responses.
+///
+/// This is called during sync for each event that triggers a notification
+/// based on the user's push rules.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called when a notifying event is received during sync.
+    fn on_notification(&self, notification: SyncNotification, room_id: String);
+}
+
+/// A notification generated from a sync response.
+#[derive(uniffi::Record)]
+pub struct SyncNotification {
+    /// The push actions for this notification (notify, sound, highlight, etc.)
+    pub actions: Vec<crate::notification_settings::Action>,
+    /// The event that triggered the notification
+    pub event: NotificationEvent,
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -816,6 +836,66 @@ impl Client {
                 observe!(UnstableMarkedUnreadEventContent)
             }
         }
+    }
+
+    /// Register a handler for notifications generated from sync responses.
+    ///
+    /// The handler will be called during sync for each event that triggers
+    /// a notification based on the user's push rules.
+    ///
+    /// The handler receives:
+    /// - The notification with push actions and event data
+    /// - The room ID where the notification occurred
+    ///
+    /// This is useful for implementing custom notification logic, such as
+    /// displaying local notifications or updating notification badges.
+    pub async fn register_notification_handler(&self, listener: Box<dyn SyncNotificationListener>) {
+        let listener = Arc::new(listener);
+        self.inner
+            .register_notification_handler(move |notification, room, _client| {
+                let listener = listener.clone();
+                let room_id = room.room_id().to_string();
+
+                async move {
+                    // Convert SDK actions to FFI type
+                    let actions: Vec<crate::notification_settings::Action> = notification
+                        .actions
+                        .into_iter()
+                        .filter_map(|action| action.try_into().ok())
+                        .collect();
+
+                    // Convert SDK event to FFI type
+                    let event = match notification.event {
+                        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => match raw.deserialize() {
+                            Ok(deserialized) => NotificationEvent::Timeline {
+                                event: Arc::new(crate::event::TimelineEvent(Box::new(
+                                    deserialized,
+                                ))),
+                            },
+                            Err(err) => {
+                                tracing::warn!("Failed to deserialize timeline event: {err}");
+                                return;
+                            }
+                        },
+                        RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
+                            match raw.deserialize() {
+                                Ok(deserialized) => NotificationEvent::Invite {
+                                    sender: deserialized.sender().to_string(),
+                                },
+                                Err(err) => {
+                                    tracing::warn!(
+                                        "Failed to deserialize stripped state event: {err}"
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                    };
+
+                    listener.on_notification(SyncNotification { actions, event }, room_id);
+                }
+            })
+            .await;
     }
 
     /// Allows generic GET requests to be made through the SDK's internal HTTP
