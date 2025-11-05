@@ -169,7 +169,7 @@ where
 
     /// Whether the lock has been dirtied.
     ///
-    /// See [`CrossProcessLockResult::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
     /// of _dirty_.
     is_dirty: Arc<AtomicBool>,
 }
@@ -231,7 +231,7 @@ where
 
     /// Determine whether the cross-process lock is dirty.
     ///
-    /// See [`CrossProcessLockResult::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
     /// of _dirty_.
     pub fn is_dirty(&self) -> bool {
         self.is_dirty.load(Ordering::SeqCst)
@@ -252,7 +252,9 @@ where
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(&self) -> Result<CrossProcessLockResult, CrossProcessLockError> {
+    pub async fn try_lock_once(
+        &self,
+    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -268,16 +270,13 @@ where
 
             self.num_holders.fetch_add(1, Ordering::SeqCst);
 
-            return Ok(CrossProcessLockResult::Clean(CrossProcessLockGuard::new(
+            return Ok(Ok(CrossProcessLockKind::Clean(CrossProcessLockGuard::new(
                 self.num_holders.clone(),
-            )));
+            ))));
         }
 
-        if let Some(new_generation) = self
-            .locker
-            .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
-            .await
-            .map_err(|err| CrossProcessLockError::TryLockError(Box::new(err)))?
+        if let Some(new_generation) =
+            self.locker.try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder).await?
         {
             match self.generation.swap(new_generation, Ordering::SeqCst) {
                 // If there was no lock generation, it means this is the first time the lock is
@@ -305,7 +304,7 @@ where
             trace!("Lock obtained!");
         } else {
             trace!("Couldn't obtain the lock immediately.");
-            return Ok(CrossProcessLockResult::Unobtained);
+            return Ok(Err(CrossProcessLockUnobtained::Busy));
         }
 
         trace!("Obtained the lock, spawning the lease extension task.");
@@ -399,11 +398,11 @@ where
 
         let guard = CrossProcessLockGuard::new(self.num_holders.clone());
 
-        Ok(if self.is_dirty() {
-            CrossProcessLockResult::Dirty(guard)
+        Ok(Ok(if self.is_dirty() {
+            CrossProcessLockKind::Dirty(guard)
         } else {
-            CrossProcessLockResult::Clean(guard)
-        })
+            CrossProcessLockKind::Clean(guard)
+        }))
     }
 
     /// Attempt to take the lock, with exponential backoff if the lock has
@@ -418,17 +417,20 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CrossProcessLockGuard, CrossProcessLockError> {
+    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
         // lock in `try_lock_once` should sequentialize it all.
 
         loop {
-            if let Some(guard) = self.try_lock_once().await?.ok() {
+            let lock_result = self.try_lock_once().await?;
+
+            if lock_result.is_ok() {
                 // Reset backoff before returning, for the next attempt to lock.
                 *self.backoff.lock().await = WaitingTime::Some(INITIAL_BACKOFF_MS);
-                return Ok(guard);
+
+                return Ok(lock_result);
             }
 
             // Exponential backoff! Multiply by 2 the time we've waited before, cap it to
@@ -446,7 +448,7 @@ where
                 }
                 WaitingTime::Stop => {
                     // We've reached the maximum backoff, abandon.
-                    return Err(CrossProcessLockError::LockTimeout);
+                    return Ok(Err(CrossProcessLockUnobtained::TimedOut));
                 }
             };
 
@@ -462,10 +464,10 @@ where
     }
 }
 
-/// Represent the result of a locking attempt, either by
+/// Represent a successful result of a locking attempt, either by
 /// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
 #[derive(Debug)]
-pub enum CrossProcessLockResult {
+pub enum CrossProcessLockKind {
     /// The lock has been obtained successfully, all good.
     Clean(CrossProcessLockGuard),
 
@@ -477,41 +479,47 @@ pub enum CrossProcessLockResult {
     /// protected by the cross-process lock may need to be reloaded if
     /// synchronisation is important.
     Dirty(CrossProcessLockGuard),
-
-    /// The lock has not been obtained.
-    Unobtained,
 }
 
-impl CrossProcessLockResult {
-    /// Convert from [`CrossProcessLockResult`] to
-    /// [`Option<T>`] where `T` is [`CrossProcessLockGuard`].
-    pub fn ok(self) -> Option<CrossProcessLockGuard> {
+impl CrossProcessLockKind {
+    /// Map this value into the inner [`CrossProcessLockGuard`].
+    pub fn into_guard(self) -> CrossProcessLockGuard {
         match self {
-            Self::Clean(guard) | Self::Dirty(guard) => Some(guard),
-            Self::Unobtained => None,
+            Self::Clean(guard) | Self::Dirty(guard) => guard,
         }
     }
-
-    /// Return `true` if the lock has been obtained, `false` otherwise.
-    pub fn is_ok(&self) -> bool {
-        matches!(self, Self::Clean(_) | Self::Dirty(_))
-    }
 }
 
-/// Error related to the locking API of the store.
+/// Represent an unsuccessful result of a lock attempt, either by
+/// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
+#[derive(Debug, thiserror::Error)]
+pub enum CrossProcessLockUnobtained {
+    /// The lock couldn't be obtained immediately because it is busy, i.e. it is
+    /// held by another holder.
+    #[error(
+        "The lock couldn't be obtained immediately because it is busy, i.e. it is held by another holder"
+    )]
+    Busy,
+
+    /// The lock couldn't be obtained after several attempts: locking has timed
+    /// out.
+    #[error("The lock couldn't be obtained after several attempts: locking has timed out")]
+    TimedOut,
+}
+
+/// Union of [`CrossProcessLockUnobtained`] and [`TryLock::LockError`].
 #[derive(Debug, thiserror::Error)]
 pub enum CrossProcessLockError {
-    /// Spent too long waiting for a database lock.
-    #[error("a lock timed out")]
-    LockTimeout,
+    #[error(transparent)]
+    Unobtained(#[from] CrossProcessLockUnobtained),
 
     #[error(transparent)]
     #[cfg(not(target_family = "wasm"))]
-    TryLockError(#[from] Box<dyn Error + Send + Sync>),
+    TryLock(#[from] Box<dyn Error + Send + Sync>),
 
     #[error(transparent)]
     #[cfg(target_family = "wasm")]
-    TryLockError(Box<dyn Error>),
+    TryLock(#[from] Box<dyn Error>),
 }
 
 #[cfg(test)]
@@ -519,7 +527,6 @@ pub enum CrossProcessLockError {
 mod tests {
     use std::{
         collections::HashMap,
-        ops::Not,
         sync::{Arc, RwLock, atomic},
     };
 
@@ -531,8 +538,8 @@ mod tests {
     };
 
     use super::{
-        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration,
-        CrossProcessLockResult, EXTEND_LEASE_EVERY_MS, TryLock,
+        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockKind,
+        CrossProcessLockUnobtained, EXTEND_LEASE_EVERY_MS, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
 
@@ -555,6 +562,12 @@ mod tests {
     #[derive(Debug, thiserror::Error)]
     enum DummyError {}
 
+    impl From<DummyError> for CrossProcessLockError {
+        fn from(value: DummyError) -> Self {
+            Self::TryLock(Box::new(value))
+        }
+    }
+
     impl TryLock for TestStore {
         type LockError = DummyError;
 
@@ -569,8 +582,8 @@ mod tests {
         }
     }
 
-    async fn release_lock(result: CrossProcessLockResult) {
-        drop(result);
+    async fn release_lock(lock: CrossProcessLockKind) {
+        drop(lock);
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
 
@@ -582,19 +595,18 @@ mod tests {
         let lock = CrossProcessLock::new(store, "key".to_owned(), "first".to_owned());
 
         // The lock plain works when used with a single holder.
-        let result = lock.try_lock_once().await?;
-        assert!(result.is_ok());
+        let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         // Releasing works.
-        release_lock(result).await;
+        release_lock(guard).await;
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
         // Spin locking on the same lock always works, assuming no concurrent access.
-        let guard = lock.spin_lock(None).await.unwrap();
+        let guard = lock.spin_lock(None).await?.expect("spin lock must be obtained successfully");
 
         // Releasing still works.
-        release_lock(CrossProcessLockResult::Clean(guard)).await;
+        release_lock(guard).await;
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
         Ok(())
@@ -606,8 +618,7 @@ mod tests {
         let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // When a lock is obtained...
-        let result = lock.try_lock_once().await?;
-        assert!(result.is_ok());
+        let _guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         // But then forgotten... (note: no need to release the guard)
@@ -617,8 +628,8 @@ mod tests {
         let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // We still got it.
-        let result = lock.try_lock_once().await?;
-        assert!(result.is_ok());
+        let _guard =
+            lock.try_lock_once().await?.expect("lock (again) must be obtained successfully");
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         Ok(())
@@ -629,20 +640,17 @@ mod tests {
         let store = TestStore::default();
         let lock = CrossProcessLock::new(store, "key".to_owned(), "first".to_owned());
 
-        // Taking the lock twice...
-        let result1 = lock.try_lock_once().await?;
-        assert!(result1.is_ok());
-
-        let result2 = lock.try_lock_once().await?;
-        assert!(result2.is_ok());
+        // Taking the lock twice…
+        let guard1 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        let guard2 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
 
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 2);
 
-        // ...means we can release it twice.
-        release_lock(result1).await;
+        // … means we can release it twice.
+        release_lock(guard1).await;
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
-        release_lock(result2).await;
+        release_lock(guard2).await;
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
         Ok(())
@@ -655,28 +663,30 @@ mod tests {
         let lock2 = CrossProcessLock::new(store, "key".to_owned(), "second".to_owned());
 
         // When the first process takes the lock...
-        let result1 = lock1.try_lock_once().await?;
-        assert!(result1.is_ok());
+        let guard1 = lock1.try_lock_once().await?.expect("lock must be obtained successfully");
 
         // The second can't take it immediately.
-        let result2 = lock2.try_lock_once().await?;
-        assert!(result2.is_ok().not());
+        let _err2 = lock2.try_lock_once().await?.expect_err("lock must NOT be obtained");
 
         let lock2_clone = lock2.clone();
         let handle = spawn(async move { lock2_clone.spin_lock(Some(1000)).await });
 
         sleep(Duration::from_millis(100)).await;
 
-        drop(result1);
+        drop(guard1);
 
         // lock2 in the background manages to get the lock at some point.
-        let _result2 = handle
+        let _guard2 = handle
             .await
             .expect("join handle is properly awaited")
-            .expect("lock was obtained after spin-locking");
+            .expect("lock is successfully attempted")
+            .expect("lock must be obtained successfully");
 
         // Now if lock1 tries to get the lock with a small timeout, it will fail.
-        assert_matches!(lock1.spin_lock(Some(200)).await, Err(CrossProcessLockError::LockTimeout));
+        assert_matches!(
+            lock1.spin_lock(Some(200)).await,
+            Ok(Err(CrossProcessLockUnobtained::TimedOut))
+        );
 
         Ok(())
     }

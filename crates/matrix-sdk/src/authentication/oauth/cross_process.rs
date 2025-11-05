@@ -87,7 +87,16 @@ impl CrossProcessRefreshManager {
         // Acquire the cross-process mutex, to avoid multiple requests across different
         // processus.
         trace!("Waiting for inter-process lock...");
-        let store_guard = self.store_lock.spin_lock(Some(60000)).await?;
+        let store_guard = self
+            .store_lock
+            .spin_lock(Some(60000))
+            .await
+            .map_err(|err| {
+                CrossProcessRefreshLockError::LockError(CrossProcessLockError::TryLock(Box::new(
+                    err,
+                )))
+            })?
+            .map_err(|err| CrossProcessRefreshLockError::LockError(err.into()))?;
 
         // Read the previous session hash in the database.
         let current_db_session_bytes = self.store.get_custom_value(OIDC_SESSION_HASH_KEY).await?;
@@ -104,7 +113,7 @@ impl CrossProcessRefreshManager {
 
         let guard = CrossProcessRefreshLockGuard {
             hash_guard: prev_hash,
-            _store_guard: store_guard,
+            _store_guard: store_guard.into_guard(),
             hash_mismatch,
             db_hash,
             store: self.store.clone(),

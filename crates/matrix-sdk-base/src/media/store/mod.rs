@@ -82,6 +82,12 @@ impl MediaStoreError {
     }
 }
 
+impl From<MediaStoreError> for CrossProcessLockError {
+    fn from(value: MediaStoreError) -> Self {
+        Self::TryLock(Box::new(value))
+    }
+}
+
 /// An `MediaStore` specific result type.
 pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;
 
@@ -127,7 +133,7 @@ impl MediaStoreLock {
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await??.into_guard();
 
         Ok(MediaStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
     }

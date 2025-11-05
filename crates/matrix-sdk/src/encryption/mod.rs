@@ -37,6 +37,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
+    cross_process_lock::CrossProcessLockError,
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
         store::types::{RoomKeyBundleInfo, RoomKeyInfo},
@@ -1756,11 +1757,22 @@ impl Encryption {
         max_backoff: Option<u32>,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = lock.spin_lock(max_backoff).await?;
+            let guard = lock
+                .spin_lock(max_backoff)
+                .await
+                .map_err(|err| {
+                    Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(
+                        Box::new(err),
+                    )))
+                })?
+                .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;
 
             let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
+                _guard: guard.into_guard(),
+                generation,
+            }))
         } else {
             Ok(None)
         }
@@ -1782,7 +1794,10 @@ impl Encryption {
 
             let generation = self.on_lock_newly_acquired().await?;
 
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration { _guard: guard, generation }))
+            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
+                _guard: guard.into_guard(),
+                generation,
+            }))
         } else {
             Ok(None)
         }

@@ -84,7 +84,7 @@ impl EventCacheStoreLock {
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await??.into_guard();
 
         Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
     }
@@ -170,6 +170,12 @@ impl EventCacheStoreError {
         E: std::error::Error + Send + Sync + 'static,
     {
         Self::Backend(Box::new(error))
+    }
+}
+
+impl From<EventCacheStoreError> for CrossProcessLockError {
+    fn from(value: EventCacheStoreError) -> Self {
+        Self::TryLock(Box::new(value))
     }
 }
 
