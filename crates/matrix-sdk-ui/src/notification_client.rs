@@ -889,6 +889,9 @@ pub struct NotificationItem {
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
     pub thread_id: Option<OwnedEventId>,
+
+    /// The push actions for this notification (notify, sound, highlight, etc.).
+    pub actions: Option<Vec<Action>>,
 }
 
 impl NotificationItem {
@@ -982,6 +985,7 @@ impl NotificationItem {
             is_noisy,
             has_mention,
             thread_id,
+            actions: push_actions.map(|actions| actions.to_vec()),
         };
 
         Ok(item)

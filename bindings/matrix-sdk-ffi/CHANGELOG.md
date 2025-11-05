@@ -64,6 +64,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add push actions to `NotificationItem` and replace `SyncNotification` with `NotificationItem`.
+  ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
 - Add `Client::new_grant_login_with_qr_code_handler` for granting login to a new device by way of
   a QR code.
   ([#5836](https://github.com/matrix-org/matrix-rust-sdk/pull/5836))

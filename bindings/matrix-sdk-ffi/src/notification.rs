@@ -51,6 +51,9 @@ pub struct NotificationItem {
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
     pub thread_id: Option<String>,
+
+    /// The push actions for this notification (notify, sound, highlight, etc.).
+    pub actions: Option<Vec<crate::notification_settings::Action>>,
 }
 
 impl NotificationItem {
@@ -83,6 +86,9 @@ impl NotificationItem {
             is_noisy: item.is_noisy,
             has_mention: item.has_mention,
             thread_id: item.thread_id.map(|t| t.to_string()),
+            actions: item
+                .actions
+                .map(|a| a.into_iter().filter_map(|action| action.try_into().ok()).collect()),
         }
     }
 }
