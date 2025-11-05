@@ -104,7 +104,7 @@ use crate::{
     encryption::Encryption,
     notification::{NotificationClient, NotificationEvent},
     notification_settings::NotificationSettings,
-    qr_code::LoginWithQrCodeHandler,
+    qr_code::{GrantLoginWithQrCodeHandler, LoginWithQrCodeHandler},
     room::{RoomHistoryVisibility, RoomInfoListener, RoomSendQueueUpdate},
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
@@ -576,17 +576,24 @@ impl Client {
         Ok(())
     }
 
-    /// Log in using a QR code.
+    /// Create a handler for requesting an existing device to grant login to
+    /// this device by way of a QR code.
     ///
     /// # Arguments
     ///
     /// * `oidc_configuration` - The data to restore or register the client with
     ///   the server.
-    pub fn login_with_qr_code(
+    pub fn new_login_with_qr_code_handler(
         self: Arc<Self>,
         oidc_configuration: OidcConfiguration,
     ) -> LoginWithQrCodeHandler {
         LoginWithQrCodeHandler::new(self.inner.oauth(), oidc_configuration)
+    }
+
+    /// Create a handler for granting login from this device to a new device by
+    /// way of a QR code.
+    pub fn new_grant_login_with_qr_code_handler(self: Arc<Self>) -> GrantLoginWithQrCodeHandler {
+        GrantLoginWithQrCodeHandler::new(self.inner.oauth())
     }
 
     /// Restores the client from a `Session`.

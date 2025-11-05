@@ -38,7 +38,7 @@ impl LoginWithQrCodeHandler {
     /// [`QrCodeData::server_name`] as the server name.
     ///
     /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support as well as Sliding Sync support.
+    /// it requires OAuth 2.0 support.
     ///
     /// For the reverse flow where this device generates the QR code for the
     /// existing device to scan, use [`LoginWithQrCodeHandler::generate`].
@@ -85,7 +85,7 @@ impl LoginWithQrCodeHandler {
     /// log in.
     ///
     /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support as well as Sliding Sync support.
+    /// it requires OAuth 2.0 support.
     ///
     /// For the reverse flow where the existing device generates the QR code
     /// for this device to scan, use [`LoginWithQrCodeHandler::scan`].
@@ -118,6 +118,100 @@ impl LoginWithQrCodeHandler {
         }));
 
         login.await?;
+
+        Ok(())
+    }
+}
+
+/// Handler for granting login in with a QR code.
+#[derive(uniffi::Object)]
+pub struct GrantLoginWithQrCodeHandler {
+    oauth: OAuth,
+}
+
+impl GrantLoginWithQrCodeHandler {
+    pub(crate) fn new(oauth: OAuth) -> Self {
+        Self { oauth }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl GrantLoginWithQrCodeHandler {
+    /// This method allows you to grant login with a scanned QR code.
+    ///
+    /// The new device needs to display the QR code which this device can
+    /// scan, call this method and handle its progress updates to grant the
+    /// login.
+    ///
+    /// This method uses the login mechanism described in [MSC4108]. As such,
+    /// it requires OAuth 2.0 support.
+    ///
+    /// For the reverse flow where this device generates the QR code for the
+    /// existing device to scan, use [`GrantLoginWithQrCodeHandler::generate`].
+    ///
+    /// # Arguments
+    ///
+    /// * `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
+    /// * `progress_listener` - A progress listener that must also be used to
+    ///   transfer the [`CheckCode`] to the new device.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    pub async fn scan(
+        self: Arc<Self>,
+        qr_code_data: &QrCodeData,
+        progress_listener: Box<dyn GrantQrLoginProgressListener>,
+    ) -> Result<(), HumanQrGrantLoginError> {
+        let grant = self.oauth.grant_login_with_qr_code().scan(&qr_code_data.inner);
+
+        let mut progress = grant.subscribe_to_progress();
+
+        // We create this task, which will get cancelled once it's dropped, just in case
+        // the progress stream doesn't end.
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(state) = progress.next().await {
+                progress_listener.on_update(state.into());
+            }
+        }));
+
+        grant.await?;
+
+        Ok(())
+    }
+
+    /// This method allows you to grant login by generating a QR code.
+    ///
+    /// This device needs to call this method and handle its progress updates to
+    /// generate a QR code which the new device can scan to log in.
+    ///
+    /// This method uses the login mechanism described in [MSC4108]. As such,
+    /// it requires OAuth 2.0 support.
+    ///
+    /// For the reverse flow where the existing device generates the QR code
+    /// for this device to scan, use [`GrantLoginWithQrCodeHandler::scan`].
+    ///
+    /// # Arguments
+    ///
+    /// * `progress_listener` - A progress listener that must also be used to
+    ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    pub async fn generate(
+        self: Arc<Self>,
+        progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
+    ) -> Result<(), HumanQrGrantLoginError> {
+        let grant = self.oauth.grant_login_with_qr_code().generate();
+
+        let mut progress = grant.subscribe_to_progress();
+
+        // We create this task, which will get cancelled once it's dropped, just in case
+        // the progress stream doesn't end.
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(state) = progress.next().await {
+                progress_listener.on_update(state.into());
+            }
+        }));
+
+        grant.await?;
 
         Ok(())
     }
@@ -250,6 +344,53 @@ impl From<CheckCodeSenderError> for HumanQrLoginError {
     }
 }
 
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum HumanQrGrantLoginError {
+    /// The requested device ID is already in use.
+    #[error("The requested device ID is already in use.")]
+    DeviceIDAlreadyInUse,
+
+    /// The check code was incorrect.
+    #[error("The check code was incorrect.")]
+    InvalidCheckCode,
+
+    /// The other client proposed an unsupported protocol.
+    #[error("Unsupported protocol: {0}")]
+    UnsupportedProtocol(String),
+
+    /// Secrets backup not set up properly.
+    #[error("Secrets backup not set up: {0}")]
+    MissingSecretsBackup(String),
+
+    /// The device could not be created.
+    #[error("The device could not be created.")]
+    UnableToCreateDevice,
+
+    /// An unknown error has happened.
+    #[error("An unknown error has happened.")]
+    Unknown(String),
+}
+
+impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
+    fn from(value: qrcode::QRCodeGrantLoginError) -> Self {
+        use qrcode::QRCodeGrantLoginError;
+
+        match value {
+            QRCodeGrantLoginError::DeviceIDAlreadyInUse => Self::DeviceIDAlreadyInUse,
+            QRCodeGrantLoginError::InvalidCheckCode => Self::InvalidCheckCode,
+            QRCodeGrantLoginError::UnableToCreateDevice => Self::UnableToCreateDevice,
+            QRCodeGrantLoginError::UnsupportedProtocol(protocol) => {
+                Self::UnsupportedProtocol(protocol.to_string())
+            }
+            QRCodeGrantLoginError::MissingSecretsBackup(error) => {
+                Self::MissingSecretsBackup(error.map_or("other".to_owned(), |e| e.to_string()))
+            }
+            QRCodeGrantLoginError::Unknown(string) => Self::Unknown(string),
+        }
+    }
+}
+
 /// Enum describing the progress of logging in by scanning a QR code that was
 /// generated on an existing device.
 #[derive(Debug, Default, Clone, uniffi::Enum)]
@@ -345,6 +486,115 @@ impl From<qrcode::LoginProgress<GeneratedQrProgress>> for GeneratedQrLoginProgre
             LoginProgress::WaitingForToken { user_code } => Self::WaitingForToken { user_code },
             LoginProgress::SyncingSecrets => Self::SyncingSecrets,
             LoginProgress::Done => Self::Done,
+        }
+    }
+}
+
+/// Enum describing the progress of granting login in by scanning a QR code that
+/// was generated on a new device.
+#[derive(Debug, Default, Clone, uniffi::Enum)]
+pub enum GrantQrLoginProgress {
+    /// The login process is starting.
+    #[default]
+    Starting,
+    /// We established a secure channel with the other device.
+    EstablishingSecureChannel {
+        /// The check code that the device should display so the other device
+        /// can confirm that the channel is secure as well.
+        check_code: u8,
+        /// The string representation of the check code, will be guaranteed to
+        /// be 2 characters long, preserving the leading zero if the
+        /// first digit is a zero.
+        check_code_string: String,
+    },
+    /// The secure channel has been confirmed using the [`CheckCode`] and this
+    /// device is waiting for the authorization to complete.
+    WaitingForAuth {
+        /// A URI to open in a (secure) system browser to verify the new login.
+        verification_uri: String,
+    },
+    /// We are syncing secrets.
+    SyncingSecrets,
+    /// The login has successfully finished.
+    Done,
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait GrantQrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, state: GrantQrLoginProgress);
+}
+
+impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
+    fn from(value: qrcode::GrantLoginProgress<QrProgress>) -> Self {
+        use qrcode::GrantLoginProgress;
+
+        match value {
+            GrantLoginProgress::Starting => Self::Starting,
+            GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
+                let check_code = check_code.to_digit();
+
+                Self::EstablishingSecureChannel {
+                    check_code,
+                    check_code_string: format!("{check_code:02}"),
+                }
+            }
+            GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            }
+            GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
+            GrantLoginProgress::Done => Self::Done,
+        }
+    }
+}
+
+/// Enum describing the progress of granting login by generating a QR code to
+/// be scanned on the new device.
+#[derive(Debug, Default, Clone, uniffi::Enum)]
+pub enum GrantGeneratedQrLoginProgress {
+    /// The login process is starting.
+    #[default]
+    Starting,
+    /// We have established the secure channel and now need to display the
+    /// QR code so that the existing device can scan it.
+    QrReady { qr_code: Arc<QrCodeData> },
+    /// The existing device has scanned the QR code and is displaying the
+    /// checkcode. We now need to ask the user to enter the checkcode so that
+    /// we can verify that the channel is indeed secure.
+    QrScanned { check_code_sender: Arc<CheckCodeSender> },
+    /// The secure channel has been confirmed using the [`CheckCode`] and this
+    /// device is waiting for the authorization to complete.
+    WaitingForAuth {
+        /// A URI to open in a (secure) system browser to verify the new login.
+        verification_uri: String,
+    },
+    /// We are syncing secrets.
+    SyncingSecrets,
+    /// The login has successfully finished.
+    Done,
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait GrantGeneratedQrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, state: GrantGeneratedQrLoginProgress);
+}
+
+impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrLoginProgress {
+    fn from(value: qrcode::GrantLoginProgress<GeneratedQrProgress>) -> Self {
+        use qrcode::GrantLoginProgress;
+
+        match value {
+            GrantLoginProgress::Starting => Self::Starting,
+            GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(inner)) => {
+                Self::QrReady { qr_code: Arc::new(QrCodeData { inner }) }
+            }
+            GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+                inner,
+            )) => Self::QrScanned { check_code_sender: Arc::new(CheckCodeSender { inner }) },
+            GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            }
+            GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
+            GrantLoginProgress::Done => Self::Done,
         }
     }
 }
