@@ -151,13 +151,14 @@ impl UtdCause {
             MissingMegolmSession { withheld_code: Some(WithheldCode::Blacklisted) }
             | MissingMegolmSession { withheld_code: Some(WithheldCode::Unauthorised) }
             | MissingMegolmSession { withheld_code: Some(WithheldCode::Unavailable) }
-            | MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
             | MissingMegolmSession { withheld_code: Some(WithheldCode::NoOlm) }
             | MissingMegolmSession { withheld_code: Some(WithheldCode::_Custom(_)) } => {
                 UtdCause::WithheldBySender
             }
 
-            MissingMegolmSession { withheld_code: None } | UnknownMegolmMessageIndex => {
+            MissingMegolmSession { withheld_code: None }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
+            | UnknownMegolmMessageIndex => {
                 // Look in the unsigned area for a `membership` field.
                 if let Some(unsigned) =
                     raw_event.get_field::<UnsignedWithMembership>("unsigned").ok().flatten()
@@ -239,6 +240,7 @@ impl UtdCause {
 mod tests {
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
+        WithheldCode,
     };
     use ruma::{events::AnySyncTimelineEvent, serde::Raw, MilliSecondsSinceUnixEpoch};
     use serde_json::{json, value::to_raw_value};
@@ -309,6 +311,25 @@ mod tests {
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
                 device_old(),
                 &missing_megolm_session()
+            ),
+            UtdCause::SentBeforeWeJoined
+        );
+    }
+
+    #[test]
+    fn test_if_membership_is_leave_and_session_not_shared_we_guess_membership() {
+        // Even under MSC4268 (history sharing), the session may have been withheld. We
+        // use the same UTD cause.
+        assert_eq!(
+            UtdCause::determine(
+                &raw_event(json!({ "unsigned": { "membership": "leave" } })),
+                device_old(),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession {
+                        withheld_code: Some(WithheldCode::HistoryNotShared)
+                    },
+                }
             ),
             UtdCause::SentBeforeWeJoined
         );

@@ -23,6 +23,7 @@ use matrix_sdk::{
     },
     timeout::timeout,
 };
+use matrix_sdk_base::crypto::types::events::UtdCause;
 use matrix_sdk_common::deserialized_responses::{
     ProcessedToDeviceEvent, UnableToDecryptReason::MissingMegolmSession, WithheldCode,
 };
@@ -659,8 +660,7 @@ async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) 
     assert_let!(EncryptedMessage::MegolmV1AesSha2 { cause, .. } = encrypted);
     // It should be reported in the UI as a regular "You don't have access to this
     // event".
-    // FIXME: this doesn't work yet.
-    // assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
+    assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
 
     // The timeline interface doesn't expose the raw withheld code, so call
     // `Room::event` to find it.
