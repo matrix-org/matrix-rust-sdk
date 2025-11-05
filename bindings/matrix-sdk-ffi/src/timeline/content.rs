@@ -102,13 +102,13 @@ pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from the point
     /// they were invited onwards.
     ///
-    /// Events stop being accessible when the member's state changes to
+    /// Events stop being accessible when the member' state changes to
     /// something other than *invite* or *join*.
     Invited,
 
     /// Previous events are accessible to newly joined members from the point
     /// they joined the room onwards.
-    /// Events stop being accessible when the member's state changes to
+    /// Events stop being accessible when the member' state changes to
     /// something other than *join*.
     Joined,
 
