@@ -142,21 +142,22 @@ impl UtdCause {
         crypto_context_info: CryptoContextInfo,
         unable_to_decrypt_info: &UnableToDecryptInfo,
     ) -> Self {
-        // TODO: in future, use more information to give a richer answer. E.g.
+        use UnableToDecryptReason::*;
         match &unable_to_decrypt_info.reason {
-            UnableToDecryptReason::MissingMegolmSession { withheld_code: Some(reason) } => {
-                match reason {
-                    WithheldCode::Unverified => UtdCause::WithheldForUnverifiedOrInsecureDevice,
-                    WithheldCode::Blacklisted
-                    | WithheldCode::Unauthorised
-                    | WithheldCode::Unavailable
-                    | WithheldCode::HistoryNotShared
-                    | WithheldCode::NoOlm
-                    | WithheldCode::_Custom(_) => UtdCause::WithheldBySender,
-                }
+            MissingMegolmSession { withheld_code: Some(WithheldCode::Unverified) } => {
+                UtdCause::WithheldForUnverifiedOrInsecureDevice
             }
-            UnableToDecryptReason::MissingMegolmSession { withheld_code: None }
-            | UnableToDecryptReason::UnknownMegolmMessageIndex => {
+
+            MissingMegolmSession { withheld_code: Some(WithheldCode::Blacklisted) }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::Unauthorised) }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::Unavailable) }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::NoOlm) }
+            | MissingMegolmSession { withheld_code: Some(WithheldCode::_Custom(_)) } => {
+                UtdCause::WithheldBySender
+            }
+
+            MissingMegolmSession { withheld_code: None } | UnknownMegolmMessageIndex => {
                 // Look in the unsigned area for a `membership` field.
                 if let Some(unsigned) =
                     raw_event.get_field::<UnsignedWithMembership>("unsigned").ok().flatten()
@@ -177,17 +178,13 @@ impl UtdCause {
                 UtdCause::Unknown
             }
 
-            UnableToDecryptReason::SenderIdentityNotTrusted(
-                VerificationLevel::VerificationViolation,
-            ) => UtdCause::VerificationViolation,
-
-            UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::UnsignedDevice) => {
-                UtdCause::UnsignedDevice
+            SenderIdentityNotTrusted(VerificationLevel::VerificationViolation) => {
+                UtdCause::VerificationViolation
             }
 
-            UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::None(_)) => {
-                UtdCause::UnknownDevice
-            }
+            SenderIdentityNotTrusted(VerificationLevel::UnsignedDevice) => UtdCause::UnsignedDevice,
+
+            SenderIdentityNotTrusted(VerificationLevel::None(_)) => UtdCause::UnknownDevice,
 
             _ => UtdCause::Unknown,
         }
