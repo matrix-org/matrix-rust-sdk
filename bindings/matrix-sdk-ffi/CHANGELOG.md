@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- Rename `Client::login_with_qr_code` to `Client::new_login_with_qr_code_handler`.
+  ([#5836](https://github.com/matrix-org/matrix-rust-sdk/pull/5836))
 - Add the `sqlite` feature, along with the `indexeddb` feature, to enable either
   the SQLite or IndexedDB store. The `session_paths`, `session_passphrase`,
   `session_pool_max_size`, `session_cache_size` and `session_journal_size_limit`
@@ -62,6 +64,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::new_grant_login_with_qr_code_handler` for granting login to a new device by way of
+  a QR code.
+  ([#5836](https://github.com/matrix-org/matrix-rust-sdk/pull/5836))
 - Add `Client::register_notification_handler` for observing notifications generated from sync responses.
   ([#5831](https://github.com/matrix-org/matrix-rust-sdk/pull/5831))
 - Add `Room::mark_as_fully_read_unchecked` so clients can mark a room as read without needing a `Timeline` instance. Note this method is not recommended as it can potentially cause incorrect read receipts, but it can needed in certain cases.
