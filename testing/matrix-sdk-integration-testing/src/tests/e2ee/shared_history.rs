@@ -1,11 +1,12 @@
-use std::{ops::Deref, time::Duration};
+use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use assign::assign;
+use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt, future, pin_mut};
 use matrix_sdk::{
-    Room, assert_decrypted_message_eq, assert_next_with_timeout,
+    assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
     encryption::EncryptionSettings,
     room::power_levels::RoomPowerLevelChanges,
@@ -25,7 +26,13 @@ use matrix_sdk::{
 use matrix_sdk_common::deserialized_responses::{
     ProcessedToDeviceEvent, UnableToDecryptReason::MissingMegolmSession, WithheldCode,
 };
-use matrix_sdk_ui::sync_service::SyncService;
+use matrix_sdk_ui::{
+    Timeline,
+    sync_service::SyncService,
+    timeline::{
+        EncryptedMessage, MsgLikeContent, MsgLikeKind, RoomExt, TimelineItem, TimelineItemContent,
+    },
+};
 use similar_asserts::assert_eq;
 use tracing::{Instrument, info};
 
@@ -409,6 +416,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         }))
         .instrument(alice_span.clone())
         .await?;
+    let alice_timeline = alice_room.timeline().await?;
+
     alice_room.enable_encryption().instrument(alice_span.clone()).await?;
     // Allow regular users to send invites
     alice.sync_once().instrument(alice_span.clone()).await?;
@@ -433,17 +442,6 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         .expect("Bob should be able to accept the invitation from Alice");
 
     // 2. Bob sends a message, which Alice should receive
-    let assert_event_received = async |room: &Room, event_id: &EventId, expected_content: &str| {
-        let event = room.event(event_id, None).await.unwrap_or_else(|err| {
-            panic!("Should receive Bob's event with content '{expected_content}': {err:?}")
-        });
-        assert_decrypted_message_eq!(
-            event,
-            expected_content,
-            "The decrypted event should match the message Bob has sent"
-        );
-    };
-
     let bob_send_test_event = async |event_content: &str| {
         let bob_event_id = bob_room
             .send(RoomMessageEventContent::text_plain(event_content))
@@ -459,7 +457,7 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
             .await
             .expect("Alice should be able to sync");
 
-        assert_event_received(&alice_room, &bob_event_id, event_content).await;
+        assert_event_received(&alice_timeline, &bob_event_id, event_content).await;
 
         bob_event_id
     };
@@ -512,15 +510,13 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         .await
         .expect("Charlie should be able to accept the invitation from Alice");
 
+    let charlie_timeline = charlie_room.timeline().await?;
+
     // Events 1 and 3 should be decryptable; 2 should be "history not shared".
-    assert_event_received(&charlie_room, &event_id_1, "Event 1").await;
-    assert_event_received(&charlie_room, &event_id_3, "Event 3").await;
-    let event = charlie_room.event(&event_id_2, None).await.expect("Should receive Bob's event 2");
-    assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
-    assert_eq!(
-        utd_info.reason,
-        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
-    );
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+    assert_event_received(&charlie_timeline, &event_id_1, "Event 1").await;
+    assert_event_received(&charlie_timeline, &event_id_3, "Event 3").await;
+    assert_utd_history_not_shared(&charlie_timeline, &event_id_2).await;
 
     // 9. Charlie invites Derek.
     charlie_room
@@ -544,16 +540,15 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         .await
         .expect("Derek should be able to accept the invitation from Charlie");
 
+    let derek_timeline = derek_room.timeline().await?;
+
     // As for Charlie: events 1 and 3 should be decryptable; 2 should be "history
     // not shared".
-    assert_event_received(&derek_room, &event_id_1, "Event 1").await;
-    assert_event_received(&derek_room, &event_id_3, "Event 3").await;
-    let event = derek_room.event(&event_id_2, None).await.expect("Should receive Bob's event 2");
-    assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
-    assert_eq!(
-        utd_info.reason,
-        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
-    );
+    derek.sync_once().instrument(derek_span.clone()).await?;
+    assert_event_received(&derek_timeline, &event_id_1, "Event 1").await;
+    assert_event_received(&derek_timeline, &event_id_3, "Event 3").await;
+    assert_utd_history_not_shared(&derek_timeline, &event_id_2).await;
+
     Ok(())
 }
 
@@ -572,4 +567,108 @@ async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwa
 
     client.encryption().wait_for_e2ee_initialization_tasks().await;
     Ok(client)
+}
+
+/**
+ * Wait for an event with the given ID to appear in the timeline.
+ *
+ * This function will wait for an event to appear in the timeline, and then
+ * return it. If the event doesn't appear within the given timeout, it will
+ * return `None`.
+ */
+async fn wait_for_timeline_event(
+    timeline: &Timeline,
+    event_id: &EventId,
+) -> Option<Arc<TimelineItem>> {
+    let predicate =
+        |item: &Arc<TimelineItem>| item.as_event().and_then(|e| e.event_id()) == Some(event_id);
+
+    let (items, stream) = timeline.subscribe().await;
+
+    // If a matching event is already in the timeline, return it.
+    if let Some(event) = items.into_iter().find(|item| predicate(item)) {
+        return Some(event);
+    }
+
+    // Otherwise, wait for it to arrive.
+    pin_mut!(stream);
+
+    loop {
+        let diffs = match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
+            Err(_) => return None, // We timed out while waiting for an event to arrive.
+            Ok(None) => panic!("Stream ended unexpectedly"),
+            Ok(Some(diffs)) => diffs,
+        };
+
+        for diff in diffs {
+            let matched_event = match diff {
+                VectorDiff::Append { values } | VectorDiff::Reset { values } => {
+                    values.into_iter().find(predicate)
+                }
+                VectorDiff::PushBack { value }
+                | VectorDiff::PushFront { value }
+                | VectorDiff::Insert { value, .. }
+                | VectorDiff::Set { value, .. } => predicate(&value).then_some(value),
+                _ => None,
+            };
+
+            if let Some(event) = matched_event {
+                return Some(event);
+            }
+        }
+    }
+}
+
+/**
+ * Wait for the given event to arrive in the timeline, and assert that its
+ * content matches that given.
+ */
+async fn assert_event_received(timeline: &Timeline, event_id: &EventId, expected_content: &str) {
+    let timeline_item = wait_for_timeline_event(timeline, event_id).await.unwrap_or_else(|| {
+        panic!("Timeout waiting for event {event_id} with content {expected_content} to arrive")
+    });
+
+    assert_let!(
+        TimelineItemContent::MsgLike(msg_like_content) =
+            timeline_item.as_event().unwrap().content()
+    );
+    assert_let!(MsgLikeContent { kind: MsgLikeKind::Message(message), .. } = msg_like_content);
+    assert_eq!(
+        message.body(),
+        expected_content,
+        "The decrypted event should match the message Bob has sent"
+    );
+}
+
+/**
+ * Assert that the given event is a UTD, with a withheld code of
+ * "history_not_shared", and an appropriate UtdCause.
+ */
+async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) {
+    let timeline_item = wait_for_timeline_event(timeline, event_id)
+        .await
+        .unwrap_or_else(|| panic!("Timeout waiting for Bob's withheld event {event_id} to arrive"));
+
+    assert_let!(
+        TimelineItemContent::MsgLike(msg_like_content) =
+            timeline_item.as_event().unwrap().content()
+    );
+    assert_let!(
+        MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(encrypted), .. } = msg_like_content
+    );
+    assert_let!(EncryptedMessage::MegolmV1AesSha2 { cause, .. } = encrypted);
+    // It should be reported in the UI as a regular "You don't have access to this
+    // event".
+    // FIXME: this doesn't work yet.
+    // assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
+
+    // The timeline interface doesn't expose the raw withheld code, so call
+    // `Room::event` to find it.
+    let event =
+        timeline.room().event(event_id, None).await.expect("Should receive Bob's withheld event");
+    assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
+    assert_eq!(
+        utd_info.reason,
+        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
+    );
 }
