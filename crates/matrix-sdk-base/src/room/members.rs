@@ -176,26 +176,28 @@ impl Room {
         display_names: &'a [DisplayName],
     ) -> StoreResult<MemberRoomInfo<'a>> {
         let max_power_level = self.max_power_level();
-        let power_levels = self.power_levels_or_default();
+        let power_levels = async { Ok(self.power_levels_or_default().await) };
 
         let users_display_names =
             self.store.get_users_with_display_names(self.room_id(), display_names);
 
-        let raw_ignored_users =
-            self.store.get_account_data_event_static::<IgnoredUserListEventContent>();
+        let ignored_users = async {
+            Ok(self
+                .store
+                .get_account_data_event_static::<IgnoredUserListEventContent>()
+                .await?
+                .map(|c| c.deserialize())
+                .transpose()?
+                .map(|e| e.content.ignored_users.into_keys().collect()))
+        };
 
-        let (power_levels, users_display_names, raw_ignored_users) =
-            future::join3(power_levels, users_display_names, raw_ignored_users).await;
-
-        let ignored_users = raw_ignored_users?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .map(|e| e.content.ignored_users.into_keys().collect());
+        let (power_levels, users_display_names, ignored_users) =
+            future::try_join3(power_levels, users_display_names, ignored_users).await?;
 
         Ok(MemberRoomInfo {
             power_levels: power_levels.into(),
             max_power_level,
-            users_display_names: users_display_names?,
+            users_display_names,
             ignored_users,
         })
     }
