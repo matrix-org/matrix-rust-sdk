@@ -961,14 +961,14 @@ impl Client {
                 )
                 .await?;
 
-            return Ok(Arc::new(MediaFileHandle::new(handle)));
+            Ok(Arc::new(MediaFileHandle::new(handle)))
         }
 
         #[cfg(target_family = "wasm")]
-        return Err(ClientError::Generic {
+        Err(ClientError::Generic {
             msg: "get_media_file is not supported on wasm platforms".to_owned(),
             details: None,
-        });
+        })
     }
 
     pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
@@ -979,7 +979,7 @@ impl Client {
                 .set_display_name(Some(name.as_str()))
                 .await
                 .context("Unable to set display name")?;
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(target_family = "wasm")]
@@ -2504,17 +2504,17 @@ impl MediaFileHandle {
             .unwrap()
             .to_owned());
         #[cfg(target_family = "wasm")]
-        return Err(ClientError::Generic {
+        Err(ClientError::Generic {
             msg: "MediaFileHandle.path() is not supported on WASM targets".to_string(),
             details: None,
-        });
+        })
     }
 
     pub fn persist(&self, path: String) -> Result<bool, ClientError> {
         #[cfg(not(target_family = "wasm"))]
         {
             let mut guard = self.inner.write().unwrap();
-            return Ok(
+            Ok(
                 match guard
                     .take()
                     .context("MediaFileHandle was already persisted")?
@@ -2526,13 +2526,13 @@ impl MediaFileHandle {
                         false
                     }
                 },
-            );
+            )
         }
         #[cfg(target_family = "wasm")]
-        return Err(ClientError::Generic {
+        Err(ClientError::Generic {
             msg: "MediaFileHandle.persist() is not supported on WASM targets".to_string(),
             details: None,
-        });
+        })
     }
 }
 
