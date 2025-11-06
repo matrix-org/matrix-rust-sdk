@@ -152,15 +152,20 @@ impl ClientBuilder {
             system_is_memory_constrained: false,
             username: None,
             homeserver_cfg: None,
+            #[cfg(not(target_family = "wasm"))]
             user_agent: None,
             sliding_sync_version_builder: SlidingSyncVersionBuilder::None,
+            #[cfg(not(target_family = "wasm"))]
             proxy: None,
+            #[cfg(not(target_family = "wasm"))]
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             cross_process_store_locks_holder_name: None,
             enable_oidc_refresh_lock: false,
             session_delegate: None,
+            #[cfg(not(target_family = "wasm"))]
             additional_root_certificates: Default::default(),
+            #[cfg(not(target_family = "wasm"))]
             disable_built_in_root_certificates: false,
             encryption_settings: EncryptionSettings {
                 auto_enable_cross_signing: false,
@@ -559,18 +564,23 @@ impl ClientBuilder {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
     pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.proxy = Some(url);
+        #[cfg(not(target_family = "wasm"))]
+        {
+            builder.proxy = Some(url);
+        }
         Arc::new(builder)
     }
 
     pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_ssl_verification = true;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            builder.disable_ssl_verification = true;
+        }
         Arc::new(builder)
     }
 
@@ -579,7 +589,11 @@ impl ClientBuilder {
         certificates: Vec<CertificateBytes>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.additional_root_certificates = certificates;
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            builder.additional_root_certificates = certificates;
+        }
 
         Arc::new(builder)
     }
@@ -589,13 +603,19 @@ impl ClientBuilder {
     /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
     pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_built_in_root_certificates = true;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            builder.disable_built_in_root_certificates = true;
+        }
         Arc::new(builder)
     }
 
     pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.user_agent = Some(user_agent);
+        #[cfg(not(target_family = "wasm"))]
+        {
+            builder.user_agent = Some(user_agent);
+        }
         Arc::new(builder)
     }
 }
