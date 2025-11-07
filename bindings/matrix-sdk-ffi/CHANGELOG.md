@@ -76,6 +76,7 @@ All notable changes to this project will be documented in this file.
 - Add `NotificationSettings::get_raw_push_rules` so clients can fetch the raw JSON content of the push rules of the current user and include it in bug reports ([#5706](https://github.com/matrix-org/matrix-rust-sdk/pull/5706)).
 - Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
+- Expose `m.federate` in `OtherState::RoomCreate` and `history_visibility` in `OtherState::RoomHistoryVisibility`, allowing clients to know whether a room federates and how its history is shared in the appropriate timeline events.
 
 ## [0.14.0] - 2025-09-04
 
