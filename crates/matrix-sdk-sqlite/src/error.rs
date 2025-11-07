@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use deadpool_sqlite::{CreatePoolError, PoolError};
 #[cfg(feature = "event-cache")]
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 #[cfg(feature = "event-cache")]
@@ -23,6 +22,8 @@ use matrix_sdk_base::store::StoreError as StateStoreError;
 use matrix_sdk_crypto::CryptoStoreError;
 use thiserror::Error;
 use tokio::io;
+
+use crate::connection::{CreatePoolError, PoolError};
 
 /// All the errors that can occur when opening an SQLite store.
 #[derive(Error, Debug)]

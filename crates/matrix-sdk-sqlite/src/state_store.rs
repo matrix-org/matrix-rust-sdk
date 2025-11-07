@@ -8,7 +8,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
@@ -46,6 +45,7 @@ use tokio::{
 use tracing::{debug, instrument, trace, warn};
 
 use crate::{
+    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -127,10 +127,8 @@ impl SqliteStateStore {
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
-        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
-        config.pool = Some(pool_config);
-
-        let pool = config.create_pool(Runtime::Tokio1)?;
+        let config = connection::Config::new(path.join(DATABASE_NAME), pool_config);
+        let pool = config.create_pool()?;
 
         let this = Self::open_with_pool(pool, secret).await?;
         this.pool.get().await?.apply_runtime_config(runtime_config).await?;
@@ -2381,7 +2379,6 @@ mod migration_tests {
     };
 
     use as_variant::as_variant;
-    use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
         media::{MediaFormat, MediaRequestParameters},
         store::{
@@ -2410,9 +2407,10 @@ mod migration_tests {
 
     use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
+        connection,
         error::{Error, Result},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
-        OpenStoreError, Secret,
+        OpenStoreError, PoolConfig, Secret,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2427,10 +2425,8 @@ mod migration_tests {
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir).unwrap();
 
-        let config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
-        // use default pool config
-
-        let pool = config.create_pool(Runtime::Tokio1).unwrap();
+        let config = connection::Config::new(path.join(DATABASE_NAME), PoolConfig::default());
+        let pool = config.create_pool().unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;
