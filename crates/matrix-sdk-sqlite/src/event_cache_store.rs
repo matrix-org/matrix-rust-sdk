@@ -17,7 +17,6 @@
 use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
@@ -45,6 +44,7 @@ use tokio::{
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
+    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -134,10 +134,8 @@ impl SqliteEventCacheStore {
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
-        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
-        config.pool = Some(pool_config);
-
-        let pool = config.create_pool(Runtime::Tokio1)?;
+        let config = crate::connection::Config::new(path.join(DATABASE_NAME), pool_config);
+        let pool = config.create_pool()?;
 
         let this = Self::open_with_pool(pool, secret).await?;
         this.write().await?.apply_runtime_config(runtime_config).await?;

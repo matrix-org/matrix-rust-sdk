@@ -21,7 +21,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
@@ -31,6 +30,7 @@ use tracing::{error, warn};
 use zeroize::Zeroize;
 
 use crate::{
+    connection::Connection as SqliteAsyncConn,
     error::{Error, Result},
     OpenStoreError, RuntimeConfig, Secret,
 };
