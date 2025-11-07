@@ -375,7 +375,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use assert_matches2::{assert_let, assert_matches};
-    use futures_util::{StreamExt, join};
+    use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::SecretsBundle;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
@@ -797,11 +797,9 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect("Alice should be able to grant the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect("Alice should be able to grant the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -924,11 +922,9 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect("Alice should be able to grant the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect("Alice should be able to grant the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1053,11 +1049,9 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect("Alice should be able to grant the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect("Alice should be able to grant the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1171,11 +1165,9 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect_err("Alice should abort the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1272,12 +1264,11 @@ mod test {
             .await;
         });
 
+        grant.await.expect_err("Alice should abort the login");
+
         // Wait for all tasks to finish / fail.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1399,11 +1390,9 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect_err("Alice should abort the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1510,11 +1499,9 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect_err("Alice should abort the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1646,12 +1633,9 @@ mod test {
             .await;
         });
 
-        // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect_err("Alice should abort the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 
     #[async_test]
@@ -1766,11 +1750,8 @@ mod test {
             .await;
         });
 
-        // Wait for all tasks to finish.
-        join!(
-            async { updates_task.await.expect("Alice should run through all progress states") },
-            async { grant.await.expect_err("Alice should abort the login") },
-            async { bob_task.await.expect("Bob's task should finish") }
-        );
+        grant.await.expect_err("Alice should abort the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
     }
 }
