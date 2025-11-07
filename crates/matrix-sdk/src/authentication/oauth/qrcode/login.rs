@@ -532,8 +532,6 @@ mod test {
 
     /// This is most of the code that is required to be the other side, the
     /// existing device, of the QR login dance.
-    ///
-    /// TODO: Expose this as a feature user can use.
     async fn grant_login(
         alice: SecureChannel,
         check_code_receiver: tokio::sync::oneshot::Receiver<CheckCode>,
