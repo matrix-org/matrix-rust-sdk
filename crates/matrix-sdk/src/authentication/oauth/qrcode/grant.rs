@@ -403,11 +403,16 @@ mod test {
         DeviceNotCreated,
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn request_login_with_scanned_qr_code(
         behaviour: BobBehaviour,
         qr_code_rx: oneshot::Receiver<QrCodeData>,
         check_code_tx: oneshot::Sender<u8>,
         server: MatrixMockServer,
+        // The rendezvous server is here because it contains MockGuards that are tied to the
+        // lifetime of the MatrixMockServer. Otherwise we might attempt to drop the
+        // MatrixMockServer before the MockGuards.
+        _rendezvous_server: MockedRendezvousServer,
         device_authorization_grant: Option<AuthorizationGrant>,
         secrets_bundle: Option<SecretsBundle>,
     ) {
@@ -529,11 +534,16 @@ mod test {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn request_login_with_generated_qr_code(
         behaviour: BobBehaviour,
         channel: SecureChannel,
         check_code_rx: oneshot::Receiver<u8>,
         server: MatrixMockServer,
+        // The rendezvous server is here because it contains MockGuards that are tied to the
+        // lifetime of the MatrixMockServer. Otherwise we might attempt to drop the
+        // MatrixMockServer before the MockGuards.
+        _rendezvous_server: MockedRendezvousServer,
         homeserver: Url,
         device_authorization_grant: Option<AuthorizationGrant>,
         secrets_bundle: Option<SecretsBundle>,
@@ -790,6 +800,7 @@ mod test {
                 qr_code_rx,
                 checkcode_tx,
                 server,
+                rendezvous_server,
                 Some(device_authorization_grant),
                 Some(secrets_bundle),
             )
@@ -914,6 +925,7 @@ mod test {
                 channel,
                 checkcode_rx,
                 server,
+                rendezvous_server,
                 alice.homeserver(),
                 Some(device_authorization_grant),
                 Some(secrets_bundle),
@@ -1041,6 +1053,7 @@ mod test {
                 channel,
                 checkcode_rx,
                 login_server,
+                rendezvous_server,
                 alice.homeserver(),
                 Some(device_authorization_grant),
                 Some(secrets_bundle),
@@ -1158,6 +1171,7 @@ mod test {
                 qr_code_rx,
                 checkcode_tx,
                 server,
+                rendezvous_server,
                 None,
                 None,
             )
@@ -1257,6 +1271,7 @@ mod test {
                 channel,
                 checkcode_rx,
                 server,
+                rendezvous_server,
                 alice.homeserver(),
                 None,
                 None,
@@ -1383,6 +1398,7 @@ mod test {
                 qr_code_rx,
                 checkcode_tx,
                 server,
+                rendezvous_server,
                 Some(device_authorization_grant),
                 None,
             )
@@ -1491,6 +1507,7 @@ mod test {
                 channel,
                 checkcode_rx,
                 server,
+                rendezvous_server,
                 alice.homeserver(),
                 Some(device_authorization_grant),
                 None,
@@ -1627,6 +1644,7 @@ mod test {
                 qr_code_rx,
                 checkcode_tx,
                 server,
+                rendezvous_server,
                 Some(device_authorization_grant),
                 None,
             )
@@ -1743,6 +1761,7 @@ mod test {
                 channel,
                 checkcode_rx,
                 server,
+                rendezvous_server,
                 alice.homeserver(),
                 Some(device_authorization_grant),
                 None,
