@@ -50,6 +50,8 @@ All notable changes to this project will be documented in this file.
   ([#5817](https://github.com/matrix-org/matrix-rust-sdk/pull/5817))
 - `ComposerDraft` can now store attachments alongside text messages.
   ([#5794](https://github.com/matrix-org/matrix-rust-sdk/pull/5794))
+- Add `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
+  ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ## [0.14.1] - 2025-09-10
 

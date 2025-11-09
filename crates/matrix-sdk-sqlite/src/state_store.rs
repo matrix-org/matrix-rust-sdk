@@ -2230,6 +2230,57 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
+    ) -> Result<(), Self::Error> {
+        let values: Vec<_> = updates
+            .into_iter()
+            .map(|(room_id, thread_id, subscription)| {
+                (
+                    self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id),
+                    self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id),
+                    subscription.status.as_str(),
+                    subscription.bump_stamp,
+                )
+            })
+            .collect();
+
+        self.write()
+            .await
+            .with_transaction(move |txn| {
+                let mut txn = txn.prepare_cached(
+                    "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp) 
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (room_id, event_id) DO UPDATE 
+                    SET 
+                        status = 
+                            CASE
+                                WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.status
+                                WHEN EXCLUDED.bump_stamp IS NULL THEN EXCLUDED.status
+                                WHEN thread_subscriptions.bump_stamp < EXCLUDED.bump_stamp THEN EXCLUDED.status
+                                ELSE thread_subscriptions.status
+                            END, 
+                        bump_stamp = 
+                            CASE
+                                WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.bump_stamp
+                                WHEN EXCLUDED.bump_stamp IS NULL THEN thread_subscriptions.bump_stamp
+                                WHEN thread_subscriptions.bump_stamp < EXCLUDED.bump_stamp THEN EXCLUDED.bump_stamp
+                                ELSE thread_subscriptions.bump_stamp
+                            END",
+                )?;
+
+                for value in values {
+                    txn.execute(value)?;
+                }
+
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+
+        Ok(())
+    }
+
     async fn load_thread_subscription(
         &self,
         room_id: &RoomId,
