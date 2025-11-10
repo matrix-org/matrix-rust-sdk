@@ -9,4 +9,4 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Machete
-        uses: bnjbvr/cargo-machete@e7d460faa33cbba452e69e8b1700e6a75e8a72b8
+        uses: bnjbvr/cargo-machete@04b9adbd8c1c00963289b5628510dd907b27dc60
