@@ -82,6 +82,9 @@ All notable changes to this project will be documented in this file.
   ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
 - Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
+- Use `StateStore::upsert_thread_subscriptions()` to bulk process thread subscription updates received
+  via the sync response or from the MSC4308 companion endpoint.
+  ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ### Refactor
 
