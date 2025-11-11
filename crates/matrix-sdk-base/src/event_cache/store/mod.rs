@@ -29,7 +29,7 @@ mod traits;
 
 use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    TryLock,
+    MappedCrossProcessLockState, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
@@ -83,12 +83,20 @@ impl EventCacheStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await??.into_guard();
+    pub async fn lock(&self) -> Result<EventCacheStoreLockState<'_>, CrossProcessLockError> {
+        let lock_state =
+            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() }
+            });
 
-        Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
+        Ok(lock_state)
     }
 }
+
+/// The equivalent of [`CrossProcessLockState`] but for the [`EventCacheStore`].
+///
+/// [`CrossProcessLockState`]: matrix_sdk_common::cross_process_lock::CrossProcessLockState
+pub type EventCacheStoreLockState<'a> = MappedCrossProcessLockState<EventCacheStoreLockGuard<'a>>;
 
 /// An RAII implementation of a “scoped lock” of an [`EventCacheStoreLock`].
 /// When this structure is dropped (falls out of scope), the lock will be
