@@ -2907,7 +2907,12 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
             .mock_versions()
             .ok_custom(&["v1.11"], &features_map)
             .named("/versions, first time")
-            .mock_once()
+            // This used to be a `mock_once()`, but we're not caching the versions in the
+            // `RoomListService::new()` method anymore, so we're now doing a couple more requests
+            // for this. The sync will want to know about the `/versions` once it tries to build
+            // the request path.
+            .up_to_n_times(3)
+            .expect(3..)
             .mount()
             .await;
 

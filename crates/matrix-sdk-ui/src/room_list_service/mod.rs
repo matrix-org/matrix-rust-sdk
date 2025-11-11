@@ -63,7 +63,7 @@ use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
-    event_cache::EventCacheError, timeout::timeout,
+    config::RequestConfig, event_cache::EventCacheError, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
@@ -158,11 +158,26 @@ impl RoomListService {
             }));
 
         if client.enabled_thread_subscriptions() {
-            let server_features = client
-                .supported_versions()
+            let server_features = if let Some(cached) = client
+                .supported_versions_cached()
                 .await
-                .map_err(|err| Error::SlidingSync(err.into()))?
-                .features;
+                .map_err(|e| Error::SlidingSync(e.into()))?
+            {
+                cached.features
+            } else {
+                // Our `/versions` calls don't support token refresh as of now (11.11.2025), so
+                // we're going to skip the sending of the authentication headers in case they
+                // might have expired.
+                //
+                // We only care about a feature which is advertised without being authenticaded
+                // anyways.
+                client
+                    .fetch_server_versions(Some(RequestConfig::new().skip_auth()))
+                    .await
+                    .map_err(|e| Error::SlidingSync(e.into()))?
+                    .as_supported_versions()
+                    .features
+            };
 
             if !server_features.contains(&FeatureFlag::from("org.matrix.msc4306")) {
                 warn!(
