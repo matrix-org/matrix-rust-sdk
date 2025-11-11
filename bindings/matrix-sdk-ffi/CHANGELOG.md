@@ -80,6 +80,10 @@ All notable changes to this project will be documented in this file.
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 - Expose `m.federate` in `OtherState::RoomCreate` and `history_visibility` in `OtherState::RoomHistoryVisibility`, allowing clients to know whether a room federates and how its history is shared in the appropriate timeline events.
 
+### Changes
+
+- Build Android ARM64 bindings using better default RUSTFLAGS (the same used for iOS ARM64). This should improve performance. [(#5854)](https://github.com/matrix-org/matrix-rust-sdk/pull/5854)
+
 ## [0.14.0] - 2025-09-04
 
 ### Features:
