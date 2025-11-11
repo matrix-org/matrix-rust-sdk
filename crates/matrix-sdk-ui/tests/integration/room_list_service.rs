@@ -1293,15 +1293,14 @@ async fn test_loading_states() -> Result<(), Error> {
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
 
-        // The sync skips the `Init` state, and immediately starts in the `SettingUp`
-        // state, as the sync `pos`ition marker was set.
+        // The sync starts at the `Init` state but the `pos` marker is set to 3.
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
-            states = SettingUp => Running,
+            states = Init => SettingUp,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
-                        "ranges": [[0, 11]],
+                        "ranges": [[0, 19]],
                         "timeline_limit": 1,
                     },
                 },
