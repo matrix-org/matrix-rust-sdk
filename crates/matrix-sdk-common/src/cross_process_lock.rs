@@ -496,6 +496,44 @@ impl CrossProcessLockState {
             Self::Clean(guard) | Self::Dirty(guard) => guard,
         }
     }
+
+    /// Map this [`CrossProcessLockState`] into a
+    /// [`MappedCrossProcessLockState`].
+    ///
+    /// This is helpful when one wants to create its own wrapper over
+    /// [`CrossProcessLockGuard`].
+    pub fn map<F, G>(self, mapper: F) -> MappedCrossProcessLockState<G>
+    where
+        F: FnOnce(CrossProcessLockGuard) -> G,
+    {
+        match self {
+            Self::Clean(guard) => MappedCrossProcessLockState::Clean(mapper(guard)),
+            Self::Dirty(guard) => MappedCrossProcessLockState::Dirty(mapper(guard)),
+        }
+    }
+}
+
+/// A mapped [`CrossProcessLockState`].
+///
+/// Created by [`CrossProcessLockState::map`].
+#[derive(Debug)]
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
+pub enum MappedCrossProcessLockState<G> {
+    /// The equivalent of [`CrossProcessLockState::Clean`].
+    Clean(G),
+
+    /// The equivalent of [`CrossProcessLockState::Dirty`].
+    Dirty(G),
+}
+
+impl<G> MappedCrossProcessLockState<G> {
+    /// Return `Some(G)` if `Self` is [`Clean`][Self::Clean].
+    pub fn as_clean(&self) -> Option<&G> {
+        match self {
+            Self::Clean(guard) => Some(guard),
+            Self::Dirty(_) => None,
+        }
+    }
 }
 
 /// Represent an unsuccessful result of a lock attempt, either by
