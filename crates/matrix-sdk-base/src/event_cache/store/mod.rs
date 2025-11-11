@@ -110,6 +110,16 @@ pub struct EventCacheStoreLockGuard<'a> {
     store: &'a DynEventCacheStore,
 }
 
+impl<'a> EventCacheStoreLockGuard<'a> {
+    /// Forward to [`CrossProcessLockGuard::clear_dirty`].
+    ///
+    /// This is an associated method to avoid colliding with the [`Deref`]
+    /// implementation.
+    pub fn clear_dirty(this: &Self) {
+        this.cross_process_lock_guard.clear_dirty();
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for EventCacheStoreLockGuard<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
