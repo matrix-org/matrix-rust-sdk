@@ -83,10 +83,10 @@ impl EventCacheStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockState<'_>, CrossProcessLockError> {
+    pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
         let lock_state =
             self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
-                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() }
+                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
             });
 
         Ok(lock_state)
@@ -96,21 +96,21 @@ impl EventCacheStoreLock {
 /// The equivalent of [`CrossProcessLockState`] but for the [`EventCacheStore`].
 ///
 /// [`CrossProcessLockState`]: matrix_sdk_common::cross_process_lock::CrossProcessLockState
-pub type EventCacheStoreLockState<'a> = MappedCrossProcessLockState<EventCacheStoreLockGuard<'a>>;
+pub type EventCacheStoreLockState = MappedCrossProcessLockState<EventCacheStoreLockGuard>;
 
 /// An RAII implementation of a “scoped lock” of an [`EventCacheStoreLock`].
 /// When this structure is dropped (falls out of scope), the lock will be
 /// unlocked.
-pub struct EventCacheStoreLockGuard<'a> {
+pub struct EventCacheStoreLockGuard {
     /// The cross process lock guard.
     #[allow(unused)]
     cross_process_lock_guard: CrossProcessLockGuard,
 
     /// A reference to the store.
-    store: &'a DynEventCacheStore,
+    store: Arc<DynEventCacheStore>,
 }
 
-impl<'a> EventCacheStoreLockGuard<'a> {
+impl EventCacheStoreLockGuard {
     /// Forward to [`CrossProcessLockGuard::clear_dirty`].
     ///
     /// This is an associated method to avoid colliding with the [`Deref`]
@@ -121,17 +121,17 @@ impl<'a> EventCacheStoreLockGuard<'a> {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for EventCacheStoreLockGuard<'_> {
+impl fmt::Debug for EventCacheStoreLockGuard {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("EventCacheStoreLockGuard").finish_non_exhaustive()
     }
 }
 
-impl Deref for EventCacheStoreLockGuard<'_> {
+impl Deref for EventCacheStoreLockGuard {
     type Target = DynEventCacheStore;
 
     fn deref(&self) -> &Self::Target {
-        self.store
+        self.store.as_ref()
     }
 }
 
