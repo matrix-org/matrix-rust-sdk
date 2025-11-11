@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add the `Client::server_versions_cached()` method.
+  ([#5853](https://github.com/matrix-org/matrix-rust-sdk/pull/5853))
 - Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
   login by scanning a QR code on the existing device.
   ([#5818](https://github.com/matrix-org/matrix-rust-sdk/pull/5818))
