@@ -38,7 +38,7 @@ use tokio::{
 use tracing::{debug, instrument, trace};
 
 use crate::{
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool},
+    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         repeat_vars, time_to_timestamp, EncryptableStore, SqliteAsyncConnExt,
@@ -122,15 +122,12 @@ impl SqliteMediaStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, secret, pool_config, runtime_config } = config;
+        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
-        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let config = connection::Config::new(path.join(DATABASE_NAME), pool_config);
-        let pool = config.create_pool()?;
-
-        let this = Self::open_with_pool(pool, secret).await?;
-        this.write().await?.apply_runtime_config(runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret).await?;
+        this.write().await?.apply_runtime_config(config.runtime_config).await?;
 
         Ok(this)
     }
