@@ -130,15 +130,12 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
+        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
-        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let config = crate::connection::Config::new(path.join(DATABASE_NAME), pool_config);
-        let pool = config.create_pool()?;
-
-        let this = Self::open_with_pool(pool, secret).await?;
-        this.write().await?.apply_runtime_config(runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret).await?;
+        this.write().await?.apply_runtime_config(config.runtime_config).await?;
 
         Ok(this)
     }

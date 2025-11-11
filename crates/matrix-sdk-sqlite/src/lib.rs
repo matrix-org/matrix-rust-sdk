@@ -207,6 +207,21 @@ impl SqliteStoreConfig {
         self.runtime_config.journal_size_limit = limit;
         self
     }
+
+    /// Build a pool of active connections to a particular database.
+    pub fn build_pool_of_connections(
+        &self,
+        database_name: &str,
+    ) -> Result<connection::Pool, connection::CreatePoolError> {
+        let path = self.path.join(database_name);
+        let manager = connection::Manager::new(path);
+
+        connection::Pool::builder(manager)
+            .config(self.pool_config)
+            .runtime(connection::RUNTIME)
+            .build()
+            .map_err(connection::CreatePoolError::Build)
+    }
 }
 
 /// This type represents values to set at runtime when a database is opened.

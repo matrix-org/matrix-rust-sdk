@@ -45,7 +45,7 @@ use tokio::{
 use tracing::{debug, instrument, trace, warn};
 
 use crate::{
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool},
+    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -123,15 +123,12 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
+        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
-        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let config = connection::Config::new(path.join(DATABASE_NAME), pool_config);
-        let pool = config.create_pool()?;
-
-        let this = Self::open_with_pool(pool, secret).await?;
-        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret).await?;
+        this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
 
         Ok(this)
     }
@@ -2407,10 +2404,9 @@ mod migration_tests {
 
     use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
-        connection,
         error::{Error, Result},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
-        OpenStoreError, PoolConfig, Secret,
+        OpenStoreError, Secret, SqliteStoreConfig,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2423,10 +2419,11 @@ mod migration_tests {
     }
 
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
-        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir).unwrap();
+        let config = SqliteStoreConfig::new(path);
 
-        let config = connection::Config::new(path.join(DATABASE_NAME), PoolConfig::default());
-        let pool = config.create_pool().unwrap();
+        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir).unwrap();
+
+        let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;

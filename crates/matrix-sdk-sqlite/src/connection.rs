@@ -67,44 +67,11 @@
 use std::{convert::Infallible, path::PathBuf};
 
 pub use deadpool::managed::reexports::*;
-use deadpool::managed::{self, Metrics, PoolConfig, RecycleError};
+use deadpool::managed::{self, Metrics, RecycleError};
 use deadpool_sync::SyncWrapper;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
-const RUNTIME: Runtime = Runtime::Tokio1;
-
-/// The configuration of a connection.
-#[derive(Clone, Debug)]
-pub struct Config {
-    path: PathBuf,
-    pool_config: PoolConfig,
-}
-
-impl Config {
-    /// Create a new [`Config`].
-    ///
-    /// `path` represents the path to the database. `pool_config` represents the
-    /// [`PoolConfig`].
-    #[must_use]
-    pub fn new(path: impl Into<PathBuf>, pool_config: PoolConfig) -> Self {
-        Self { path: path.into(), pool_config }
-    }
-
-    /// Creates a new [`Pool`].
-    ///
-    /// # Errors
-    ///
-    /// See [`CreatePoolError`] for details.
-    pub fn create_pool(&self) -> Result<Pool, managed::CreatePoolError<Infallible>> {
-        let manager = Manager::from_config(self);
-
-        Pool::builder(manager)
-            .config(self.pool_config)
-            .runtime(RUNTIME)
-            .build()
-            .map_err(CreatePoolError::Build)
-    }
-}
+pub const RUNTIME: Runtime = Runtime::Tokio1;
 
 deadpool::managed_reexports!(
     "matrix-sdk-sqlite",
@@ -121,15 +88,14 @@ pub type Connection = Object;
 /// [`Connection`]s.
 #[derive(Debug)]
 pub struct Manager {
-    config: Config,
+    database_path: PathBuf,
 }
 
 impl Manager {
-    /// Creates a new [`Manager`] using the given [`Config`] backed by the
-    /// specified [`Runtime`].
+    /// Creates a new [`Manager`] for a database.
     #[must_use]
-    fn from_config(config: &Config) -> Self {
-        Self { config: config.clone() }
+    pub fn new(database_path: PathBuf) -> Self {
+        Self { database_path }
     }
 }
 
@@ -138,7 +104,7 @@ impl managed::Manager for Manager {
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let path = self.config.path.clone();
+        let path = self.database_path.clone();
         SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
     }
 
