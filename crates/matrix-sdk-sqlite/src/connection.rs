@@ -13,6 +13,56 @@
 // limitations under the License.
 
 //! An implementation of `deadpool` for `rusqlite`.
+//!
+//! Initially, we were using `deadpool-sqlite`, that is also using `rusqlite` as
+//! the SQLite interface. However, in the implementation of
+//! [`deadpool::managed::Manager`], when recycling an object (i.e. an SQLite
+//! connection), [a SQL query is run to detect whether the connection is still
+//! alive][connection-test]. It creates performance issues:
+//!
+//! 1. It runs a prepared SQL query, which has a non-negligle cost. Imagine each
+//!    connection is used to run on average one query; when recycled, a second
+//!    query was constantly run. Even if it's a simple query, it requires to
+//!    prepare a statement, to run and to query it.
+//! 2. The SQL query was run in a blocking task. Indeed,
+//!    `deadpool_runtime::spawn_blocking` is used (via
+//!    `deadpool_sync::SyncWrapper::interact`), which includes [blocking the
+//!    thread, acquiring a lock][spawn_blocking] etc. All this has more
+//!    performance cost.
+//!
+//! Measures have shown it is a performance bottleneck for us, especially on
+//! Android. Why specifically on Android and not other systems? This is still
+//! unclear at the time of writing (2025-11-11), despites having spent several
+//! days digging and trying to find an answer to this question.
+//!
+//! We have tried to use another approach to test the aliveness of the
+//! connections without running queries. It has involved patching `rusqlite` to
+//! add more bindings to SQLite, and patching `deadpool` itself, but without any
+//! successful results.
+//!
+//! Finally, we have started questioning the reason of this test: why testing
+//! whether the connection was still alive? After all, there is no reason a
+//! connection should die in our case:
+//!
+//! - all connections are local,
+//! - all interactions are behind [WAL], which is local only,
+//! - even if for an unknown reason the connection died, using it next time
+//!   would create an error… exactly what would happen when recycling the
+//!   connection.
+//!
+//! Consequently, we have created a new implementation of `deadpool` for
+//! `rusqlite` that doesn't test the aliveness of the connections when recycled.
+//! We assume they are all alive.
+//!
+//! This implementation is, at the time of writing (2025-11-11):
+//!
+//! - 3.5 times faster on Android than `deadpool-sqlite`, removing the lock and
+//!   thread contention entirely,
+//! - 2 times faster on iOS.
+//!
+//! [connection-test]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sqlite/src/lib.rs#L80-L100
+//! [spawn_blocking]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sync/src/lib.rs#L113-L131
+//! [WAL]: https://www.sqlite.org/wal.html
 
 use std::{convert::Infallible, path::PathBuf};
 
