@@ -108,6 +108,7 @@ enum WaitingTime {
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
 #[derive(Debug)]
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
     num_holders: Arc<AtomicU32>,
 }
@@ -467,6 +468,7 @@ where
 /// Represent a successful result of a locking attempt, either by
 /// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
 #[derive(Debug)]
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub enum CrossProcessLockState {
     /// The lock has been obtained successfully, all good.
     Clean(CrossProcessLockGuard),
