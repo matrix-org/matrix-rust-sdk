@@ -206,6 +206,8 @@ pub struct RoomPowerLevelsValues {
     pub room_avatar: i64,
     /// The level required to change the room's topic.
     pub room_topic: i64,
+    /// The level required to modify rooms in this space.
+    pub manage_rooms_in_space: i64,
 }
 
 impl From<RumaPowerLevels> for RoomPowerLevelsValues {
@@ -228,6 +230,7 @@ impl From<RumaPowerLevels> for RoomPowerLevelsValues {
             room_name: state_event_level_for(&value, &TimelineEventType::RoomName),
             room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
             room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
+            manage_rooms_in_space: state_event_level_for(&value, &TimelineEventType::SpaceChild),
         }
     }
 }
