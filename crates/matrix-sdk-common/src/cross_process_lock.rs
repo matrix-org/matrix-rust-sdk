@@ -110,12 +110,35 @@ enum WaitingTime {
 #[derive(Debug)]
 #[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
+    /// A clone of [`CrossProcessLock::num_holders`].
     num_holders: Arc<AtomicU32>,
+
+    /// A clone of [`CrossProcessLock::is_dirty`].
+    is_dirty: Arc<AtomicBool>,
 }
 
 impl CrossProcessLockGuard {
-    fn new(num_holders: Arc<AtomicU32>) -> Self {
-        Self { num_holders }
+    fn new(num_holders: Arc<AtomicU32>, is_dirty: Arc<AtomicBool>) -> Self {
+        Self { num_holders, is_dirty }
+    }
+
+    /// Determine whether the cross-process lock associated to this guard is
+    /// dirty.
+    ///
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
+    /// of _dirty_.
+    pub fn is_dirty(&self) -> bool {
+        self.is_dirty.load(Ordering::SeqCst)
+    }
+
+    /// Clear the dirty state from the cross-process lock associated to this
+    /// guard.
+    ///
+    /// If the cross-process lock is dirtied, it will remain dirtied until
+    /// this method is called. This allows recovering from a dirty state and
+    /// marking that it has recovered.
+    pub fn clear_dirty(&self) {
+        self.is_dirty.store(false, Ordering::SeqCst);
     }
 }
 
@@ -245,7 +268,6 @@ where
     /// marking that it has recovered.
     pub fn clear_dirty(&self) {
         self.is_dirty.store(false, Ordering::SeqCst);
-        self.generation.store(NO_CROSS_PROCESS_LOCK_GENERATION, Ordering::SeqCst);
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
@@ -273,6 +295,7 @@ where
 
             return Ok(Ok(CrossProcessLockState::Clean(CrossProcessLockGuard::new(
                 self.num_holders.clone(),
+                self.is_dirty.clone(),
             ))));
         }
 
@@ -397,7 +420,7 @@ where
 
         self.num_holders.fetch_add(1, Ordering::SeqCst);
 
-        let guard = CrossProcessLockGuard::new(self.num_holders.clone());
+        let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
 
         Ok(Ok(if self.is_dirty() {
             CrossProcessLockState::Dirty(guard)

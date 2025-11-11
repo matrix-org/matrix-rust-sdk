@@ -142,7 +142,7 @@ impl MediaStoreLock {
             // the time of writing (2025-11-11). There is nothing that can be out-of-sync: all the
             // state is in the database, nothing in memory.
             CrossProcessLockState::Dirty(guard) => {
-                self.cross_process_lock.clear_dirty();
+                guard.clear_dirty();
 
                 guard
             }
