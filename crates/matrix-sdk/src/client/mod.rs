@@ -32,7 +32,7 @@ use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
 use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
+    StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
@@ -2115,6 +2115,57 @@ impl Client {
     pub async fn supported_versions(&self) -> HttpResult<SupportedVersions> {
         self.get_or_load_and_cache_server_info(|server_info| server_info.supported_versions.clone())
             .await
+    }
+
+    /// Get the Matrix versions and features supported by the homeserver by
+    /// fetching them from the cache.
+    ///
+    /// For a version of this function that fetches the supported versions and
+    /// features from the homeserver if the [`SupportedVersions`] aren't
+    /// found in the cache, take a look at the [`Client::server_versions()`]
+    /// method.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ruma::api::{FeatureFlag, MatrixVersion};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    ///
+    /// let supported =
+    ///     if let Some(supported) = client.supported_versions_cached().await? {
+    ///         supported
+    ///     } else {
+    ///         client.fetch_server_versions(None).await?.as_supported_versions()
+    ///     };
+    ///
+    /// let supports_1_1 = supported.versions.contains(&MatrixVersion::V1_1);
+    /// println!("The homeserver supports Matrix 1.1: {supports_1_1:?}");
+    ///
+    /// let msc_x_feature = FeatureFlag::from("msc_x");
+    /// let supports_msc_x = supported.features.contains(&msc_x_feature);
+    /// println!("The homeserver supports msc X: {supports_msc_x:?}");
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn supported_versions_cached(&self) -> Result<Option<SupportedVersions>, StoreError> {
+        if let Some(cached) = self.get_cached_versions().await {
+            Ok(Some(cached))
+        } else if let Some(stored) =
+            self.state_store().get_kv_data(StateStoreDataKey::ServerInfo).await?
+        {
+            if let Some(server_info) =
+                stored.into_server_info().and_then(|info| info.maybe_decode())
+            {
+                Ok(Some(server_info.supported_versions()))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
