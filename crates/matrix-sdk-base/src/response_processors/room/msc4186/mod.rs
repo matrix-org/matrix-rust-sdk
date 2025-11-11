@@ -548,8 +548,8 @@ pub(crate) async fn cache_latest_events(
             }
         } else {
             warn!(
-                "Failed to deserialize event as AnySyncTimelineEvent. ID={}",
-                event.event_id().expect("Event has no ID!")
+                event_id = ?event.event_id(),
+                "Failed to deserialize event as `AnySyncTimelineEvent`",
             );
         }
     }
