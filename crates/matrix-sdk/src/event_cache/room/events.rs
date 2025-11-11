@@ -229,8 +229,6 @@ impl EventLinkedChunk {
     /// Be careful that each `VectorDiff` is returned only once!
     ///
     /// See [`AsVector`] to learn more.
-    ///
-    /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
         let updates = self.chunks_updates_as_vectordiffs.take();
 
