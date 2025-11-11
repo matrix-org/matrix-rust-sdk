@@ -169,7 +169,7 @@ where
 
     /// Whether the lock has been dirtied.
     ///
-    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     is_dirty: Arc<AtomicBool>,
 }
@@ -231,7 +231,7 @@ where
 
     /// Determine whether the cross-process lock is dirty.
     ///
-    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     pub fn is_dirty(&self) -> bool {
         self.is_dirty.load(Ordering::SeqCst)
@@ -254,7 +254,7 @@ where
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(
         &self,
-    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -270,7 +270,7 @@ where
 
             self.num_holders.fetch_add(1, Ordering::SeqCst);
 
-            return Ok(Ok(CrossProcessLockKind::Clean(CrossProcessLockGuard::new(
+            return Ok(Ok(CrossProcessLockState::Clean(CrossProcessLockGuard::new(
                 self.num_holders.clone(),
             ))));
         }
@@ -399,9 +399,9 @@ where
         let guard = CrossProcessLockGuard::new(self.num_holders.clone());
 
         Ok(Ok(if self.is_dirty() {
-            CrossProcessLockKind::Dirty(guard)
+            CrossProcessLockState::Dirty(guard)
         } else {
-            CrossProcessLockKind::Clean(guard)
+            CrossProcessLockState::Clean(guard)
         }))
     }
 
@@ -417,7 +417,7 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -467,7 +467,7 @@ where
 /// Represent a successful result of a locking attempt, either by
 /// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
 #[derive(Debug)]
-pub enum CrossProcessLockKind {
+pub enum CrossProcessLockState {
     /// The lock has been obtained successfully, all good.
     Clean(CrossProcessLockGuard),
 
@@ -487,7 +487,7 @@ pub enum CrossProcessLockKind {
     Dirty(CrossProcessLockGuard),
 }
 
-impl CrossProcessLockKind {
+impl CrossProcessLockState {
     /// Map this value into the inner [`CrossProcessLockGuard`].
     pub fn into_guard(self) -> CrossProcessLockGuard {
         match self {
@@ -544,7 +544,7 @@ mod tests {
     };
 
     use super::{
-        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockKind,
+        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockState,
         CrossProcessLockUnobtained, EXTEND_LEASE_EVERY_MS, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
@@ -588,7 +588,7 @@ mod tests {
         }
     }
 
-    async fn release_lock(lock: CrossProcessLockKind) {
+    async fn release_lock(lock: CrossProcessLockState) {
         drop(lock);
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
