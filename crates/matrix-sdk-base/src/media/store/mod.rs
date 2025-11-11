@@ -33,7 +33,7 @@ use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    TryLock,
+    CrossProcessLockKind, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -133,7 +133,20 @@ impl MediaStoreLock {
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await??.into_guard();
+        let cross_process_lock_guard = match self.cross_process_lock.spin_lock(None).await?? {
+            // The lock is clean: no other hold acquired it, all good!
+            CrossProcessLockKind::Clean(guard) => guard,
+
+            // The lock is dirty: another holder acquired it since the last time we acquired it.
+            // It's not a problem in the case of the `MediaStore` because this API is “stateless” at
+            // the time of writing (2025-11-11). There is nothing that can be out-of-sync: all the
+            // state is in the database, nothing in memory.
+            CrossProcessLockKind::Dirty(guard) => {
+                self.cross_process_lock.clear_dirty();
+
+                guard
+            }
+        };
 
         Ok(MediaStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
     }
