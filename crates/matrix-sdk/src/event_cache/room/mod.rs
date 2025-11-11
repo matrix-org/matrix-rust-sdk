@@ -616,8 +616,7 @@ mod private {
         },
         linked_chunk::{
             ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
-            OwnedLinkedChunkId, Position, Update,
-            lazy_loader::{self},
+            OwnedLinkedChunkId, Position, Update, lazy_loader,
         },
         serde_helpers::{extract_edit_target, extract_thread_root},
         sync::Timeline,
@@ -636,15 +635,15 @@ mod private {
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
-        super::{EventCacheError, deduplicator::DeduplicationOutcome},
+        super::{
+            BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
+            RoomPaginationStatus, ThreadEventCacheUpdate,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+            room::threads::ThreadEventCache,
+        },
         EventLocation, LoadMoreEventsBackwardsOutcome,
         events::EventLinkedChunk,
         sort_positions_descending,
-    };
-    use crate::event_cache::{
-        BackPaginationOutcome, RoomEventCacheLinkedChunkUpdate, RoomPaginationStatus,
-        ThreadEventCacheUpdate, deduplicator::filter_duplicate_events,
-        room::threads::ThreadEventCache,
     };
 
     /// State for a single room's event cache.
