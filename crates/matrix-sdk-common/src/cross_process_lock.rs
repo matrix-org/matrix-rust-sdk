@@ -478,6 +478,12 @@ pub enum CrossProcessLockKind {
     /// obtained it again. The lock is marked as dirty. It means the value
     /// protected by the cross-process lock may need to be reloaded if
     /// synchronisation is important.
+    ///
+    /// Until [`CrossProcessLock::clear_dirty`] is called,
+    /// [`CrossProcessLock::is_dirty`], [`CrossProcessLock::try_lock_once`] and
+    /// [`CrossProcessLock::spin_lock`] will report the lock as dirty. Put it
+    /// differently: dirty once, dirty forever, unless
+    /// [`CrossProcessLock::clear_dirty`] is called.
     Dirty(CrossProcessLockGuard),
 }
 
