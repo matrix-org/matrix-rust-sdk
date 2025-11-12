@@ -98,6 +98,57 @@ async fn test_timeline_is_threaded() {
     }
 
     {
+        // An event-focused timeline, focused on a non-thread event, isn't threaded when
+        // no context is requested.
+        let f = EventFactory::new();
+        let event = f
+            .text_msg("hello world")
+            .event_id(event_id!("$target"))
+            .room(room_id)
+            .sender(&ALICE)
+            .into_event();
+        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
+
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Event {
+                target: owned_event_id!("$target"),
+                num_context_events: 0,
+                hide_threaded_events: true,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded().not());
+    }
+
+    {
+        // But an event-focused timeline, focused on an in-thread event, is threaded
+        // when no context is requested \o/
+        let f = EventFactory::new();
+        let thread_root = event_id!("$thread_root");
+        let event = f
+            .text_msg("hey to you too")
+            .event_id(event_id!("$thetarget"))
+            .in_thread(thread_root, thread_root)
+            .room(room_id)
+            .sender(&ALICE)
+            .into_event();
+
+        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
+
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Event {
+                target: owned_event_id!("$thetarget"),
+                num_context_events: 0,
+                hide_threaded_events: true,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded());
+    }
+
+    {
         // An event-focused timeline, focused on a non-thread event, isn't threaded.
         let f = EventFactory::new();
         let event = f
@@ -116,7 +167,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()
@@ -147,7 +198,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()

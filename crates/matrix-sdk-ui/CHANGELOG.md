@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Utilize the cache and include common relations when focusing a timeline on an event without
+  requestion context.
+  ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - [**breaking**]: The new Latest Event API replaces the old API. All the
