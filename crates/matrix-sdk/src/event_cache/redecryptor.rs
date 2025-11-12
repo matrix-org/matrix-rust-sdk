@@ -135,13 +135,8 @@ use tracing::{info, instrument, trace, warn};
 
 #[cfg(doc)]
 use super::RoomEventCache;
-use crate::{
-    Room,
-    event_cache::{
-        EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate,
-    },
-    room::PushContext,
-};
+use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
+use crate::{Room, room::PushContext};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
