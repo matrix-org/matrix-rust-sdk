@@ -45,6 +45,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
+    grouped_room_list::GroupedRoomListService as UIGroupedRoomListService,
     notification_client::{
         NotificationClient as MatrixNotificationClient,
         NotificationProcessSetup as MatrixNotificationProcessSetup,
@@ -103,6 +104,7 @@ use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
+    grouped_room_list::GroupedRoomListService,
     notification::{
         NotificationClient, NotificationEvent, NotificationItem, NotificationRoomInfo,
         NotificationSenderInfo,
@@ -1507,7 +1509,23 @@ impl Client {
 
     pub fn space_service(&self) -> Arc<SpaceService> {
         let inner = UISpaceService::new((*self.inner).clone());
-        Arc::new(SpaceService::new(inner))
+        Arc::new(SpaceService::new(Arc::new(inner)))
+    }
+
+    pub fn grouped_room_list_service(
+        &self,
+        sync_service: Arc<SyncService>,
+        space_service: Arc<SpaceService>,
+        space_id: Option<String>,
+    ) -> Arc<GroupedRoomListService> {
+        let space_id = space_id.map(|id| {
+            RoomId::parse(id).expect("A room list should never deal with invalid room identifiers")
+        });
+
+        let room_list_service = sync_service.inner.room_list_service();
+        let inner =
+            UIGroupedRoomListService::new(room_list_service, space_service.inner.clone(), space_id);
+        Arc::new(GroupedRoomListService::new(inner))
     }
 
     pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {

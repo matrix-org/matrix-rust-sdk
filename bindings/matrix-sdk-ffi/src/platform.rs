@@ -296,6 +296,7 @@ enum LogTarget {
     // SDK UI modules.
     MatrixSdkUiTimeline,
     MatrixSdkUiNotificationClient,
+    MatrixSdkUiGroupedRoomList,
 }
 
 impl LogTarget {
@@ -323,6 +324,7 @@ impl LogTarget {
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkUiNotificationClient => "matrix_sdk_ui::notification_client",
+            LogTarget::MatrixSdkUiGroupedRoomList => "matrix_sdk_ui::grouped_room_list",
         }
     }
 }
@@ -347,6 +349,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
+    (LogTarget::MatrixSdkUiGroupedRoomList, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
 ];
 
@@ -372,6 +375,8 @@ pub enum TraceLogPacks {
     NotificationClient,
     /// Enables all the logs relevant to sync profiling.
     SyncProfiling,
+    /// Enables all the logs relevant to the grouped room list.
+    GroupedRoomList,
 }
 
 impl TraceLogPacks {
@@ -399,6 +404,7 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkCommonCrossProcessLock,
                 LogTarget::MatrixSdkCommonDeserializedResponses,
             ],
+            TraceLogPacks::GroupedRoomList => &[LogTarget::MatrixSdkUiGroupedRoomList],
         }
     }
 }
