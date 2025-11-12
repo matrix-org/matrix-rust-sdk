@@ -39,7 +39,7 @@ use ruma::{
     TransactionId, UserId,
 };
 use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use vodozemac::Curve25519PublicKey;
 
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
@@ -964,6 +964,7 @@ impl GossipMachine {
         Ok(name)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn accept_forwarded_room_key(
         &self,
         info: &GossipRequest,
@@ -972,33 +973,11 @@ impl GossipMachine {
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         match InboundGroupSession::try_from(event) {
             Ok(session) => {
-                if self.inner.store.compare_group_session(&session).await?
-                    == SessionOrdering::Better
-                {
+                let new_session = self.inner.store.merge_received_group_session(session).await?;
+                if new_session.is_some() {
                     self.mark_as_done(info).await?;
-
-                    info!(
-                        ?sender_key,
-                        claimed_sender_key = ?session.sender_key(),
-                        room_id = ?session.room_id(),
-                        session_id = session.session_id(),
-                        algorithm = ?session.algorithm(),
-                        "Received a forwarded room key",
-                    );
-
-                    Ok(Some(session))
-                } else {
-                    info!(
-                        ?sender_key,
-                        claimed_sender_key = ?session.sender_key(),
-                        room_id = ?session.room_id(),
-                        session_id = session.session_id(),
-                        algorithm = ?session.algorithm(),
-                        "Received a forwarded room key but we already have a better version of it",
-                    );
-
-                    Ok(None)
                 }
+                Ok(new_session)
             }
             Err(e) => {
                 warn!(?sender_key, "Couldn't create a group session from a received room key");

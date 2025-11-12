@@ -634,29 +634,6 @@ impl Store {
         self.inner.store.save_changes(changes).await
     }
 
-    /// Compare the given `InboundGroupSession` with an existing session we have
-    /// in the store.
-    ///
-    /// This method returns `SessionOrdering::Better` if the given session is
-    /// better than the one we already have or if we don't have such a
-    /// session in the store.
-    pub(crate) async fn compare_group_session(
-        &self,
-        session: &InboundGroupSession,
-    ) -> Result<SessionOrdering> {
-        let old_session = self
-            .inner
-            .store
-            .get_inbound_group_session(session.room_id(), session.session_id())
-            .await?;
-
-        Ok(if let Some(old_session) = old_session {
-            session.compare(&old_session).await
-        } else {
-            SessionOrdering::Better
-        })
-    }
-
     /// Given an `InboundGroupSession` which we have just received, see if we
     /// have a matching session already in the store, and determine how to
     /// handle it.
@@ -1526,43 +1503,26 @@ impl Store {
     {
         let mut sessions = Vec::new();
 
-        async fn new_session_better(
-            session: &InboundGroupSession,
-            old_session: Option<InboundGroupSession>,
-        ) -> bool {
-            if let Some(old_session) = &old_session {
-                session.compare(old_session).await == SessionOrdering::Better
-            } else {
-                true
-            }
-        }
-
         let total_count = room_keys.len();
         let mut keys = BTreeMap::new();
 
         for (i, key) in room_keys.into_iter().enumerate() {
             match key.try_into() {
                 Ok(session) => {
-                    let old_session = self
-                        .inner
-                        .store
-                        .get_inbound_group_session(session.room_id(), session.session_id())
-                        .await?;
-
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
-                    if new_session_better(&session, old_session).await {
+                    if let Some(merged) = self.merge_received_group_session(session).await? {
                         if from_backup_version.is_some() {
-                            session.mark_as_backed_up();
+                            merged.mark_as_backed_up();
                         }
 
-                        keys.entry(session.room_id().to_owned())
+                        keys.entry(merged.room_id().to_owned())
                             .or_insert_with(BTreeMap::new)
-                            .entry(session.sender_key().to_base64())
+                            .entry(merged.sender_key().to_base64())
                             .or_insert_with(BTreeSet::new)
-                            .insert(session.session_id().to_owned());
+                            .insert(merged.session_id().to_owned());
 
-                        sessions.push(session);
+                        sessions.push(merged);
                     }
                 }
                 Err(e) => {
