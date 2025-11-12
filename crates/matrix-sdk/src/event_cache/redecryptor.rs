@@ -219,9 +219,10 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        let store = self.inner.store.lock().await?;
-        let events =
-            store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?;
+        let events = {
+            let store = self.inner.store.lock().await?;
+            store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
+        };
 
         Ok(events.into_iter().filter_map(filter).collect())
     }
@@ -240,8 +241,10 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        let store = self.inner.store.lock().await?;
-        let events = store.get_room_events(room_id, None, Some(session_id)).await?;
+        let events = {
+            let store = self.inner.store.lock().await?;
+            store.get_room_events(room_id, None, Some(session_id)).await?
+        };
 
         Ok(events.into_iter().filter_map(filter).collect())
     }
