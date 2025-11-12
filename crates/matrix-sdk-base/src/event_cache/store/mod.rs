@@ -101,6 +101,7 @@ pub type EventCacheStoreLockState = MappedCrossProcessLockState<EventCacheStoreL
 /// An RAII implementation of a “scoped lock” of an [`EventCacheStoreLock`].
 /// When this structure is dropped (falls out of scope), the lock will be
 /// unlocked.
+#[derive(Clone)]
 pub struct EventCacheStoreLockGuard {
     /// The cross process lock guard.
     #[allow(unused)]
