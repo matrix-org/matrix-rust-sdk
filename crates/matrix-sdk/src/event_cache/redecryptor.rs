@@ -609,6 +609,7 @@ impl Redecryptor {
         })
     }
 
+    #[inline(always)]
     fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
         cache.upgrade().map(|inner| EventCache { inner })
     }
