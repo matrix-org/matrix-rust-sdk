@@ -519,13 +519,16 @@ impl LatestEventValueBuilder {
         own_user_id: Option<&UserId>,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
-        room_event_cache
+        if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event| {
                 filter_timeline_event(event, own_user_id, power_levels).then(|| event.clone())
             })
             .await
-            .map(LatestEventValue::Remote)
-            .unwrap_or_default()
+        {
+            LatestEventValue::Remote(event)
+        } else {
+            LatestEventValue::default()
+        }
     }
 
     /// Create a new [`LatestEventValue::LocalIsSending`] or

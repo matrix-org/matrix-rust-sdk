@@ -827,6 +827,8 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
 
         // The event cache contains 30 events.
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![

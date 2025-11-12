@@ -173,7 +173,7 @@ impl PinnedEventsRoom for Room {
         Box::pin(async move {
             if let Ok((cache, _handles)) = self.event_cache().await
                 && let Some(ret) =
-                    cache.find_event_with_relations(event_id, related_event_filters).await
+                    cache.find_event_with_relations(event_id, related_event_filters).await?
             {
                 debug!("Loaded pinned event {event_id} and related events from cache");
                 return Ok(ret);

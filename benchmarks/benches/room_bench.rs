@@ -181,6 +181,8 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .lock()
                 .await
                 .unwrap()
+                .as_clean()
+                .unwrap()
                 .clear_all_linked_chunks()
                 .await
                 .unwrap();
