@@ -40,12 +40,12 @@ use crate::{
 /// events, and providing access to the top-level spaces and their children.
 #[derive(uniffi::Object)]
 pub struct SpaceService {
-    inner: UISpaceService,
+    pub(crate) inner: Arc<UISpaceService>,
 }
 
 impl SpaceService {
     /// Creates a new `SpaceService` instance.
-    pub(crate) fn new(inner: UISpaceService) -> Self {
+    pub(crate) fn new(inner: Arc<UISpaceService>) -> Self {
         Self { inner }
     }
 }

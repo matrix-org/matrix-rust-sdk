@@ -97,6 +97,15 @@ impl SpaceGraph {
         child_entry.parents.insert(parent_id);
     }
 
+    pub(super) fn direct_descendants(&self, node_id: &RoomId) -> Vec<OwnedRoomId> {
+        if !self.has_node(node_id) {
+            return Vec::new();
+        }
+
+        let node = self.nodes.get(node_id).unwrap();
+        node.children.clone().into_iter().collect()
+    }
+
     /// Returns the subtree of the given node in a bottom-up order.
     ///
     /// Does a BFS starting from the given node tracking the visited nodes
