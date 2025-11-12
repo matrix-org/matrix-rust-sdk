@@ -225,6 +225,35 @@ impl SpaceService {
         Ok(handle)
     }
 
+    pub async fn top_level_descendants_of_space(
+        &self,
+        space_id: &Option<OwnedRoomId>,
+    ) -> Result<Vec<OwnedRoomId>, Error> {
+        let space_state = self.space_state.lock().await;
+
+        if let Some(space_id) = space_id {
+            if !space_state.graph.has_node(space_id) {
+                return Err(Error::RoomNotFound(space_id.to_owned()));
+            }
+
+            Ok(space_state.graph.direct_descendants(space_id))
+        } else {
+            Ok(space_state.graph.root_nodes().into_iter().map(|r| r.to_owned()).collect::<Vec<_>>())
+        }
+    }
+
+    pub async fn descendants_of_space(&self, space_id: &RoomId) -> Result<Vec<OwnedRoomId>, Error> {
+        let space_state = self.space_state.lock().await;
+
+        if !space_state.graph.has_node(space_id) {
+            return Err(Error::RoomNotFound(space_id.to_owned()));
+        }
+
+        let room_ids = space_state.graph.flattened_bottom_up_subtree(space_id);
+
+        Ok(room_ids.into_iter().filter(|r| r != space_id).collect::<Vec<_>>())
+    }
+
     async fn update_joined_spaces_if_needed(
         new_spaces: Vector<SpaceRoom>,
         new_graph: SpaceGraph,
