@@ -86,7 +86,7 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (thread_events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
 
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
@@ -162,7 +162,7 @@ async fn test_ignored_user_empties_threads() {
     // And we subscribe to the thread,
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
     let (events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
 
     // Then, at first, the thread contains the two initial events.
     let events = wait_for_initial_events(events, &mut thread_stream).await;
@@ -238,19 +238,19 @@ async fn test_gappy_sync_empties_all_threads() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
     let (thread1_events, mut thread1_stream) =
-        room_event_cache.subscribe_to_thread(thread_root1.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root1.to_owned()).await.unwrap();
 
     assert!(thread1_events.is_empty());
     assert!(thread1_stream.is_empty());
 
     let (thread2_events, mut thread2_stream) =
-        room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await.unwrap();
 
     assert!(thread2_events.is_empty());
     assert!(thread2_stream.is_empty());
 
     // Also subscribe to the room.
-    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(room_events.is_empty());
     assert!(room_stream.is_empty());
@@ -352,7 +352,7 @@ async fn test_gappy_sync_empties_all_threads() {
     // - but the latest reply is now `None`, as we're not sure that the latest reply
     //   is still the latest one.
 
-    let reloaded_thread1 = room_event_cache.find_event(thread_root1).await.unwrap();
+    let reloaded_thread1 = room_event_cache.find_event(thread_root1).await.unwrap().unwrap();
     assert_let!(ThreadSummaryStatus::Some(summary) = reloaded_thread1.thread_summary);
     assert_eq!(summary.num_replies, 2);
     assert!(summary.latest_reply.is_none());
@@ -399,7 +399,7 @@ async fn test_deduplication() {
     // And we subscribe to the thread,
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
     let (events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
 
     // Then, at first, the thread contains the two initial events.
     let events = wait_for_initial_events(events, &mut thread_stream).await;
@@ -487,7 +487,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
     assert!(subscriber.is_empty());
 
@@ -647,7 +647,7 @@ async fn test_auto_subscribe_on_thread_paginate() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (thread_events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
 
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
@@ -729,7 +729,7 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (thread_events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
 
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
@@ -802,7 +802,7 @@ async fn test_redact_touches_threads() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (thread_events, mut thread_stream) =
-        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
 
     // Receive a thread root, and a threaded reply.
     s.server
@@ -823,7 +823,7 @@ async fn test_redact_touches_threads() {
     assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp1));
     assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp2));
 
-    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(room_events.len(), 3);
 
     {

@@ -123,6 +123,7 @@ use matrix_sdk_base::{
         types::events::room::encrypted::EncryptedEvent,
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
+    event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
     timer,
 };
@@ -234,9 +235,14 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
-        let events = {
-            let store = self.inner.store.lock().await?;
-            store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
+        let events = match self.inner.store.lock().await? {
+            // If the lock is clean, no problem.
+            // If the lock is dirty, it doesn't really matter as we are hitting the store
+            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
+            // non-dirty.
+            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
+                guard.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
+            }
         };
 
         Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
@@ -256,9 +262,14 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        let events = {
-            let store = self.inner.store.lock().await?;
-            store.get_room_events(room_id, None, Some(session_id)).await?
+        let events = match self.inner.store.lock().await? {
+            // If the lock is clean, no problem.
+            // If the lock is dirty, it doesn't really matter as we are hitting the store
+            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
+            // non-dirty.
+            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
+                guard.get_room_events(room_id, None, Some(session_id)).await?
+            }
         };
 
         Ok(events.into_iter().filter_map(filter).collect())
@@ -291,7 +302,7 @@ impl EventCache {
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-        let mut state = room_cache.inner.state.write().await;
+        let mut state = room_cache.inner.state.write().await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
@@ -319,7 +330,7 @@ impl EventCache {
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
-        let diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+        let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
         let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs,
@@ -1214,7 +1225,7 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
-        let (_, mut subscriber) = room_cache.subscribe().await;
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
 
         // We regenerate the Olm machine to check if the room key stream is recreated to
         // correctly.
@@ -1290,7 +1301,7 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
-        let (_, mut subscriber) = room_cache.subscribe().await;
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1404,7 +1415,7 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
-        let (_, mut subscriber) = room_cache.subscribe().await;
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
 
         // Let us forward the event to Bob.
         matrix_mock_server

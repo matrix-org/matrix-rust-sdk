@@ -218,7 +218,7 @@ async fn get_most_recent_edit(
 ) -> Option<OriginalSyncRoomMessageEvent> {
     use ruma::events::{AnySyncTimelineEvent, relation::RelationType};
 
-    let Some((original_ev, related)) =
+    let Ok(Some((original_ev, related))) =
         cache.find_event_with_relations(original, Some(vec![RelationType::Replacement])).await
     else {
         debug!("Couldn't find relations for {}", original);
@@ -275,7 +275,7 @@ async fn handle_room_redaction(
     rules: &RedactionRules,
 ) -> Option<RoomIndexOperation> {
     if let Some(redacted_event_id) = event.redacts(rules)
-        && let Some(redacted_event) = cache.find_event(redacted_event_id).await
+        && let Ok(Some(redacted_event)) = cache.find_event(redacted_event_id).await
         && let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             redacted_event,
         ))) = redacted_event.raw().deserialize()
