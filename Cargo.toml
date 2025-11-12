@@ -13,7 +13,7 @@ members = [
 exclude = ["testing/data"]
 # xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*", "labs/*"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 rust-version = "1.88"
