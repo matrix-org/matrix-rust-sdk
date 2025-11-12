@@ -19,6 +19,7 @@ pub use eyeball_im;
 use ruma::html::HtmlSanitizerMode;
 
 pub mod encryption_sync_service;
+pub mod grouped_room_list;
 pub mod notification_client;
 pub mod room_list_service;
 pub mod spaces;

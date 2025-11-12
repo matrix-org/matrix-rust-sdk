@@ -171,7 +171,7 @@ impl SpaceService {
                                 continue;
                             }
 
-                            let (spaces, graph) = Self::joined_spaces_for(&client).await;
+                            let (spaces, graph) = Self::top_level_joined_spaces(&client).await;
                             Self::update_joined_spaces_if_needed(
                                 Vector::from(spaces),
                                 graph,
@@ -187,7 +187,7 @@ impl SpaceService {
             })));
 
             // Make sure to also update the currently joined spaces for the initial values.
-            let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
+            let (spaces, graph) = Self::top_level_joined_spaces(&self.client).await;
             Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state)
                 .await;
         }
@@ -199,7 +199,7 @@ impl SpaceService {
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
-        let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
+        let (spaces, graph) = Self::top_level_joined_spaces(&self.client).await;
 
         Self::update_joined_spaces_if_needed(
             Vector::from(spaces.clone()),
@@ -356,6 +356,35 @@ impl SpaceService {
         Ok(handle)
     }
 
+    pub async fn direct_descendants_of_space(
+        &self,
+        space_id: &Option<OwnedRoomId>,
+    ) -> Result<Vec<OwnedRoomId>, Error> {
+        let space_state = self.space_state.lock().await;
+
+        if let Some(space_id) = space_id {
+            if !space_state.graph.has_node(space_id) {
+                return Err(Error::RoomNotFound(space_id.to_owned()));
+            }
+
+            Ok(space_state.graph.direct_descendants(space_id))
+        } else {
+            Ok(space_state.graph.root_nodes().into_iter().map(|r| r.to_owned()).collect::<Vec<_>>())
+        }
+    }
+
+    pub async fn descendants_of_space(&self, space_id: &RoomId) -> Result<Vec<OwnedRoomId>, Error> {
+        let space_state = self.space_state.lock().await;
+
+        if !space_state.graph.has_node(space_id) {
+            return Err(Error::RoomNotFound(space_id.to_owned()));
+        }
+
+        let room_ids = space_state.graph.flattened_bottom_up_subtree(space_id);
+
+        Ok(room_ids.into_iter().filter(|r| r != space_id).collect::<Vec<_>>())
+    }
+
     async fn update_joined_spaces_if_needed(
         new_spaces: Vector<SpaceRoom>,
         new_graph: SpaceGraph,
@@ -371,7 +400,7 @@ impl SpaceService {
         space_state.graph = new_graph;
     }
 
-    async fn joined_spaces_for(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
+    async fn top_level_joined_spaces(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
         let joined_spaces = client.joined_space_rooms();
 
         // Build a graph to hold the parent-child relations

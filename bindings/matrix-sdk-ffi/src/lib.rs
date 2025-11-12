@@ -9,6 +9,7 @@ mod client_builder;
 mod encryption;
 mod error;
 mod event;
+mod grouped_room_list;
 mod helpers;
 mod identity_status_change;
 mod live_location_share;
