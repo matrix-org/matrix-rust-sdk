@@ -293,8 +293,6 @@ impl EventCache {
             }
         }
 
-        // TODO: Is this useful? Do I need to call this once per event as well because
-        // replace event at works on a single event?
         state.post_process_new_events(new_events, false).await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
@@ -560,6 +558,12 @@ impl EventCache {
     }
 }
 
+/// Struct holding on to the redecryption task.
+///
+/// This struct implements the bulk of the redecryption task. It listens to the
+/// various streams that should trigger redecryption attempts.
+///
+/// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
     task: JoinHandle<()>,
 }
