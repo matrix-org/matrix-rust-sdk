@@ -146,6 +146,10 @@ use crate::{Room, room::PushContext};
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
 
+type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
+type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
+type ResolvedUtd = (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
 #[derive(Debug, Clone)]
@@ -206,7 +210,7 @@ impl EventCache {
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
-    ) -> Result<Vec<(OwnedEventId, Raw<AnySyncTimelineEvent>)>, EventCacheError> {
+    ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
         let filter = |event: TimelineEvent| {
             let event_id = event.event_id();
 
@@ -231,7 +235,7 @@ impl EventCache {
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
-    ) -> Result<Vec<(OwnedEventId, DecryptedRoomEvent)>, EventCacheError> {
+    ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
         let filter = |event: TimelineEvent| {
             let event_id = event.event_id();
 
@@ -264,7 +268,7 @@ impl EventCache {
     async fn on_resolved_utds(
         &self,
         room_id: &RoomId,
-        events: Vec<(OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>)>,
+        events: Vec<ResolvedUtd>,
     ) -> Result<(), EventCacheError> {
         if events.is_empty() {
             trace!("No events were redecrypted or updated, nothing to replace");
