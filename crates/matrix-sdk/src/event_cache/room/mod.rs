@@ -1303,7 +1303,7 @@ mod private {
 
         /// Returns a mutable reference to the underlying room linked chunk.
         #[cfg(feature = "e2e-encryption")]
-        pub(in crate::event_cache) fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
+        pub(in super::super) fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
             &mut self.room_linked_chunk
         }
 
