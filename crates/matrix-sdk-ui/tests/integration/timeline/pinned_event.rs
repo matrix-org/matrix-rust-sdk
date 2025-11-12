@@ -256,7 +256,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     assert!(!items.is_empty()); // We just loaded some events
     assert_pending!(timeline_stream);
 
-    assert!(room_cache.find_event(event_id!("$1")).await.is_some());
+    assert!(room_cache.find_event(event_id!("$1")).await.unwrap().is_some());
 
     // Drop the existing room and timeline instances
     drop(timeline_stream);
@@ -277,7 +277,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
-    assert!(room_cache.find_event(event_id!("$1")).await.is_some());
+    assert!(room_cache.find_event(event_id!("$1")).await.unwrap().is_some());
 
     // Drop the existing room and timeline instances
     server.server().reset().await;
@@ -402,7 +402,7 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .expect("Pagination of events should successful");
 
     // Assert the event is loaded and added to the cache
-    assert!(event_cache.find_event(event_id).await.is_some());
+    assert!(event_cache.find_event(event_id).await.unwrap().is_some());
 
     // And it won't cause an update in the pinned events timeline since it's not
     // pinned

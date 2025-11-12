@@ -379,7 +379,7 @@ impl App {
     async fn index_event_cache(
         client: &Client,
         update_sender: &Sender<(bool, IndexingMessage)>,
-        store: EventCacheStoreLockGuard<'_>,
+        store: &EventCacheStoreLockGuard,
         search_index_guard: &mut SearchIndexGuard<'_>,
         mut count: usize,
     ) -> Result<usize, ()> {
@@ -525,9 +525,14 @@ impl App {
         debug!("Start indexing from the event cache.");
 
         // First index everything in the cache
-        let Ok(count) =
-            App::index_event_cache(&client, &update_sender, store, &mut search_index_guard, count)
-                .await
+        let Ok(count) = App::index_event_cache(
+            &client,
+            &update_sender,
+            store.as_clean().expect("Only one process should access the event cache store"),
+            &mut search_index_guard,
+            count,
+        )
+        .await
         else {
             debug!("Quitting index task.");
             return;
@@ -948,6 +953,9 @@ async fn get_events_from_event_ids(
     event_ids: Vec<OwnedEventId>,
 ) -> Vec<TimelineEvent> {
     if let Ok(cache_lock) = client.event_cache_store().lock().await {
+        let cache_lock =
+            cache_lock.as_clean().expect("Only one process must access the event cache store");
+
         futures_util::future::join_all(event_ids.iter().map(|event_id| async {
             let event_id = event_id.clone();
             match cache_lock.find_event(room.room_id(), &event_id).await {

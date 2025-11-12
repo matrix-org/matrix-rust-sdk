@@ -74,7 +74,7 @@ async fn test_event_cache_receives_events() {
 
     // If I create a room event subscriber,
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, mut subscriber) = room_event_cache.subscribe().await;
+    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it's empty, and the subscriber doesn't yield anything.
     assert!(events.is_empty());
@@ -148,7 +148,7 @@ async fn test_ignored_unignored() {
     // And subscribe to the room,
     let room = client.get_room(room_id).unwrap();
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it contains the two initial events.
     assert_eq!(events.len(), 2);
@@ -199,7 +199,7 @@ async fn test_ignored_unignored() {
     {
         let room = client.get_room(other_room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let events = room_event_cache.events().await;
+        let events = room_event_cache.events().await.unwrap();
         assert!(events.is_empty());
     }
 
@@ -254,7 +254,7 @@ async fn test_backpaginate_once() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -343,7 +343,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -424,7 +424,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     assert!(room_stream.is_empty());
 
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, room_stream) = room_event_cache.subscribe().await;
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -465,7 +465,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -543,7 +543,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     });
 
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, room_stream) = room_event_cache.subscribe().await;
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -585,7 +585,7 @@ async fn test_reset_while_backpaginating() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     wait_for_initial_events(events, &mut room_stream).await;
 
@@ -698,7 +698,7 @@ async fn test_backpaginating_without_token() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -755,7 +755,7 @@ async fn test_limited_timeline_resets_pagination() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -849,7 +849,7 @@ async fn test_limited_timeline_with_storage() {
         )
         .await;
 
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     // This is racy: either the sync has been handled, or it hasn't yet.
     if initial_events.is_empty() {
@@ -980,7 +980,7 @@ async fn test_backpaginate_with_no_initial_events() {
     pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let events = room_event_cache.events().await;
+    let events = room_event_cache.events().await.unwrap();
 
     assert_eq!(events.len(), 3, "{events:?}");
     assert_event_matches_msg(&events[0], "oh well");
@@ -1015,7 +1015,7 @@ async fn test_backpaginate_replace_empty_gap() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await;
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut stream).await;
 
     // The first back-pagination will return a previous-batch token, but no events.
@@ -1043,7 +1043,7 @@ async fn test_backpaginate_replace_empty_gap() {
     pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let events = room_event_cache.events().await;
+    let events = room_event_cache.events().await.unwrap();
 
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
@@ -1083,7 +1083,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await;
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
@@ -1126,7 +1126,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     assert!(stream.is_empty());
 
     {
-        let events = room_event_cache.events().await;
+        let events = room_event_cache.events().await.unwrap();
         assert_event_matches_msg(&events[0], "hello");
         assert_event_matches_msg(&events[1], "world");
         assert_event_matches_msg(&events[2], "sup");
@@ -1145,7 +1145,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     assert!(outcome.reached_start);
 
     {
-        let events = room_event_cache.events().await;
+        let events = room_event_cache.events().await.unwrap();
         assert_event_matches_msg(&events[0], "hello");
         assert_event_matches_msg(&events[1], "world");
         assert_event_matches_msg(&events[2], "sup");
@@ -1180,7 +1180,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await;
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
@@ -1268,7 +1268,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // we shouldn't have to, since it is useless; all events were deduplicated
     // from the previous pagination.
 
-    let (events, stream) = room_event_cache.subscribe().await;
+    let (events, stream) = room_event_cache.subscribe().await.unwrap();
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
     assert_event_matches_msg(&events[2], "sup");
@@ -1304,7 +1304,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await;
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
     }
@@ -1378,7 +1378,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     // Wait for the event.
-    let (events, mut subscriber) = room_event_cache.subscribe().await;
+    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
@@ -1438,7 +1438,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let room = client.get_room(room_id).unwrap();
     let (cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let events = cache.events().await;
+    let events = cache.events().await.unwrap();
 
     // We have two events:
     assert_eq!(events.len(), 2);
@@ -1470,6 +1470,8 @@ async fn test_apply_redaction_on_an_in_store_event() {
         // 1. a chunk of 1 item, the one we are going to redact!
         // 2. a chunk of 1 item, the chunk that is going to be loaded.
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -1512,7 +1514,7 @@ async fn test_apply_redaction_on_an_in_store_event() {
     let room = mock_server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
 
-    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await;
+    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Initial events!
     //
@@ -1603,7 +1605,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
     let room_id = room_id!("!omelette:fromage.fr");
     let room = server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (_events, mut subscriber) = room_event_cache.subscribe().await;
+    let (_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
@@ -1676,6 +1678,8 @@ async fn test_lazy_loading() {
         // 2. a chunk of a gap
         // 1. a chunk of 6 items
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -1753,7 +1757,7 @@ async fn test_lazy_loading() {
     let room = mock_server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
 
-    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await;
+    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Initial events!
     //
@@ -2040,6 +2044,8 @@ async fn test_deduplication() {
         // 2. a chunk of 4 items
         // 1. a chunk of 3 items
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -2092,7 +2098,7 @@ async fn test_deduplication() {
     let room = mock_server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
 
-    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await;
+    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
     // One chunk has been loaded, so there are 3 events in memory.
     {
@@ -2221,7 +2227,7 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     ];
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
     // Receive a sync with only the latest events.
@@ -2383,7 +2389,7 @@ async fn test_clear_all_rooms() {
         .await;
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (initial, mut room_updates) = room_event_cache.subscribe().await;
+    let (initial, mut room_updates) = room_event_cache.subscribe().await.unwrap();
 
     let mut initial = Vector::from(initial);
     // Wait for the ev1 event.
@@ -2466,7 +2472,7 @@ async fn test_sync_while_back_paginate() {
     client.event_cache().subscribe().unwrap();
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
     // Mock /messages in case we use the prev_batch token from sync.
@@ -2577,13 +2583,13 @@ async fn test_relations_ordering() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (initial_events, mut listener) = room_event_cache.subscribe().await;
+    let (initial_events, mut listener) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(initial_events.len(), 1);
     assert!(listener.recv().now_or_never().is_none());
 
     // Sanity check: there are no relations for the target event yet.
     let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
     assert!(relations.is_empty());
 
     let edit2 = event_id!("$edit2");
@@ -2631,7 +2637,7 @@ async fn test_relations_ordering() {
 
     // At this point, relations are known for the target event.
     let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
     assert_eq!(relations.len(), 2);
     // And the edit events are correctly ordered according to their position in the
     // linked chunk.
@@ -2662,7 +2668,7 @@ async fn test_relations_ordering() {
 
     // Relations are returned accordingly.
     let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
     assert_eq!(relations.len(), 3);
     assert_eq!(relations[0].event_id().unwrap(), edit2);
     assert_eq!(relations[1].event_id().unwrap(), edit3);
@@ -2683,7 +2689,7 @@ async fn test_relations_ordering() {
     room.event(edit5, None).await.unwrap();
 
     let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
     assert_eq!(relations.len(), 4);
     assert_eq!(relations[0].event_id().unwrap(), edit5);
     assert_eq!(relations[1].event_id().unwrap(), edit2);
