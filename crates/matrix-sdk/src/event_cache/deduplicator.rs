@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreLock,
+    event_cache::store::EventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
 use ruma::OwnedEventId;
@@ -32,7 +32,7 @@ use super::{
 /// information about the duplicates found in the new events, including the
 /// events that are not loaded in memory.
 pub async fn filter_duplicate_events(
-    store: &EventCacheStoreLock,
+    store_guard: &EventCacheStoreLockGuard,
     linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
@@ -50,10 +50,8 @@ pub async fn filter_duplicate_events(
         });
     }
 
-    let store = store.lock().await?;
-
     // Let the store do its magic ✨
-    let duplicated_event_ids = store
+    let duplicated_event_ids = store_guard
         .filter_duplicated_events(
             linked_chunk_id,
             new_events.iter().filter_map(|event| event.event_id()).collect(),

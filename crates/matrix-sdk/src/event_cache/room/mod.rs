@@ -224,7 +224,7 @@ impl RoomEventCache {
         thread_root: OwnedEventId,
     ) -> (Vec<Event>, Receiver<ThreadEventCacheUpdate>) {
         let mut state = self.inner.state.write().await;
-        state.subscribe_to_thread(thread_root)
+        state.subscribe_to_thread(thread_root).await
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -240,8 +240,13 @@ impl RoomEventCache {
         let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
 
         // Take the lock only for a short time here.
-        let mut outcome =
-            self.inner.state.write().await.load_more_thread_events_backwards(thread_root.clone());
+        let mut outcome = self
+            .inner
+            .state
+            .write()
+            .await
+            .load_more_thread_events_backwards(thread_root.clone())
+            .await?;
 
         loop {
             match outcome {
@@ -284,17 +289,20 @@ impl RoomEventCache {
                     // pushing will eventually make it so that the root event is the first.
                     result.chunk.extend(root_event);
 
-                    if let Some(outcome) = state.finish_thread_network_pagination(
-                        thread_root.clone(),
-                        prev_token,
-                        result.next_batch_token,
-                        result.chunk,
-                    ) {
+                    if let Some(outcome) = state
+                        .finish_thread_network_pagination(
+                            thread_root.clone(),
+                            prev_token,
+                            result.next_batch_token,
+                            result.chunk,
+                        )
+                        .await?
+                    {
                         return Ok(outcome.reached_start);
                     }
 
                     // fallthrough: restart the pagination.
-                    outcome = state.load_more_thread_events_backwards(thread_root.clone());
+                    outcome = state.load_more_thread_events_backwards(thread_root.clone()).await?;
                 }
 
                 LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
@@ -325,7 +333,7 @@ impl RoomEventCache {
     where
         P: FnMut(&Event) -> Option<O>,
     {
-        self.inner.state.read().await.rfind_map_event_in_memory_by(predicate)
+        self.inner.state.read().await.rfind_map_event_in_memory_by(predicate).await
     }
 
     /// Try to find an event by ID in this room.
@@ -602,7 +610,10 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 mod private {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
-        sync::{Arc, atomic::AtomicUsize},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
     };
 
     use eyeball::SharedObservable;
@@ -612,7 +623,7 @@ mod private {
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{
             Event, Gap,
-            store::{DynEventCacheStore, EventCacheStoreLock},
+            store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
         },
         linked_chunk::{
             ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
@@ -623,7 +634,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
-        EventId, OwnedEventId, OwnedRoomId,
+        EventId, OwnedEventId, OwnedRoomId, RoomId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -646,19 +657,9 @@ mod private {
         sort_positions_descending,
     };
 
-    /// State for a single room's event cache.
-    ///
-    /// This contains all the inner mutable states that ought to be updated at
-    /// the same time.
-    pub struct RoomEventCacheState {
+    struct RoomEventCacheStateLock {
         /// The room this state relates to.
-        room: OwnedRoomId,
-
-        /// The rules for the version of this room.
-        room_version_rules: RoomVersionRules,
-
-        /// Whether thread support has been enabled for the event cache.
-        enabled_thread_support: bool,
+        room_id: OwnedRoomId,
 
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
@@ -672,21 +673,100 @@ mod private {
         /// Keyed by the thread root event ID.
         threads: HashMap<OwnedEventId, ThreadEventCache>,
 
-        /// Have we ever waited for a previous-batch-token to come from sync, in
-        /// the context of pagination? We do this at most once per room,
-        /// the first time we try to run backward pagination. We reset
-        /// that upon clearing the timeline events.
-        pub waited_for_initial_prev_token: bool,
-
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
         /// See doc comment of
         /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 
+        /// Clone of [`RoomEventCacheState::waited_for_initial_prev_token`].
+        waited_for_initial_prev_token: Arc<AtomicBool>,
+
+        /// The rules for the version of this room.
+        room_version_rules: RoomVersionRules,
+    }
+
+    impl RoomEventCacheStateLock {
+        async fn read(&self) -> Result<RoomEventCacheStateLockReadGuard<'_>, EventCacheError> {
+            let store_guard = match self.store.lock().await? {
+                EventCacheStoreLockState::Clean(guard) => guard,
+                EventCacheStoreLockState::Dirty(_guard) => todo!("Dirty lock"),
+            };
+
+            Ok(RoomEventCacheStateLockReadGuard {
+                room_id: &self.room_id,
+                store_guard,
+                room_linked_chunk: &self.room_linked_chunk,
+            })
+        }
+
+        async fn write(
+            &mut self,
+        ) -> Result<RoomEventCacheStateLockWriteGuard<'_>, EventCacheError> {
+            let store_guard = match self.store.lock().await? {
+                EventCacheStoreLockState::Clean(guard) => guard,
+                EventCacheStoreLockState::Dirty(_guard) => todo!("Dirty lock"),
+            };
+
+            Ok(RoomEventCacheStateLockWriteGuard {
+                room_id: &self.room_id,
+                store_guard,
+                room_linked_chunk: &mut self.room_linked_chunk,
+                threads: &mut self.threads,
+                pagination_status: &mut self.pagination_status,
+                linked_chunk_update_sender: &self.linked_chunk_update_sender,
+                waited_for_initial_prev_token: &self.waited_for_initial_prev_token,
+                room_version_rules: &self.room_version_rules,
+            })
+        }
+    }
+
+    struct RoomEventCacheStateLockReadGuard<'a> {
+        room_id: &'a RoomId,
+        store_guard: EventCacheStoreLockGuard,
+        room_linked_chunk: &'a EventLinkedChunk,
+    }
+
+    struct RoomEventCacheStateLockWriteGuard<'a> {
+        room_id: &'a RoomId,
+        store_guard: EventCacheStoreLockGuard,
+        room_linked_chunk: &'a mut EventLinkedChunk,
+        threads: &'a mut HashMap<OwnedEventId, ThreadEventCache>,
+        pagination_status: &'a mut SharedObservable<RoomPaginationStatus>,
+        linked_chunk_update_sender: &'a Sender<RoomEventCacheLinkedChunkUpdate>,
+        waited_for_initial_prev_token: &'a Arc<AtomicBool>,
+        room_version_rules: &'a RoomVersionRules,
+    }
+
+    impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
+        fn as_read_guard(&'a self) -> RoomEventCacheStateLockReadGuard<'a> {
+            RoomEventCacheStateLockReadGuard {
+                room_id: self.room_id,
+                store_guard: self.store_guard.clone(),
+                room_linked_chunk: self.room_linked_chunk,
+            }
+        }
+    }
+
+    /// State for a single room's event cache.
+    ///
+    /// This contains all the inner mutable states that ought to be updated at
+    /// the same time.
+    pub struct RoomEventCacheState {
+        /// Whether thread support has been enabled for the event cache.
+        enabled_thread_support: bool,
+
+        /// Have we ever waited for a previous-batch-token to come from sync, in
+        /// the context of pagination? We do this at most once per room,
+        /// the first time we try to run backward pagination. We reset
+        /// that upon clearing the timeline events.
+        pub waited_for_initial_prev_token: Arc<AtomicBool>,
+
         /// An atomic count of the current number of subscriber of the
         /// [`super::RoomEventCache`].
         pub(super) subscriber_count: Arc<AtomicUsize>,
+
+        locked_state: RoomEventCacheStateLock,
     }
 
     impl RoomEventCacheState {
@@ -707,7 +787,17 @@ mod private {
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
-            let store_lock = store.lock().await?;
+            let store_guard = match store.lock().await? {
+                //
+                EventCacheStoreLockState::Clean(guard) => guard,
+
+                //
+                EventCacheStoreLockState::Dirty(guard) => {
+                    EventCacheStoreLockGuard::clear_dirty(&guard);
+
+                    guard
+                }
+            };
 
             let linked_chunk_id = LinkedChunkId::Room(&room_id);
 
@@ -716,7 +806,7 @@ mod private {
             // If loading the full linked chunk failed, we'll clear the event cache, as it
             // indicates that at some point, there's some malformed data.
             let full_linked_chunk_metadata =
-                match Self::load_linked_chunk_metadata(&*store_lock, linked_chunk_id).await {
+                match Self::load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                     Ok(metas) => metas,
                     Err(err) => {
                         error!(
@@ -724,7 +814,7 @@ mod private {
                         );
 
                         // Try to clear storage for this room.
-                        store_lock
+                        store_guard
                             .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                             .await?;
 
@@ -733,7 +823,7 @@ mod private {
                     }
                 };
 
-            let linked_chunk = match store_lock
+            let linked_chunk = match store_guard
                 .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
@@ -748,7 +838,7 @@ mod private {
                     );
 
                     // Try to clear storage for this room.
-                    store_lock
+                    store_guard
                         .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                         .await?;
 
@@ -756,28 +846,30 @@ mod private {
                 }
             };
 
-            let room_linked_chunk = EventLinkedChunk::with_initial_linked_chunk(
-                linked_chunk,
-                full_linked_chunk_metadata,
-            );
-
-            // The threads mapping is intentionally empty at start, since we're going to
-            // reload threads lazily, as soon as we need to (based on external
-            // subscribers) or when we get new information about those (from
-            // sync).
-            let threads = HashMap::new();
-
-            Ok(Self {
-                room: room_id,
-                room_version_rules,
-                enabled_thread_support,
+            let waited_for_initial_prev_token = Arc::new(AtomicBool::new(false));
+            let locked_state = RoomEventCacheStateLock {
+                room_id,
                 store,
-                room_linked_chunk,
-                threads,
-                waited_for_initial_prev_token: false,
-                subscriber_count: Default::default(),
+                room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
+                    linked_chunk,
+                    full_linked_chunk_metadata,
+                ),
+                // The threads mapping is intentionally empty at start, since we're going to
+                // reload threads lazily, as soon as we need to (based on external
+                // subscribers) or when we get new information about those (from
+                // sync).
+                threads: HashMap::new(),
                 pagination_status,
                 linked_chunk_update_sender,
+                waited_for_initial_prev_token: waited_for_initial_prev_token.clone(),
+                room_version_rules,
+            };
+
+            Ok(Self {
+                enabled_thread_support,
+                subscriber_count: Default::default(),
+                locked_state,
+                waited_for_initial_prev_token,
             })
         }
 
@@ -787,10 +879,10 @@ mod private {
         /// Returns `None` if there's no such linked chunk in the store, or an
         /// error if the linked chunk is malformed.
         async fn load_linked_chunk_metadata(
-            store: &DynEventCacheStore,
+            store_guard: &EventCacheStoreLockGuard,
             linked_chunk_id: LinkedChunkId<'_>,
         ) -> Result<Option<Vec<ChunkMetadata>>, EventCacheError> {
-            let mut all_chunks = store
+            let mut all_chunks = store_guard
                 .load_all_chunks_metadata(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)?;
@@ -910,96 +1002,9 @@ mod private {
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
-            // If any in-memory chunk is a gap, don't load more events, and let the caller
-            // resolve the gap.
-            if let Some(prev_token) = self.room_linked_chunk.rgap().map(|gap| gap.prev_token) {
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
-            }
+            let mut lock_guard = self.locked_state.write().await?;
 
-            let store = self.store.lock().await?;
-
-            let prev_first_chunk =
-                self.room_linked_chunk.chunks().next().expect("a linked chunk is never empty");
-
-            // The first chunk is not a gap, we can load its previous chunk.
-            let linked_chunk_id = LinkedChunkId::Room(&self.room);
-            let new_first_chunk = match store
-                .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
-                .await
-            {
-                Ok(Some(new_first_chunk)) => {
-                    // All good, let's continue with this chunk.
-                    new_first_chunk
-                }
-
-                Ok(None) => {
-                    // If we never received events for this room, this means we've never received a
-                    // sync for that room, because every room must have *at least* a room creation
-                    // event. Otherwise, we have reached the start of the timeline.
-
-                    if self.room_linked_chunk.events().next().is_some() {
-                        // If there's at least one event, this means we've reached the start of the
-                        // timeline, since the chunk is fully loaded.
-                        trace!("chunk is fully loaded and non-empty: reached_start=true");
-                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
-                    }
-
-                    // Otherwise, start back-pagination from the end of the room.
-                    return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None });
-                }
-
-                Err(err) => {
-                    error!("error when loading the previous chunk of a linked chunk: {err}");
-
-                    // Clear storage for this room.
-                    store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
-
-                    // Return the error.
-                    return Err(err.into());
-                }
-            };
-
-            let chunk_content = new_first_chunk.content.clone();
-
-            // We've reached the start on disk, if and only if, there was no chunk prior to
-            // the one we just loaded.
-            //
-            // This value is correct, if and only if, it is used for a chunk content of kind
-            // `Items`.
-            let reached_start = new_first_chunk.previous.is_none();
-
-            if let Err(err) = self.room_linked_chunk.insert_new_chunk_as_first(new_first_chunk) {
-                error!("error when inserting the previous chunk into its linked chunk: {err}");
-
-                // Clear storage for this room.
-                store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
-
-                // Return the error.
-                return Err(err.into());
-            }
-
-            // ⚠️ Let's not propagate the updates to the store! We already have these data
-            // in the store! Let's drain them.
-            let _ = self.room_linked_chunk.store_updates().take();
-
-            // However, we want to get updates as `VectorDiff`s.
-            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
-
-            Ok(match chunk_content {
-                ChunkContent::Gap(gap) => {
-                    trace!("reloaded chunk from disk (gap)");
-                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
-                }
-
-                ChunkContent::Items(events) => {
-                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
-                    LoadMoreEventsBackwardsOutcome::Events {
-                        events,
-                        timeline_event_diffs,
-                        reached_start,
-                    }
-                }
-            })
+            lock_guard.load_more_events_backwards().await
         }
 
         /// If storage is enabled, unload all the chunks, then reloads only the
@@ -1011,49 +1016,9 @@ mod private {
         ///
         /// Otherwise, returns `None`.
         pub(super) async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
-            let store_lock = self.store.lock().await?;
+            let mut lock_guard = self.locked_state.write().await?;
 
-            // Attempt to load the last chunk.
-            let linked_chunk_id = LinkedChunkId::Room(&self.room);
-            let (last_chunk, chunk_identifier_generator) =
-                match store_lock.load_last_chunk(linked_chunk_id).await {
-                    Ok(pair) => pair,
-
-                    Err(err) => {
-                        // If loading the last chunk failed, clear the entire linked chunk.
-                        error!("error when reloading a linked chunk from memory: {err}");
-
-                        // Clear storage for this room.
-                        store_lock
-                            .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                            .await?;
-
-                        // Restart with an empty linked chunk.
-                        (None, ChunkIdentifierGenerator::new_from_scratch())
-                    }
-                };
-
-            debug!("unloading the linked chunk, and resetting it to its last chunk");
-
-            // Remove all the chunks from the linked chunks, except for the last one, and
-            // updates the chunk identifier generator.
-            if let Err(err) =
-                self.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
-            {
-                error!("error when replacing the linked chunk: {err}");
-                return self.reset_internal().await;
-            }
-
-            // Let pagination observers know that we may have not reached the start of the
-            // timeline.
-            // TODO: likely need to cancel any ongoing pagination.
-            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
-
-            // Don't propagate those updates to the store; this is only for the in-memory
-            // representation that we're doing this. Let's drain those store updates.
-            let _ = self.room_linked_chunk.store_updates().take();
-
-            Ok(())
+            lock_guard.shrink_to_last_chunk().await
         }
 
         /// Automatically shrink the room if there are no more subscribers, as
@@ -1062,31 +1027,30 @@ mod private {
         pub(crate) async fn auto_shrink_if_no_subscribers(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
-            let subscriber_count = self.subscriber_count.load(std::sync::atomic::Ordering::SeqCst);
+            let mut lock_guard = self.locked_state.write().await?;
 
-            trace!(subscriber_count, "received request to auto-shrink");
-
-            if subscriber_count == 0 {
-                // If we are the last strong reference to the auto-shrinker, we can shrink the
-                // events data structure to its last chunk.
-                self.shrink_to_last_chunk().await?;
-                Ok(Some(self.room_linked_chunk.updates_as_vector_diffs()))
-            } else {
-                Ok(None)
-            }
+            lock_guard.auto_shrink_if_no_subscribers(&self.subscriber_count).await
         }
 
         #[cfg(test)]
         pub(crate) async fn force_shrink_to_last_chunk(
             &mut self,
         ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            self.shrink_to_last_chunk().await?;
-            Ok(self.room_linked_chunk.updates_as_vector_diffs())
+            let mut lock_guard = self.locked_state.write().await?;
+
+            lock_guard.force_shrink_to_last_chunk().await
         }
 
-        pub(crate) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
-            self.room_linked_chunk.event_order(event_pos)
+        /*
+        pub(crate) async fn room_event_order(
+            &self,
+            event_pos: Position,
+        ) -> Result<Option<usize>, EventCacheError> {
+            let mut lock_guard = self.locked_state.lock().await?;
+
+            Ok(lock_guard.room_event_order())
         }
+        */
 
         /// Removes the bundled relations from an event, if they were present.
         ///
@@ -1143,114 +1107,9 @@ mod private {
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
         ) -> Result<(), EventCacheError> {
-            // In-store events.
-            if !in_store_events.is_empty() {
-                let mut positions = in_store_events
-                    .into_iter()
-                    .map(|(_event_id, position)| position)
-                    .collect::<Vec<_>>();
+            let mut lock_guard = self.locked_state.write().await?;
 
-                sort_positions_descending(&mut positions);
-
-                let updates = positions
-                    .into_iter()
-                    .map(|pos| Update::RemoveItem { at: pos })
-                    .collect::<Vec<_>>();
-
-                self.apply_store_only_updates(updates).await?;
-            }
-
-            // In-memory events.
-            if in_memory_events.is_empty() {
-                // Nothing else to do, return early.
-                return Ok(());
-            }
-
-            // `remove_events_by_position` is responsible of sorting positions.
-            self.room_linked_chunk
-                .remove_events_by_position(
-                    in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
-                )
-                .expect("failed to remove an event");
-
-            self.propagate_changes().await
-        }
-
-        /// Propagate changes to the underlying storage.
-        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let updates = self.room_linked_chunk.store_updates().take();
-            self.send_updates_to_store(updates).await
-        }
-
-        /// Apply some updates that are effective only on the store itself.
-        ///
-        /// This method should be used only for updates that happen *outside*
-        /// the in-memory linked chunk. Such updates must be applied
-        /// onto the ordering tracker as well as to the persistent
-        /// storage.
-        async fn apply_store_only_updates(
-            &mut self,
-            updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
-            self.room_linked_chunk.order_tracker.map_updates(&updates);
-            self.send_updates_to_store(updates).await
-        }
-
-        async fn send_updates_to_store(
-            &mut self,
-            mut updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
-            if updates.is_empty() {
-                return Ok(());
-            }
-
-            // Strip relations from updates which insert or replace items.
-            for update in updates.iter_mut() {
-                match update {
-                    Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
-                    Update::ReplaceItem { item, .. } => Self::strip_relations_from_event(item),
-                    // Other update kinds don't involve adding new events.
-                    Update::NewItemsChunk { .. }
-                    | Update::NewGapChunk { .. }
-                    | Update::RemoveChunk(_)
-                    | Update::RemoveItem { .. }
-                    | Update::DetachLastItems { .. }
-                    | Update::StartReattachItems
-                    | Update::EndReattachItems
-                    | Update::Clear => {}
-                }
-            }
-
-            // Spawn a task to make sure that all the changes are effectively forwarded to
-            // the store, even if the call to this method gets aborted.
-            //
-            // The store cross-process locking involves an actual mutex, which ensures that
-            // storing updates happens in the expected order.
-
-            let store = self.store.clone();
-            let room_id = self.room.clone();
-            let cloned_updates = updates.clone();
-
-            spawn(async move {
-                let store = store.lock().await?;
-
-                trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
-                let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
-                trace!("linked chunk updates applied");
-
-                super::Result::Ok(())
-            })
-            .await
-            .expect("joining failed")?;
-
-            // Forward that the store got updated to observers.
-            let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-                linked_chunk_id: OwnedLinkedChunkId::Room(self.room.clone()),
-                updates,
-            });
-
-            Ok(())
+            lock_guard.remove_events(in_memory_events, in_store_events).await
         }
 
         /// Reset this data structure as if it were brand new.
@@ -1260,44 +1119,12 @@ mod private {
         /// with the result of this function.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            self.reset_internal().await?;
-
-            let diff_updates = self.room_linked_chunk.updates_as_vector_diffs();
-
-            // Ensure the contract defined in the doc comment is true:
-            debug_assert_eq!(diff_updates.len(), 1);
-            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-            Ok(diff_updates)
-        }
-
-        async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
-            self.room_linked_chunk.reset();
-
-            // No need to update the thread summaries: the room events are
-            // gone because of the
-            // reset of `room_linked_chunk`.
-            //
-            // Clear the threads.
-            for thread in self.threads.values_mut() {
-                thread.clear();
-            }
-
-            self.propagate_changes().await?;
-
-            // Reset the pagination state too: pretend we never waited for the initial
-            // prev-batch token, and indicate that we're not at the start of the
-            // timeline, since we don't know about that anymore.
-            self.waited_for_initial_prev_token = false;
-            // TODO: likely must cancel any ongoing back-paginations too
-            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
-
-            Ok(())
+            todo!("no need to check if it's dirty, just reload it")
         }
 
         /// Returns a read-only reference to the underlying room linked chunk.
         pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
-            &self.room_linked_chunk
+            todo!("revisit this API")
         }
 
         //// Find a single event in this room, starting from the most recent event.
@@ -1305,11 +1132,16 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
+        pub async fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
         where
             P: FnMut(&Event) -> Option<O>,
         {
-            self.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
+            todo!("find a wait to get this non-fallible and sync?")
+            /*
+            let mut lock_guard = self.locked_state.lock().await?;
+
+            Ok(lock_guard.rfind_map_event_in_memory_by(predicate))
+            */
         }
 
         /// Find a single event in this room.
@@ -1320,20 +1152,9 @@ mod private {
             &self,
             event_id: &EventId,
         ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-            // There are supposedly fewer events loaded in memory than in the store. Let's
-            // start by looking up in the `EventLinkedChunk`.
-            for (position, event) in self.room_linked_chunk.revents() {
-                if event.event_id().as_deref() == Some(event_id) {
-                    return Ok(Some((EventLocation::Memory(position), event.clone())));
-                }
-            }
+            let lock_guard = self.locked_state.read().await?;
 
-            let store = self.store.lock().await?;
-
-            Ok(store
-                .find_event(&self.room, event_id)
-                .await?
-                .map(|event| (EventLocation::Store, event)))
+            lock_guard.find_event(event_id).await
         }
 
         /// Find an event and all its relations in the persisted storage.
@@ -1354,10 +1175,122 @@ mod private {
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
         ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-            let store = self.store.lock().await?;
+            let lock_guard = self.locked_state.read().await?;
 
+            lock_guard.find_event_with_relations(event_id, filters).await
+        }
+
+        /// Handle the result of a sync.
+        ///
+        /// It may send room event cache updates to the given sender, if it
+        /// generated any of those.
+        ///
+        /// Returns `true` for the first part of the tuple if a new gap
+        /// (previous-batch token) has been inserted, `false` otherwise.
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+        pub async fn handle_sync(
+            &mut self,
+            timeline: Timeline,
+        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
+            let mut lock_guard = self.locked_state.write().await?;
+
+            lock_guard.handle_sync(timeline, self.enabled_thread_support).await
+        }
+
+        /// Handle the result of a single back-pagination request.
+        ///
+        /// If the `prev_token` is set, then this function will check that the
+        /// corresponding gap is present in the in-memory linked chunk.
+        /// If it's not the case, `Ok(None)` will be returned, and the
+        /// caller may decide to do something based on that (e.g. restart a
+        /// pagination).
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+        pub async fn handle_backpagination(
+            &mut self,
+            events: Vec<Event>,
+            new_token: Option<String>,
+            prev_token: Option<String>,
+        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
+        {
+            let mut lock_guard = self.locked_state.write().await?;
+
+            lock_guard
+                .handle_backpagination(events, new_token, prev_token, self.enabled_thread_support)
+                .await
+        }
+
+        /// Subscribe to thread for a given root event, and get a (maybe empty)
+        /// initially known list of events for that thread.
+        pub async fn subscribe_to_thread(
+            &mut self,
+            root: OwnedEventId,
+        ) -> (Vec<Event>, Receiver<ThreadEventCacheUpdate>) {
+            todo!("make it infallible");
+
+            /*
+            let mut lock_guard = self.locked_state.write().await?;
+
+            lock_guard.get_or_reload_thread(root).subscribe()
+            */
+        }
+
+        /// Back paginate in the given thread.
+        ///
+        /// Will always start from the end, unless we previously paginated.
+        pub async fn finish_thread_network_pagination(
+            &mut self,
+            root: OwnedEventId,
+            prev_token: Option<String>,
+            new_token: Option<String>,
+            events: Vec<Event>,
+        ) -> Result<Option<BackPaginationOutcome>, EventCacheError> {
+            let mut lock_guard = self.locked_state.write().await?;
+
+            Ok(lock_guard
+                .get_or_reload_thread(root)
+                .finish_network_pagination(prev_token, new_token, events))
+        }
+
+        pub async fn load_more_thread_events_backwards(
+            &mut self,
+            root: OwnedEventId,
+        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+            let mut lock_guard = self.locked_state.write().await?;
+
+            Ok(lock_guard.get_or_reload_thread(root).load_more_events_backwards())
+        }
+    }
+
+    impl<'a> RoomEventCacheStateLockReadGuard<'a> {
+        /// Implementation of [`RoomEventCacheState::find_event`].
+        async fn find_event(
+            &self,
+            event_id: &EventId,
+        ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
+            // There are supposedly fewer events loaded in memory than in the store. Let's
+            // start by looking up in the `EventLinkedChunk`.
+            for (position, event) in self.room_linked_chunk.revents() {
+                if event.event_id().as_deref() == Some(event_id) {
+                    return Ok(Some((EventLocation::Memory(position), event.clone())));
+                }
+            }
+
+            Ok(self
+                .store_guard
+                .find_event(self.room_id, event_id)
+                .await?
+                .map(|event| (EventLocation::Store, event)))
+        }
+
+        /// Implementation of
+        /// [`RoomEventCacheState::find_event_with_relations`].
+        async fn find_event_with_relations(
+            &self,
+            event_id: &EventId,
+            filters: Option<Vec<RelationType>>,
+        ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
             // First, hit storage to get the target event and its related events.
-            let found = store.find_event(&self.room, event_id).await?;
+            let found = self.store_guard.find_event(self.room_id, event_id).await?;
 
             let Some(target) = found else {
                 // We haven't found the event: return early.
@@ -1366,8 +1299,10 @@ mod private {
 
             // Then, initialize the stack with all the related events, to find the
             // transitive closure of all the related events.
-            let mut related =
-                store.find_event_relations(&self.room, event_id, filters.as_deref()).await?;
+            let mut related = self
+                .store_guard
+                .find_event_relations(self.room_id, event_id, filters.as_deref())
+                .await?;
             let mut stack =
                 related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
 
@@ -1385,8 +1320,10 @@ mod private {
                     continue;
                 }
 
-                let other_related =
-                    store.find_event_relations(&self.room, &event_id, filters.as_deref()).await?;
+                let other_related = self
+                    .store_guard
+                    .find_event_relations(self.room_id, &event_id, filters.as_deref())
+                    .await?;
 
                 stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
                 related.extend(other_related);
@@ -1428,6 +1365,566 @@ mod private {
             Ok(Some((target, related)))
         }
 
+        fn room_event_order(&self, event_pos: Position) -> Option<usize> {
+            self.room_linked_chunk.event_order(event_pos)
+        }
+    }
+
+    impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
+        /// Implementation of
+        /// [`RoomEventCacheState::load_more_events_backwards`].
+        async fn load_more_events_backwards(
+            &mut self,
+        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+            // If any in-memory chunk is a gap, don't load more events, and let the caller
+            // resolve the gap.
+            if let Some(prev_token) = self.room_linked_chunk.rgap().map(|gap| gap.prev_token) {
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
+            }
+
+            let prev_first_chunk =
+                self.room_linked_chunk.chunks().next().expect("a linked chunk is never empty");
+
+            // The first chunk is not a gap, we can load its previous chunk.
+            let linked_chunk_id = LinkedChunkId::Room(self.room_id);
+            let new_first_chunk = match self
+                .store_guard
+                .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
+                .await
+            {
+                Ok(Some(new_first_chunk)) => {
+                    // All good, let's continue with this chunk.
+                    new_first_chunk
+                }
+
+                Ok(None) => {
+                    // If we never received events for this room, this means we've never received a
+                    // sync for that room, because every room must have *at least* a room creation
+                    // event. Otherwise, we have reached the start of the timeline.
+
+                    if self.room_linked_chunk.events().next().is_some() {
+                        // If there's at least one event, this means we've reached the start of the
+                        // timeline, since the chunk is fully loaded.
+                        trace!("chunk is fully loaded and non-empty: reached_start=true");
+                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                    }
+
+                    // Otherwise, start back-pagination from the end of the room.
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None });
+                }
+
+                Err(err) => {
+                    error!("error when loading the previous chunk of a linked chunk: {err}");
+
+                    // Clear storage for this room.
+                    self.store_guard
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Return the error.
+                    return Err(err.into());
+                }
+            };
+
+            let chunk_content = new_first_chunk.content.clone();
+
+            // We've reached the start on disk, if and only if, there was no chunk prior to
+            // the one we just loaded.
+            //
+            // This value is correct, if and only if, it is used for a chunk content of kind
+            // `Items`.
+            let reached_start = new_first_chunk.previous.is_none();
+
+            if let Err(err) = self.room_linked_chunk.insert_new_chunk_as_first(new_first_chunk) {
+                error!("error when inserting the previous chunk into its linked chunk: {err}");
+
+                // Clear storage for this room.
+                self.store_guard
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                // Return the error.
+                return Err(err.into());
+            }
+
+            // ⚠️ Let's not propagate the updates to the store! We already have these data
+            // in the store! Let's drain them.
+            let _ = self.room_linked_chunk.store_updates().take();
+
+            // However, we want to get updates as `VectorDiff`s.
+            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
+
+            Ok(match chunk_content {
+                ChunkContent::Gap(gap) => {
+                    trace!("reloaded chunk from disk (gap)");
+                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
+                }
+
+                ChunkContent::Items(events) => {
+                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+                    LoadMoreEventsBackwardsOutcome::Events {
+                        events,
+                        timeline_event_diffs,
+                        reached_start,
+                    }
+                }
+            })
+        }
+
+        /// Implementation of
+        /// [`RoomEventCacheState::shrink_to_last_chunk`].
+        async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+            // Attempt to load the last chunk.
+            let linked_chunk_id = LinkedChunkId::Room(self.room_id);
+            let (last_chunk, chunk_identifier_generator) =
+                match self.store_guard.load_last_chunk(linked_chunk_id).await {
+                    Ok(pair) => pair,
+
+                    Err(err) => {
+                        // If loading the last chunk failed, clear the entire linked chunk.
+                        error!("error when reloading a linked chunk from memory: {err}");
+
+                        // Clear storage for this room.
+                        self.store_guard
+                            .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                            .await?;
+
+                        // Restart with an empty linked chunk.
+                        (None, ChunkIdentifierGenerator::new_from_scratch())
+                    }
+                };
+
+            debug!("unloading the linked chunk, and resetting it to its last chunk");
+
+            // Remove all the chunks from the linked chunks, except for the last one, and
+            // updates the chunk identifier generator.
+            if let Err(err) =
+                self.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
+            {
+                error!("error when replacing the linked chunk: {err}");
+                return self.reset_internal().await;
+            }
+
+            // Let pagination observers know that we may have not reached the start of the
+            // timeline.
+            // TODO: likely need to cancel any ongoing pagination.
+            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+
+            // Don't propagate those updates to the store; this is only for the in-memory
+            // representation that we're doing this. Let's drain those store updates.
+            let _ = self.room_linked_chunk.store_updates().take();
+
+            Ok(())
+        }
+
+        /// Implementation of
+        /// [`RoomEventCacheState::auto_shrink_if_no_subscribers`].
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+        pub(crate) async fn auto_shrink_if_no_subscribers(
+            &mut self,
+            subscriber_count: &Arc<AtomicUsize>,
+        ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
+            let subscriber_count = subscriber_count.load(Ordering::SeqCst);
+
+            trace!(subscriber_count, "received request to auto-shrink");
+
+            if subscriber_count == 0 {
+                // If we are the last strong reference to the auto-shrinker, we can shrink the
+                // events data structure to its last chunk.
+                self.shrink_to_last_chunk().await?;
+
+                Ok(Some(self.room_linked_chunk.updates_as_vector_diffs()))
+            } else {
+                Ok(None)
+            }
+        }
+
+        /// Implementation of
+        /// [`RoomEventCacheState::force_shrink_to_last_chunk`].
+        #[cfg(test)]
+        async fn force_shrink_to_last_chunk(
+            &mut self,
+        ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+            self.shrink_to_last_chunk().await?;
+
+            Ok(self.room_linked_chunk.updates_as_vector_diffs())
+        }
+
+        /// Implementation of [`RoomEventCacheState::remove_events`].
+        #[instrument(skip_all)]
+        async fn remove_events(
+            &mut self,
+            in_memory_events: Vec<(OwnedEventId, Position)>,
+            in_store_events: Vec<(OwnedEventId, Position)>,
+        ) -> Result<(), EventCacheError> {
+            // In-store events.
+            if !in_store_events.is_empty() {
+                let mut positions = in_store_events
+                    .into_iter()
+                    .map(|(_event_id, position)| position)
+                    .collect::<Vec<_>>();
+
+                sort_positions_descending(&mut positions);
+
+                let updates = positions
+                    .into_iter()
+                    .map(|pos| Update::RemoveItem { at: pos })
+                    .collect::<Vec<_>>();
+
+                self.apply_store_only_updates(updates).await?;
+            }
+
+            // In-memory events.
+            if in_memory_events.is_empty() {
+                // Nothing else to do, return early.
+                return Ok(());
+            }
+
+            // `remove_events_by_position` is responsible of sorting positions.
+            self.room_linked_chunk
+                .remove_events_by_position(
+                    in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+                )
+                .expect("failed to remove an event");
+
+            self.propagate_changes().await
+        }
+
+        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+            let updates = self.room_linked_chunk.store_updates().take();
+            self.send_updates_to_store(updates).await
+        }
+
+        /// Apply some updates that are effective only on the store itself.
+        ///
+        /// This method should be used only for updates that happen *outside*
+        /// the in-memory linked chunk. Such updates must be applied
+        /// onto the ordering tracker as well as to the persistent
+        /// storage.
+        async fn apply_store_only_updates(
+            &mut self,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            self.room_linked_chunk.order_tracker.map_updates(&updates);
+            self.send_updates_to_store(updates).await
+        }
+
+        async fn send_updates_to_store(
+            &mut self,
+            mut updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            if updates.is_empty() {
+                return Ok(());
+            }
+
+            // Strip relations from updates which insert or replace items.
+            for update in updates.iter_mut() {
+                match update {
+                    Update::PushItems { items, .. } => {
+                        RoomEventCacheState::strip_relations_from_events(items)
+                    }
+                    Update::ReplaceItem { item, .. } => {
+                        RoomEventCacheState::strip_relations_from_event(item)
+                    }
+                    // Other update kinds don't involve adding new events.
+                    Update::NewItemsChunk { .. }
+                    | Update::NewGapChunk { .. }
+                    | Update::RemoveChunk(_)
+                    | Update::RemoveItem { .. }
+                    | Update::DetachLastItems { .. }
+                    | Update::StartReattachItems
+                    | Update::EndReattachItems
+                    | Update::Clear => {}
+                }
+            }
+
+            // Spawn a task to make sure that all the changes are effectively forwarded to
+            // the store, even if the call to this method gets aborted.
+            //
+            // The store cross-process locking involves an actual mutex, which ensures that
+            // storing updates happens in the expected order.
+
+            let store_guard = self.store_guard.clone();
+            let room_id = self.room_id.to_owned();
+            let cloned_updates = updates.clone();
+
+            spawn(async move {
+                trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
+                let linked_chunk_id = LinkedChunkId::Room(&room_id);
+                store_guard.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
+                trace!("linked chunk updates applied");
+
+                super::Result::Ok(())
+            })
+            .await
+            .expect("joining failed")?;
+
+            // Forward that the store got updated to observers.
+            let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+                linked_chunk_id: OwnedLinkedChunkId::Room(self.room_id.to_owned()),
+                updates,
+            });
+
+            Ok(())
+        }
+
+        /// Implementation of [`RoomEventCacheState::reset`].
+        async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+            self.reset_internal().await?;
+
+            let diff_updates = self.room_linked_chunk.updates_as_vector_diffs();
+
+            // Ensure the contract defined in the doc comment is true:
+            debug_assert_eq!(diff_updates.len(), 1);
+            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+            Ok(diff_updates)
+        }
+
+        async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
+            self.room_linked_chunk.reset();
+
+            // No need to update the thread summaries: the room events are
+            // gone because of the reset of `room_linked_chunk`.
+            //
+            // Clear the threads.
+            for thread in self.threads.values_mut() {
+                thread.clear();
+            }
+
+            self.propagate_changes().await?;
+
+            // Reset the pagination state too: pretend we never waited for the initial
+            // prev-batch token, and indicate that we're not at the start of the
+            // timeline, since we don't know about that anymore.
+            self.waited_for_initial_prev_token.store(false, Ordering::SeqCst);
+            // TODO: likely must cancel any ongoing back-paginations too
+            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+
+            Ok(())
+        }
+
+        /*
+        /// Implementation of
+        /// [`RoomEventCacheState::rfind_map_event_in_memory_by`].
+        fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
+        where
+            P: FnMut(&Event) -> Option<O>,
+        {
+            self.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
+        }
+        */
+
+        /// Implementation of [`RoomEventCacheState::handle_sync`].
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+        async fn handle_sync(
+            &mut self,
+            mut timeline: Timeline,
+            enabled_thread_support: bool,
+        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
+            let mut prev_batch = timeline.prev_batch.take();
+
+            let DeduplicationOutcome {
+                all_events: events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+                non_empty_all_duplicates: all_duplicates,
+            } = filter_duplicate_events(
+                &self.store_guard,
+                LinkedChunkId::Room(self.room_id),
+                &self.room_linked_chunk,
+                timeline.events,
+            )
+            .await?;
+
+            // If the timeline isn't limited, and we already knew about some past events,
+            // then this definitely knows what the timeline head is (either we know
+            // about all the events persisted in storage, or we have a gap
+            // somewhere). In this case, we can ditch the previous-batch
+            // token, which is an optimization to avoid unnecessary future back-pagination
+            // requests.
+            //
+            // We can also ditch it if we knew about all the events that came from sync,
+            // namely, they were all deduplicated. In this case, using the
+            // previous-batch token would only result in fetching other events we
+            // knew about. This is slightly incorrect in the presence of
+            // network splits, but this has shown to be Good Enough™.
+            if !timeline.limited && self.room_linked_chunk.events().next().is_some()
+                || all_duplicates
+            {
+                prev_batch = None;
+            }
+
+            if prev_batch.is_some() {
+                // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
+                // non-duplicated event. We don't know which threads might have gappy, so we
+                // must invalidate them all :(
+                // TODO(bnjbvr): figure out a better catchup mechanism for threads.
+                let mut summaries_to_update = Vec::new();
+
+                for (thread_root, thread) in self.threads.iter_mut() {
+                    // Empty the thread's linked chunk.
+                    thread.clear();
+
+                    summaries_to_update.push(thread_root.clone());
+                }
+
+                // Now, update the summaries to indicate that we're not sure what the latest
+                // thread event is. The thread count can remain as is, as it might still be
+                // valid, and there's no good value to reset it to, anyways.
+                for thread_root in summaries_to_update {
+                    let Some((location, mut target_event)) =
+                        self.as_read_guard().find_event(&thread_root).await?
+                    else {
+                        trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
+                        continue;
+                    };
+
+                    if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
+                        prev_summary.latest_reply = None;
+
+                        target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
+
+                        self.replace_event_at(location, target_event).await?;
+                    }
+                }
+            }
+
+            if all_duplicates {
+                // No new events and no gap (per the previous check), thus no need to change the
+                // room state. We're done!
+                return Ok((false, Vec::new()));
+            }
+
+            let has_new_gap = prev_batch.is_some();
+
+            // If we've never waited for an initial previous-batch token, and we've now
+            // inserted a gap, no need to wait for a previous-batch token later.
+            if !self.waited_for_initial_prev_token.load(Ordering::SeqCst) && has_new_gap {
+                self.waited_for_initial_prev_token.store(true, Ordering::SeqCst);
+            }
+
+            // Remove the old duplicated events.
+            //
+            // We don't have to worry the removals can change the position of the existing
+            // events, because we are pushing all _new_ `events` at the back.
+            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
+
+            self.room_linked_chunk
+                .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
+
+            self.post_process_new_events(events, true, enabled_thread_support).await?;
+
+            if timeline.limited && has_new_gap {
+                // If there was a previous batch token for a limited timeline, unload the chunks
+                // so it only contains the last one; otherwise, there might be a
+                // valid gap in between, and observers may not render it (yet).
+                //
+                // We must do this *after* persisting these events to storage (in
+                // `post_process_new_events`).
+                self.shrink_to_last_chunk().await?;
+            }
+
+            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
+
+            Ok((has_new_gap, timeline_event_diffs))
+        }
+
+        /// Implementation of [`RoomEventCacheState::handle_backpagination`].
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+        async fn handle_backpagination(
+            &mut self,
+            events: Vec<Event>,
+            mut new_token: Option<String>,
+            prev_token: Option<String>,
+            enabled_thread_support: bool,
+        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
+        {
+            // Check that the previous token still exists; otherwise it's a sign that the
+            // room's timeline has been cleared.
+            let prev_gap_id = if let Some(token) = prev_token {
+                // Find the corresponding gap in the in-memory linked chunk.
+                let gap_chunk_id = self.room_linked_chunk.chunk_identifier(|chunk| {
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
+                });
+
+                if gap_chunk_id.is_none() {
+                    // We got a previous-batch token from the linked chunk *before* running the
+                    // request, but it is missing *after* completing the request.
+                    //
+                    // It may be a sign the linked chunk has been reset, but it's fine, per this
+                    // function's contract.
+                    return Ok(None);
+                }
+
+                gap_chunk_id
+            } else {
+                None
+            };
+
+            let DeduplicationOutcome {
+                all_events: mut events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+                non_empty_all_duplicates: all_duplicates,
+            } = filter_duplicate_events(
+                &self.store_guard,
+                LinkedChunkId::Room(self.room_id),
+                &self.room_linked_chunk,
+                events,
+            )
+            .await?;
+
+            // If not all the events have been back-paginated, we need to remove the
+            // previous ones, otherwise we can end up with misordered events.
+            //
+            // Consider the following scenario:
+            // - sync returns [D, E, F]
+            // - then sync returns [] with a previous batch token PB1, so the internal
+            //   linked chunk state is [D, E, F, PB1].
+            // - back-paginating with PB1 may return [A, B, C, D, E, F].
+            //
+            // Only inserting the new events when replacing PB1 would result in a timeline
+            // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
+            // all the events, in case this happens (see also #4746).
+
+            if !all_duplicates {
+                // Let's forget all the previous events.
+                self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                    .await?;
+            } else {
+                // All new events are duplicated, they can all be ignored.
+                events.clear();
+                // The gap can be ditched too, as it won't be useful to backpaginate any
+                // further.
+                new_token = None;
+            }
+
+            // `/messages` has been called with `dir=b` (backwards), so the events are in
+            // the inverted order; reorder them.
+            let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
+
+            let new_gap = new_token.map(|prev_token| Gap { prev_token });
+            let reached_start = self.room_linked_chunk.finish_back_pagination(
+                prev_gap_id,
+                new_gap,
+                &topo_ordered_events,
+            );
+
+            // Note: this flushes updates to the store.
+            self.post_process_new_events(topo_ordered_events, false, enabled_thread_support)
+                .await?;
+
+            let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
+
+            Ok(Some((BackPaginationOutcome { events, reached_start }, event_diffs)))
+        }
+
+        // --------------------------------------------
+        // utility methods
+        // --------------------------------------------
+
         /// Post-process new events, after they have been added to the in-memory
         /// linked chunk.
         ///
@@ -1436,6 +1933,7 @@ mod private {
             &mut self,
             events: Vec<Event>,
             is_sync: bool,
+            enabled_thread_support: bool,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
@@ -1445,7 +1943,7 @@ mod private {
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
-                if self.enabled_thread_support {
+                if enabled_thread_support {
                     // Only add the event to a thread if:
                     // - thread support is enabled,
                     // - and if this is a sync (we can't know where to insert backpaginated events
@@ -1471,7 +1969,7 @@ mod private {
                     if let Some(edit_target) = extract_edit_target(event.raw()) {
                         // If the edited event is known, and part of a thread,
                         if let Some((_location, edit_target_event)) =
-                            self.find_event(&edit_target).await?
+                            self.as_read_guard().find_event(&edit_target).await?
                             && let Some(thread_root) = extract_thread_root(edit_target_event.raw())
                         {
                             // Mark the thread for processing, unless it was already marked as
@@ -1487,7 +1985,7 @@ mod private {
                 }
             }
 
-            if self.enabled_thread_support {
+            if enabled_thread_support {
                 self.update_threads(new_events_by_thread).await?;
             }
 
@@ -1499,7 +1997,7 @@ mod private {
             // missing from memory.
             self.threads.entry(root_event_id.clone()).or_insert_with(|| {
                 ThreadEventCache::new(
-                    self.room.clone(),
+                    self.room_id.to_owned(),
                     root_event_id,
                     self.linked_chunk_update_sender.clone(),
                 )
@@ -1522,6 +2020,7 @@ mod private {
                 // event id as the latest event id for the thread summary.
                 if let Some(event_id) = latest_event_id.as_ref()
                     && let Some((_, edits)) = self
+                        .as_read_guard()
                         .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
                         .await?
                     && let Some(latest_edit) = edits.last()
@@ -1544,7 +2043,9 @@ mod private {
             // Add a thread summary to the (room) event which has the thread root, if we
             // knew about it.
 
-            let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
+            let Some((location, mut target_event)) =
+                self.as_read_guard().find_event(&thread_root).await?
+            else {
                 trace!(%thread_root, "thread root event is missing from the room linked chunk");
                 return Ok(());
             };
@@ -1560,9 +2061,9 @@ mod private {
             // worry about filtering out aggregation events (like
             // reactions/edits/etc.). Pretty neat, huh?
             let num_replies = {
-                let store_guard = &*self.store.lock().await?;
-                let thread_replies = store_guard
-                    .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
+                let thread_replies = self
+                    .store_guard
+                    .find_event_relations(self.room_id, &thread_root, Some(&[RelationType::Thread]))
                     .await?;
                 thread_replies.len().try_into().unwrap_or(u32::MAX)
             };
@@ -1645,7 +2146,9 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            let Some((location, mut target_event)) = self.find_event(event_id).await? else {
+            let Some((location, mut target_event)) =
+                self.as_read_guard().find_event(event_id).await?
+            else {
                 trace!("redacted event is missing from the linked chunk");
                 return Ok(());
             };
@@ -1711,19 +2214,18 @@ mod private {
         }
 
         /// Save events into the database, without notifying observers.
-        pub async fn save_events(
-            &self,
+        async fn save_events(
+            &mut self,
             events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
-            let store = self.store.clone();
-            let room_id = self.room.clone();
+            let store_guard = self.store_guard.clone();
+            let room_id = self.room_id.to_owned();
             let events = events.into_iter().collect::<Vec<_>>();
 
             // Spawn a task so the save is uninterrupted by task cancellation.
             spawn(async move {
-                let store = store.lock().await?;
                 for event in events {
-                    store.save_event(&room_id, event).await?;
+                    store_guard.save_event(&room_id, event).await?;
                 }
                 super::Result::Ok(())
             })
@@ -1731,249 +2233,6 @@ mod private {
             .expect("joining failed")?;
 
             Ok(())
-        }
-
-        /// Handle the result of a sync.
-        ///
-        /// It may send room event cache updates to the given sender, if it
-        /// generated any of those.
-        ///
-        /// Returns `true` for the first part of the tuple if a new gap
-        /// (previous-batch token) has been inserted, `false` otherwise.
-        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub async fn handle_sync(
-            &mut self,
-            mut timeline: Timeline,
-        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
-            let mut prev_batch = timeline.prev_batch.take();
-
-            let DeduplicationOutcome {
-                all_events: events,
-                in_memory_duplicated_event_ids,
-                in_store_duplicated_event_ids,
-                non_empty_all_duplicates: all_duplicates,
-            } = filter_duplicate_events(
-                &self.store,
-                LinkedChunkId::Room(self.room.as_ref()),
-                &self.room_linked_chunk,
-                timeline.events,
-            )
-            .await?;
-
-            // If the timeline isn't limited, and we already knew about some past events,
-            // then this definitely knows what the timeline head is (either we know
-            // about all the events persisted in storage, or we have a gap
-            // somewhere). In this case, we can ditch the previous-batch
-            // token, which is an optimization to avoid unnecessary future back-pagination
-            // requests.
-            //
-            // We can also ditch it if we knew about all the events that came from sync,
-            // namely, they were all deduplicated. In this case, using the
-            // previous-batch token would only result in fetching other events we
-            // knew about. This is slightly incorrect in the presence of
-            // network splits, but this has shown to be Good Enough™.
-            if !timeline.limited && self.room_linked_chunk.events().next().is_some()
-                || all_duplicates
-            {
-                prev_batch = None;
-            }
-
-            if prev_batch.is_some() {
-                // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
-                // non-duplicated event. We don't know which threads might have gappy, so we
-                // must invalidate them all :(
-                // TODO(bnjbvr): figure out a better catchup mechanism for threads.
-                let mut summaries_to_update = Vec::new();
-
-                for (thread_root, thread) in self.threads.iter_mut() {
-                    // Empty the thread's linked chunk.
-                    thread.clear();
-
-                    summaries_to_update.push(thread_root.clone());
-                }
-
-                // Now, update the summaries to indicate that we're not sure what the latest
-                // thread event is. The thread count can remain as is, as it might still be
-                // valid, and there's no good value to reset it to, anyways.
-                for thread_root in summaries_to_update {
-                    let Some((location, mut target_event)) = self.find_event(&thread_root).await?
-                    else {
-                        trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
-                        continue;
-                    };
-
-                    if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
-                        prev_summary.latest_reply = None;
-
-                        target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
-
-                        self.replace_event_at(location, target_event).await?;
-                    }
-                }
-            }
-
-            if all_duplicates {
-                // No new events and no gap (per the previous check), thus no need to change the
-                // room state. We're done!
-                return Ok((false, Vec::new()));
-            }
-
-            let has_new_gap = prev_batch.is_some();
-
-            // If we've never waited for an initial previous-batch token, and we've now
-            // inserted a gap, no need to wait for a previous-batch token later.
-            if !self.waited_for_initial_prev_token && has_new_gap {
-                self.waited_for_initial_prev_token = true;
-            }
-
-            // Remove the old duplicated events.
-            //
-            // We don't have to worry the removals can change the position of the existing
-            // events, because we are pushing all _new_ `events` at the back.
-            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                .await?;
-
-            self.room_linked_chunk
-                .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
-
-            self.post_process_new_events(events, true).await?;
-
-            if timeline.limited && has_new_gap {
-                // If there was a previous batch token for a limited timeline, unload the chunks
-                // so it only contains the last one; otherwise, there might be a
-                // valid gap in between, and observers may not render it (yet).
-                //
-                // We must do this *after* persisting these events to storage (in
-                // `post_process_new_events`).
-                self.shrink_to_last_chunk().await?;
-            }
-
-            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
-
-            Ok((has_new_gap, timeline_event_diffs))
-        }
-
-        /// Handle the result of a single back-pagination request.
-        ///
-        /// If the `prev_token` is set, then this function will check that the
-        /// corresponding gap is present in the in-memory linked chunk.
-        /// If it's not the case, `Ok(None)` will be returned, and the
-        /// caller may decide to do something based on that (e.g. restart a
-        /// pagination).
-        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub async fn handle_backpagination(
-            &mut self,
-            events: Vec<Event>,
-            mut new_token: Option<String>,
-            prev_token: Option<String>,
-        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
-        {
-            // Check that the previous token still exists; otherwise it's a sign that the
-            // room's timeline has been cleared.
-            let prev_gap_id = if let Some(token) = prev_token {
-                // Find the corresponding gap in the in-memory linked chunk.
-                let gap_chunk_id = self.room_linked_chunk.chunk_identifier(|chunk| {
-                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
-                });
-
-                if gap_chunk_id.is_none() {
-                    // We got a previous-batch token from the linked chunk *before* running the
-                    // request, but it is missing *after* completing the request.
-                    //
-                    // It may be a sign the linked chunk has been reset, but it's fine, per this
-                    // function's contract.
-                    return Ok(None);
-                }
-
-                gap_chunk_id
-            } else {
-                None
-            };
-
-            let DeduplicationOutcome {
-                all_events: mut events,
-                in_memory_duplicated_event_ids,
-                in_store_duplicated_event_ids,
-                non_empty_all_duplicates: all_duplicates,
-            } = filter_duplicate_events(
-                &self.store,
-                LinkedChunkId::Room(self.room.as_ref()),
-                &self.room_linked_chunk,
-                events,
-            )
-            .await?;
-
-            // If not all the events have been back-paginated, we need to remove the
-            // previous ones, otherwise we can end up with misordered events.
-            //
-            // Consider the following scenario:
-            // - sync returns [D, E, F]
-            // - then sync returns [] with a previous batch token PB1, so the internal
-            //   linked chunk state is [D, E, F, PB1].
-            // - back-paginating with PB1 may return [A, B, C, D, E, F].
-            //
-            // Only inserting the new events when replacing PB1 would result in a timeline
-            // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
-            // all the events, in case this happens (see also #4746).
-
-            if !all_duplicates {
-                // Let's forget all the previous events.
-                self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                    .await?;
-            } else {
-                // All new events are duplicated, they can all be ignored.
-                events.clear();
-                // The gap can be ditched too, as it won't be useful to backpaginate any
-                // further.
-                new_token = None;
-            }
-
-            // `/messages` has been called with `dir=b` (backwards), so the events are in
-            // the inverted order; reorder them.
-            let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
-
-            let new_gap = new_token.map(|prev_token| Gap { prev_token });
-            let reached_start = self.room_linked_chunk.finish_back_pagination(
-                prev_gap_id,
-                new_gap,
-                &topo_ordered_events,
-            );
-
-            // Note: this flushes updates to the store.
-            self.post_process_new_events(topo_ordered_events, false).await?;
-
-            let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
-
-            Ok(Some((BackPaginationOutcome { events, reached_start }, event_diffs)))
-        }
-
-        /// Subscribe to thread for a given root event, and get a (maybe empty)
-        /// initially known list of events for that thread.
-        pub fn subscribe_to_thread(
-            &mut self,
-            root: OwnedEventId,
-        ) -> (Vec<Event>, Receiver<ThreadEventCacheUpdate>) {
-            self.get_or_reload_thread(root).subscribe()
-        }
-
-        /// Back paginate in the given thread.
-        ///
-        /// Will always start from the end, unless we previously paginated.
-        pub fn finish_thread_network_pagination(
-            &mut self,
-            root: OwnedEventId,
-            prev_token: Option<String>,
-            new_token: Option<String>,
-            events: Vec<Event>,
-        ) -> Option<BackPaginationOutcome> {
-            self.get_or_reload_thread(root).finish_network_pagination(prev_token, new_token, events)
-        }
-
-        pub fn load_more_thread_events_backwards(
-            &mut self,
-            root: OwnedEventId,
-        ) -> LoadMoreEventsBackwardsOutcome {
-            self.get_or_reload_thread(root).load_more_events_backwards()
         }
     }
 }
