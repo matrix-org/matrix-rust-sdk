@@ -114,6 +114,7 @@ use matrix_sdk_base::{
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
     locks::Mutex,
+    timer,
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
@@ -265,6 +266,8 @@ impl EventCache {
             trace!("No events were redecrypted or updated, nothing to replace");
             return Ok(());
         }
+
+        timer!("Resolving UTDs");
 
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
