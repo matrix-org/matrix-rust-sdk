@@ -107,7 +107,7 @@ enum WaitingTime {
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
     /// A clone of [`CrossProcessLock::num_holders`].
