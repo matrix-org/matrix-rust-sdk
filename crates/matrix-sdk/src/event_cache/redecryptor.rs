@@ -391,6 +391,11 @@ impl EventCache {
         // Get all the relevant UTDs.
         let events = self.get_utds(room_id, session_id).await?;
 
+        if events.is_empty() {
+            trace!("No relevant events found.");
+            return Ok(());
+        }
+
         let room = self.inner.client().ok().and_then(|client| client.get_room(room_id));
         let push_context =
             if let Some(room) = &room { room.push_context().await.ok().flatten() } else { None };
@@ -434,6 +439,8 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<(), EventCacheError> {
+        trace!("Updating encryption info");
+
         let Ok(client) = self.inner.client() else {
             return Ok(());
         };
@@ -444,6 +451,11 @@ impl EventCache {
 
         // Get all the relevant events.
         let events = self.get_decrypted_events(room_id, session_id).await?;
+
+        if events.is_empty() {
+            trace!("No relevant events found.");
+            return Ok(());
+        }
 
         // Let's attempt to update their encryption info.
         let mut updated_events = Vec::with_capacity(events.len());
