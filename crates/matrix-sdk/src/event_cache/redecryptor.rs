@@ -118,7 +118,7 @@ use matrix_sdk_base::{
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
-use matrix_sdk_common::executor::{JoinHandle, spawn};
+use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt, spawn};
 use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
@@ -568,13 +568,7 @@ impl EventCache {
 ///
 /// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
-    task: JoinHandle<()>,
-}
-
-impl Drop for Redecryptor {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
+    _task: AbortOnDrop<()>,
 }
 
 impl Redecryptor {
@@ -590,9 +584,10 @@ impl Redecryptor {
             let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
 
             Self::listen_for_room_keys_task(cache, request_redecryption_stream).await;
-        });
+        })
+        .abort_on_drop();
 
-        Self { task }
+        Self { _task: task }
     }
 
     /// (Re)-subscribe to the room key stream from the [`OlmMachine`].
