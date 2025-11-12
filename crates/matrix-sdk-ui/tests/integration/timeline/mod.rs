@@ -116,7 +116,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()
@@ -147,7 +147,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()
