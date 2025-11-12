@@ -481,10 +481,7 @@ async fn decrypt_by_index<P: RoomDataProvider, D: Decryptor>(
             match decryptor.decrypt_event_impl(original_json, push_ctx).await {
                 Ok(event) => {
                     if let SdkTimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind {
-                        info!(
-                            "Failed to decrypt event after receiving room key: {:?}",
-                            utd_info.reason
-                        );
+                        info!("Failed to redecrypt event. Reason: {:?}", utd_info.reason);
                         None
                     } else {
                         // Notify observers that we managed to eventually decrypt an event.
@@ -496,7 +493,7 @@ async fn decrypt_by_index<P: RoomDataProvider, D: Decryptor>(
                     }
                 }
                 Err(e) => {
-                    info!("Failed to decrypt event after receiving room key: {e}");
+                    info!("Encountered an error while redecrypting event: {e}");
                     None
                 }
             }
