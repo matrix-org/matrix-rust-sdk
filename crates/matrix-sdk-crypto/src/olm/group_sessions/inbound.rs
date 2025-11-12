@@ -340,6 +340,36 @@ impl InboundGroupSession {
         Self::try_from(exported_session)
     }
 
+    /// Create a new [`InboundGroupSession`] which is a copy of this one, except
+    /// that its Megolm ratchet is replaced with a copy of that from another
+    /// [`InboundGroupSession`].
+    ///
+    /// This can be useful, for example, when we receive a new copy of the room
+    /// key, but at an earlier ratchet index.
+    ///
+    /// # Panics
+    ///
+    /// If the two sessions are for different room IDs, or have different
+    /// session IDs, this function will panic. It is up to the caller to ensure
+    /// that it only attempts to merge related sessions.
+    pub(crate) fn with_ratchet(mut self, other: &InboundGroupSession) -> Self {
+        if self.session_id != other.session_id {
+            panic!(
+                "Attempt to merge Megolm sessions with different session IDs: {} vs {}",
+                self.session_id, other.session_id
+            );
+        }
+        if self.room_id != other.room_id {
+            panic!(
+                "Attempt to merge Megolm sessions with different room IDs: {} vs {}",
+                self.room_id, other.room_id,
+            );
+        }
+        self.inner = other.inner.clone();
+        self.first_known_index = other.first_known_index;
+        self
+    }
+
     /// Convert the [`InboundGroupSession`] into a
     /// [`PickledInboundGroupSession`] which can be serialized.
     pub async fn pickle(&self) -> PickledInboundGroupSession {
