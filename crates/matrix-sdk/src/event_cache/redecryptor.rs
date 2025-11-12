@@ -46,6 +46,10 @@
 //! received and R2D2 won't get notified about it. To work around this
 //! decryption requests can be explicitly sent to R2D2.
 //!
+//! In the graph bellow the Timeline block is meant to be the `Timeline` from
+//! the `matrix-sdk-ui` crate, but it could be any other listener that
+//! subscribes to [`RedecryptorReport`] stream.
+//!
 //! ```markdown
 //! 
 //!      .----------------------.
@@ -688,8 +692,9 @@ impl Redecryptor {
                             // We missed some room keys, we need to report this in case a listener
                             // has and idea which UTDs we should attempt to redecrypt.
                             //
-                            // This would most likely be the timeline. The timeline might attempt
-                            // to redecrypt all UTDs it is showing to the user.
+                            // This would most likely be the timeline from the UI crate. The
+                            // timeline might attempt to redecrypt all UTDs it is showing to the
+                            // user.
                             let Some(cache) = Self::upgrade_event_cache(cache) else {
                                 break false;
                             };
