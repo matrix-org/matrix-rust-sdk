@@ -81,7 +81,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
-use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use url::Url;
 
 use self::futures::SendRequest;
@@ -1581,6 +1581,7 @@ impl Client {
         room_id: &RoomId,
         pre_join_room_info: Option<PreJoinRoomInfo>,
     ) -> Result<Room> {
+        info!(?room_id, ?pre_join_room_info, "Completing room join");
         let mark_as_dm = if let Some(room) = self.get_room(room_id) {
             room.state() == RoomState::Invited
                 && room.is_direct().await.unwrap_or_else(|e| {
@@ -1651,6 +1652,7 @@ impl Client {
     ///   alias looks like `#name:example.com`.
     /// * `server_names` - The server names to be used for resolving the alias,
     ///   if needs be.
+    #[instrument(skip(self))]
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,

@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Improve logging around key history bundles when joining a room.
+  ([#5866](https://github.com/matrix-org/matrix-rust-sdk/pull/5866))
 - Expose the power level required to modify `m.space.child` on
   `room::power_levels::RoomPowerLevelChanges`.
   ([#5857](https://github.com/matrix-org/matrix-rust-sdk/pull/5857))
