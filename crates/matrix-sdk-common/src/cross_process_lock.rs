@@ -107,14 +107,38 @@ enum WaitingTime {
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
+    /// A clone of [`CrossProcessLock::num_holders`].
     num_holders: Arc<AtomicU32>,
+
+    /// A clone of [`CrossProcessLock::is_dirty`].
+    is_dirty: Arc<AtomicBool>,
 }
 
 impl CrossProcessLockGuard {
-    fn new(num_holders: Arc<AtomicU32>) -> Self {
-        Self { num_holders }
+    fn new(num_holders: Arc<AtomicU32>, is_dirty: Arc<AtomicBool>) -> Self {
+        Self { num_holders, is_dirty }
+    }
+
+    /// Determine whether the cross-process lock associated to this guard is
+    /// dirty.
+    ///
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
+    /// of _dirty_.
+    pub fn is_dirty(&self) -> bool {
+        self.is_dirty.load(Ordering::SeqCst)
+    }
+
+    /// Clear the dirty state from the cross-process lock associated to this
+    /// guard.
+    ///
+    /// If the cross-process lock is dirtied, it will remain dirtied until
+    /// this method is called. This allows recovering from a dirty state and
+    /// marking that it has recovered.
+    pub fn clear_dirty(&self) {
+        self.is_dirty.store(false, Ordering::SeqCst);
     }
 }
 
@@ -169,7 +193,7 @@ where
 
     /// Whether the lock has been dirtied.
     ///
-    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     is_dirty: Arc<AtomicBool>,
 }
@@ -231,7 +255,7 @@ where
 
     /// Determine whether the cross-process lock is dirty.
     ///
-    /// See [`CrossProcessLockKind::Dirty`] to learn more about the semantics
+    /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     pub fn is_dirty(&self) -> bool {
         self.is_dirty.load(Ordering::SeqCst)
@@ -244,7 +268,6 @@ where
     /// marking that it has recovered.
     pub fn clear_dirty(&self) {
         self.is_dirty.store(false, Ordering::SeqCst);
-        self.generation.store(NO_CROSS_PROCESS_LOCK_GENERATION, Ordering::SeqCst);
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
@@ -254,7 +277,7 @@ where
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
     pub async fn try_lock_once(
         &self,
-    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -270,8 +293,9 @@ where
 
             self.num_holders.fetch_add(1, Ordering::SeqCst);
 
-            return Ok(Ok(CrossProcessLockKind::Clean(CrossProcessLockGuard::new(
+            return Ok(Ok(CrossProcessLockState::Clean(CrossProcessLockGuard::new(
                 self.num_holders.clone(),
+                self.is_dirty.clone(),
             ))));
         }
 
@@ -396,12 +420,12 @@ where
 
         self.num_holders.fetch_add(1, Ordering::SeqCst);
 
-        let guard = CrossProcessLockGuard::new(self.num_holders.clone());
+        let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
 
         Ok(Ok(if self.is_dirty() {
-            CrossProcessLockKind::Dirty(guard)
+            CrossProcessLockState::Dirty(guard)
         } else {
-            CrossProcessLockKind::Clean(guard)
+            CrossProcessLockState::Clean(guard)
         }))
     }
 
@@ -417,7 +441,7 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Result<CrossProcessLockKind, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -467,7 +491,8 @@ where
 /// Represent a successful result of a locking attempt, either by
 /// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
 #[derive(Debug)]
-pub enum CrossProcessLockKind {
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
+pub enum CrossProcessLockState {
     /// The lock has been obtained successfully, all good.
     Clean(CrossProcessLockGuard),
 
@@ -487,11 +512,49 @@ pub enum CrossProcessLockKind {
     Dirty(CrossProcessLockGuard),
 }
 
-impl CrossProcessLockKind {
+impl CrossProcessLockState {
     /// Map this value into the inner [`CrossProcessLockGuard`].
     pub fn into_guard(self) -> CrossProcessLockGuard {
         match self {
             Self::Clean(guard) | Self::Dirty(guard) => guard,
+        }
+    }
+
+    /// Map this [`CrossProcessLockState`] into a
+    /// [`MappedCrossProcessLockState`].
+    ///
+    /// This is helpful when one wants to create its own wrapper over
+    /// [`CrossProcessLockGuard`].
+    pub fn map<F, G>(self, mapper: F) -> MappedCrossProcessLockState<G>
+    where
+        F: FnOnce(CrossProcessLockGuard) -> G,
+    {
+        match self {
+            Self::Clean(guard) => MappedCrossProcessLockState::Clean(mapper(guard)),
+            Self::Dirty(guard) => MappedCrossProcessLockState::Dirty(mapper(guard)),
+        }
+    }
+}
+
+/// A mapped [`CrossProcessLockState`].
+///
+/// Created by [`CrossProcessLockState::map`].
+#[derive(Debug)]
+#[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
+pub enum MappedCrossProcessLockState<G> {
+    /// The equivalent of [`CrossProcessLockState::Clean`].
+    Clean(G),
+
+    /// The equivalent of [`CrossProcessLockState::Dirty`].
+    Dirty(G),
+}
+
+impl<G> MappedCrossProcessLockState<G> {
+    /// Return `Some(G)` if `Self` is [`Clean`][Self::Clean].
+    pub fn as_clean(&self) -> Option<&G> {
+        match self {
+            Self::Clean(guard) => Some(guard),
+            Self::Dirty(_) => None,
         }
     }
 }
@@ -544,7 +607,7 @@ mod tests {
     };
 
     use super::{
-        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockKind,
+        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockState,
         CrossProcessLockUnobtained, EXTEND_LEASE_EVERY_MS, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
@@ -588,7 +651,7 @@ mod tests {
         }
     }
 
-    async fn release_lock(lock: CrossProcessLockKind) {
+    async fn release_lock(lock: CrossProcessLockState) {
         drop(lock);
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
