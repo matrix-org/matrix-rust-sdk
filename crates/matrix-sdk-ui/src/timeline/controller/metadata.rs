@@ -577,10 +577,16 @@ pub(in crate::timeline) struct EventMeta {
     /// Note that the #2 timeline item (the day divider) doesn't map to any
     /// remote event, but if it moves, it has an impact on this mapping.
     pub timeline_item_index: Option<usize>,
+
+    pub thread_root_id: Option<OwnedEventId>,
 }
 
 impl EventMeta {
-    pub fn new(event_id: OwnedEventId, visible: bool) -> Self {
-        Self { event_id, visible, timeline_item_index: None }
+    pub fn new(
+        event_id: OwnedEventId,
+        visible: bool,
+        thread_root_id: Option<OwnedEventId>,
+    ) -> Self {
+        Self { event_id, visible, timeline_item_index: None, thread_root_id }
     }
 }
