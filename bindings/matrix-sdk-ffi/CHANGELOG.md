@@ -79,6 +79,7 @@ All notable changes to this project will be documented in this file.
 - Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 - Expose `m.federate` in `OtherState::RoomCreate` and `history_visibility` in `OtherState::RoomHistoryVisibility`, allowing clients to know whether a room federates and how its history is shared in the appropriate timeline events.
+- Expose `join_rule` in `OtherState::RoomJoinRules`, allowing clients to know the join rules of a room from the appropriate timeline events.
 
 ### Changes
 
