@@ -1928,6 +1928,7 @@ impl AllRemoteEvents {
     }
 
     /// Return a reference to the last remote event if it exists.
+    #[cfg(test)]
     pub fn last(&self) -> Option<&EventMeta> {
         self.0.back()
     }
