@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose the power level required to modify `m.space.child` on
+  `room::power_levels::RoomPowerLevelChanges`.
+  ([#5857](https://github.com/matrix-org/matrix-rust-sdk/pull/5857))
 - Add the `Client::server_versions_cached()` method.
   ([#5853](https://github.com/matrix-org/matrix-rust-sdk/pull/5853))
 - Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
