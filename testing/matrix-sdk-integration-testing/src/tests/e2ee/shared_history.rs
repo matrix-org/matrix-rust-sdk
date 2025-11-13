@@ -25,7 +25,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use matrix_sdk_common::deserialized_responses::{
-    ProcessedToDeviceEvent, UnableToDecryptReason::MissingMegolmSession, WithheldCode,
+    DeviceLinkProblem, ProcessedToDeviceEvent, UnableToDecryptReason::MissingMegolmSession,
+    VerificationLevel, VerificationState, WithheldCode,
 };
 use matrix_sdk_ui::{
     Timeline,
@@ -553,6 +554,148 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
     Ok(())
 }
 
+/// Test megolm session merging with history sharing
+///
+///  1. Alice and Bob share a room
+///  2. Bob sends a message
+///  3. Alice invites Charlie, sharing the history
+///  4. Charlie can see Bob's message, but the sender is unauthenticated.
+///  5. Bob sends another message (on the same session)
+///  6. Charlie can now decrypt both of Bob's messages, with authenticated
+///     sender.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_sharing_session_merging() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let bob_span = tracing::info_span!("bob");
+    let charlie_span = tracing::info_span!("charlie");
+
+    let alice = create_encryption_enabled_client("alice").instrument(alice_span.clone()).await?;
+    let bob = create_encryption_enabled_client("bob").instrument(bob_span.clone()).await?;
+    let charlie =
+        create_encryption_enabled_client("charlie").instrument(charlie_span.clone()).await?;
+
+    // 1. Alice creates a room, and enables encryption
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PublicChat),
+        }))
+        .instrument(alice_span.clone())
+        .await?;
+    let alice_timeline = alice_room.timeline().await?;
+
+    alice_room.enable_encryption().instrument(alice_span.clone()).await?;
+    info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
+
+    // ... and invites Bob to the room
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).instrument(alice_span.clone()).await?;
+
+    // Bob joins
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let bob_room = bob
+        .join_room_by_id(alice_room.room_id())
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to accept the invitation from Alice");
+
+    // 2. Bob sends a message, which Alice should receive
+    let bob_send_test_event = async |event_content: &str| {
+        let bob_event_id = bob_room
+            .send(RoomMessageEventContent::text_plain(event_content))
+            .into_future()
+            .instrument(bob_span.clone())
+            .await
+            .expect("We should be able to send a message to the room")
+            .event_id;
+
+        alice
+            .sync_once()
+            .instrument(alice_span.clone())
+            .await
+            .expect("Alice should be able to sync");
+
+        assert_event_received(&alice_timeline, &bob_event_id, event_content).await;
+
+        bob_event_id
+    };
+
+    let event_id_1 = bob_send_test_event("Event 1").await;
+
+    // 3. Alice invites Charlie.
+    alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
+    // Alice's identity.
+    charlie
+        .encryption()
+        .request_user_identity(alice.user_id().unwrap())
+        .instrument(charlie_span.clone())
+        .await?;
+
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+    let charlie_room = charlie
+        .join_room_by_id(alice_room.room_id())
+        .instrument(charlie_span.clone())
+        .await
+        .expect("Charlie should be able to accept the invitation from Alice");
+
+    // 4. Charlie can see Bob's message, but the sender is unauthenticated.
+    let charlie_timeline = charlie_room.timeline().await?;
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+    let received_event = assert_event_received(&charlie_timeline, &event_id_1, "Event 1").await;
+    assert_eq!(
+        received_event
+            .as_event()
+            .unwrap()
+            .encryption_info()
+            .expect("Received event should be encrypted")
+            .verification_state,
+        VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::InsecureSource))
+    );
+
+    // 5. Bob sends another message (on the same session)
+    bob.sync_once().instrument(bob_span.clone()).await?;
+    // Sanity: make sure Bob knows that Charlie has joined
+    bob_room
+        .get_member_no_sync(charlie.user_id().unwrap())
+        .instrument(bob_span.clone())
+        .await?
+        .expect("Bob should see Charlie in the room");
+    let event_id_2 = bob_send_test_event("Event 2").await;
+
+    // 6. Charlie can now decrypt both of Bob's messages, with authenticated sender
+    let mut charlie_room_stream = charlie.encryption().room_keys_received_stream().await.unwrap();
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+
+    // Make sure we're decrypting with the newly-received keys.
+    assert_next_with_timeout!(&mut charlie_room_stream).expect("charlie should receive room keys");
+
+    let received_event = assert_event_received(&charlie_timeline, &event_id_2, "Event 2").await;
+    assert_eq!(
+        received_event
+            .as_event()
+            .unwrap()
+            .encryption_info()
+            .expect("Received event should be encrypted")
+            .verification_state,
+        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+    );
+
+    // The earlier event should now have a better verification status.
+    let received_event = assert_event_received(&charlie_timeline, &event_id_1, "Event 1").await;
+    assert_eq!(
+        received_event
+            .as_event()
+            .unwrap()
+            .encryption_info()
+            .expect("Received event should be encrypted")
+            .verification_state,
+        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+    );
+
+    Ok(())
+}
+
 async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwareClient> {
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
@@ -624,7 +767,11 @@ async fn wait_for_timeline_event(
  * Wait for the given event to arrive in the timeline, and assert that its
  * content matches that given.
  */
-async fn assert_event_received(timeline: &Timeline, event_id: &EventId, expected_content: &str) {
+async fn assert_event_received(
+    timeline: &Timeline,
+    event_id: &EventId,
+    expected_content: &str,
+) -> Arc<TimelineItem> {
     let timeline_item = wait_for_timeline_event(timeline, event_id).await.unwrap_or_else(|| {
         panic!("Timeout waiting for event {event_id} with content {expected_content} to arrive")
     });
@@ -639,6 +786,8 @@ async fn assert_event_received(timeline: &Timeline, event_id: &EventId, expected
         expected_content,
         "The decrypted event should match the message Bob has sent"
     );
+
+    timeline_item
 }
 
 /**
