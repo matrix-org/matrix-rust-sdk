@@ -54,9 +54,9 @@ pub struct RoomPowerLevelChanges {
     /// The level required to change the room's topic.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub room_topic: Option<i64>,
-    /// The level required to modify rooms in this space.
+    /// The level required to change the space's children.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
-    pub manage_rooms_in_space: Option<i64>,
+    pub space_child: Option<i64>,
 }
 
 impl RoomPowerLevelChanges {
@@ -73,7 +73,7 @@ impl RoomPowerLevelChanges {
             room_name: None,
             room_avatar: None,
             room_topic: None,
-            manage_rooms_in_space: None,
+            space_child: None,
         }
     }
 }
@@ -109,7 +109,7 @@ impl From<RoomPowerLevels> for RoomPowerLevelChanges {
                 .get(&StateEventType::RoomTopic.into())
                 .map(|v| (*v).into())
                 .or(Some(value.state_default.into())),
-            manage_rooms_in_space: value
+            space_child: value
                 .events
                 .get(&StateEventType::SpaceChild.into())
                 .map(|v| (*v).into())
@@ -159,9 +159,8 @@ impl RoomPowerLevelsExt for RoomPowerLevels {
         if let Some(room_topic) = settings.room_topic {
             self.events.insert(StateEventType::RoomTopic.into(), room_topic.try_into()?);
         }
-        if let Some(manage_rooms_in_space) = settings.manage_rooms_in_space {
-            self.events
-                .insert(StateEventType::SpaceChild.into(), manage_rooms_in_space.try_into()?);
+        if let Some(space_child) = settings.space_child {
+            self.events.insert(StateEventType::SpaceChild.into(), space_child.try_into()?);
         }
 
         Ok(())
@@ -236,7 +235,7 @@ mod tests {
             room_name: None,
             room_avatar: None,
             room_topic: None,
-            manage_rooms_in_space: None,
+            space_child: None,
         };
 
         // When applying the settings to the power levels.
@@ -273,7 +272,7 @@ mod tests {
             room_name: Some(new_level.into()),
             room_avatar: Some(new_level.into()),
             room_topic: Some(new_level.into()),
-            manage_rooms_in_space: Some(new_level.into()),
+            space_child: Some(new_level.into()),
         };
 
         // When applying the settings to the power levels.
@@ -324,7 +323,7 @@ mod tests {
             room_name: Some(power_levels.state_default.into()),
             room_avatar: None,
             room_topic: None,
-            manage_rooms_in_space: None,
+            space_child: None,
         };
 
         // When applying the settings to the power levels.
