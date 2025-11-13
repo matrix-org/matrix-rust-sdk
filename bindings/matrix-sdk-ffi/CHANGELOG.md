@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- Expose the power level required to modify `m.space.child` on
+  `room::power_levels::RoomPowerLevelsValues`.
 - Rename `Client::login_with_qr_code` to `Client::new_login_with_qr_code_handler`.
   ([#5836](https://github.com/matrix-org/matrix-rust-sdk/pull/5836))
 - Add the `sqlite` feature, along with the `indexeddb` feature, to enable either
