@@ -24,7 +24,7 @@ use imbl::Vector;
 use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCache, RoomPaginationStatus},
+    event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, PaginationToken, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -73,6 +73,7 @@ use crate::{
     timeline::{
         MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
+        controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
         event_item::TimelineItemHandle,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
@@ -1766,7 +1767,16 @@ impl TimelineController {
 
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(session_ids).await
+        let state = self.state.read().await;
+        let (utds, decrypted) = compute_redecryption_candidates(&state.items);
+
+        let request = DecryptionRetryRequest {
+            room_id: self.room().room_id().to_owned(),
+            utd_session_ids: utds,
+            refresh_info_session_ids: decrypted,
+        };
+
+        self.room().client().event_cache().request_decryption(request);
     }
 
     /// Combine the global (event cache) pagination status with the local state
