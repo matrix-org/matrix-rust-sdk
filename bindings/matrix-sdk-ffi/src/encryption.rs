@@ -434,11 +434,13 @@ impl Encryption {
     /// This method always tries to fetch the identity from the store, which we
     /// only have if the user is tracked, meaning that we are both members
     /// of the same encrypted room. If no user is found locally, a request will
-    /// be made to the homeserver.
+    /// be made to the homeserver unless `fallback_to_server` is set to `false`.
     ///
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user that the identity belongs to.
+    /// * `fallback_to_server` - Should we request the user identity from the
+    ///   homeserver if one isn't found locally.
     ///
     /// Returns a `UserIdentity` if one is found. Returns an error if there
     /// was an issue with the crypto store or with the request to the
@@ -448,6 +450,7 @@ impl Encryption {
     pub async fn user_identity(
         &self,
         user_id: String,
+        fallback_to_server: bool,
     ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
         match self.inner.get_user_identity(user_id.as_str().try_into()?).await {
             Ok(Some(identity)) => {
@@ -463,8 +466,12 @@ impl Encryption {
 
         info!("Requesting identity from the server.");
 
-        let identity = self.inner.request_user_identity(user_id.as_str().try_into()?).await?;
-        Ok(identity.map(|identity| Arc::new(UserIdentity { inner: identity })))
+        if fallback_to_server {
+            let identity = self.inner.request_user_identity(user_id.as_str().try_into()?).await?;
+            Ok(identity.map(|identity| Arc::new(UserIdentity { inner: identity })))
+        } else {
+            Ok(None)
+        }
     }
 }
 

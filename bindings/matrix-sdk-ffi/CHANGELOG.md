@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- The `Encryption::user_identity()` method has received a new argument. The
+  `fallback_to_server` argument controls if we should attempt to fetch the user
+  identity from the homeserver if it wasn't found in the local storage.
+  ([#5870](https://github.com/matrix-org/matrix-rust-sdk/pull/5870))
 - Expose the power level required to modify `m.space.child` on
   `room::power_levels::RoomPowerLevelsValues`.
 - Rename `Client::login_with_qr_code` to `Client::new_login_with_qr_code_handler`.
