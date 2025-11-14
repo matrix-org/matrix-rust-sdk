@@ -2893,7 +2893,7 @@ impl Room {
     /// If the experimental state event encryption feature is enabled, this
     /// method will transparently encrypt the event if this room is
     /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC3414][msc3414]).
+    /// to function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
@@ -2934,7 +2934,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
-    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/4362-encrypted-state.md
     #[cfg(feature = "experimental-encrypted-state-events")]
     #[instrument(skip_all)]
     pub fn send_state_event<'a>(
@@ -3008,7 +3008,7 @@ impl Room {
     /// If the experimental state event encryption feature is enabled, this
     /// method will transparently encrypt the event if this room is
     /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC3414][msc3414]).
+    /// to function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
@@ -3049,7 +3049,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
-    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub fn send_state_event_for_key<'a, C, K>(
         &'a self,
@@ -3123,7 +3123,7 @@ impl Room {
     /// If the experimental state event encryption feature is enabled, this
     /// method will transparently encrypt the event if this room is
     /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC3414][msc3414]).
+    /// to function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
@@ -3158,7 +3158,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
-    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[cfg(feature = "experimental-encrypted-state-events")]
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
