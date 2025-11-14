@@ -17,8 +17,10 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
+use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
+use matrix_sdk_base::ThreadingSupport;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, async_test,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use ruma::{
@@ -33,14 +35,14 @@ use ruma::{
             topic::RedactedRoomTopicEventContent,
         },
     },
-    mxc_uri, owned_event_id, owned_mxc_uri, user_id,
+    mxc_uri, owned_event_id, owned_mxc_uri, room_id, user_id,
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
-    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
-    TimelineItemKind, VirtualTimelineItem,
+    MembershipChange, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails, TimelineFocus,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
@@ -499,4 +501,89 @@ async fn test_replace_with_initial_events_when_batched() {
     assert_matches!(&batched_diffs[2], VectorDiff::PushFront { value } => {
         assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DateDivider(_)));
     });
+}
+
+#[async_test]
+async fn test_latest_event_id_in_main_timeline() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$message");
+    let reaction_event_id = event_id!("$reaction");
+    let thread_event_id = event_id!("$thread");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .track_read_marker_and_receipts()
+        .build()
+        .await
+        .expect("Could not build live timeline");
+
+    let (items, mut stream) = timeline.subscribe().await;
+    assert!(items.is_empty());
+    assert_pending!(stream);
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // If we receive a message in the live timeline
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("A message").event_id(event_id).into_raw_sync()),
+        )
+        .await;
+
+    let items = assert_next_with_timeout!(stream);
+    // We receive the day divider and the items
+    assert_eq!(items.len(), 2);
+    assert_let!(Some(latest_event_id) = timeline.controller.latest_event_id().await);
+    // The latest event id is from the event in the live timeline
+    assert_eq!(event_id, latest_event_id);
+
+    // If we then receive a reaction
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.reaction(event_id, ":D").event_id(reaction_event_id).into_raw_sync(),
+            ),
+        )
+        .await;
+
+    let items = assert_next_with_timeout!(stream);
+    // The reaction is added
+    assert_eq!(items.len(), 1);
+    assert_let!(Some(latest_event_id) = timeline.controller.latest_event_id().await);
+    // And it's now the latest event id
+    assert_eq!(reaction_event_id, latest_event_id);
+
+    // If we now get a message in a thread inside that room
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("In thread")
+                    .in_thread(event_id, thread_event_id)
+                    .event_id(thread_event_id)
+                    .into_raw_sync(),
+            ),
+        )
+        .await;
+    // The thread root event is updated
+    assert_eq!(items.len(), 1);
+    assert_let!(Some(latest_event_id) = timeline.controller.latest_event_id().await);
+
+    // But the latest event in the live timeline is still the reaction, since the
+    // threaded event is not part of the live timeline
+    assert_eq!(reaction_event_id, latest_event_id);
 }

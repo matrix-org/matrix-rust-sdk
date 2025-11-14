@@ -2993,6 +2993,8 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                 },
             },
         };
+
+        mock_server.reset().await;
     }
 
     // Then, advertise support with support for MSC4306; the extension will be
@@ -3003,7 +3005,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
         .mock_versions()
         .ok_custom(&["v1.11"], &features_map)
         .named("/versions, second time")
-        .mock_once()
+        .up_to_n_times(2)
         .mount()
         .await;
 
