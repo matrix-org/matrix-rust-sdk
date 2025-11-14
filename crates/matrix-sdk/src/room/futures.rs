@@ -363,7 +363,7 @@ impl<'a> SendRawStateEvent<'a> {
     /// 1. Whether the room supports encrypted state events, by inspecting the
     ///    room's encryption state.
     /// 2. Whether the event type is considered "critical" or excluded from
-    ///    encryption under MSC3414.
+    ///    encryption under MSC4362.
     ///
     /// # Returns
     ///
