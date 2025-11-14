@@ -1630,6 +1630,20 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, GetHierarchyEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to set a space child.
+    pub fn mock_set_space_child(&self) -> MockEndpoint<'_, SetSpaceChildEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.space.child/.*?"));
+        self.mock_endpoint(mock, SetSpaceChildEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to set a space parent.
+    pub fn mock_set_space_parent(&self) -> MockEndpoint<'_, SetSpaceParentEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.space.parent"));
+        self.mock_endpoint(mock, SetSpaceParentEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to get a profile field.
     pub fn mock_get_profile_field(
         &self,
@@ -4677,6 +4691,40 @@ impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "rooms": []
         })))
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/rooms/{roomId}/state/m.space.child/{stateKey}`
+pub struct SetSpaceChildEndpoint;
+
+impl<'a> MockEndpoint<'a, SetSpaceChildEndpoint> {
+    /// Returns a successful response with a given event id.
+    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+        self.ok_with_event_id(event_id)
+    }
+
+    /// Returns an error response with a generic error code indicating the
+    /// client is not authorized to set space children.
+    pub fn unauthorized(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(400))
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/rooms/{roomId}/state/m.space.parent/{stateKey}`
+pub struct SetSpaceParentEndpoint;
+
+impl<'a> MockEndpoint<'a, SetSpaceParentEndpoint> {
+    /// Returns a successful response with a given event id.
+    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+        self.ok_with_event_id(event_id)
+    }
+
+    /// Returns an error response with a generic error code indicating the
+    /// client is not authorized to set space parents.
+    pub fn unauthorized(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(400))
     }
 }
 
