@@ -637,7 +637,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
-        EventId, OwnedEventId, OwnedRoomId, RoomId,
+        EventId, OwnedEventId, OwnedRoomId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -997,12 +997,17 @@ mod private {
             self.state.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
         }
 
-        fn room_event_order(&self, event_pos: Position) -> Option<usize> {
+        pub(super) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
             self.state.room_linked_chunk.event_order(event_pos)
         }
     }
 
     impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
+        /// Returns a write reference to the underlying room linked chunk.
+        pub fn room_linked_chunk(&mut self) -> &mut EventLinkedChunk {
+            &mut self.state.room_linked_chunk
+        }
+
         /// Load more events backwards if the last chunk is **not** a gap.
         pub async fn load_more_events_backwards(
             &mut self,
@@ -1078,7 +1083,10 @@ mod private {
 
                 // Clear storage for this room.
                 self.store
-                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .handle_linked_chunk_updates(
+                        LinkedChunkId::Room(&self.state.room_id),
+                        vec![Update::Clear],
+                    )
                     .await?;
 
                 // Return the error.
@@ -1495,7 +1503,7 @@ mod private {
             // room's timeline has been cleared.
             let prev_gap_id = if let Some(token) = prev_token {
                 // Find the corresponding gap in the in-memory linked chunk.
-                let gap_chunk_id = self.room_linked_chunk.chunk_identifier(|chunk| {
+                let gap_chunk_id = self.state.room_linked_chunk.chunk_identifier(|chunk| {
                     matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
                 });
 
@@ -1672,12 +1680,11 @@ mod private {
         fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
+            let room_id = self.state.room_id.clone();
+            let linked_chunk_update_sender = self.state.linked_chunk_update_sender.clone();
+
             self.state.threads.entry(root_event_id.clone()).or_insert_with(|| {
-                ThreadEventCache::new(
-                    self.state.room_id.clone(),
-                    root_event_id,
-                    self.state.linked_chunk_update_sender.clone(),
-                )
+                ThreadEventCache::new(room_id, root_event_id, linked_chunk_update_sender)
             })
         }
 
@@ -2240,8 +2247,11 @@ mod tests {
         room_event_cache.save_events([associated_related_event]).await;
 
         let filter = Some(vec![RelationType::Replacement]);
-        let (event, related_events) =
-            room_event_cache.find_event_with_relations(original_id, filter).await.unwrap();
+        let (event, related_events) = room_event_cache
+            .find_event_with_relations(original_id, filter)
+            .await
+            .expect("Failed to find the event with relations")
+            .expect("Event has no relation");
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -2254,8 +2264,12 @@ mod tests {
 
         // Now we'll filter threads instead, there should be no related events
         let filter = Some(vec![RelationType::Thread]);
-        let (event, related_events) =
-            room_event_cache.find_event_with_relations(original_id, filter).await.unwrap();
+        let (event, related_events) = room_event_cache
+            .find_event_with_relations(original_id, filter)
+            .await
+            .expect("Failed to find the event with relations")
+            .expect("Event has no relation");
+
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -2299,8 +2313,11 @@ mod tests {
         // Save the associated related event, which redacts the related event.
         room_event_cache.save_events([associated_related_event]).await;
 
-        let (event, related_events) =
-            room_event_cache.find_event_with_relations(original_id, None).await.unwrap();
+        let (event, related_events) = room_event_cache
+            .find_event_with_relations(original_id, None)
+            .await
+            .expect("Failed to find the event with relations")
+            .expect("Event has no relation");
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -2527,7 +2544,7 @@ mod timed_tests {
 
         // The in-memory linked chunk keeps the bundled relation.
         {
-            let events = room_event_cache.events().await;
+            let events = room_event_cache.events().await.unwrap();
 
             assert_eq!(events.len(), 1);
 
@@ -2643,13 +2660,13 @@ mod timed_tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let (items, mut stream) = room_event_cache.subscribe().await;
+        let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // The rooms knows about all cached events.
         {
-            assert!(room_event_cache.find_event(event_id1).await.is_some());
-            assert!(room_event_cache.find_event(event_id2).await.is_some());
+            assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
+            assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());
         }
 
         // But only part of events are loaded from the store
@@ -2695,10 +2712,10 @@ mod timed_tests {
 
         // Events individually are not forgotten by the event cache, after clearing a
         // room.
-        assert!(room_event_cache.find_event(event_id1).await.is_some());
+        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
 
         // But their presence in a linked chunk is forgotten.
-        let items = room_event_cache.events().await;
+        let items = room_event_cache.events().await.unwrap();
         assert!(items.is_empty());
 
         // The event cache store too.
@@ -2803,7 +2820,7 @@ mod timed_tests {
             }
         );
 
-        let (items, mut stream) = room_event_cache.subscribe().await;
+        let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
 
         // The initial items contain one event because only the last chunk is loaded by
         // default.
@@ -2812,8 +2829,8 @@ mod timed_tests {
         assert!(stream.is_empty());
 
         // The event cache knows only all events though, even if they aren't loaded.
-        assert!(room_event_cache.find_event(event_id1).await.is_some());
-        assert!(room_event_cache.find_event(event_id2).await.is_some());
+        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
+        assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());
 
         // Let's paginate to load more events.
         room_event_cache.pagination().run_backwards_once(20).await.unwrap();
@@ -2853,7 +2870,7 @@ mod timed_tests {
         // when subscribing, to check that the items correspond to their new
         // positions. The duplicated item is removed (so it's not the first
         // element anymore), and it's added to the back of the list.
-        let items = room_event_cache.events().await;
+        let items = room_event_cache.events().await.unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id1);
         assert_eq!(items[1].event_id().unwrap(), event_id2);
@@ -2915,7 +2932,7 @@ mod timed_tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let items = room_event_cache.events().await;
+        let items = room_event_cache.events().await.unwrap();
 
         // Because the persisted content was invalid, the room store is reset: there are
         // no events in the cache.
@@ -2968,7 +2985,7 @@ mod timed_tests {
         );
 
         {
-            let mut state = room_event_cache.inner.state.write().await;
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
             let mut num_gaps = 0;
             let mut num_events = 0;
@@ -3029,7 +3046,7 @@ mod timed_tests {
         );
 
         {
-            let state = room_event_cache.inner.state.read().await;
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             let mut num_gaps = 0;
             let mut num_events = 0;
@@ -3066,9 +3083,13 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events chunks.
         {
-            let store = client.event_cache_store();
-            let store = store.lock().await.unwrap();
-            store
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
                 .handle_linked_chunk_updates(
                     LinkedChunkId::Room(room_id),
                     vec![
@@ -3104,7 +3125,7 @@ mod timed_tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
-        let (events, mut stream) = room_event_cache.subscribe().await;
+        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id().as_deref(), Some(evid2));
         assert!(stream.is_empty());
@@ -3140,6 +3161,7 @@ mod timed_tests {
             .state
             .write()
             .await
+            .unwrap()
             .force_shrink_to_last_chunk()
             .await
             .expect("shrinking should succeed");
@@ -3158,7 +3180,7 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         // When reading the events, we do get only the last one.
-        let events = room_event_cache.events().await;
+        let events = room_event_cache.events().await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id().as_deref(), Some(evid2));
 
@@ -3188,9 +3210,13 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events chunks.
         {
-            let store = client.event_cache_store();
-            let store = store.lock().await.unwrap();
-            store
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
                 .handle_linked_chunk_updates(
                     LinkedChunkId::Room(room_id),
                     vec![
@@ -3228,7 +3254,7 @@ mod timed_tests {
         // Initially, the linked chunk only contains the last chunk, so only ev3 is
         // loaded.
         {
-            let state = room_event_cache.inner.state.read().await;
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             // But we can get the order of ev1.
             assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
@@ -3254,7 +3280,7 @@ mod timed_tests {
         // All events are now loaded, so their order is precisely their enumerated index
         // in a linear iteration.
         {
-            let state = room_event_cache.inner.state.read().await;
+            let state = room_event_cache.inner.state.read().await.unwrap();
             for (i, (pos, _)) in state.room_linked_chunk().events().enumerate() {
                 assert_eq!(state.room_event_order(pos), Some(i));
             }
@@ -3279,7 +3305,7 @@ mod timed_tests {
             .unwrap();
 
         {
-            let state = room_event_cache.inner.state.read().await;
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             // After the shrink, only evid3 and evid4 are loaded.
             let mut events = state.room_linked_chunk().events();
@@ -3321,9 +3347,13 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events chunks.
         {
-            let store = client.event_cache_store();
-            let store = store.lock().await.unwrap();
-            store
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
                 .handle_linked_chunk_updates(
                     LinkedChunkId::Room(room_id),
                     vec![
@@ -3359,7 +3389,7 @@ mod timed_tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
-        let (events1, mut stream1) = room_event_cache.subscribe().await;
+        let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events1.len(), 1);
         assert_eq!(events1[0].event_id().as_deref(), Some(evid2));
         assert!(stream1.is_empty());
@@ -3385,7 +3415,7 @@ mod timed_tests {
         // Have another subscriber.
         // Since it's not the first one, and the previous one loaded some more events,
         // the second subscribers sees them all.
-        let (events2, stream2) = room_event_cache.subscribe().await;
+        let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
         assert_eq!(events2[0].event_id().as_deref(), Some(evid1));
         assert_eq!(events2[1].event_id().as_deref(), Some(evid2));
@@ -3406,12 +3436,12 @@ mod timed_tests {
 
         {
             // Check the inner state: there's no more shared auto-shrinker.
-            let state = room_event_cache.inner.state.read().await;
-            assert_eq!(state.subscriber_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+            let state = room_event_cache.inner.state.read().await.unwrap();
+            assert_eq!(state.subscriber_count().load(std::sync::atomic::Ordering::SeqCst), 0);
         }
 
         // Getting the events will only give us the latest chunk.
-        let events3 = room_event_cache.events().await;
+        let events3 = room_event_cache.events().await.unwrap();
         assert_eq!(events3.len(), 1);
         assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
     }
@@ -3440,9 +3470,13 @@ mod timed_tests {
         // Fill the event cache store with an initial linked chunk of 2 chunks, and 4
         // events.
         {
-            let store = client.event_cache_store();
-            let store = store.lock().await.unwrap();
-            store
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
                 .handle_linked_chunk_updates(
                     LinkedChunkId::Room(room_id),
                     vec![
@@ -3484,7 +3518,7 @@ mod timed_tests {
                     (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
-            Some(event_id) => {
+            Ok(Some(event_id)) => {
                 assert_eq!(event_id.as_deref(), Some(event_id_0));
             }
         );
@@ -3497,7 +3531,7 @@ mod timed_tests {
                     (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
-            Some(event_id) => {
+            Ok(Some(event_id)) => {
                 assert_eq!(event_id.as_deref(), Some(event_id_2));
             }
         );
@@ -3511,10 +3545,13 @@ mod timed_tests {
                     .then(|| event.event_id())
                 })
                 .await
+                .unwrap()
                 .is_none()
         );
 
         // Look for an event that doesn't exist.
-        assert!(room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.is_none());
+        assert!(
+            room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.unwrap().is_none()
+        );
     }
 }
