@@ -1248,6 +1248,15 @@ mod private {
 
             Ok(lock_guard.get_or_reload_thread(root).load_more_events_backwards())
         }
+
+        pub async fn save_events(
+            &mut self,
+            events: impl IntoIterator<Item = Event>,
+        ) -> Result<(), EventCacheError> {
+            let mut lock_guard = self.locked_state.write().await?;
+
+            lock_guard.save_events(events).await
+        }
     }
 
     impl<'a> RoomEventCacheStateLockReadGuard<'a> {
