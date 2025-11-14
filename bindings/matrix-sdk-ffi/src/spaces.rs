@@ -87,6 +87,28 @@ impl SpaceService {
         Ok(Arc::new(SpaceRoomList::new(self.inner.space_room_list(space_id).await)))
     }
 
+    pub async fn add_child_to_space(
+        &self,
+        child_id: String,
+        space_id: String,
+    ) -> Result<(), ClientError> {
+        let space_id = RoomId::parse(space_id)?;
+        let child_id = RoomId::parse(child_id)?;
+
+        self.inner.add_child_to_space(child_id, space_id).await.map_err(ClientError::from)
+    }
+
+    pub async fn remove_child_from_space(
+        &self,
+        child_id: String,
+        space_id: String,
+    ) -> Result<(), ClientError> {
+        let space_id = RoomId::parse(space_id)?;
+        let child_id = RoomId::parse(child_id)?;
+
+        self.inner.remove_child_from_space(child_id, space_id).await.map_err(ClientError::from)
+    }
+
     /// Start a space leave process returning a [`LeaveSpaceHandle`] from which
     /// rooms can be retrieved in reversed BFS order starting from the requested
     /// `space_id` graph node. If the room is unknown then an error will be
