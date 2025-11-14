@@ -15,7 +15,7 @@
 //! Unit tests (based on private methods) for the timeline API.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::HashMap,
     ops::Sub,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -29,36 +29,26 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     BoxFuture,
     config::RequestConfig,
-    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, PaginatorError, thread::PaginableThread},
-    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
+    room::{EventWithContextResponse, Messages, MessagesOptions, Relations},
     send_queue::RoomSendQueueUpdate,
 };
 use matrix_sdk_base::{
-    RoomInfo, RoomState,
-    crypto::{
-        DecryptionSettings, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
-        types::events::CryptoContextInfo,
-    },
-    latest_event::LatestEvent,
+    RoomInfo, RoomState, crypto::types::events::CryptoContextInfo, latest_event::LatestEvent,
 };
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, TransactionId, UInt, UserId, assign,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId, UInt, UserId,
     events::{
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::{Annotation, RelationType},
     },
-    int,
-    power_levels::NotificationPowerLevels,
-    push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
-    room_id,
-    room_version_rules::{AuthorizationRules, RoomPowerLevelsRules, RoomVersionRules},
+    room_version_rules::RoomVersionRules,
     serde::Raw,
-    uint,
 };
 use tokio::sync::RwLock;
 
@@ -68,8 +58,7 @@ use super::{
     event_item::RemoteEventOrigin, traits::RoomDataProvider,
 };
 use crate::{
-    timeline::{pinned_events_loader::PinnedEventsRoom, traits::Decryptor},
-    unable_to_decrypt_hook::UtdHookManager,
+    timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,
 };
 
 mod basic;
@@ -268,13 +257,6 @@ struct TestRoomDataProvider {
 
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
-
-    /// The [`EncryptionInfo`] describing the Megolm sessions that were used to
-    /// encrypt events.
-    pub encryption_info: HashMap<String, Arc<EncryptionInfo>>,
-
-    /// If we are going to do event decryption, the decryptor that does it.
-    pub decryptor: Option<TestDecryptor>,
 }
 
 impl TestRoomDataProvider {
@@ -285,20 +267,6 @@ impl TestRoomDataProvider {
 
     fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
         self.fully_read_marker = Some(event_id);
-        self
-    }
-
-    fn with_encryption_info(
-        mut self,
-        session_id: &str,
-        encryption_info: Arc<EncryptionInfo>,
-    ) -> Self {
-        self.encryption_info.insert(session_id.to_owned(), encryption_info);
-        self
-    }
-
-    fn with_decryptor(mut self, decryptor: TestDecryptor) -> Self {
-        self.decryptor = Some(decryptor);
         self
     }
 }
@@ -414,26 +382,6 @@ impl RoomDataProvider for TestRoomDataProvider {
         map
     }
 
-    async fn push_context(&self) -> Option<PushContext> {
-        let push_rules = Ruleset::server_default(self.own_user_id());
-        let power_levels = PushConditionPowerLevelsCtx::new(
-            BTreeMap::new(),
-            int!(0),
-            NotificationPowerLevels::new(),
-            RoomPowerLevelsRules::new(&AuthorizationRules::V1, None),
-        );
-        let push_condition_room_ctx = assign!(
-            PushConditionRoomCtx::new(
-                room_id!("!my_room:server.name").to_owned(),
-                uint!(2),
-                self.own_user_id().to_owned(),
-                "Alice".to_owned(),
-            ),
-            { power_levels: Some(power_levels) }
-        );
-        Some(PushContext::new(push_condition_room_ctx, push_rules))
-    }
-
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
         self.fully_read_marker.clone()
     }
@@ -458,78 +406,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         SharedObservable::new(info).subscribe()
     }
 
-    async fn get_encryption_info(
-        &self,
-        session_id: &str,
-        _sender: &UserId,
-    ) -> Option<Arc<EncryptionInfo>> {
-        self.encryption_info.get(session_id).cloned()
-    }
-
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
         unimplemented!();
-    }
-}
-
-impl Decryptor for TestRoomDataProvider {
-    async fn decrypt_event_impl(
-        &self,
-        raw: &Raw<AnySyncTimelineEvent>,
-        push_ctx: Option<&PushContext>,
-    ) -> matrix_sdk::Result<TimelineEvent> {
-        let Some(decryptor) = &self.decryptor else {
-            panic!(
-                "No TestDecryptor supplied! Use TestRoomDataProvider::with_decryptor to provide one."
-            )
-        };
-
-        decryptor.decrypt_event_impl(raw, push_ctx).await
-    }
-}
-
-#[derive(Clone, Debug)]
-struct TestDecryptor {
-    room_id: OwnedRoomId,
-    olm_machine: OlmMachine,
-}
-
-impl TestDecryptor {
-    fn new(room_id: &RoomId, olm_machine: &OlmMachine) -> Self {
-        Self { room_id: room_id.to_owned(), olm_machine: olm_machine.clone() }
-    }
-}
-
-impl Decryptor for TestDecryptor {
-    async fn decrypt_event_impl(
-        &self,
-        raw: &Raw<AnySyncTimelineEvent>,
-        push_ctx: Option<&PushContext>,
-    ) -> matrix_sdk::Result<TimelineEvent> {
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-
-        match self
-            .olm_machine
-            .try_decrypt_room_event(raw.cast_ref_unchecked(), &self.room_id, &decryption_settings)
-            .await?
-        {
-            RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let push_actions = if let Some(push_ctx) = push_ctx {
-                    Some(push_ctx.for_event(&decrypted.event).await)
-                } else {
-                    None
-                };
-                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
-            }
-            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                Ok(TimelineEvent::from_utd(raw.clone(), utd_info))
-            }
-        }
-    }
-}
-
-impl<P: RoomDataProvider> TimelineController<P> {
-    pub(super) async fn retry_event_decryption_test(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(session_ids).await
     }
 }

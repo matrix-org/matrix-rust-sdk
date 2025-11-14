@@ -27,13 +27,10 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     self, Client, assert_next_matches_with_timeout, assert_next_with_timeout,
-    deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationLevel, VerificationState,
-    },
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{
-    crypto::{OlmMachine, decrypt_room_key_export, types::events::UtdCause},
+    crypto::{decrypt_room_key_export, types::events::UtdCause},
     deserialized_responses::{TimelineEvent, UnableToDecryptReason},
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -43,7 +40,7 @@ use ruma::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    owned_device_id, room_id,
+    room_id,
     serde::Raw,
     user_id,
 };
@@ -56,7 +53,6 @@ use crate::{
     timeline::{
         EncryptedMessage, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
         TimelineItemContent,
-        tests::{TestDecryptor, TestRoomDataProvider, TestTimelineBuilder},
     },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
@@ -424,17 +420,6 @@ async fn test_retry_edit_decryption() {
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
 
-    let item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
-
-    // TODO: We receive this update twice, since the event cache decrypts things as
-    // well as the timeline.
-    assert_matches!(item.encryption_info(), Some(_));
-    assert_matches!(item.latest_edit_json(), Some(_));
-    assert_let!(Some(msg) = item.content().as_message());
-    assert!(msg.is_edited());
-    assert_eq!(msg.body(), "This is Error");
-
     // (There are no more items)
     assert_pending!(stream);
 }
@@ -473,38 +458,35 @@ async fn test_retry_edit_and_more() {
         )
     }
 
-    let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
+    let room_id = room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org");
+    let (client, server, event_factory) = get_client(room_id, None).await;
 
-    let timeline = TestTimelineBuilder::new()
-        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
-            room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
-            &olm_machine,
-        )))
-        .build();
-
-    let f = &timeline.factory;
-    let mut stream = timeline.subscribe().await;
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe_filter_map(|e| e.as_event().cloned()).await;
 
     // Given the timeline contains an event and an edit of that event, and another
     // event, all UTD.
 
-    timeline
-        .handle_live_event(
-            f.event(encrypted_message(
-                "AwgDEoABQsTrPTYDh22PTmfODR9EucX3qLl3buDcahHPjKJA8QIM+wW0s+e08Zi7/JbLdnZL1VL\
+    let event = event_factory
+        .event(encrypted_message(
+            "AwgDEoABQsTrPTYDh22PTmfODR9EucX3qLl3buDcahHPjKJA8QIM+wW0s+e08Zi7/JbLdnZL1VL\
                  jO47HcRhxDTyHZPXPg8wd1l0Qb3irjnCnS7LFAc98+ko18CFJUGNeRZZwzGiorKK5VLMv0WQZI8\
                  mBZdKIaqDTUBFvcvbn2gQaWtUipQdJQRKyv2h0AWveVkv75lp5hRb7jolCi08oMX8cM+V3Zzyi7\
                  mlPAzZjDz0PaRbQwfbMTTHkcL7TZybBi4vLX4f5ZR2Iiysc7gw",
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+        ))
+        .sender(&BOB)
+        .event_id(event_id!("$event1:termina.org.uk"));
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+        })
         .await;
 
     let event_id =
         assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => value)
-            .as_event()
-            .unwrap()
             .event_id()
             .unwrap()
             .to_owned();
@@ -516,64 +498,80 @@ async fn test_retry_edit_and_more() {
          dRu2LPArXc5K/1GBSyfluSrdQuA9DciLwVHJB9NwvbZ/7flIkaOC7ahahmk2ws+QeSz8MmHt+9QityK3ZUB\
          4uEzsQ0",
     );
-    timeline
-        .handle_live_event(
-            f.event(assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) }))
-                .sender(&BOB)
-                .into_utd_sync_timeline_event(),
-        )
-        .await;
 
-    timeline
-        .handle_live_event(
-            f.event(encrypted_message(
-                "AwgFEoABUAwzBLYStHEa1RaZtojePQ6sue9terXNMFufeLKci/UcpOpZC9o3lDxp9rxlNjk4Ii+\
+    let event = event_factory
+        .event(assign!(msg2, {relates_to: Some(Relation::Replacement(Replacement::new(event_id)))}))
+        .sender(&BOB)
+        .event_id(event_id!("$event2:termina.org.uk"));
+    let second_event = event_factory
+        .event(encrypted_message(
+            "AwgFEoABUAwzBLYStHEa1RaZtojePQ6sue9terXNMFufeLKci/UcpOpZC9o3lDxp9rxlNjk4Ii+\
                  fkOeSClib/qxt+wLszeQZVa04bRr6byK1dOhlptvAPjUCcEsaHyMMR1AnjT2vmFlJRGviwN6cvQ\
                  2r/fEvAW/9QB+N6fX4g9729bt5ftXRqa5QI7NA351RNUveRHxVvx+2x0WJArQjYGRk7tMS2rUto\
                  IYt2ZY17nE1UJjN7M87STnCF9c9qy4aGNqIpeVIht6XbtgD7gQ",
-            ))
-            .sender(&BOB)
-            .into_utd_sync_timeline_event(),
-        )
+        ))
+        .sender(&BOB)
+        .event_id(event_id!("$event3:termina.org.uk"));
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(event)
+                    .add_timeline_event(second_event),
+            );
+        })
         .await;
 
     // Sanity: these events were added to the timeline
-    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { .. });
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, .. });
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { .. });
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, .. });
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { .. });
+
+    // We have 4 items, 3 UTDs and a date divider.
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 4);
+    assert!(items[0].is_date_divider());
 
     let keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "testing").unwrap();
-    olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
-
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
+    client
+        .olm_machine_for_testing()
+        .await
+        .as_ref()
+        .unwrap()
+        .store()
+        .import_exported_room_keys(keys, |_, _| {})
+        .await
+        .unwrap();
 
     // Then first, the original item got decrypted
-    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
 
     // And second, the edit was decrypted, resulting in us replacing the
     // original+edit with one item
-    let edited_item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
-    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
+    let edited_event =
+        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 1 });
 
-    let edited_event = edited_item.as_event().unwrap();
     assert!(edited_event.latest_edit_json().is_some());
     assert_eq!(edited_event.content().as_message().unwrap().body(), "edited");
 
     // And third, the last item was decrypted
     let normal_item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index:2, value } => value);
+        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index:1, value } => value);
 
-    assert_eq!(
-        normal_item.as_event().unwrap().content().as_message().unwrap().body(),
-        "Another message"
-    );
+    assert_eq!(normal_item.content().as_message().unwrap().body(), "Another message");
 
     // (There are no more items)
     assert_pending!(stream);
+
+    let items = timeline.items().await;
+
+    // We're left with 3 items, the zeroth one is the date divider and the next two
+    // are the messages.
+    assert!(items[0].is_date_divider());
+    assert_eq!(items.len(), 3);
 }
 
 #[async_test]
@@ -661,7 +659,7 @@ async fn test_retry_message_decryption_highlighted() {
         .await
         .unwrap();
 
-    timeline.controller.retry_event_decryption_test(None).await;
+    timeline.controller.retry_event_decryption(None).await;
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 
@@ -672,110 +670,6 @@ async fn test_retry_message_decryption_highlighted() {
     assert_let!(Some(message) = event.content().as_message());
     assert_eq!(message.body(), "A secret to everybody but Willow");
     assert!(event.is_highlighted());
-}
-
-#[async_test]
-async fn test_retry_fetching_encryption_info() {
-    const SESSION_ID: &str = "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY";
-    let sender = user_id!("@sender:s.co");
-    let room_id = room_id!("!room:s.co");
-
-    let own_user_id = user_id!("@me:s.co");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
-
-    // Given when I ask the room for new encryption info for any session, it will
-    // say "verified"
-    let verified_encryption_info = make_encryption_info(SESSION_ID, VerificationState::Verified);
-
-    let provider = TestRoomDataProvider::default()
-        .with_encryption_info(SESSION_ID, verified_encryption_info)
-        .with_decryptor(TestDecryptor::new(room_id, &olm_machine));
-
-    let timeline = TestTimelineBuilder::new().provider(provider).build();
-
-    let f = &timeline.factory;
-    let mut stream = timeline.subscribe_events().await;
-
-    // But right now the timeline contains 2 events whose info says "unverified"
-    // One is linked to SESSION_ID, the other is linked to some other session.
-    let timeline_event_this_session = TimelineEvent::from_decrypted(
-        DecryptedRoomEvent {
-            event: f.text_msg("foo").sender(sender).room(room_id).into_raw(),
-            encryption_info: make_encryption_info(
-                SESSION_ID,
-                VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-            ),
-            unsigned_encryption_info: None,
-        },
-        None,
-    );
-    let timeline_event_other_session = TimelineEvent::from_decrypted(
-        DecryptedRoomEvent {
-            event: f.text_msg("foo").sender(sender).room(room_id).into_raw(),
-            encryption_info: make_encryption_info(
-                "other_session_id",
-                VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-            ),
-            unsigned_encryption_info: None,
-        },
-        None,
-    );
-    timeline.handle_live_event(timeline_event_this_session).await;
-    timeline.handle_live_event(timeline_event_other_session).await;
-
-    // Sanity: the events come through as unverified
-    assert_eq!(timeline.controller.items().await.len(), 3);
-    {
-        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
-        assert_matches!(
-            fetched_encryption_info.verification_state,
-            VerificationState::Unverified(_)
-        );
-    }
-    {
-        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
-        assert_matches!(
-            fetched_encryption_info.verification_state,
-            VerificationState::Unverified(_)
-        );
-    }
-
-    // When we retry the session with ID SESSION_ID
-    timeline
-        .controller
-        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
-        .await;
-
-    // Then the event in that session has been updated to be verified
-    let event =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
-
-    let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
-    assert_matches!(fetched_encryption_info.verification_state, VerificationState::Verified);
-
-    assert_eq!(timeline.controller.items().await.len(), 3);
-
-    // But the other one is unchanged because it was for a different session - no
-    // other updates are waiting
-    assert_pending!(stream);
-}
-
-fn make_encryption_info(
-    session_id: &str,
-    verification_state: VerificationState,
-) -> Arc<EncryptionInfo> {
-    Arc::new(EncryptionInfo {
-        sender: BOB.to_owned(),
-        sender_device: Some(owned_device_id!("BOBDEVICE")),
-        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-            curve25519_key: Default::default(),
-            sender_claimed_keys: Default::default(),
-            session_id: Some(session_id.to_owned()),
-        },
-        verification_state,
-    })
 }
 
 #[async_test]
