@@ -73,6 +73,8 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         // The item is an encrypted event! It has been stored before having a chance to
         // be decrypted. Damn. We want to see if decryption will trigger automatically.
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -212,6 +214,8 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         // chance to be decrypted. Damn. We want to see if decryption will trigger
         // automatically.
         event_cache_store
+            .as_clean()
+            .unwrap()
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![

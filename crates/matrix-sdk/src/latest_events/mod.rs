@@ -1154,7 +1154,9 @@ mod tests {
                 .event_cache_store()
                 .lock()
                 .await
-                .unwrap()
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
                 .handle_linked_chunk_updates(
                     LinkedChunkId::Room(&room_id),
                     vec![

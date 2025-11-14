@@ -42,7 +42,7 @@ use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
         Gap,
-        store::{EventCacheStoreError, EventCacheStoreLock},
+        store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
     },
     executor::AbortOnDrop,
     linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
@@ -51,7 +51,6 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_common::executor::{JoinHandle, spawn};
-use room::RoomEventCacheState;
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
     serde::Raw,
@@ -69,6 +68,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 use crate::{
     Client,
     client::WeakClient,
+    event_cache::room::RoomEventCacheStateLock,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
@@ -374,7 +374,13 @@ impl EventCache {
             };
 
             trace!("waiting for state lock…");
-            let mut state = room.inner.state.write().await;
+            let mut state = match room.inner.state.write().await {
+                Ok(state) => state,
+                Err(err) => {
+                    warn!(for_room = %room_id, "Failed to get the `RoomEventCacheStateLock`: {err}");
+                    continue;
+                }
+            };
 
             match state.auto_shrink_if_no_subscribers().await {
                 Ok(diffs) => {
@@ -900,12 +906,17 @@ impl EventCacheInner {
         .await;
 
         // Clear the storage for all the rooms, using the storage facility.
-        self.store.lock().await?.clear_all_linked_chunks().await?;
+        let store_guard = match self.store.lock().await? {
+            EventCacheStoreLockState::Clean(store_guard) => store_guard,
+            EventCacheStoreLockState::Dirty(store_guard) => store_guard,
+        };
+        store_guard.clear_all_linked_chunks().await?;
 
         // At this point, all the in-memory linked chunks are desynchronized from the
         // storage. Resynchronize them manually by calling reset(), and
         // propagate updates to observers.
-        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
+        try_join_all(room_locks.into_iter().map(|(room, state_guard)| async move {
+            let mut state_guard = state_guard?;
             let updates_as_vector_diffs = state_guard.reset().await?;
 
             let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
@@ -1005,7 +1016,7 @@ impl EventCacheInner {
                     ThreadingSupport::Enabled { .. }
                 );
 
-                let room_state = RoomEventCacheState::new(
+                let room_state = RoomEventCacheStateLock::new(
                     room_id.to_owned(),
                     room_version_rules,
                     enabled_thread_support,
@@ -1016,7 +1027,7 @@ impl EventCacheInner {
                 .await?;
 
                 let timeline_is_not_empty =
-                    room_state.room_linked_chunk().revents().next().is_some();
+                    room_state.read().await?.room_linked_chunk().revents().next().is_some();
 
                 // SAFETY: we must have subscribed before reaching this code, otherwise
                 // something is very wrong.
@@ -1214,7 +1225,7 @@ mod tests {
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-        let (events, mut stream) = room_event_cache.subscribe().await;
+        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
         assert!(events.is_empty());
 
@@ -1300,15 +1311,15 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
 
-        let found1 = room_event_cache.find_event(eid1).await.unwrap();
+        let found1 = room_event_cache.find_event(eid1).await.unwrap().unwrap();
         assert_event_matches_msg(&found1, "hey");
 
-        let found2 = room_event_cache.find_event(eid2).await.unwrap();
+        let found2 = room_event_cache.find_event(eid2).await.unwrap().unwrap();
         assert_event_matches_msg(&found2, "you");
 
         // Retrieving the event with id3 from the room which doesn't contain it will
         // fail…
-        assert!(room_event_cache.find_event(eid3).await.is_none());
+        assert!(room_event_cache.find_event(eid3).await.unwrap().is_none());
     }
 
     #[async_test]
@@ -1329,7 +1340,7 @@ mod tests {
         room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
 
         // Retrieving the event at the room-wide cache works.
-        assert!(room_event_cache.find_event(event_id).await.is_some());
+        assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
     }
 
     #[async_test]
@@ -1352,7 +1363,9 @@ mod tests {
             .event_cache_store()
             .lock()
             .await
-            .unwrap()
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id_0),
                 vec![
@@ -1417,7 +1430,9 @@ mod tests {
             .event_cache_store()
             .lock()
             .await
-            .unwrap()
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![

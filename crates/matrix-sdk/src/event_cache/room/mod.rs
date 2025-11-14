@@ -1008,6 +1008,10 @@ mod private {
             &mut self.state.room_linked_chunk
         }
 
+        pub fn waited_for_initial_prev_token(&self) -> &Arc<AtomicBool> {
+            &self.state.waited_for_initial_prev_token
+        }
+
         /// Load more events backwards if the last chunk is **not** a gap.
         pub async fn load_more_events_backwards(
             &mut self,

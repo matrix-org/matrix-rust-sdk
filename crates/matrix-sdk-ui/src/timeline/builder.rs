@@ -164,7 +164,7 @@ impl TimelineBuilder {
         room.client().event_cache().subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
-        let (_, event_subscriber) = room_event_cache.subscribe().await;
+        let (_, event_subscriber) = room_event_cache.subscribe().await.unwrap();
 
         let is_room_encrypted = room
             .latest_encryption_state()
@@ -209,36 +209,36 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
-        let thread_update_join_handle = if let TimelineFocus::Thread { root_event_id: root } =
-            &focus
-        {
-            Some({
-                let span = info_span!(
-                    parent: Span::none(),
-                    "thread_live_update_handler",
-                    room_id = ?room.room_id(),
-                    focus = focus.debug_string(),
-                    prefix = internal_id_prefix
-                );
-                span.follows_from(Span::current());
+        let thread_update_join_handle =
+            if let TimelineFocus::Thread { root_event_id: root } = &focus {
+                Some({
+                    let span = info_span!(
+                        parent: Span::none(),
+                        "thread_live_update_handler",
+                        room_id = ?room.room_id(),
+                        focus = focus.debug_string(),
+                        prefix = internal_id_prefix
+                    );
+                    span.follows_from(Span::current());
 
-                // Note: must be done here *before* spawning the task, to avoid race conditions
-                // with event cache updates happening in the background.
-                let (_events, receiver) = room_event_cache.subscribe_to_thread(root.clone()).await;
+                    // Note: must be done here *before* spawning the task, to avoid race conditions
+                    // with event cache updates happening in the background.
+                    let (_events, receiver) =
+                        room_event_cache.subscribe_to_thread(root.clone()).await.unwrap();
 
-                spawn(
-                    thread_updates_task(
-                        receiver,
-                        room_event_cache.clone(),
-                        controller.clone(),
-                        root.clone(),
+                    spawn(
+                        thread_updates_task(
+                            receiver,
+                            room_event_cache.clone(),
+                            controller.clone(),
+                            root.clone(),
+                        )
+                        .instrument(span),
                     )
-                    .instrument(span),
-                )
-            })
-        } else {
-            None
-        };
+                })
+            } else {
+                None
+            };
 
         let local_echo_listener_handle = {
             let timeline_controller = controller.clone();

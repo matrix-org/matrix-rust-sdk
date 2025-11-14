@@ -185,12 +185,12 @@ impl RoomPagination {
         // there's no previous events chunk to load.
 
         loop {
-            let mut state_guard = self.inner.state.write().await;
+            let mut state_guard = self.inner.state.write().await?;
 
             match state_guard.load_more_events_backwards().await? {
                 LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
                     if prev_token.is_none()
-                        && !state_guard.waited_for_initial_prev_token.load(Ordering::SeqCst)
+                        && !state_guard.waited_for_initial_prev_token().load(Ordering::SeqCst)
                     {
                         // We didn't reload a pagination token, and we haven't waited for one; wait
                         // and start over.
@@ -213,8 +213,8 @@ impl RoomPagination {
                         self.inner
                             .state
                             .write()
-                            .await
-                            .waited_for_initial_prev_token
+                            .await?
+                            .waited_for_initial_prev_token()
                             .store(true, Ordering::SeqCst);
 
                         // Retry!
@@ -306,7 +306,7 @@ impl RoomPagination {
             .inner
             .state
             .write()
-            .await
+            .await?
             .handle_backpagination(events, new_token, prev_token)
             .await?
         {
