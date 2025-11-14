@@ -36,17 +36,18 @@ use itertools::Itertools;
 use matrix_sdk::{
     Client, Error as SDKError, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop,
 };
+use matrix_sdk_base::deserialized_responses::RawSyncOrStrippedState;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId, RoomId,
     events::{
-        self, SyncStateEvent,
+        self, StateEventType, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
@@ -62,6 +63,14 @@ pub enum Error {
     /// The requested room was not found.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
+
+    /// The space parent/child state was missing.
+    #[error("Missing `{0}` for `{1}`")]
+    MissingState(StateEventType, OwnedRoomId),
+
+    /// The space parent/child state was missing.
+    #[error("Failed updating space parent/child relationship")]
+    UpdateRelationship(SDKError),
 
     /// Failed to leave a space.
     #[error("Failed to leave space")]
@@ -202,6 +211,91 @@ impl SpaceService {
     /// Returns a `SpaceRoomList` for the given space ID.
     pub async fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id).await
+    }
+
+    pub async fn add_child_to_space(
+        &self,
+        child_id: OwnedRoomId,
+        space_id: OwnedRoomId,
+    ) -> Result<(), Error> {
+        let Some(space_room) = self.client.get_room(&space_id) else {
+            return Err(Error::RoomNotFound(space_id.to_owned()));
+        };
+        let Some(child_room) = self.client.get_room(&child_id) else {
+            return Err(Error::RoomNotFound(child_id.to_owned()));
+        };
+
+        let child_route =
+            child_room.route().await.map_err(|error| Error::UpdateRelationship(error))?;
+        space_room
+            .send_state_event_for_key(&child_id, SpaceChildEventContent::new(child_route))
+            .await
+            .map_err(|error| Error::UpdateRelationship(error))?;
+
+        if let Ok(parent_route) =
+            space_room.route().await.map_err(|error| Error::UpdateRelationship(error))
+            && let Err(error) = child_room
+                .send_state_event_for_key(&space_id, SpaceParentEventContent::new(parent_route))
+                .await
+        {
+            // As long as the space child is set, the room's parent is a best effort.
+            warn!("Failed to set space parent event on the child: {error}");
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_child_from_space(
+        &self,
+        child_id: OwnedRoomId,
+        space_id: OwnedRoomId,
+    ) -> Result<(), Error> {
+        let Some(space_room) = self.client.get_room(&space_id) else {
+            return Err(Error::RoomNotFound(space_id.to_owned()));
+        };
+        let Some(child_room) = self.client.get_room(&child_id) else {
+            return Err(Error::RoomNotFound(child_id.to_owned()));
+        };
+
+        let Ok(child_event) =
+            space_room.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child_id).await
+        else {
+            return Err(Error::MissingState(StateEventType::SpaceChild, child_id));
+        };
+        if let Some(RawSyncOrStrippedState::Sync(raw_event)) = child_event {
+            match raw_event.deserialize() {
+                Ok(event) => {
+                    space_room.redact(event.event_id(), None, None).await.map_err(|error| {
+                        Error::UpdateRelationship(matrix_sdk::Error::Http(Box::new(error)))
+                    })?;
+                }
+                Err(error) => {
+                    warn!("Failed to deserialize space child event: {error}");
+                }
+            }
+        }
+
+        let Ok(parent_event) = child_room
+            .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
+            .await
+        else {
+            return Err(Error::MissingState(StateEventType::SpaceParent, space_id));
+        };
+
+        if let Some(RawSyncOrStrippedState::Sync(raw_event)) = parent_event {
+            match raw_event.deserialize() {
+                Ok(event) => {
+                    child_room.redact(event.event_id(), None, None).await.map_err(|error| {
+                        Error::UpdateRelationship(matrix_sdk::Error::Http(Box::new(error)))
+                    })?;
+                }
+                Err(error) => {
+                    warn!("Failed to deserialize space parent event: {error}");
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Start a space leave process returning a [`LeaveSpaceHandle`] from which
@@ -500,10 +594,10 @@ mod tests {
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)].into()
         );
 
-        assert_eq!(
-            space_service.joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
-        );
+        assert_eq!(space_service.joined_spaces().await, vec![SpaceRoom::new_from_known(
+            &client.get_room(first_space_id).unwrap(),
+            0
+        )]);
 
         // And the stream is still pending as the initial values were
         // already set.
@@ -528,44 +622,26 @@ mod tests {
             .await;
 
         // And expect the list to update
-        assert_eq!(
-            space_service.joined_spaces().await,
-            vec![
+        assert_eq!(space_service.joined_spaces().await, vec![
+            SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
+            SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
+        ]);
+
+        assert_next_eq!(joined_spaces_subscriber, vec![VectorDiff::Clear, VectorDiff::Append {
+            values: vec![
                 SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
                 SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
             ]
-        );
-
-        assert_next_eq!(
-            joined_spaces_subscriber,
-            vec![
-                VectorDiff::Clear,
-                VectorDiff::Append {
-                    values: vec![
-                        SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
-                        SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
-                    ]
-                    .into()
-                },
-            ]
-        );
+            .into()
+        },]);
 
         server.sync_room(&client, LeftRoomBuilder::new(second_space_id)).await;
 
         // and when one is left
-        assert_next_eq!(
-            joined_spaces_subscriber,
-            vec![
-                VectorDiff::Clear,
-                VectorDiff::Append {
-                    values: vec![SpaceRoom::new_from_known(
-                        &client.get_room(first_space_id).unwrap(),
-                        0
-                    )]
-                    .into()
-                },
-            ]
-        );
+        assert_next_eq!(joined_spaces_subscriber, vec![VectorDiff::Clear, VectorDiff::Append {
+            values: vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
+                .into()
+        },]);
 
         // but it doesn't when a non-space room gets joined
         server
@@ -578,10 +654,10 @@ mod tests {
 
         // and the subscriber doesn't yield any updates
         assert_pending!(joined_spaces_subscriber);
-        assert_eq!(
-            space_service.joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
-        );
+        assert_eq!(space_service.joined_spaces().await, vec![SpaceRoom::new_from_known(
+            &client.get_room(first_space_id).unwrap(),
+            0
+        )]);
     }
 
     #[async_test]
@@ -609,15 +685,12 @@ mod tests {
 
         // Space with an `order` field set should come first in lexicographic
         // order and rest sorted by room ID.
-        assert_eq!(
-            space_service.joined_spaces().await,
-            vec![
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
-            ]
-        );
+        assert_eq!(space_service.joined_spaces().await, vec![
+            SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0),
+            SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0),
+            SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
+            SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
+        ]);
     }
 
     async fn add_space_rooms_with(
