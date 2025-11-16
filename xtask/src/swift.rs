@@ -42,6 +42,12 @@ enum SwiftCommand {
         #[clap(long)]
         target: Option<Vec<String>>,
 
+        /// Includes the Tier 3 targets (such as watchOS) when building all
+        /// supported targets. Requires a nightly toolchain with the `rust-src`
+        /// component installed.
+        #[clap(long)]
+        tier3_targets: bool,
+
         /// Move the generated xcframework and swift sources into the given
         /// components-folder
         #[clap(long)]
@@ -53,6 +59,13 @@ enum SwiftCommand {
         /// default values provided by the Rust and Xcode toolchains.
         #[clap(long)]
         ios_deployment_target: Option<String>,
+
+        /// The wachOS deployment target to use when building the framework.
+        ///
+        /// Defaults to not being set, which implies that the build will use the
+        /// default values provided by the Rust and Xcode toolchains.
+        #[clap(long)]
+        watchos_deployment_target: Option<String>,
 
         /// Build the targets one by one instead of passing all of them
         /// to cargo in one go, which makes it hang on lesser devices like plain
@@ -72,10 +85,12 @@ impl SwiftArgs {
             SwiftCommand::BuildFramework {
                 release,
                 profile,
-                components_path,
                 target: targets,
-                sequentially,
+                tier3_targets,
+                components_path,
                 ios_deployment_target,
+                watchos_deployment_target,
+                sequentially,
             } => {
                 // The dev profile seems to cause crashes on some platforms so we default to
                 // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
@@ -84,9 +99,11 @@ impl SwiftArgs {
                 build_xcframework(
                     profile,
                     targets,
+                    tier3_targets,
                     components_path,
                     sequentially,
                     ios_deployment_target.as_deref(),
+                    watchos_deployment_target.as_deref(),
                 )
             }
         }
@@ -97,7 +114,16 @@ impl SwiftArgs {
 struct Target {
     triple: &'static str,
     platform: Platform,
+    status: TargetStatus,
     description: &'static str,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+enum TargetStatus {
+    /// A tier 1 or 2 target that can be built with stable Rust.
+    TopTier,
+    /// A tier 3 target that requires nightly Rust and `-Zbuild-std`.
+    Tier3,
 }
 
 /// The platform for which a particular target can run on.
@@ -106,6 +132,8 @@ enum Platform {
     Macos,
     Ios,
     IosSimulator,
+    Watchos,
+    WatchosSimulator,
 }
 
 impl Platform {
@@ -115,6 +143,8 @@ impl Platform {
             Platform::Macos => "macOS",
             Platform::Ios => "iOS",
             Platform::IosSimulator => "iOS Simulator",
+            Platform::Watchos => "watchOS",
+            Platform::WatchosSimulator => "watchOS Simulator",
         }
     }
 
@@ -125,6 +155,8 @@ impl Platform {
             Platform::Macos => "macos",
             Platform::Ios => "ios",
             Platform::IosSimulator => "ios-simulator",
+            Platform::Watchos => "watchos",
+            Platform::WatchosSimulator => "watchos-simulator",
         }
     }
 }
@@ -136,26 +168,59 @@ const FFI_FEATURES: &str = "native-tls,sentry";
 
 /// The list of targets supported by the SDK.
 const TARGETS: &[Target] = &[
-    Target { triple: "aarch64-apple-ios", platform: Platform::Ios, description: "iOS" },
+    Target {
+        triple: "aarch64-apple-ios",
+        platform: Platform::Ios,
+        status: TargetStatus::TopTier,
+        description: "iOS",
+    },
     Target {
         triple: "aarch64-apple-darwin",
         platform: Platform::Macos,
+        status: TargetStatus::TopTier,
         description: "macOS (Apple Silicon)",
     },
     Target {
         triple: "x86_64-apple-darwin",
         platform: Platform::Macos,
+        status: TargetStatus::TopTier,
         description: "macOS (Intel)",
     },
     Target {
         triple: "aarch64-apple-ios-sim",
         platform: Platform::IosSimulator,
+        status: TargetStatus::TopTier,
         description: "iOS Simulator (Apple Silicon)",
     },
     Target {
         triple: "x86_64-apple-ios",
         platform: Platform::IosSimulator,
+        status: TargetStatus::TopTier,
         description: "iOS Simulator (Intel) ",
+    },
+    Target {
+        triple: "aarch64-apple-watchos",
+        platform: Platform::Watchos,
+        status: TargetStatus::Tier3,
+        description: "watchOS (ARM64)",
+    },
+    Target {
+        triple: "arm64_32-apple-watchos",
+        platform: Platform::Watchos,
+        status: TargetStatus::Tier3,
+        description: "watchOS (ARM64_32)",
+    },
+    Target {
+        triple: "aarch64-apple-watchos-sim",
+        platform: Platform::WatchosSimulator,
+        status: TargetStatus::Tier3,
+        description: "watchOS Simulator (ARM64)",
+    },
+    Target {
+        triple: "x86_64-apple-watchos-sim",
+        platform: Platform::WatchosSimulator,
+        status: TargetStatus::Tier3,
+        description: "watchOS Simulator (Intel)",
     },
 ];
 
@@ -208,9 +273,11 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
 fn build_xcframework(
     profile: &str,
     targets: Option<Vec<String>>,
+    tier3_targets: bool,
     components_path: Option<Utf8PathBuf>,
     sequentially: bool,
     ios_deployment_target: Option<&str>,
+    watchos_deployment_target: Option<&str>,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
     let apple_dir = root_dir.join("bindings/apple");
@@ -234,12 +301,19 @@ fn build_xcframework(
                 TARGETS.iter().find(|target| target.triple == *t).expect("Invalid target specified")
             })
             .collect()
-    } else {
+    } else if tier3_targets {
         TARGETS.iter().collect()
+    } else {
+        TARGETS.iter().filter(|target| target.status == TargetStatus::TopTier).collect()
     };
 
-    let platform_build_paths =
-        build_targets(targets, profile, sequentially, ios_deployment_target)?;
+    let platform_build_paths = build_targets(
+        targets,
+        profile,
+        sequentially,
+        ios_deployment_target,
+        watchos_deployment_target,
+    )?;
     let libs = lipo_platform_libraries(&platform_build_paths, &generated_dir)?;
 
     println!("-- Generating uniffi files");
@@ -309,6 +383,7 @@ fn build_targets(
     profile: &str,
     sequentially: bool,
     ios_deployment_target: Option<&str>,
+    watchos_deployment_target: Option<&str>,
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
@@ -319,25 +394,49 @@ fn build_targets(
     let _env_guard2 = sh.push_env("AARCH64_APPLE_IOS_CC", "/usr/bin/clang");
     let _env_guard3 =
         ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
+    let _env_guard4 =
+        watchos_deployment_target.map(|target| sh.push_env("WATCHOS_DEPLOYMENT_TARGET", target));
 
     if sequentially {
         for target in &targets {
             let triple = target.triple;
 
             println!("-- Building for {}", target.description);
-            cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
-                .run()?;
+            if target.status == TargetStatus::TopTier {
+                cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                    .run()?;
+            } else {
+                cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                    .run()?;
+            }
         }
     } else {
-        let triples = &targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-        let mut cmd = cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi");
-        for triple in triples {
-            cmd = cmd.arg("--target").arg(triple);
-        }
-        cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
+        let (stable_targets, tier3_targets): (Vec<&Target>, Vec<&Target>) =
+            targets.iter().partition(|t| t.status == TargetStatus::TopTier);
 
-        println!("-- Building for {} targets", triples.len());
-        cmd.run()?;
+        if !stable_targets.is_empty() {
+            let triples = stable_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
+            let mut cmd = cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi");
+            for triple in &triples {
+                cmd = cmd.arg("--target").arg(triple);
+            }
+            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
+
+            println!("-- Building for {} targets", triples.len());
+            cmd.run()?;
+        }
+
+        if !tier3_targets.is_empty() {
+            let triples = tier3_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
+            let mut cmd = cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std");
+            for triple in &triples {
+                cmd = cmd.arg("--target").arg(triple);
+            }
+            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
+
+            println!("-- Building for {} targets with nightly -Zbuild-std", triples.len());
+            cmd.run()?;
+        }
     }
 
     // a hashmap of platform to array, where each array contains all the paths for

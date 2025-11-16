@@ -43,6 +43,23 @@ fn setup_x86_64_android_workaround() {
     }
 }
 
+/// Adds a workaround for watchOS simulator builds to manually link against the
+/// CoreFoundation framework in order to avoid linker errors. Otherwise, errors
+/// like the following may occur:
+///
+///   = note: Undefined symbols for architecture arm64:
+///             "_CFArrayCreate", referenced from:
+///             "_CFDataCreate", referenced from:
+///             "_CFRelease", referenced from:
+///             etc.
+fn setup_watchos_simulator_workaround() {
+    let target = env::var("TARGET").expect("TARGET not set");
+    if target.ends_with("watchos-sim") {
+        println!("cargo:rustc-link-arg=-framework");
+        println!("cargo:rustc-link-arg=CoreFoundation");
+    }
+}
+
 /// Run the clang binary at `clang_path`, and return its major version number
 fn get_clang_major_version(clang_path: &Path) -> String {
     let clang_output =
@@ -58,6 +75,7 @@ fn get_clang_major_version(clang_path: &Path) -> String {
 
 fn main() -> Result<(), Box<dyn Error>> {
     setup_x86_64_android_workaround();
+    setup_watchos_simulator_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
 
     let git_config = GitclBuilder::default().sha(true).build()?;
