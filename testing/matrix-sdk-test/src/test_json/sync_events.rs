@@ -125,7 +125,7 @@ pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT: Lazy<JsonValue> = Laz
         "algorithm": "m.megolm.v1.aes-sha2",
         "rotation_period_ms": 604800000,
         "rotation_period_msgs": 100,
-        "io.element.msc3414.encrypt_state_events": true
+        "io.element.msc4362.encrypt_state_events": true
     })
 });
 

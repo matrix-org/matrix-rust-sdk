@@ -29,7 +29,7 @@ unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
 experimental-encrypted-state-events = [
     "matrix-sdk-base/experimental-encrypted-state-events",
-    "ruma/unstable-msc3414"
+    "ruma/unstable-msc4362"
 ]
 
 [dependencies]
