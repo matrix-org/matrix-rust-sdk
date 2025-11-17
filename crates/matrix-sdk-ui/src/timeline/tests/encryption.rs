@@ -928,7 +928,9 @@ async fn test_retry_decryption_updates_reply() {
 
     // We receive the UTD.
     {
-        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let event =
+            assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => value);
+
         assert_let!(
             TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
