@@ -71,10 +71,9 @@ impl SlidingSyncList {
     /// This will change the sync-mode but also the request generator. A new
     /// request generator is generated. Since requests are calculated based on
     /// the request generator, changing the sync-mode is equivalent to
-    /// “resetting” the list. It's actually not calling `Self::reset`, which
-    /// means that the state is not reset **purposely**. The ranges and the
-    /// state will be updated when the next request will be sent and a
-    /// response will be received. The maximum number of rooms won't change.
+    /// “resetting” the list. The ranges and the state will be updated when the
+    /// next request will be sent and a response will be received. The
+    /// maximum number of rooms won't change.
     pub fn set_sync_mode<M>(&self, sync_mode: M)
     where
         M: Into<SlidingSyncMode>,
