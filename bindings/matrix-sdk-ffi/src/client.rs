@@ -2100,9 +2100,10 @@ impl Client {
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
         let auth_api = client.auth_api().context("Missing authentication API")?;
 
+        let homeserver_url = client.homeserver().into();
         let sliding_sync_version = client.sliding_sync_version();
 
-        Session::new(auth_api, sliding_sync_version.into())
+        Session::new(auth_api, homeserver_url, sliding_sync_version.into())
     }
 
     fn save_session(
@@ -2394,6 +2395,8 @@ pub struct Session {
     pub device_id: String,
 
     // FFI-only fields (for now)
+    /// The URL for the homeserver used for this session.
+    pub homeserver_url: String,
     /// Additional data for this session if OpenID Connect was used for
     /// authentication.
     pub oidc_data: Option<String>,
@@ -2404,6 +2407,7 @@ pub struct Session {
 impl Session {
     fn new(
         auth_api: AuthApi,
+        homeserver_url: String,
         sliding_sync_version: SlidingSyncVersion,
     ) -> Result<Session, ClientError> {
         match auth_api {
@@ -2419,6 +2423,7 @@ impl Session {
                     refresh_token,
                     user_id: user_id.to_string(),
                     device_id: device_id.to_string(),
+                    homeserver_url,
                     oidc_data: None,
                     sliding_sync_version,
                 })
@@ -2438,6 +2443,7 @@ impl Session {
                     refresh_token,
                     user_id: user_id.to_string(),
                     device_id: device_id.to_string(),
+                    homeserver_url,
                     oidc_data,
                     sliding_sync_version,
                 })
@@ -2459,6 +2465,7 @@ impl TryFrom<Session> for AuthSession {
             refresh_token,
             user_id,
             device_id,
+            homeserver_url: _,
             oidc_data,
             sliding_sync_version: _,
         } = value;
