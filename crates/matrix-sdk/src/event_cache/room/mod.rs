@@ -974,6 +974,7 @@ mod private {
 
     impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         /// Returns a write reference to the underlying room linked chunk.
+        #[cfg(any(feature = "e2e-encryption", test))]
         pub fn room_linked_chunk(&mut self) -> &mut EventLinkedChunk {
             &mut self.state.room_linked_chunk
         }
