@@ -85,6 +85,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changes
 
+- `Timeline::latest_event_id` now uses its `ui::Timeline::latest_event_id` counterpart, instead of getting the latest event from the timeline and then its id.([#5864](https://github.com/matrix-org/matrix-rust-sdk/pull/5864))
 - Build Android ARM64 bindings using better default RUSTFLAGS (the same used for iOS ARM64). This should improve performance. [(#5854)](https://github.com/matrix-org/matrix-rust-sdk/pull/5854)
 
 ## [0.14.0] - 2025-09-04
