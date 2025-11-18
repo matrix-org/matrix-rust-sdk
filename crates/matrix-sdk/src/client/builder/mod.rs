@@ -166,10 +166,6 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
-    ///
-    /// **IMPORTANT:** this method should only be called for the initial
-    /// authentication. Calls to this method when restoring a previously
-    /// created session may end up with conflicting data.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::HomeserverUrl(url.as_ref().to_owned()));
         self
@@ -184,10 +180,6 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
-    ///
-    /// **IMPORTANT:** this method should only be called for the initial
-    /// authentication. Calls to this method when restoring a previously
-    /// created session may end up with conflicting data.
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -205,10 +197,6 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
-    ///
-    /// **IMPORTANT:** this method should only be called for the initial
-    /// authentication. Calls to this method when restoring a previously
-    /// created session may end up with conflicting data.
     pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -227,10 +215,6 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
-    ///
-    /// **IMPORTANT:** this method should only be called for the initial
-    /// authentication. Calls to this method when restoring a previously
-    /// created session may end up with conflicting data.
     pub fn server_name_or_homeserver_url(mut self, server_name_or_url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerNameOrHomeserverUrl(
             server_name_or_url.as_ref().to_owned(),
