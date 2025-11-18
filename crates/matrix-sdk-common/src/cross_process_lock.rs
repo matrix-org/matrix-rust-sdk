@@ -596,6 +596,7 @@ pub enum CrossProcessLockError {
 mod tests {
     use std::{
         collections::HashMap,
+        ops::Not,
         sync::{Arc, RwLock, atomic},
     };
 
@@ -603,6 +604,7 @@ mod tests {
     use matrix_sdk_test_macros::async_test;
     use tokio::{
         spawn,
+        task::yield_now,
         time::{Duration, sleep},
     };
 
@@ -665,17 +667,23 @@ mod tests {
 
         // The lock plain works when used with a single holder.
         let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert!(lock.is_dirty().not());
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         // Releasing works.
         release_lock(guard).await;
+        assert!(lock.is_dirty().not());
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
         // Spin locking on the same lock always works, assuming no concurrent access.
         let guard = lock.spin_lock(None).await?.expect("spin lock must be obtained successfully");
+        assert!(lock.is_dirty().not());
+        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         // Releasing still works.
         release_lock(guard).await;
+        assert!(lock.is_dirty().not());
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
         Ok(())
@@ -686,19 +694,23 @@ mod tests {
         let store = TestStore::default();
         let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
-        // When a lock is obtained...
-        let _guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        // When a lock is obtained…
+        let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert!(lock.is_dirty().not());
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
-        // But then forgotten... (note: no need to release the guard)
+        // But then forgotten… (note: no need to release the guard)
         drop(lock);
 
-        // And when rematerializing the lock with the same key/value...
+        // And when rematerializing the lock with the same key/value…
         let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // We still got it.
-        let _guard =
+        let guard =
             lock.try_lock_once().await?.expect("lock (again) must be obtained successfully");
+        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert!(lock.is_dirty().not());
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
 
         Ok(())
@@ -711,7 +723,10 @@ mod tests {
 
         // Taking the lock twice…
         let guard1 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_matches!(guard1, CrossProcessLockState::Clean(_));
         let guard2 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_matches!(guard2, CrossProcessLockState::Clean(_));
+        assert!(lock.is_dirty().not());
 
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 2);
 
@@ -722,6 +737,8 @@ mod tests {
         release_lock(guard2).await;
         assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
 
+        assert!(lock.is_dirty().not());
+
         Ok(())
     }
 
@@ -731,31 +748,119 @@ mod tests {
         let lock1 = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
         let lock2 = CrossProcessLock::new(store, "key".to_owned(), "second".to_owned());
 
-        // When the first process takes the lock...
+        // `lock1` acquires the lock.
         let guard1 = lock1.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_matches!(guard1, CrossProcessLockState::Clean(_));
+        assert!(lock1.is_dirty().not());
 
-        // The second can't take it immediately.
-        let _err2 = lock2.try_lock_once().await?.expect_err("lock must NOT be obtained");
+        // `lock2` cannot acquire the lock.
+        let err = lock2.try_lock_once().await?.expect_err("lock must NOT be obtained");
+        assert_matches!(err, CrossProcessLockUnobtained::Busy);
 
+        // `lock2` is waiting in a task.
         let lock2_clone = lock2.clone();
-        let handle = spawn(async move { lock2_clone.spin_lock(Some(1000)).await });
+        let task = spawn(async move { lock2_clone.spin_lock(Some(500)).await });
 
         sleep(Duration::from_millis(100)).await;
 
         drop(guard1);
 
-        // lock2 in the background manages to get the lock at some point.
-        let _guard2 = handle
+        // Once `lock1` is released, `lock2` managed to obtain it.
+        let guard2 = task
             .await
             .expect("join handle is properly awaited")
             .expect("lock is successfully attempted")
             .expect("lock must be obtained successfully");
+        assert_matches!(guard2, CrossProcessLockState::Clean(_));
 
-        // Now if lock1 tries to get the lock with a small timeout, it will fail.
+        // `lock1` and `lock2` are both clean!
+        assert!(lock1.is_dirty().not());
+        assert!(lock2.is_dirty().not());
+
+        // Now if `lock1` tries to obtain the lock with a small timeout, it will fail.
         assert_matches!(
             lock1.spin_lock(Some(200)).await,
             Ok(Err(CrossProcessLockUnobtained::TimedOut))
         );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_multiple_processes_up_to_dirty() -> TestResult {
+        let store = TestStore::default();
+        let lock1 = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CrossProcessLock::new(store, "key".to_owned(), "second".to_owned());
+
+        // Obtain `lock1` once.
+        {
+            let guard = lock1.try_lock_once().await?.expect("lock must be obtained successfully");
+            assert_matches!(guard, CrossProcessLockState::Clean(_));
+            assert!(lock1.is_dirty().not());
+            drop(guard);
+
+            yield_now().await;
+        }
+
+        // Obtain `lock2` once.
+        {
+            let guard = lock2.try_lock_once().await?.expect("lock must be obtained successfully");
+            assert_matches!(guard, CrossProcessLockState::Clean(_));
+            assert!(lock1.is_dirty().not());
+            drop(guard);
+
+            yield_now().await;
+        }
+
+        for _ in 0..3 {
+            // Obtain `lock1` once more. Now it's dirty because `lock2` has acquired the
+            // lock meanwhile.
+            {
+                let guard =
+                    lock1.try_lock_once().await?.expect("lock must be obtained successfully");
+                assert_matches!(guard, CrossProcessLockState::Dirty(_));
+                assert!(lock1.is_dirty());
+
+                drop(guard);
+                yield_now().await;
+            }
+
+            // Obtain `lock1` once more! It still dirty because it has not been marked as
+            // non-dirty.
+            {
+                let guard =
+                    lock1.try_lock_once().await?.expect("lock must be obtained successfully");
+                assert_matches!(guard, CrossProcessLockState::Dirty(_));
+                assert!(lock1.is_dirty());
+                lock1.clear_dirty();
+
+                drop(guard);
+                yield_now().await;
+            }
+
+            // Obtain `lock1` once more. Now it's clear!
+            {
+                let guard =
+                    lock1.try_lock_once().await?.expect("lock must be obtained successfully");
+                assert_matches!(guard, CrossProcessLockState::Clean(_));
+                assert!(lock1.is_dirty().not());
+
+                drop(guard);
+                yield_now().await;
+            }
+
+            // Same dance with `lock2`!
+            {
+                let guard =
+                    lock2.try_lock_once().await?.expect("lock must be obtained successfully");
+                assert_matches!(guard, CrossProcessLockState::Dirty(_));
+                assert!(lock2.is_dirty());
+                lock2.clear_dirty();
+
+                drop(guard);
+                yield_now().await;
+            }
+        }
 
         Ok(())
     }
