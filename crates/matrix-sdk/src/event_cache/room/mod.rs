@@ -813,25 +813,58 @@ mod private {
         }
 
         pub async fn read(&self) -> Result<RoomEventCacheStateLockReadGuard<'_>, EventCacheError> {
-            let state_guard = self.locked_state.read().await;
-            let store_guard = match state_guard.store.lock().await? {
-                EventCacheStoreLockState::Clean(guard) => guard,
-                EventCacheStoreLockState::Dirty(_guard) => todo!("Dirty lock"),
-            };
+            // Take a write-lock in case the lock is dirty and we need to reset the state.
+            let state_guard = self.locked_state.write().await;
 
-            Ok(RoomEventCacheStateLockReadGuard { state: state_guard, store: store_guard })
+            match state_guard.store.lock().await? {
+                EventCacheStoreLockState::Clean(store_guard) => {
+                    Ok(RoomEventCacheStateLockReadGuard {
+                        // Downgrade to a read-lock.
+                        state: state_guard.downgrade(),
+                        store: store_guard,
+                    })
+                }
+                EventCacheStoreLockState::Dirty(store_guard) => {
+                    let mut guard = RoomEventCacheStateLockWriteGuard {
+                        state: state_guard,
+                        store: store_guard,
+                    };
+                    guard.shrink_to_last_chunk().await?;
+
+                    // All good now, mark the cross-process lock as non-dirty.
+                    EventCacheStoreLockGuard::clear_dirty(&guard.store);
+
+                    Ok(RoomEventCacheStateLockReadGuard {
+                        // Downgrade to a read-lock.
+                        state: guard.state.downgrade(),
+                        store: guard.store,
+                    })
+                }
+            }
         }
 
         pub async fn write(
             &self,
         ) -> Result<RoomEventCacheStateLockWriteGuard<'_>, EventCacheError> {
             let state_guard = self.locked_state.write().await;
-            let store_guard = match state_guard.store.lock().await? {
-                EventCacheStoreLockState::Clean(guard) => guard,
-                EventCacheStoreLockState::Dirty(_guard) => todo!("Dirty lock"),
-            };
 
-            Ok(RoomEventCacheStateLockWriteGuard { state: state_guard, store: store_guard })
+            match state_guard.store.lock().await? {
+                EventCacheStoreLockState::Clean(store_guard) => {
+                    Ok(RoomEventCacheStateLockWriteGuard { state: state_guard, store: store_guard })
+                }
+                EventCacheStoreLockState::Dirty(store_guard) => {
+                    let mut guard = RoomEventCacheStateLockWriteGuard {
+                        state: state_guard,
+                        store: store_guard,
+                    };
+                    guard.shrink_to_last_chunk().await?;
+
+                    // All good now, mark the cross-process lock as non-dirty.
+                    EventCacheStoreLockGuard::clear_dirty(&guard.store);
+
+                    Ok(guard)
+                }
+            }
         }
     }
 
