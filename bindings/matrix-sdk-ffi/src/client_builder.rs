@@ -221,18 +221,54 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the server name to discover the homeserver from.
+    ///
+    /// We assume we can connect in HTTPS to that server.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`],
+    /// [`Self::server_name_or_homeserver_url`].
+    /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// **IMPORTANT:** this method should only be called for the initial
+    /// authentication. Calls to this method when restoring a previously
+    /// created session may end up with conflicting data.
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name));
         Arc::new(builder)
     }
 
+    /// Set the homeserver URL to use.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`],
+    /// [`Self::server_name_or_homeserver_url`].
+    /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// **IMPORTANT:** this method should only be called for the initial
+    /// authentication. Calls to this method when restoring a previously
+    /// created session may end up with conflicting data.
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::Url(url));
         Arc::new(builder)
     }
 
+    /// Set the server name to discover the homeserver from, falling back to
+    /// using it as a homeserver URL if discovery fails. When falling back to a
+    /// homeserver URL, a check is made to ensure that the server exists (unlike
+    /// [`Self::homeserver_url`], so you can guarantee that the client is ready
+    /// to use.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`],
+    /// [`Self::server_name_or_homeserver_url`].
+    /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// **IMPORTANT:** this method should only be called for the initial
+    /// authentication. Calls to this method when restoring a previously
+    /// created session may end up with conflicting data.
     pub fn server_name_or_homeserver_url(self: Arc<Self>, server_name_or_url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url));
