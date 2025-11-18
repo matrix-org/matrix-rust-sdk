@@ -4,7 +4,7 @@ mod request_generator;
 mod sticky;
 
 use std::{
-    fmt::Debug,
+    fmt,
     ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
@@ -95,18 +95,11 @@ impl SlidingSyncList {
     /// Check whether this list requires a [`http::Request::timeout`] value.
     ///
     /// A list requires a `timeout` query if and only if we want the server to
-    /// wait on new updates, i.e. to do a long-polling. If the list has a
-    /// selective sync mode ([`SlidingSyncMode::Selective`]), we expect the
-    /// server to always wait for new updates as the list ranges are always
-    /// the same. Otherwise, if the list is fully loaded, it means the list
-    /// ranges cover all the available rooms, then we expect the server
-    /// to always wait for new updates. If the list isn't fully loaded, it
-    /// means the current list ranges may hit a set of rooms that have no
-    /// update, but we don't want to wait for updates; we instead want to
-    /// move quickly to the next range.
+    /// wait on new updates, i.e. to do a long-polling.
     pub(super) fn requires_timeout(&self) -> bool {
-        self.inner.request_generator.read().unwrap().is_selective()
-            || self.state().is_fully_loaded()
+        let request_generator = &*self.inner.request_generator.read().unwrap();
+
+        (self.inner.requires_timeout)(request_generator)
     }
 
     /// Get a stream of state updates.
@@ -211,13 +204,18 @@ impl SlidingSyncList {
     }
 }
 
-#[derive(Debug)]
 pub(super) struct SlidingSyncListInner {
     /// Name of this list to easily recognize them.
     name: String,
 
     /// The state this list is in.
     state: SharedObservable<SlidingSyncListLoadingState>,
+
+    /// Does this list require a timeout?
+    #[cfg(not(target_family = "wasm"))]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync>,
+    #[cfg(target_family = "wasm")]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool>,
 
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
@@ -249,6 +247,15 @@ pub(super) struct SlidingSyncListInner {
 
     #[cfg(any(test, feature = "testing"))]
     sync_mode: StdRwLock<SlidingSyncMode>,
+}
+
+impl fmt::Debug for SlidingSyncListInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SlidingSyncListInner")
+            .field("name", &self.name)
+            .field("state", &self.state)
+            .finish()
+    }
 }
 
 impl SlidingSyncListInner {
@@ -374,6 +381,7 @@ pub enum SlidingSyncListLoadingState {
     FullyLoaded,
 }
 
+#[cfg(test)]
 impl SlidingSyncListLoadingState {
     /// Check whether the state is [`Self::FullyLoaded`].
     fn is_fully_loaded(&self) -> bool {

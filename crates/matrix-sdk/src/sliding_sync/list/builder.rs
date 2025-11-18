@@ -33,6 +33,10 @@ struct SlidingSyncListCachedData {
 #[derive(Clone)]
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
+    #[cfg(not(target_family = "wasm"))]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync>,
+    #[cfg(target_family = "wasm")]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool>,
     required_state: Vec<(StateEventType, String)>,
     filters: Option<http::request::ListFilters>,
     timeline_limit: Bound,
@@ -70,6 +74,7 @@ impl SlidingSyncListBuilder {
     pub(super) fn new(name: impl Into<String>) -> Self {
         Self {
             sync_mode: SlidingSyncMode::default(),
+            requires_timeout: Arc::new(|request_generator| request_generator.is_fully_loaded()),
             required_state: vec![
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
@@ -114,6 +119,34 @@ impl SlidingSyncListBuilder {
     /// Which SlidingSyncMode to start this list under.
     pub fn sync_mode(mut self, value: impl Into<SlidingSyncMode>) -> Self {
         self.sync_mode = value.into();
+        self
+    }
+
+    /// Custom function to decide whether this list requires a
+    /// [`http::Request::timeout`] value.
+    ///
+    /// A list requires a `timeout` query if and only if we want the server to
+    /// wait on new updates, i.e. to do a long-polling.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn requires_timeout<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync + 'static,
+    {
+        self.requires_timeout = Arc::new(f);
+        self
+    }
+
+    /// Custom function to decide whether this list requires a
+    /// [`http::Request::timeout`] value.
+    ///
+    /// A list requires a `timeout` query if and only if we want the server to
+    /// wait on new updates, i.e. to do a long-polling.
+    #[cfg(target_family = "wasm")]
+    pub fn requires_timeout<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&SlidingSyncListRequestGenerator) -> bool + 'static,
+    {
+        self.requires_timeout = Arc::new(f);
         self
     }
 
@@ -186,6 +219,7 @@ impl SlidingSyncListBuilder {
                 timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
                 cache_policy: self.cache_policy,
+                requires_timeout: self.requires_timeout,
 
                 // Computed from the builder.
                 request_generator: StdRwLock::new(SlidingSyncListRequestGenerator::new(
