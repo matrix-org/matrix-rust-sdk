@@ -518,7 +518,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos None,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -621,7 +621,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos None,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
