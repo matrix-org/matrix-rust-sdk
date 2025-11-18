@@ -203,6 +203,9 @@ impl RoomListService {
             builder = builder.share_pos();
         }
 
+        let state_machine = StateMachine::new();
+        let observable_state = state_machine.cloned_state();
+
         let sliding_sync = builder
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
@@ -222,7 +225,23 @@ impl RoomListService {
                         // If unset, both invited and joined rooms are returned. If false, no invited rooms are
                         // returned. If true, only invited rooms are returned.
                         is_invite: None,
-                    }))),
+                    })))
+                    .requires_timeout(move |request_generator| {
+                        // We want Sliding Sync to apply the poll + network timeout —i.e. to do the
+                        // long-polling— in some particular cases. Let's define them.
+                        match observable_state.get() {
+                            // These are the states where we want an immediate response from the
+                            // server, with no long-polling.
+                            State::Init
+                            | State::SettingUp
+                            | State::Recovering
+                            | State::Error { .. }
+                            | State::Terminated { .. } => false,
+
+                            // Otherwise we want long-polling if the list is fully-loaded.
+                            State::Running => request_generator.is_fully_loaded(),
+                        }
+                    }),
             )
             .await
             .map_err(Error::SlidingSync)?
@@ -234,7 +253,7 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self { client, sliding_sync, state_machine: StateMachine::new() })
+        Ok(Self { client, sliding_sync, state_machine })
     }
 
     /// Start to sync the room list.
