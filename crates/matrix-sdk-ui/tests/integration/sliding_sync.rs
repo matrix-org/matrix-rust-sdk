@@ -59,6 +59,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
         $( assert pos $pos:expr, )?
+        $( assert timeout $timeout:expr, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -68,6 +69,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
             [$server, $stream]
             sync matches Some(Ok(_)),
             $( assert pos $pos, )?
+            $( assert timeout $timeout, )?
             assert request $sign { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -78,6 +80,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         [$server:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( assert pos $pos:expr, )?
+        $( assert timeout $timeout:expr, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -124,8 +127,17 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                     $(
                     let pos: Option<&str> = $pos;
                     match pos {
-                        Some(pos) => assert!(wiremock::matchers::query_param("pos", pos).matches(request)),
-                        None => assert!(wiremock::matchers::query_param_is_missing("pos").matches(request)),
+                        Some(pos) => assert!(wiremock::matchers::query_param("pos", pos).matches(request), "Invalid `pos` query parameter"),
+                        None => assert!(wiremock::matchers::query_param_is_missing("pos").matches(request), "Received an unexpected `pos` query parameter"),
+                    }
+                    )?
+
+                    // Validate `timeout` from the query parameter if specified.
+                    $(
+                    let timeout: Option<usize> = $timeout;
+                    match timeout.map(|t| t.to_string()) {
+                        Some(timeout) => assert!(wiremock::matchers::query_param("timeout", timeout).matches(request), "Invalid `timeout` query parameter"),
+                        None => assert!(wiremock::matchers::query_param_is_missing("timeout").matches(request), "Received an unexpected `timeout` query parameter"),
                     }
                     )?
 
