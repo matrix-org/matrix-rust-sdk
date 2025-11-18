@@ -717,9 +717,10 @@ mod private {
         /// [`EventLinkedChunk`] relies on a [`LinkedChunk`] to store all
         /// events. Only the last chunk will be loaded. It means the
         /// events are loaded from the most recent to the oldest. To
-        /// load more events, see [`Self::load_more_events_backwards`].
+        /// load more events, see [`RoomPagination`].
         ///
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
+        /// [`RoomPagination`]: super::RoomPagination
         pub async fn new(
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
@@ -729,10 +730,11 @@ mod private {
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
             let store_guard = match store.lock().await? {
-                //
+                // Lock is clean: all good!
                 EventCacheStoreLockState::Clean(guard) => guard,
 
-                //
+                // Lock is dirty, not a problem, it's the first time we are creating this state, no
+                // need to refresh.
                 EventCacheStoreLockState::Dirty(guard) => {
                     EventCacheStoreLockGuard::clear_dirty(&guard);
 
@@ -812,6 +814,15 @@ mod private {
             })
         }
 
+        /// Lock this [`RoomEventCacheStateLock`] with per-thread shared access.
+        ///
+        /// This method locks the per-thread lock over the state, and then locks
+        /// the cross-process lock over the store. It returns an RAII guard
+        /// which will drop the read access to the state and to the store when
+        /// dropped.
+        ///
+        /// If the cross-process lock over the store is dirty (see
+        /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
         pub async fn read(&self) -> Result<RoomEventCacheStateLockReadGuard<'_>, EventCacheError> {
             // Take a write-lock in case the lock is dirty and we need to reset the state.
             let state_guard = self.locked_state.write().await;
@@ -843,6 +854,16 @@ mod private {
             }
         }
 
+        /// Lock this [`RoomEventCacheStateLock`] with exclusive per-thread
+        /// write access.
+        ///
+        /// This method locks the per-thread lock over the state, and then locks
+        /// the cross-process lock over the store. It returns an RAII guard
+        /// which will drop the write access to the state and to the store when
+        /// dropped.
+        ///
+        /// If the cross-process lock over the store is dirty (see
+        /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
         pub async fn write(
             &self,
         ) -> Result<RoomEventCacheStateLockWriteGuard<'_>, EventCacheError> {
@@ -868,13 +889,23 @@ mod private {
         }
     }
 
+    /// The read lock guard returned by [`RoomEventCacheStateLock::read`].
     pub struct RoomEventCacheStateLockReadGuard<'a> {
+        /// The per-thread read lock guard over the
+        /// [`RoomEventCacheStateLockInner`].
         state: RwLockReadGuard<'a, RoomEventCacheStateLockInner>,
+
+        /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
     }
 
+    /// The write lock guard return by [`RoomEventCacheStateLock::write`].
     pub struct RoomEventCacheStateLockWriteGuard<'a> {
+        /// The per-thread write lock guard over the
+        /// [`RoomEventCacheStateLockInner`].
         state: RwLockWriteGuard<'a, RoomEventCacheStateLockInner>,
+
+        /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
     }
 
@@ -947,6 +978,7 @@ mod private {
             &mut self.state.room_linked_chunk
         }
 
+        /// Get a reference to the `waited_for_initial_prev_token` atomic bool.
         pub fn waited_for_initial_prev_token(&self) -> &Arc<AtomicBool> {
             &self.state.waited_for_initial_prev_token
         }
