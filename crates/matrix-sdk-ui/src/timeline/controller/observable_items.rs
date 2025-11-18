@@ -798,9 +798,9 @@ mod observable_items_tests {
     fn event_meta(event_id: &str) -> EventMeta {
         EventMeta {
             event_id: event_id.parse().unwrap(),
+            thread_root_id: None,
             timeline_item_index: None,
             visible: false,
-            thread_root_id: None,
         }
     }
 
@@ -2062,9 +2062,9 @@ mod all_remote_events_tests {
     fn event_meta(event_id: &str, timeline_item_index: Option<usize>) -> EventMeta {
         EventMeta {
             event_id: event_id.parse().unwrap(),
+            thread_root_id: None,
             timeline_item_index,
             visible: false,
-            thread_root_id: None,
         }
     }
 
