@@ -122,7 +122,8 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
                     // Validate `pos` from the query parameter if specified.
                     $(
-                    match $pos {
+                    let pos: Option<&str> = $pos;
+                    match pos {
                         Some(pos) => assert!(wiremock::matchers::query_param("pos", pos).matches(request)),
                         None => assert!(wiremock::matchers::query_param_is_missing("pos").matches(request)),
                     }
