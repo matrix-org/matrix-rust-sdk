@@ -1769,6 +1769,11 @@ impl TimelineController {
             }
             _ => true,
         };
+
+        // In some timelines, threaded events are added to the `AllRemoteEvents`
+        // collection since they need to be taken into account to calculate read
+        // receipts, but we don't want to actually take them into account for returning
+        // the latest event id since they're not visibly in the timeline
         state
             .items
             .all_remote_events()

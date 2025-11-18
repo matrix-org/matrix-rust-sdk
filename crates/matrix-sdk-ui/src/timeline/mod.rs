@@ -268,7 +268,7 @@ impl Timeline {
         }
     }
 
-    /// Get the latest of the timeline's event ids.
+    /// Get the latest of the timeline's remote event ids.
     pub async fn latest_event_id(&self) -> Option<OwnedEventId> {
         self.controller.latest_event_id().await
     }
