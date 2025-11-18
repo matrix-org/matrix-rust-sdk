@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::{Observable, SharedObservable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use ruma::{TransactionId, api::client::sync::sync_events::v5 as http, assign};
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,7 @@ impl SlidingSyncList {
 
     /// Get the current state.
     pub fn state(&self) -> SlidingSyncListLoadingState {
-        self.inner.state.read().unwrap().clone()
+        self.inner.state.get()
     }
 
     /// Check whether this list requires a [`http::Request::timeout`] value.
@@ -123,11 +123,7 @@ impl SlidingSyncList {
     pub fn state_stream(
         &self,
     ) -> (SlidingSyncListLoadingState, impl Stream<Item = SlidingSyncListLoadingState>) {
-        let read_lock = self.inner.state.read().unwrap();
-        let previous_value = (*read_lock).clone();
-        let subscriber = Observable::subscribe(&read_lock);
-
-        (previous_value, subscriber)
+        (self.inner.state.get(), self.inner.state.subscribe())
     }
 
     /// Get the timeline limit.
@@ -222,7 +218,7 @@ pub(super) struct SlidingSyncListInner {
     name: String,
 
     /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncListLoadingState>>,
+    state: SharedObservable<SlidingSyncListLoadingState>,
 
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
@@ -274,20 +270,16 @@ impl SlidingSyncListInner {
             *request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
         }
 
-        {
-            let mut state = self.state.write().unwrap();
-
-            let next_state = match **state {
+        self.state.update(|state| {
+            *state = match state {
                 SlidingSyncListLoadingState::NotLoaded => SlidingSyncListLoadingState::NotLoaded,
                 SlidingSyncListLoadingState::Preloaded => SlidingSyncListLoadingState::Preloaded,
                 SlidingSyncListLoadingState::PartiallyLoaded
                 | SlidingSyncListLoadingState::FullyLoaded => {
                     SlidingSyncListLoadingState::PartiallyLoaded
                 }
-            };
-
-            Observable::set(&mut state, next_state);
-        }
+            }
+        });
     }
 
     /// Update the state to the next request, and return it.
@@ -340,8 +332,10 @@ impl SlidingSyncListInner {
     /// receiving a response.
     fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
+
         let new_state = request_generator.handle_response(&self.name, maximum_number_of_rooms)?;
-        Observable::set_if_not_eq(&mut self.state.write().unwrap(), new_state);
+        self.state.set_if_not_eq(new_state);
+
         Ok(())
     }
 
