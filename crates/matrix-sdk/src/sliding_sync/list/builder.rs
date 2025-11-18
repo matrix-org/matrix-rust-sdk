@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::{Observable, SharedObservable};
+use eyeball::SharedObservable;
 use ruma::{api::client::sync::sync_events::v5 as http, events::StateEventType};
 use tokio::sync::broadcast::Sender;
 
@@ -194,7 +194,7 @@ impl SlidingSyncListBuilder {
 
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.
-                state: StdRwLock::new(Observable::new(Default::default())),
+                state: SharedObservable::new(Default::default()),
                 maximum_number_of_rooms: SharedObservable::new(None),
 
                 // Internal data.
@@ -217,10 +217,7 @@ impl SlidingSyncListBuilder {
             self.reloaded_cached_data
         {
             // Mark state as preloaded.
-            Observable::set(
-                &mut list.inner.state.write().unwrap(),
-                SlidingSyncListLoadingState::Preloaded,
-            );
+            list.inner.state.set(SlidingSyncListLoadingState::Preloaded);
 
             // Reload the maximum number of rooms.
             list.inner.maximum_number_of_rooms.set(maximum_number_of_rooms);
