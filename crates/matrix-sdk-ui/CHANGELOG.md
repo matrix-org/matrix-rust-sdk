@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- `Timeline::latest_event_id` won't take threaded events into account on live/event focused timelines if `hide_threaded_events` is enabled. This fixes a bug in `Timeline::mark_as_read` that incorrectly tried to send a read receipt for threaded events that aren't really part of those timelines. ([#5864](https://github.com/matrix-org/matrix-rust-sdk/pull/5864/))
 - Avoid replacing timeline items when the encryption info is unchanged.
   ([#5660](https://github.com/matrix-org/matrix-rust-sdk/pull/5660))
 - Improvement performance of `RoomList` by introducing a new `RoomListItem` type
