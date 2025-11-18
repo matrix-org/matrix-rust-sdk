@@ -343,3 +343,50 @@ git rebase --signoff origin/main
   `native-tls` or `rustls-tls` feature definitions:
 
   ![Screenshot of RustRover](.img/rustrover-disable-feature.png)
+
+## AI policy
+
+This policy is a copy of the [Forgejo's AI agreement][Forgejo].
+
+### Terminology
+
+This does not necessarily reflect the official or commonly used terminology.
+
+Software and services that heavily rely on large language model technology to
+generate their outcomes are referred to as _Artificial Intelligence_ (AI).
+Examples of products that fit this definition: GitHub Copilot, ChatGPT, Claude
+Sonnet, DeepSeek, Llama and Gemini.
+
+There is a distinction between _general_ and _narrow_ AI, all the aforementioned
+examples fall under general AI as they were not trained to execute a specific
+well-defined task. Narrow AI is trained to be used for specific well-defined
+tasks where the problem space is known in advance.
+
+_Vibe coding_ is the practice where AI creates a code change (feature, bugfix,
+tests, refactor) with a human that describes what needs to be implemented.
+
+_AI agents_ are AIs that are configured to perform interactions or make changes
+with little to no human supervision.
+
+### Agreement
+
+1. If content was made with the help of AI, you **must** convey that this is
+   the case. This includes content that you authored but was motivated by a
+   suggestion of AI.
+2. If at any point you used AI's work in your contribution you should make
+   an effort to **verify** that you can submit this under the license of the
+   repository.
+3. The **accountability** of using AI in a contribution lies with the person
+   that makes that contribution.
+4. All communication, that includes: commit messages, pull request messages,
+   documentation, code comments and issues (and comments on issues/pull
+   requests), that is intended to be read by people to understand your thoughts
+   and work **must not** have been generated with AI. We exclude machine
+   translation and tooling that helps with grammar and spelling check.
+5. Using general AI for review is **forbidden**. If the change contains changes
+   to the user experience it has to be approved by a human reviewer.
+6. It is **not allowed** to use AI in an autonomous-looking way to contribute to
+   the Matrix Rust SDK. This also applies when someone engages in _vibe coding_
+   or uses so-called _agent mode_.
+
+[Forgejo]: https://codeberg.org/forgejo/governance/src/branch/main/AIAgreement.md
