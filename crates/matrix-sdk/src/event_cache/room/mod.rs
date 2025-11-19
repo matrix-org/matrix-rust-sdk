@@ -646,7 +646,7 @@ mod private {
         serde::Raw,
     };
     use tokio::sync::{
-        RwLock, RwLockReadGuard, RwLockWriteGuard,
+        RwLock, RwLockReadGuard, RwLockWriteGuard, Semaphore,
         broadcast::{Receiver, Sender},
     };
     use tracing::{debug, error, instrument, trace, warn};
@@ -668,7 +668,12 @@ mod private {
     /// This contains all the inner mutable states that ought to be updated at
     /// the same time.
     pub struct RoomEventCacheStateLock {
+        /// The per-thread lock around the real state.
         locked_state: RwLock<RoomEventCacheStateLockInner>,
+
+        /// Please see inline comment of [`Self::read`] to understand why it
+        /// exists.
+        read_lock_acquisition: Semaphore,
     }
 
     struct RoomEventCacheStateLockInner {
@@ -811,6 +816,7 @@ mod private {
                     waited_for_initial_prev_token,
                     subscriber_count: Default::default(),
                 }),
+                read_lock_acquisition: Semaphore::new(1),
             })
         }
 
@@ -824,17 +830,78 @@ mod private {
         /// If the cross-process lock over the store is dirty (see
         /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
         pub async fn read(&self) -> Result<RoomEventCacheStateLockReadGuard<'_>, EventCacheError> {
-            // Take a write-lock in case the lock is dirty and we need to reset the state.
-            let state_guard = self.locked_state.write().await;
+            // Only one call at a time to `read` is allowed.
+            //
+            // Why? Because in case the cross-process lock over the store is dirty, we need
+            // to upgrade the read lock over the state to a write lock.
+            //
+            // ## Upgradable read lock
+            //
+            // One may argue that this upgrades can be done with an _upgradable read lock_
+            // [^1] [^2]. We don't want to use this solution because an upgradable read lock
+            // is basically a mutex because we are losing the shared access property: having
+            // multiple read locks at the same time. This is an important property to hold
+            // for performance concerns.
+            //
+            // ## Downgradable write lock
+            //
+            // One may also argue we could first obtain a write lock over the state from the
+            // beginning, thus removing the need to upgrade the read lock to a write lock.
+            // The write lock is then downgraded to a read lock once the dirty is cleaned
+            // up. It can potentially create a deadlock in the following situation:
+            //
+            // - `read` is called once, it takes a write lock, then downgrades it to a read
+            //   lock: the guard is kept alive somewhere,
+            // - `read` is called again, and waits to obtain the write lock, which is
+            //   impossible as long as the guard from the previous call is not dropped.
+            //
+            // ## “Atomic” read and write
+            //
+            // One may finally argue to first obtain a read lock over the state, then drop
+            // it if the cross-process lock over the store is dirty, and immediately obtain
+            // a write lock (which can later be downgraded to a read lock). The problem is
+            // that this write lock is async: anything can happen between the drop and the
+            // new lock acquisition, and it's not possible to pause the runtime in the
+            // meantime.
+            //
+            // ## Semaphore
+            //
+            // The chosen idea is to allow only one execution at a time of this method. That
+            // way we are free to “upgrade” the read lock by dropping it and obtaining a new
+            // write lock. All callers to this method are waiting, so nothing can happen in
+            // the meantime.
+            //
+            // Note that it doesn't conflict with the `write` method because this later
+            // immediately obtains a write lock, which avoids any conflict with this method.
+            //
+            // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
+            // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
+            let _permit = self
+                .read_lock_acquisition
+                .acquire()
+                .await
+                .expect("The `lock_acquisition` semaphore must never be closed");
+
+            // Just a check in case the code is modified without knowing how it works.
+            debug_assert_eq!(
+                self.read_lock_acquisition.available_permits(),
+                0,
+                "The semaphore must have only one permit"
+            );
+
+            // Obtain a read lock.
+            let state_guard = self.locked_state.read().await;
 
             match state_guard.store.lock().await? {
                 EventCacheStoreLockState::Clean(store_guard) => {
-                    Ok(RoomEventCacheStateLockReadGuard {
-                        state: state_guard.downgrade(),
-                        store: store_guard,
-                    })
+                    Ok(RoomEventCacheStateLockReadGuard { state: state_guard, store: store_guard })
                 }
                 EventCacheStoreLockState::Dirty(store_guard) => {
+                    // Drop the read lock, and take a write lock to modify the state.
+                    // This is safe because only one semaphore permit exists.
+                    drop(state_guard);
+                    let state_guard = self.locked_state.write().await;
+
                     let mut guard = RoomEventCacheStateLockWriteGuard {
                         state: state_guard,
                         store: store_guard,
