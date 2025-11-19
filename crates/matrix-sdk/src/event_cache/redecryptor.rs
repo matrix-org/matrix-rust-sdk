@@ -46,6 +46,11 @@
 //! received and R2D2 won't get notified about it. To work around this
 //! decryption requests can be explicitly sent to R2D2.
 //!
+//! The final gotcha is that a room key might be received just in between the
+//! time the event was initially tried to be decrypted and the time it took to
+//! persist it in the event cache. To handle this race condition R2D2 listens to
+//! the event cache and attempts to decrypt any UTDs the event cache persists.
+//!
 //! In the graph bellow the Timeline block is meant to be the `Timeline` from
 //! the `matrix-sdk-ui` crate, but it could be any other listener that
 //! subscribes to [`RedecryptorReport`] stream.
@@ -89,19 +94,20 @@
 //!                  │      │                       │        │
 //!                  └──────►         R2D2          │────────┘
 //!                         │                       │
-//!                         └───────────▲───────────┘
-//!                                     │
-//!                                     │
-//!                                     │
-//!                         Received room keys stream
-//!                                     │
-//!                                     │
-//!                                     │
-//!                             ┌───────┴──────┐
-//!                             │              │
-//!                             │  OlmMachine  │
-//!                             │              │
-//!                             └──────────────┘
+//!                         └──▲─────────────────▲──┘
+//!                            │                 │
+//!                            │                 │
+//!                            │                 │
+//!                         Received        Received room
+//!                          events          keys stream
+//!                            │                 │
+//!                            │                 │
+//!                            │                 │
+//!                    ┌───────┴──────┐  ┌───────┴──────┐
+//!                    │              │  │              │
+//!                    │  Event Cache │  │  OlmMachine  │
+//!                    │              │  │              │
+//!                    └──────────────┘  └──────────────┘
 //! ```
 
 use std::{collections::BTreeSet, pin::Pin, sync::Weak};
