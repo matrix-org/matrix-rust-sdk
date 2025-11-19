@@ -786,11 +786,16 @@ mod tests {
 
     use assert_matches2::assert_matches;
     use eyeball_im::VectorDiff;
-    use matrix_sdk_base::deserialized_responses::{TimelineEventKind, VerificationState};
+    use matrix_sdk_base::{
+        crypto::types::events::{ToDeviceEvent, room::encrypted::ToDeviceEncryptedEventContent},
+        deserialized_responses::{TimelineEventKind, VerificationState},
+    };
     use matrix_sdk_test::{
         JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
     };
-    use ruma::{RoomId, device_id, event_id, room_id, user_id};
+    use ruma::{
+        RoomId, device_id, event_id, events::AnySyncTimelineEvent, room_id, serde::Raw, user_id,
+    };
     use serde_json::json;
     use tracing::Instrument;
 
@@ -877,13 +882,13 @@ mod tests {
         (alice, bob, matrix_mock_server)
     }
 
-    #[async_test]
-    async fn test_redecryptor() {
-        let room_id = room_id!("!test:localhost");
-
-        let event_factory = EventFactory::new().room(room_id);
-        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, true).await;
-
+    async fn prepare_room(
+        matrix_mock_server: &MatrixMockServer,
+        event_factory: &EventFactory,
+        alice: &Client,
+        bob: &Client,
+        room_id: &RoomId,
+    ) -> (Raw<AnySyncTimelineEvent>, Raw<ToDeviceEvent<ToDeviceEncryptedEventContent>>) {
         let alice_user_id = alice.user_id().unwrap();
         let bob_user_id = bob.user_id().unwrap();
 
@@ -921,6 +926,23 @@ mod tests {
                 .expect("We should be able to send an initial message");
         };
 
+        // Let us retrieve the captured event and to-device message.
+        let event = event_receiver.await.expect("Alice should have sent the event by now");
+        let room_key = room_key.await;
+
+        (event, room_key)
+    }
+
+    #[async_test]
+    async fn test_redecryptor() {
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, true).await;
+
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+
         // Let's now see what Bob's event cache does.
 
         let (room_cache, _) = bob
@@ -930,10 +952,6 @@ mod tests {
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await;
-
-        // Let us retrieve the captured event and to-device message.
-        let event = event_receiver.await.expect("Alice should have sent the event by now");
-        let room_key = room_key.await;
 
         // We regenerate the Olm machine to check if the room key stream is recreated to
         // correctly.
@@ -990,7 +1008,6 @@ mod tests {
 
     #[async_test]
     async fn test_redecryptor_updating_encryption_info() {
-        let alice_span = tracing::info_span!("alice");
         let bob_span = tracing::info_span!("bob");
 
         let room_id = room_id!("!test:localhost");
@@ -998,44 +1015,8 @@ mod tests {
         let event_factory = EventFactory::new().room(room_id);
         let (alice, bob, matrix_mock_server) = set_up_clients(room_id, false).await;
 
-        let alice_user_id = alice.user_id().unwrap();
-        let bob_user_id = bob.user_id().unwrap();
-
-        let alice_member_event = event_factory.member(alice_user_id).into_raw();
-        let bob_member_event = event_factory.member(bob_user_id).into_raw();
-
-        let room = alice
-            .get_room(room_id)
-            .expect("Alice should have access to the room now that we synced");
-
-        // Alice will send a single event to the room, but this will trigger a to-device
-        // message containing the room key to be sent as well. We capture both the event
-        // and the to-device message.
-
-        let event_type = "m.room.message";
-        let content = json!({"body": "It's a secret to everybody", "msgtype": "m.text"});
-
-        let event_id = event_id!("$some_id");
-        let (event_receiver, mock) =
-            matrix_mock_server.mock_room_send().ok_with_capture(event_id, alice_user_id);
-        let (_guard, room_key) = matrix_mock_server.mock_capture_put_to_device(alice_user_id).await;
-
-        {
-            let _guard = mock.mock_once().mount_as_scoped().await;
-
-            matrix_mock_server
-                .mock_get_members()
-                .ok(vec![alice_member_event.clone(), bob_member_event.clone()])
-                .mock_once()
-                .mount()
-                .await;
-
-            room.send_raw(event_type, content)
-                .into_future()
-                .instrument(alice_span.clone())
-                .await
-                .expect("We should be able to send an initial message");
-        };
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
 
         // Let's now see what Bob's event cache does.
 
@@ -1047,10 +1028,6 @@ mod tests {
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await;
-
-        // Let us retrieve the captured event and to-device message.
-        let event = event_receiver.await.expect("Alice should have sent the event by now");
-        let room_key = room_key.await;
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1100,6 +1077,8 @@ mod tests {
         let encryption_info = value.encryption_info().unwrap();
         assert_matches!(&encryption_info.verification_state, VerificationState::Unverified(_));
         let session_id = encryption_info.session_id().unwrap().to_owned();
+
+        let alice_user_id = alice.user_id().unwrap();
 
         // Alice now creates the identity.
         alice
