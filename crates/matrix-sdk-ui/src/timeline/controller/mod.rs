@@ -15,7 +15,6 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
-use decryption_retry_task::DecryptionRetryTask;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
@@ -24,7 +23,7 @@ use imbl::Vector;
 use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCache, RoomPaginationStatus},
+    event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, PaginationToken, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -73,6 +72,7 @@ use crate::{
     timeline::{
         MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
+        controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
         event_item::TimelineItemHandle,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
@@ -261,10 +261,6 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     pub(super) settings: TimelineSettings,
-
-    /// Long-running task used to retry decryption of timeline items without
-    /// blocking main processing.
-    decryption_retry_task: DecryptionRetryTask<P, P>,
 }
 
 #[derive(Clone)]
@@ -426,10 +422,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             is_room_encrypted,
         )));
 
-        let decryption_retry_task =
-            DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
-
-        Self { state, focus, room_data_provider, settings, decryption_retry_task }
+        Self { state, focus, room_data_provider, settings }
     }
 
     /// Initializes the configured focus with appropriate data.
@@ -1267,10 +1260,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
         true
     }
 
-    pub(crate) async fn retry_event_decryption_inner(&self, session_ids: Option<BTreeSet<String>>) {
-        self.decryption_retry_task
-            .decrypt(self.room_data_provider.clone(), session_ids, self.settings.clone())
-            .await;
+    pub(super) async fn compute_redecryption_candidates(
+        &self,
+    ) -> (BTreeSet<String>, BTreeSet<String>) {
+        let state = self.state.read().await;
+        compute_redecryption_candidates(&state.items)
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
@@ -1791,7 +1785,15 @@ impl TimelineController {
 
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(session_ids).await
+        let (utds, decrypted) = self.compute_redecryption_candidates().await;
+
+        let request = DecryptionRetryRequest {
+            room_id: self.room().room_id().to_owned(),
+            utd_session_ids: utds,
+            refresh_info_session_ids: decrypted,
+        };
+
+        self.room().client().event_cache().request_decryption(request);
     }
 
     /// Combine the global (event cache) pagination status with the local state
