@@ -130,7 +130,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::{
-    broadcast,
+    broadcast::{self, Sender},
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 use tokio_stream::wrappers::{
@@ -141,7 +141,7 @@ use tracing::{info, instrument, trace, warn};
 #[cfg(doc)]
 use super::RoomEventCache;
 use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{Room, room::PushContext};
+use crate::{Room, event_cache::RoomEventCacheLinkedChunkUpdate, room::PushContext};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
@@ -179,7 +179,7 @@ pub enum RedecryptorReport {
 }
 
 pub(super) struct RedecryptorChannels {
-    utd_reporter: broadcast::Sender<RedecryptorReport>,
+    utd_reporter: Sender<RedecryptorReport>,
     pub(super) decryption_request_sender: UnboundedSender<DecryptionRetryRequest>,
     pub(super) decryption_request_receiver:
         Mutex<Option<UnboundedReceiver<DecryptionRetryRequest>>>,
@@ -391,10 +391,36 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<(), EventCacheError> {
-        trace!("Retrying to decrypt");
-
         // Get all the relevant UTDs.
         let events = self.get_utds(room_id, session_id).await?;
+        self.retry_decryption_for_events(room_id, events).await
+    }
+
+    /// Attempt to redecrypt events that were persisted in the event cache.
+    #[instrument(skip_all, fields(updates.linked_chunk_id))]
+    async fn retry_decryption_for_event_cache_updates(
+        &self,
+        updates: RoomEventCacheLinkedChunkUpdate,
+    ) -> Result<(), EventCacheError> {
+        let room_id = updates.linked_chunk_id.room_id();
+        let events: Vec<_> = updates
+            .updates
+            .into_iter()
+            .flat_map(|updates| updates.into_items())
+            .filter_map(filter_timeline_event_to_utd)
+            .collect();
+
+        self.retry_decryption_for_events(room_id, events).await
+    }
+
+    /// Attempt to redecrypt a chunk of UTDs.
+    #[instrument(skip_all, fields(room_id, session_id))]
+    async fn retry_decryption_for_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<EventIdAndUtd>,
+    ) -> Result<(), EventCacheError> {
+        trace!("Retrying to decrypt");
 
         if events.is_empty() {
             trace!("No relevant events found.");
@@ -604,11 +630,19 @@ impl Redecryptor {
     pub(super) fn new(
         cache: Weak<EventCacheInner>,
         receiver: UnboundedReceiver<DecryptionRetryRequest>,
+        linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
+        let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
+
         let task = spawn(async {
             let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
 
-            Self::listen_for_room_keys_task(cache, request_redecryption_stream).await;
+            Self::listen_for_room_keys_task(
+                cache,
+                request_redecryption_stream,
+                linked_chunk_stream,
+            )
+            .await;
         })
         .abort_on_drop();
 
@@ -642,6 +676,9 @@ impl Redecryptor {
     async fn redecryption_loop(
         cache: &Weak<EventCacheInner>,
         decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
+        events_stream: &mut Pin<
+            &mut impl Stream<Item = Result<RoomEventCacheLinkedChunkUpdate, BroadcastStreamRecvError>>,
+        >,
     ) -> bool {
         let Some((room_key_stream, withheld_stream)) =
             Self::subscribe_to_room_key_stream(cache).await
@@ -753,6 +790,35 @@ impl Redecryptor {
                         None => break true
                     }
                 }
+                // Events that the event cache handled. If the event cache received any UTDs, let's
+                // attempt to redecrypt them in case the room key was received before the event
+                // cache was able to return them using `get_utds()`.
+                Some(event_updates) = events_stream.next() => {
+                    match event_updates {
+                        Ok(updates) => {
+                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                                break false;
+                            };
+
+                            let linked_chunk_id = updates.linked_chunk_id.to_owned();
+
+                            let _ = cache.retry_decryption_for_event_cache_updates(updates).await.inspect_err(|e|
+                                warn!(
+                                    %linked_chunk_id,
+                                    "Unable to handle UTDs from event cache updates {e:?}",
+                                )
+                            );
+                        }
+                        Err(_) => {
+                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                                break false;
+                            };
+
+                            let message = RedecryptorReport::Lagging;
+                            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+                        }
+                    }
+                }
                 else => break false,
             }
         }
@@ -761,13 +827,17 @@ impl Redecryptor {
     async fn listen_for_room_keys_task(
         cache: Weak<EventCacheInner>,
         decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
+        events_stream: BroadcastStream<RoomEventCacheLinkedChunkUpdate>,
     ) {
         // We pin the decryption request stream here since that one doesn't need to be
         // recreated and we don't want to miss messages coming from the stream
         // while recreating it unnecessarily.
         pin_mut!(decryption_request_stream);
+        pin_mut!(events_stream);
 
-        while Self::redecryption_loop(&cache, &mut decryption_request_stream).await {
+        while Self::redecryption_loop(&cache, &mut decryption_request_stream, &mut events_stream)
+            .await
+        {
             info!("Regenerating the re-decryption streams");
 
             let Some(cache) = Self::upgrade_event_cache(&cache) else {
