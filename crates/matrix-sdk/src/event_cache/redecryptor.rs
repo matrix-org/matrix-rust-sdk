@@ -782,22 +782,47 @@ impl Redecryptor {
 #[cfg(not(target_family = "wasm"))]
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, time::Duration};
+    use std::{
+        collections::BTreeSet,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
 
     use assert_matches2::assert_matches;
+    use async_trait::async_trait;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
+        cross_process_lock::CrossProcessLockGeneration,
         crypto::types::events::{ToDeviceEvent, room::encrypted::ToDeviceEncryptedEventContent},
         deserialized_responses::{TimelineEventKind, VerificationState},
+        event_cache::{
+            Event, Gap,
+            store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+        },
+        linked_chunk::{
+            ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
+            RawChunk, Update,
+        },
+        locks::Mutex,
+        sleep::sleep,
+        store::StoreConfig,
     };
     use matrix_sdk_test::{
         JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        RoomId, device_id, event_id, events::AnySyncTimelineEvent, room_id, serde::Raw, user_id,
+        EventId, OwnedEventId, RoomId, device_id, event_id,
+        events::{AnySyncTimelineEvent, relation::RelationType},
+        room_id,
+        serde::Raw,
+        user_id,
     };
     use serde_json::json;
-    use tracing::Instrument;
+    use tokio::sync::oneshot::{self, Sender};
+    use tracing::{Instrument, info};
 
     use crate::{
         Client, assert_let_timeout,
@@ -806,10 +831,154 @@ mod tests {
         test_utils::mocks::MatrixMockServer,
     };
 
+    /// A wrapper for the memory store for the event cache.
+    ///
+    /// Delays the persisting of events, or linked chunk updates, to allow the
+    /// testing of race conditions between the event cache and R2D2.
+    #[derive(Debug, Clone)]
+    struct DelayingStore {
+        memory_store: MemoryStore,
+        delaying: Arc<AtomicBool>,
+        foo: Arc<Mutex<Option<Sender<()>>>>,
+    }
+
+    impl DelayingStore {
+        fn new() -> Self {
+            Self {
+                memory_store: MemoryStore::new(),
+                delaying: AtomicBool::new(true).into(),
+                foo: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        async fn stop_delaying(&self) {
+            let (sender, receiver) = oneshot::channel();
+
+            {
+                *self.foo.lock() = Some(sender);
+            }
+
+            self.delaying.store(false, Ordering::SeqCst);
+
+            receiver.await.expect("We should be able to receive a response")
+        }
+    }
+
+    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+    #[cfg_attr(not(target_family = "wasm"), async_trait)]
+    impl EventCacheStore for DelayingStore {
+        type Error = EventCacheStoreError;
+
+        async fn try_take_leased_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
+            self.memory_store.try_take_leased_lock(lease_duration_ms, key, holder).await
+        }
+
+        async fn handle_linked_chunk_updates(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), Self::Error> {
+            // This is the key behaviour of this store - we wait to set this value until
+            // someone calls `stop_delaying`.
+            //
+            // We use `sleep` here for simplicity. The cool way would be to use a custom
+            // waker or something like that.
+            while self.delaying.load(Ordering::SeqCst) {
+                sleep(Duration::from_millis(10)).await;
+            }
+
+            let sender = self.foo.lock().take();
+            let ret = self.memory_store.handle_linked_chunk_updates(linked_chunk_id, updates).await;
+
+            if let Some(sender) = sender {
+                sender.send(()).expect("We should be able to notify the other side that we're done with the storage operation");
+            }
+
+            ret
+        }
+
+        async fn load_all_chunks(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
+            self.memory_store.load_all_chunks(linked_chunk_id).await
+        }
+
+        async fn load_all_chunks_metadata(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+            self.memory_store.load_all_chunks_metadata(linked_chunk_id).await
+        }
+
+        async fn load_last_chunk(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+            self.memory_store.load_last_chunk(linked_chunk_id).await
+        }
+
+        async fn load_previous_chunk(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            before_chunk_identifier: ChunkIdentifier,
+        ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+            self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
+        }
+
+        async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_linked_chunks().await
+        }
+
+        async fn filter_duplicated_events(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            events: Vec<OwnedEventId>,
+        ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+            self.memory_store.filter_duplicated_events(linked_chunk_id, events).await
+        }
+
+        async fn find_event(
+            &self,
+            room_id: &RoomId,
+            event_id: &EventId,
+        ) -> Result<Option<Event>, Self::Error> {
+            self.memory_store.find_event(room_id, event_id).await
+        }
+
+        async fn find_event_relations(
+            &self,
+            room_id: &RoomId,
+            event_id: &EventId,
+            filters: Option<&[RelationType]>,
+        ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
+            self.memory_store.find_event_relations(room_id, event_id, filters).await
+        }
+
+        async fn get_room_events(
+            &self,
+            room_id: &RoomId,
+            event_type: Option<&str>,
+            session_id: Option<&str>,
+        ) -> Result<Vec<Event>, Self::Error> {
+            self.memory_store.get_room_events(room_id, event_type, session_id).await
+        }
+
+        async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+            self.memory_store.save_event(room_id, event).await
+        }
+    }
+
     async fn set_up_clients(
         room_id: &RoomId,
         alice_enables_cross_signing: bool,
-    ) -> (Client, Client, MatrixMockServer) {
+        use_delayed_store: bool,
+    ) -> (Client, Client, MatrixMockServer, Option<DelayingStore>) {
         let alice_span = tracing::info_span!("alice");
         let bob_span = tracing::info_span!("bob");
 
@@ -842,12 +1011,25 @@ mod tests {
         let encryption_settings =
             EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
+        let (store_config, store) = if use_delayed_store {
+            let store = DelayingStore::new();
+
+            (
+                StoreConfig::new("delayed_store_event_cache_test".into())
+                    .event_cache_store(store.clone()),
+                Some(store),
+            )
+        } else {
+            (StoreConfig::new("normal_store_event_cache_test".into()), None)
+        };
+
         let bob = matrix_mock_server
             .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
             .on_builder(|builder| {
                 builder
                     .with_enable_share_history_on_invite(true)
                     .with_encryption_settings(encryption_settings)
+                    .store_config(store_config)
             })
             .build()
             .instrument(bob_span.clone())
@@ -879,7 +1061,7 @@ mod tests {
             .instrument(bob_span)
             .await;
 
-        (alice, bob, matrix_mock_server)
+        (alice, bob, matrix_mock_server, store)
     }
 
     async fn prepare_room(
@@ -938,7 +1120,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         let event_factory = EventFactory::new().room(room_id);
-        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, true).await;
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
 
         let (event, room_key) =
             prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
@@ -1013,7 +1195,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         let event_factory = EventFactory::new().room(room_id);
-        let (alice, bob, matrix_mock_server) = set_up_clients(room_id, false).await;
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, false, false).await;
 
         let (event, room_key) =
             prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
@@ -1119,5 +1301,79 @@ mod tests {
             VerificationState::Unverified(_),
             "The event should now know about the identity but still be unverified"
         );
+    }
+
+    #[async_test]
+    async fn test_event_is_redecrypted_even_if_key_arrives_while_event_processing() {
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server, delayed_store) =
+            set_up_clients(room_id, true, true).await;
+
+        let delayed_store = delayed_store.unwrap();
+
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+
+        // Let's now see what Bob's event cache does.
+        let (room_cache, _) = bob
+            .event_cache()
+            .for_room(room_id)
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+
+        let (_, mut subscriber) = room_cache.subscribe().await;
+
+        // Let us forward the event to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .await;
+
+        // Now we send the room key to Bob.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(
+                    room_key
+                        .deserialize_as()
+                        .expect("We should be able to deserialize the room key"),
+                );
+            })
+            .await;
+
+        info!("Stopping the delay");
+        delayed_store.stop_delaying().await;
+
+        // Now that the first decryption attempt has failed since the sync with the
+        // event did not contain the room key, and the decryptor has received
+        // the room key but the event was not persisted in the cache as of yet,
+        // let's the event cache process the event.
+
+        // Alright, Bob has received an update from the cache.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // There should be a single new event, and it should be a UTD as we did not
+        // receive the room key yet.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // Bob should receive a new update from the cache.
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+
+        // It should replace the UTD with a decrypted event.
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Set { index, value });
+        assert_eq!(*index, 0);
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
     }
 }
