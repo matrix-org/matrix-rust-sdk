@@ -118,6 +118,8 @@ impl RoomList {
     /// Get a subscriber to the room list loading state.
     ///
     /// This method will send out the current loading state as the first update.
+    ///
+    /// See [`RoomListLoadingState`].
     pub fn loading_state(&self) -> Subscriber<RoomListLoadingState> {
         self.loading_state.subscribe_reset()
     }
@@ -285,6 +287,8 @@ fn merge_stream_and_receiver(
 /// When a [`RoomList`] is displayed to the user, it can be in various states.
 /// This enum tries to represent those states with a correct level of
 /// abstraction.
+///
+/// See [`RoomList::loading_state`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RoomListLoadingState {
     /// The [`RoomList`] has not been loaded yet, i.e. a sync might run
@@ -309,8 +313,8 @@ pub enum RoomListLoadingState {
         /// The maximum number of rooms a [`RoomList`] contains.
         ///
         /// It does not mean that there are exactly this many rooms to display.
-        /// Usually, the room entries are represented by [`Room`]. The room
-        /// entry might have been synced or not synced yet, but we know for sure
+        /// The room entries are represented by [`RoomListItem`]. The room entry
+        /// might have been synced or not synced yet, but we know for sure
         /// (from the server), that there will be this amount of rooms in the
         /// list at the end.
         ///
