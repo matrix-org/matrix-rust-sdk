@@ -2565,7 +2565,7 @@ mod tests {
 
 #[cfg(all(test, not(target_family = "wasm")))] // This uses the cross-process lock, so needs time support.
 mod timed_tests {
-    use std::sync::Arc;
+    use std::{ops::Not, sync::Arc};
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
@@ -2585,7 +2585,7 @@ mod timed_tests {
     };
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        OwnedUserId, event_id,
+        EventId, OwnedUserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id, user_id,
     };
@@ -2594,7 +2594,7 @@ mod timed_tests {
     use super::RoomEventCacheGenericUpdate;
     use crate::{
         assert_let_timeout,
-        event_cache::{RoomEventCacheUpdate, room::LoadMoreEventsBackwardsOutcome},
+        event_cache::{RoomEventCache, RoomEventCacheUpdate, room::LoadMoreEventsBackwardsOutcome},
         test_utils::client::MockClientBuilder,
     };
 
@@ -3756,5 +3756,270 @@ mod timed_tests {
         assert!(
             room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.unwrap().is_none()
         );
+    }
+
+    #[async_test]
+    async fn test_reset_when_dirty() {
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let room_id = room_id!("!raclette:patate.ch");
+
+        // The storage shared by the two clients.
+        let event_cache_store = MemoryStore::new();
+
+        // Client for the process 0.
+        let client_p0 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("process #0".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        // Client for the process 1.
+        let client_p1 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("process #1".to_owned()).event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_factory = EventFactory::new().room(room_id).sender(user_id);
+
+        let ev_id_0 = event_id!("$ev_0");
+        let ev_id_1 = event_id!("$ev_1");
+
+        let ev_0 = event_factory.text_msg("comté").event_id(ev_id_0).into_event();
+        let ev_1 = event_factory.text_msg("morbier").event_id(ev_id_1).into_event();
+
+        // Add events to the storage (shared by the two clients!).
+        client_p0
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("[p0] Could not acquire the event cache lock")
+            .as_clean()
+            .expect("[p0] Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev_0],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev_1],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Subscribe the event caches, and create the room.
+        let (room_event_cache_p0, room_event_cache_p1) = {
+            let event_cache_p0 = client_p0.event_cache();
+            event_cache_p0.subscribe().unwrap();
+
+            let event_cache_p1 = client_p1.event_cache();
+            event_cache_p1.subscribe().unwrap();
+
+            client_p0.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+
+            let (room_event_cache_p0, _drop_handles) =
+                client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
+            let (room_event_cache_p1, _drop_handles) =
+                client_p1.get_room(room_id).unwrap().event_cache().await.unwrap();
+
+            (room_event_cache_p0, room_event_cache_p1)
+        };
+
+        // Okay. We are ready for the test!
+        //
+        // First off, let's check `room_event_cache_p0` has access to the first event
+        // loaded in-memory, then do a pagination, and see more events.
+        {
+            let room_event_cache = &room_event_cache_p0;
+
+            // `ev_id_1` must be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_1).await);
+
+            // `ev_id_0` must NOT be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+            // Load one more event with a backpagination.
+            room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+
+            // `ev_id_0` must now be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_0).await);
+        }
+
+        // Second, let's check `room_event_cache_p1` has the same accesses.
+        {
+            let room_event_cache = &room_event_cache_p1;
+
+            // `ev_id_1` must be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_1).await);
+
+            // `ev_id_0` must NOT be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+            // Load one more event with a backpagination.
+            room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+
+            // `ev_id_0` must now be loaded in memory.
+            assert!(event_loaded(room_event_cache, ev_id_0).await);
+        }
+
+        // Do this a couple times, for the fun.
+        for _ in 0..3 {
+            // Third, because `room_event_cache_p1` has locked the store, the lock
+            // is dirty for `room_event_cache_p0`, so it will shrink to its last
+            // chunk!
+            {
+                let room_event_cache = &room_event_cache_p0;
+
+                // `ev_id_1` must be loaded in memory, just like before.
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+
+                // However, `ev_id_0` must NOT be loaded in memory. It WAS loaded, but the
+                // state has shrunk to its last chunk.
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                // Load one more event with a backpagination.
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+
+                // `ev_id_0` must now be loaded in memory.
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+
+            // Fourth, because `room_event_cache_p0` has locked the store again, the lock
+            // is dirty for `room_event_cache_p1` too!, so it will shrink to its last
+            // chunk!
+            {
+                let room_event_cache = &room_event_cache_p1;
+
+                // `ev_id_1` must be loaded in memory, just like before.
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+
+                // However, `ev_id_0` must NOT be loaded in memory. It WAS loaded, but the
+                // state has shrunk to its last chunk.
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                // Load one more event with a backpagination.
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+
+                // `ev_id_0` must now be loaded in memory.
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+        }
+
+        // Repeat that with an explicit read lock (so that we don't rely on
+        // `event_loaded` to trigger the dirty detection).
+        for _ in 0..3 {
+            {
+                let room_event_cache = &room_event_cache_p0;
+
+                let guard = room_event_cache.inner.state.read().await.unwrap();
+
+                // Guard is kept alive, to ensure we can have multiple read guards alive with a
+                // shared access.
+                // See `RoomEventCacheStateLock::read` to learn more.
+
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                // Ensure `guard` is alive up to this point (in case this test is refactored, I
+                // want to make this super explicit).
+                //
+                // We drop need to drop it before the pagination because the pagination needs to
+                // obtain a write lock.
+                drop(guard);
+
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+
+            {
+                let room_event_cache = &room_event_cache_p1;
+
+                let guard = room_event_cache.inner.state.read().await.unwrap();
+
+                // Guard is kept alive, to ensure we can have multiple read guards alive with a
+                // shared access.
+
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                // Ensure `guard` is alive up to this point (in case this test is refactored, I
+                // want to make this super explicit).
+                //
+                // We drop need to drop it before the pagination because the pagination needs to
+                // obtain a write lock.
+                drop(guard);
+
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+        }
+
+        // Repeat that with an explicit write lock.
+        for _ in 0..3 {
+            {
+                let room_event_cache = &room_event_cache_p0;
+
+                let guard = room_event_cache.inner.state.write().await.unwrap();
+
+                // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
+                // needs to obtain a read lock.
+                drop(guard);
+
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+
+            {
+                let room_event_cache = &room_event_cache_p1;
+
+                let guard = room_event_cache.inner.state.write().await.unwrap();
+
+                // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
+                // needs to obtain a read lock.
+                drop(guard);
+
+                assert!(event_loaded(room_event_cache, ev_id_1).await);
+                assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+                assert!(event_loaded(room_event_cache, ev_id_0).await);
+            }
+        }
+    }
+
+    async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
+        room_event_cache
+            .rfind_map_event_in_memory_by(|event| {
+                (event.event_id().as_deref() == Some(event_id)).then_some(())
+            })
+            .await
+            .unwrap()
+            .is_some()
     }
 }
