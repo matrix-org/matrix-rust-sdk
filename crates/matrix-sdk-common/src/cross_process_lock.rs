@@ -602,15 +602,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test_macros::async_test;
-    use tokio::{
-        spawn,
-        task::yield_now,
-        time::{Duration, sleep},
-    };
+    use tokio::{spawn, task::yield_now};
 
     use super::{
         CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockState,
-        CrossProcessLockUnobtained, EXTEND_LEASE_EVERY_MS, TryLock,
+        CrossProcessLockUnobtained, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
 
@@ -655,7 +651,7 @@ mod tests {
 
     async fn release_lock(lock: CrossProcessLockState) {
         drop(lock);
-        sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
+        yield_now().await;
     }
 
     type TestResult = Result<(), CrossProcessLockError>;
@@ -761,7 +757,7 @@ mod tests {
         let lock2_clone = lock2.clone();
         let task = spawn(async move { lock2_clone.spin_lock(Some(500)).await });
 
-        sleep(Duration::from_millis(100)).await;
+        yield_now().await;
 
         drop(guard1);
 
