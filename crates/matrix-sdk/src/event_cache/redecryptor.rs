@@ -198,6 +198,23 @@ impl RedecryptorChannels {
     }
 }
 
+/// A function that  can be used to filter and map [`TimelineEvent`]s into a
+/// tuple of event ID and raw [`AnySyncTimelineEvent`].
+///
+/// The tuple can be used to attempt to redecrypt events.
+fn filter_timeline_event_to_utd(
+    event: TimelineEvent,
+) -> Option<(OwnedEventId, Raw<AnySyncTimelineEvent>)> {
+    let event_id = event.event_id();
+
+    // Only pick out events that are UTDs, get just the Raw event as this is what
+    // the OlmMachine needs.
+    let event = as_variant!(event.kind, TimelineEventKind::UnableToDecrypt { event, .. } => event);
+    // Zip the event ID and event together so we don't have to pick out the event ID
+    // again. We need the event ID to replace the event in the cache.
+    event_id.zip(event)
+}
+
 impl EventCache {
     /// Retrieve a set of events that we weren't able to decrypt.
     ///
@@ -211,24 +228,12 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
-        let filter = |event: TimelineEvent| {
-            let event_id = event.event_id();
-
-            // Only pick out events that are UTDs, get just the Raw event as this is what
-            // the OlmMachine needs.
-            let event =
-                as_variant!(event.kind, TimelineEventKind::UnableToDecrypt { event, .. } => event);
-            // Zip the event ID and event together so we don't have to pick out the event ID
-            // again. We need the event ID to replace the event in the cache.
-            event_id.zip(event)
-        };
-
         let events = {
             let store = self.inner.store.lock().await?;
             store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
         };
 
-        Ok(events.into_iter().filter_map(filter).collect())
+        Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
     }
 
     async fn get_decrypted_events(
