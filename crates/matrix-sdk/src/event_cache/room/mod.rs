@@ -830,7 +830,6 @@ mod private {
             match state_guard.store.lock().await? {
                 EventCacheStoreLockState::Clean(store_guard) => {
                     Ok(RoomEventCacheStateLockReadGuard {
-                        // Downgrade to a read-lock.
                         state: state_guard.downgrade(),
                         store: store_guard,
                     })
@@ -845,11 +844,7 @@ mod private {
                     // All good now, mark the cross-process lock as non-dirty.
                     EventCacheStoreLockGuard::clear_dirty(&guard.store);
 
-                    Ok(RoomEventCacheStateLockReadGuard {
-                        // Downgrade to a read-lock.
-                        state: guard.state.downgrade(),
-                        store: guard.store,
-                    })
+                    Ok(guard.downgrade())
                 }
             }
         }
@@ -907,6 +902,19 @@ mod private {
 
         /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
+    }
+
+    impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
+        /// Synchronously downgrades a write lock into a read lock.
+        ///
+        /// The per-thread/state lock is downgraded atomically, without allowing
+        /// any writers to take exclusive access of the lock in the meantime.
+        ///
+        /// It returns an RAII guard which will drop the write access to the
+        /// state and to the store when dropped.
+        fn downgrade(self) -> RoomEventCacheStateLockReadGuard<'a> {
+            RoomEventCacheStateLockReadGuard { state: self.state.downgrade(), store: self.store }
+        }
     }
 
     impl<'a> RoomEventCacheStateLockReadGuard<'a> {
