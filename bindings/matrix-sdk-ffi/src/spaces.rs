@@ -87,6 +87,18 @@ impl SpaceService {
         Ok(Arc::new(SpaceRoomList::new(self.inner.space_room_list(space_id).await)))
     }
 
+    /// Returns all known direct-parents of a given space room ID.
+    pub async fn joined_parents_of_child(
+        &self,
+        child_id: String,
+    ) -> Result<Vec<SpaceRoom>, ClientError> {
+        let child_id = RoomId::parse(child_id)?;
+
+        let parents = self.inner.joined_parents_of_child(&child_id).await;
+
+        Ok(parents.into_iter().map(Into::into).collect())
+    }
+
     pub async fn add_child_to_space(
         &self,
         child_id: String,

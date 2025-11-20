@@ -216,6 +216,20 @@ impl SpaceService {
         SpaceRoomList::new(self.client.clone(), space_id).await
     }
 
+    /// Returns all known direct-parents of a given space room ID.
+    pub async fn joined_parents_of_child(&self, child_id: &RoomId) -> Vec<SpaceRoom> {
+        let graph = &self.space_state.lock().await.graph;
+
+        graph
+            .parents_of(child_id)
+            .into_iter()
+            .filter_map(|parent_id| self.client.get_room(parent_id))
+            .map(|room| {
+                SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64)
+            })
+            .collect()
+    }
+
     pub async fn add_child_to_space(
         &self,
         child_id: OwnedRoomId,
@@ -713,6 +727,88 @@ mod tests {
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
             ]
+        );
+    }
+
+    #[async_test]
+    async fn test_joined_parents_of_child() {
+        // Given a space with three parent spaces, two of which are joined.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id_1 = room_id!("!parent_space_1:example.org");
+        let parent_space_id_2 = room_id!("!parent_space_2:example.org");
+        let unknown_parent_space_id = room_id!("!unknown_parent_space:example.org");
+        let child_space_id = room_id!("!child_space:example.org");
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(child_space_id)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
+                    .add_state_event(
+                        factory
+                            .space_parent(parent_space_id_1.to_owned(), child_space_id.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_parent(parent_space_id_2.to_owned(), child_space_id.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_parent(
+                                unknown_parent_space_id.to_owned(),
+                                child_space_id.to_owned(),
+                            )
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(parent_space_id_1)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id_1.to_owned(), child_space_id.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(parent_space_id_2)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id_2.to_owned(), child_space_id.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // Wait for the space hierarchy to register.
+        _ = space_service.joined_spaces().await;
+
+        // When retrieving the joined parents of the child space
+        let parents = space_service.joined_parents_of_child(child_space_id).await;
+
+        // Then both parent spaces are returned
+        assert_eq!(
+            parents.iter().map(|space| space.room_id.to_owned()).collect::<Vec<_>>(),
+            vec![parent_space_id_1, parent_space_id_2]
         );
     }
 
