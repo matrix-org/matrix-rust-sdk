@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Utilize the cache and include common relations when focusing a timeline on an event without
+  requestion context.
+  ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
 - Add push actions to `NotificationItem`.
   ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
 - Add support for top level space ordering through [MSC3230](https://github.com/matrix-org/matrix-spec-proposals/pull/3230)
