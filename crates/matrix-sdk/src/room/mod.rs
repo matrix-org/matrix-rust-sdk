@@ -816,7 +816,7 @@ impl Room {
     ) -> Result<TimelineEvent> {
         match self.event_cache().await {
             Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.find_event(event_id).await {
+                if let Some(event) = event_cache.find_event(event_id).await? {
                     return Ok(event);
                 }
                 // Fallthrough: try with a request.

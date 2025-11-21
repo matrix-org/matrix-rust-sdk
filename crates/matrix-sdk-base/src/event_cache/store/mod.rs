@@ -29,7 +29,7 @@ mod traits;
 
 use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    TryLock,
+    MappedCrossProcessLockState, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
@@ -83,37 +83,61 @@ impl EventCacheStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await??.into_guard();
+    pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
+        let lock_state =
+            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
+            });
 
-        Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
+        Ok(lock_state)
     }
 }
+
+/// The equivalent of [`CrossProcessLockState`] but for the [`EventCacheStore`].
+///
+/// [`CrossProcessLockState`]: matrix_sdk_common::cross_process_lock::CrossProcessLockState
+pub type EventCacheStoreLockState = MappedCrossProcessLockState<EventCacheStoreLockGuard>;
 
 /// An RAII implementation of a “scoped lock” of an [`EventCacheStoreLock`].
 /// When this structure is dropped (falls out of scope), the lock will be
 /// unlocked.
-pub struct EventCacheStoreLockGuard<'a> {
+#[derive(Clone)]
+pub struct EventCacheStoreLockGuard {
     /// The cross process lock guard.
     #[allow(unused)]
     cross_process_lock_guard: CrossProcessLockGuard,
 
     /// A reference to the store.
-    store: &'a DynEventCacheStore,
+    store: Arc<DynEventCacheStore>,
+}
+
+impl EventCacheStoreLockGuard {
+    /// Forward to [`CrossProcessLockGuard::clear_dirty`].
+    ///
+    /// This is an associated method to avoid colliding with the [`Deref`]
+    /// implementation.
+    pub fn clear_dirty(this: &Self) {
+        this.cross_process_lock_guard.clear_dirty();
+    }
+
+    /// Force to [`CrossProcessLockGuard::is_dirty`].
+    pub fn is_dirty(this: &Self) -> bool {
+        this.cross_process_lock_guard.is_dirty()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for EventCacheStoreLockGuard<'_> {
+impl fmt::Debug for EventCacheStoreLockGuard {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("EventCacheStoreLockGuard").finish_non_exhaustive()
     }
 }
 
-impl Deref for EventCacheStoreLockGuard<'_> {
+impl Deref for EventCacheStoreLockGuard {
     type Target = DynEventCacheStore;
 
     fn deref(&self) -> &Self::Target {
-        self.store
+        self.store.as_ref()
     }
 }
 

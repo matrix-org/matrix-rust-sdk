@@ -317,6 +317,7 @@ fn find_event_relations(c: &mut Criterion) {
                                 let (target, relations) = room_event_cache
                                     .find_event_with_relations(target_event_id, filter)
                                     .await
+                                    .unwrap()
                                     .unwrap();
                                 assert_eq!(target.event_id().as_deref().unwrap(), target_event_id);
                                 assert_eq!(relations.len(), num_related_events as usize);

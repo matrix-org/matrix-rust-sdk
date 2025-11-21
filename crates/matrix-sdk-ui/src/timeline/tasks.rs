@@ -28,7 +28,7 @@ use matrix_sdk::{
 use ruma::OwnedEventId;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tokio_stream::StreamExt as _;
-use tracing::{instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
 use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEventOrigin};
 
@@ -93,7 +93,14 @@ pub(in crate::timeline) async fn thread_updates_task(
                 // The updates might have lagged, but the room event cache might
                 // have events, so retrieve them and add them back again to the
                 // timeline, after clearing it.
-                let (initial_events, _) = room_event_cache.subscribe_to_thread(root.clone()).await;
+                let (initial_events, _) =
+                    match room_event_cache.subscribe_to_thread(root.clone()).await {
+                        Ok(values) => values,
+                        Err(err) => {
+                            error!(?err, "Subscribing to thread failed");
+                            break;
+                        }
+                    };
 
                 timeline_controller
                     .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
@@ -145,7 +152,16 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 // The updates might have lagged, but the room event cache might have
                 // events, so retrieve them and add them back again to the timeline,
                 // after clearing it.
-                let initial_events = room_event_cache.events().await;
+                let initial_events = match room_event_cache.events().await {
+                    Ok(initial_events) => initial_events,
+                    Err(err) => {
+                        error!(
+                            ?err,
+                            "Failed to replace the initial remote events in the event cache"
+                        );
+                        break;
+                    }
+                };
 
                 timeline_controller
                     .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)

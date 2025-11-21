@@ -117,6 +117,7 @@ use matrix_sdk_base::{
         types::events::room::encrypted::EncryptedEvent,
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
+    event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
     timer,
 };
@@ -223,9 +224,13 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        let events = {
-            let store = self.inner.store.lock().await?;
-            store.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
+        let events = match self.inner.store.lock().await? {
+            // If the lock is clean, no problem.
+            // If the lock is dirty, it doesn't really matter as we are hitting the store
+            // directly, there is no in-memory state to manage, so all good.
+            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
+                guard.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
+            }
         };
 
         Ok(events.into_iter().filter_map(filter).collect())
@@ -245,9 +250,13 @@ impl EventCache {
             event_id.zip(event)
         };
 
-        let events = {
-            let store = self.inner.store.lock().await?;
-            store.get_room_events(room_id, None, Some(session_id)).await?
+        let events = match self.inner.store.lock().await? {
+            // If the lock is clean, no problem.
+            // If the lock is dirty, it doesn't really matter as we are hitting the store
+            // directly, there is no in-memory state to manage, so all good.
+            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
+                guard.get_room_events(room_id, None, Some(session_id)).await?
+            }
         };
 
         Ok(events.into_iter().filter_map(filter).collect())
@@ -280,7 +289,7 @@ impl EventCache {
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-        let mut state = room_cache.inner.state.write().await;
+        let mut state = room_cache.inner.state.write().await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
@@ -308,9 +317,9 @@ impl EventCache {
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
-        let diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+        let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
-        let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs,
             origin: EventsOrigin::Cache,
         });
@@ -929,7 +938,7 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
-        let (_, mut subscriber) = room_cache.subscribe().await;
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
 
         // Let us retrieve the captured event and to-device message.
         let event = event_receiver.await.expect("Alice should have sent the event by now");
@@ -1046,7 +1055,7 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
-        let (_, mut subscriber) = room_cache.subscribe().await;
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
 
         // Let us retrieve the captured event and to-device message.
         let event = event_receiver.await.expect("Alice should have sent the event by now");

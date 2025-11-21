@@ -439,7 +439,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         match focus {
             TimelineFocus::Live { .. } => {
                 // Retrieve the cached events, and add them to the timeline.
-                let events = room_event_cache.events().await;
+                let events = room_event_cache.events().await?;
 
                 let has_events = !events.is_empty();
 
@@ -549,7 +549,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Thread { root_event_id, .. } => {
-                let (events, _) = room_event_cache.subscribe_to_thread(root_event_id.clone()).await;
+                let (events, _) =
+                    room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
                 let has_events = !events.is_empty();
 
                 // For each event, we also need to find the related events, as they don't
@@ -558,7 +559,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let mut related_events = Vector::new();
                 for event_id in events.iter().filter_map(|event| event.event_id()) {
                     if let Some((_original, related)) =
-                        room_event_cache.find_event_with_relations(&event_id, None).await
+                        room_event_cache.find_event_with_relations(&event_id, None).await?
                     {
                         related_events.extend(related);
                     }

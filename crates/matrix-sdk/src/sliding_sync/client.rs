@@ -355,7 +355,7 @@ async fn handle_receipts_extension(
                 return Ok::<_, crate::Error>(None);
             };
 
-            let previous_events = room_event_cache.events().await;
+            let previous_events = room_event_cache.events().await?;
 
             let receipt_event = client
                 .base_client()

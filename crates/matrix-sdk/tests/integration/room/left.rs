@@ -57,8 +57,13 @@ async fn test_forget_non_direct_room() {
 
     {
         // There is some data in the cache store.
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store
+        let room_data = client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
             .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
             .await
             .unwrap();
@@ -74,8 +79,13 @@ async fn test_forget_non_direct_room() {
 
     {
         // Data in the event cache store has been removed.
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store
+        let room_data = client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
             .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
             .await
             .unwrap();
@@ -119,8 +129,13 @@ async fn test_forget_banned_room() {
 
     {
         // There is some data in the cache store.
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store
+        let room_data = client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
             .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
             .await
             .unwrap();
@@ -140,8 +155,13 @@ async fn test_forget_banned_room() {
 
     {
         // Data in the event cache store has been removed.
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store
+        let room_data = client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
             .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
             .await
             .unwrap();
