@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
+  and `profile`.
+  ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
 - Add push actions to `NotificationItem`.
   ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
 - Add support for top level space ordering through [MSC3230](https://github.com/matrix-org/matrix-spec-proposals/pull/3230)

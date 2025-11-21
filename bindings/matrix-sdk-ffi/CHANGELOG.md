@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- The `LatestEventValue::Local` type gains 2 new fields: `sender` and `profile`.
+  ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
 - The `Encryption::user_identity()` method has received a new argument. The
   `fallback_to_server` argument controls if we should attempt to fetch the user
   identity from the homeserver if it wasn't found in the local storage.
