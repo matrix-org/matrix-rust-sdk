@@ -421,7 +421,7 @@ impl EventCache {
                         // However, better safe than sorry, and it's cheap to send an update here,
                         // so let's do it!
                         if !diffs.is_empty() {
-                            let _ = room.inner.sender.send(
+                            let _ = room.inner.update_sender.send(
                                 RoomEventCacheUpdate::UpdateTimelineEvents {
                                     diffs,
                                     origin: EventsOrigin::Cache,
@@ -951,7 +951,7 @@ impl EventCacheInner {
             let mut state_guard = state_guard?;
             let updates_as_vector_diffs = state_guard.reset().await?;
 
-            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+            let _ = room.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: updates_as_vector_diffs,
                 origin: EventsOrigin::Cache,
             });
