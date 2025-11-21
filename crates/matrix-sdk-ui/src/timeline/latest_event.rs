@@ -54,6 +54,9 @@ pub enum LatestEventValue {
         /// The timestamp of the local event.
         timestamp: MilliSecondsSinceUnixEpoch,
 
+        /// The sender of the remote event.
+        sender: OwnedUserId,
+
         /// The sender's profile.
         profile: TimelineDetails<Profile>,
 
@@ -117,9 +120,10 @@ impl LatestEventValue {
                     return Self::None;
                 };
 
-                let sender = client.user_id().expect("The `Client` is supposed to be logged");
+                let sender =
+                    client.user_id().expect("The `Client` is supposed to be logged").to_owned();
                 let profile = room
-                    .profile_from_user_id(sender)
+                    .profile_from_user_id(&sender)
                     .await
                     .map(TimelineDetails::Ready)
                     .unwrap_or(TimelineDetails::Unavailable);
@@ -127,7 +131,7 @@ impl LatestEventValue {
 
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
                     TimelineAction::AddItem { content } => {
-                        Self::Local { timestamp, profile, content, is_sending }
+                        Self::Local { timestamp, sender, profile, content, is_sending }
                     }
 
                     TimelineAction::HandleAggregation { kind, .. } => {
@@ -235,8 +239,9 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, profile, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
             assert_matches!(
                 content,
@@ -265,8 +270,9 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, profile, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
             assert_matches!(
                 content,
