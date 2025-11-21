@@ -243,11 +243,12 @@ impl RoomPagination {
                     reached_start,
                 } => {
                     if !timeline_event_diffs.is_empty() {
-                        let _ =
-                            self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                        let _ = self.inner.update_sender.send(
+                            RoomEventCacheUpdate::UpdateTimelineEvents {
                                 diffs: timeline_event_diffs,
                                 origin: EventsOrigin::Cache,
-                            });
+                            },
+                        );
 
                         // Send a room event cache generic update.
                         let _ =
@@ -311,7 +312,7 @@ impl RoomPagination {
             .await?
         {
             if !timeline_event_diffs.is_empty() {
-                let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
                 });

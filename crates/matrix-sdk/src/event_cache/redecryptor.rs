@@ -332,7 +332,7 @@ impl EventCache {
         // been queued up. We need to send them out to our subscribers now.
         let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
-        let _ = room_cache.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs,
             origin: EventsOrigin::Cache,
         });

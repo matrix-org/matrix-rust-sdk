@@ -207,7 +207,7 @@ impl RoomEventCache {
         let previous_subscriber_count = subscriber_count.fetch_add(1, Ordering::SeqCst);
         trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
 
-        let recv = self.inner.sender.subscribe();
+        let recv = self.inner.update_sender.subscribe();
         let subscriber = RoomEventCacheSubscriber {
             recv,
             room_id: self.inner.room_id.clone(),
@@ -383,7 +383,7 @@ impl RoomEventCache {
         let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         // Notify observers about the update.
-        let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+        let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
             origin: EventsOrigin::Cache,
         });
@@ -428,7 +428,7 @@ pub(super) struct RoomEventCacheInner {
     pub weak_room: WeakRoom,
 
     /// Sender part for subscribers to this room.
-    pub sender: Sender<RoomEventCacheUpdate>,
+    pub update_sender: Sender<RoomEventCacheUpdate>,
 
     /// State for this room's event cache.
     pub state: RoomEventCacheStateLock,
@@ -463,13 +463,14 @@ impl RoomEventCacheInner {
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
-        let sender = Sender::new(32);
+        let update_sender = Sender::new(32);
         let weak_room = WeakRoom::new(client, room_id);
+
         Self {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
             state,
-            sender,
+            update_sender,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
@@ -498,7 +499,7 @@ impl RoomEventCacheInner {
                     handled_read_marker = true;
 
                     // Propagate to observers. (We ignore the error if there aren't any.)
-                    let _ = self.sender.send(RoomEventCacheUpdate::MoveReadMarkerTo {
+                    let _ = self.update_sender.send(RoomEventCacheUpdate::MoveReadMarkerTo {
                         event_id: ev.content.event_id,
                     });
                 }
@@ -567,7 +568,7 @@ impl RoomEventCacheInner {
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
-            let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+            let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
@@ -579,12 +580,13 @@ impl RoomEventCacheInner {
 
         if !ephemeral_events.is_empty() {
             let _ = self
-                .sender
+                .update_sender
                 .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
         }
 
         if !ambiguity_changes.is_empty() {
-            let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            let _ =
+                self.update_sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
         }
 
         Ok(())
