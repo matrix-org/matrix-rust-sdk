@@ -58,7 +58,7 @@ futures-util.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 itertools.workspace = true
-js_option = "0.2"
+js_option = "0.2.0"
 matrix-sdk-common.workspace = true
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only
@@ -71,7 +71,7 @@ serde_json.workspace = true
 sha2.workspace = true
 subtle = "2.6.1"
 thiserror.workspace = true
-time = { version = "0.3.42", features = ["formatting"] }
+time = { version = "0.3.44", features = ["formatting"] }
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
@@ -93,7 +93,7 @@ assert_matches.workspace = true
 assert_matches2.workspace = true
 futures-executor.workspace = true
 http.workspace = true
-indoc = "2.0.6"
+indoc = "2.0.7"
 insta.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
