@@ -168,6 +168,7 @@ impl RoomEventCache {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
         Self {
@@ -177,6 +178,7 @@ impl RoomEventCache {
                 pagination_status,
                 room_id,
                 auto_shrink_sender,
+                update_sender,
                 generic_update_sender,
             )),
         }
@@ -427,9 +429,6 @@ pub(super) struct RoomEventCacheInner {
 
     pub weak_room: WeakRoom,
 
-    /// Sender part for subscribers to this room.
-    pub update_sender: Sender<RoomEventCacheUpdate>,
-
     /// State for this room's event cache.
     pub state: RoomEventCacheStateLock,
 
@@ -443,6 +442,9 @@ pub(super) struct RoomEventCacheInner {
     /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
     /// more details.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+
+    /// Sender part for update subscribers to this room.
+    pub update_sender: Sender<RoomEventCacheUpdate>,
 
     /// A clone of [`EventCacheInner::generic_update_sender`].
     ///
@@ -461,9 +463,9 @@ impl RoomEventCacheInner {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
-        let update_sender = Sender::new(32);
         let weak_room = WeakRoom::new(client, room_id);
 
         Self {
@@ -660,7 +662,8 @@ mod private {
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             room::threads::ThreadEventCache,
         },
-        EventLocation, LoadMoreEventsBackwardsOutcome,
+        EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
+        RoomEventCacheUpdate,
         events::EventLinkedChunk,
         sort_positions_descending,
     };
@@ -699,7 +702,19 @@ mod private {
 
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
-        /// See doc comment of
+        /// A clone of [`super::RoomEventCacheInner::update_sender`].
+        ///
+        /// This is used only by the [`RoomEventCacheStateLock::read`] and
+        /// [`RoomEventCacheStateLock::write`] when the state must be reset.
+        update_sender: Sender<RoomEventCacheUpdate>,
+
+        /// A clone of [`super::super::EventCacheInner::generic_update_sender`].
+        ///
+        /// This is used only by the [`RoomEventCacheStateLock::read`] and
+        /// [`RoomEventCacheStateLock::write`] when the state must be reset.
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+
+        /// A clone of
         /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 
@@ -728,10 +743,13 @@ mod private {
         ///
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         /// [`RoomPagination`]: super::RoomPagination
+        #[allow(clippy::too_many_arguments)]
         pub async fn new(
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
             enabled_thread_support: bool,
+            update_sender: Sender<RoomEventCacheUpdate>,
+            generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
@@ -813,6 +831,8 @@ mod private {
                     // sync).
                     threads: HashMap::new(),
                     pagination_status,
+                    update_sender,
+                    generic_update_sender,
                     linked_chunk_update_sender,
                     room_version_rules,
                     waited_for_initial_prev_token,
@@ -908,12 +928,34 @@ mod private {
                         state: state_guard,
                         store: store_guard,
                     };
-                    guard.shrink_to_last_chunk().await?;
+
+                    // Force to reload by shrinking to the last chunk.
+                    let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
 
                     // All good now, mark the cross-process lock as non-dirty.
                     EventCacheStoreLockGuard::clear_dirty(&guard.store);
 
-                    Ok(guard.downgrade())
+                    // Downgrade the guard as soon as possible.
+                    let guard = guard.downgrade();
+
+                    // Now let the world know about the reload.
+                    if !updates_as_vector_diffs.is_empty() {
+                        // Notify observers about the update.
+                        let _ = guard.state.update_sender.send(
+                            RoomEventCacheUpdate::UpdateTimelineEvents {
+                                diffs: updates_as_vector_diffs,
+                                origin: EventsOrigin::Cache,
+                            },
+                        );
+
+                        // Notify observers about the generic update.
+                        let _ =
+                            guard.state.generic_update_sender.send(RoomEventCacheGenericUpdate {
+                                room_id: guard.state.room_id.clone(),
+                            });
+                    }
+
+                    Ok(guard)
                 }
             }
         }
@@ -942,10 +984,29 @@ mod private {
                         state: state_guard,
                         store: store_guard,
                     };
-                    guard.shrink_to_last_chunk().await?;
+
+                    // Force to reload by shrinking to the last chunk.
+                    let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
 
                     // All good now, mark the cross-process lock as non-dirty.
                     EventCacheStoreLockGuard::clear_dirty(&guard.store);
+
+                    // Now let the world know about the reload.
+                    if !updates_as_vector_diffs.is_empty() {
+                        // Notify observers about the update.
+                        let _ = guard.state.update_sender.send(
+                            RoomEventCacheUpdate::UpdateTimelineEvents {
+                                diffs: updates_as_vector_diffs,
+                                origin: EventsOrigin::Cache,
+                            },
+                        );
+
+                        // Notify observers about the generic update.
+                        let _ =
+                            guard.state.generic_update_sender.send(RoomEventCacheGenericUpdate {
+                                room_id: guard.state.room_id.clone(),
+                            });
+                    }
 
                     Ok(guard)
                 }
@@ -1285,7 +1346,8 @@ mod private {
             }
         }
 
-        #[cfg(test)]
+        /// Force to shrink the room, whenever there is subscribers or not.
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn force_shrink_to_last_chunk(
             &mut self,
         ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
@@ -3761,7 +3823,7 @@ mod timed_tests {
     }
 
     #[async_test]
-    async fn test_reset_when_dirty() {
+    async fn test_reload_when_dirty() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
 
@@ -3854,9 +3916,17 @@ mod timed_tests {
         //
         // First off, let's check `room_event_cache_p0` has access to the first event
         // loaded in-memory, then do a pagination, and see more events.
-        {
+        let mut updates_stream_p0 = {
             let room_event_cache = &room_event_cache_p0;
 
+            let (initial_updates, mut updates_stream) =
+                room_event_cache_p0.subscribe().await.unwrap();
+
+            // Initial updates contain `ev_id_1` only.
+            assert_eq!(initial_updates.len(), 1);
+            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert!(updates_stream.is_empty());
+
             // `ev_id_1` must be loaded in memory.
             assert!(event_loaded(room_event_cache, ev_id_1).await);
 
@@ -3866,13 +3936,36 @@ mod timed_tests {
             // Load one more event with a backpagination.
             room_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
+            // A new update for `ev_id_0` must be present.
+            assert_matches!(
+                updates_stream.recv().await.unwrap(),
+                RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                    assert_matches!(
+                        &diffs[0],
+                        VectorDiff::Insert { index: 0, value: event } => {
+                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                        }
+                    );
+                }
+            );
+
             // `ev_id_0` must now be loaded in memory.
             assert!(event_loaded(room_event_cache, ev_id_0).await);
-        }
+
+            updates_stream
+        };
 
         // Second, let's check `room_event_cache_p1` has the same accesses.
-        {
+        let mut updates_stream_p1 = {
             let room_event_cache = &room_event_cache_p1;
+            let (initial_updates, mut updates_stream) =
+                room_event_cache_p1.subscribe().await.unwrap();
+
+            // Initial updates contain `ev_id_1` only.
+            assert_eq!(initial_updates.len(), 1);
+            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
             assert!(event_loaded(room_event_cache, ev_id_1).await);
@@ -3883,9 +3976,25 @@ mod timed_tests {
             // Load one more event with a backpagination.
             room_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
+            // A new update for `ev_id_0` must be present.
+            assert_matches!(
+                updates_stream.recv().await.unwrap(),
+                RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                    assert_matches!(
+                        &diffs[0],
+                        VectorDiff::Insert { index: 0, value: event } => {
+                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                        }
+                    );
+                }
+            );
+
             // `ev_id_0` must now be loaded in memory.
             assert!(event_loaded(room_event_cache, ev_id_0).await);
-        }
+
+            updates_stream
+        };
 
         // Do this a couple times, for the fun.
         for _ in 0..3 {
@@ -3894,19 +4003,50 @@ mod timed_tests {
             // chunk!
             {
                 let room_event_cache = &room_event_cache_p0;
+                let updates_stream = &mut updates_stream_p0;
 
                 // `ev_id_1` must be loaded in memory, just like before.
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
 
                 // However, `ev_id_0` must NOT be loaded in memory. It WAS loaded, but the
-                // state has shrunk to its last chunk.
+                // state has been reloaded to its last chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
+
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
 
                 // Load one more event with a backpagination.
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
                 // `ev_id_0` must now be loaded in memory.
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
 
             // Fourth, because `room_event_cache_p0` has locked the store again, the lock
@@ -3914,6 +4054,7 @@ mod timed_tests {
             // chunk!
             {
                 let room_event_cache = &room_event_cache_p1;
+                let updates_stream = &mut updates_stream_p1;
 
                 // `ev_id_1` must be loaded in memory, just like before.
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
@@ -3922,11 +4063,41 @@ mod timed_tests {
                 // state has shrunk to its last chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
+
                 // Load one more event with a backpagination.
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
                 // `ev_id_0` must now be loaded in memory.
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
         }
 
@@ -3935,6 +4106,7 @@ mod timed_tests {
         for _ in 0..3 {
             {
                 let room_event_cache = &room_event_cache_p0;
+                let updates_stream = &mut updates_stream_p0;
 
                 let guard = room_event_cache.inner.state.read().await.unwrap();
 
@@ -3942,6 +4114,22 @@ mod timed_tests {
                 // shared access.
                 // See `RoomEventCacheStateLock::read` to learn more.
 
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
+
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
@@ -3954,16 +4142,47 @@ mod timed_tests {
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
 
             {
                 let room_event_cache = &room_event_cache_p1;
+                let updates_stream = &mut updates_stream_p1;
 
                 let guard = room_event_cache.inner.state.read().await.unwrap();
 
                 // Guard is kept alive, to ensure we can have multiple read guards alive with a
                 // shared access.
 
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
+
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
@@ -3976,6 +4195,20 @@ mod timed_tests {
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
         }
 
@@ -3983,8 +4216,25 @@ mod timed_tests {
         for _ in 0..3 {
             {
                 let room_event_cache = &room_event_cache_p0;
+                let updates_stream = &mut updates_stream_p0;
 
                 let guard = room_event_cache.inner.state.write().await.unwrap();
+
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
 
                 // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
                 // needs to obtain a read lock.
@@ -3995,12 +4245,43 @@ mod timed_tests {
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
 
             {
                 let room_event_cache = &room_event_cache_p1;
+                let updates_stream = &mut updates_stream_p1;
 
                 let guard = room_event_cache.inner.state.write().await.unwrap();
+
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                            }
+                        );
+                    }
+                );
 
                 // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
                 // needs to obtain a read lock.
@@ -4011,6 +4292,20 @@ mod timed_tests {
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
                 assert!(event_loaded(room_event_cache, ev_id_0).await);
+
+                // The pagination can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            }
+                        );
+                    }
+                );
             }
         }
     }
