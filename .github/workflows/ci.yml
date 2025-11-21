@@ -386,4 +386,11 @@ jobs:
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
         run: |
-          cargo nextest run -p matrix-sdk-integration-testing --features "${{ matrix.feature }}"
+          cargo nextest run --profile ci -p matrix-sdk-integration-testing --features "${{ matrix.feature }}"
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f
+        with:
+          files: ./target/nextest/ci/junit.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
