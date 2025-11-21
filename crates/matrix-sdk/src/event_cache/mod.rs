@@ -1048,10 +1048,14 @@ impl EventCacheInner {
                     ThreadingSupport::Enabled { .. }
                 );
 
+                let update_sender = Sender::new(32);
+
                 let room_state = RoomEventCacheStateLock::new(
                     room_id.to_owned(),
                     room_version_rules,
                     enabled_thread_support,
+                    update_sender.clone(),
+                    self.generic_update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
@@ -1074,6 +1078,7 @@ impl EventCacheInner {
                     pagination_status,
                     room_id.to_owned(),
                     auto_shrink_sender,
+                    update_sender,
                     self.generic_update_sender.clone(),
                 );
 
