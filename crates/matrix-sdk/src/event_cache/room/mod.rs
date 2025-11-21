@@ -4332,6 +4332,87 @@ mod timed_tests {
         }
     }
 
+    #[async_test]
+    async fn test_load_when_dirty() {
+        let room_id_0 = room_id!("!raclette:patate.ch");
+        let room_id_1 = room_id!("!morbiflette:patate.ch");
+
+        // The storage shared by the two clients.
+        let event_cache_store = MemoryStore::new();
+
+        // Client for the process 0.
+        let client_p0 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("process #0".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        // Client for the process 1.
+        let client_p1 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("process #1".to_owned()).event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        // Subscribe the event caches, and create the room.
+        let (room_event_cache_0_p0, room_event_cache_0_p1) = {
+            let event_cache_p0 = client_p0.event_cache();
+            event_cache_p0.subscribe().unwrap();
+
+            let event_cache_p1 = client_p1.event_cache();
+            event_cache_p1.subscribe().unwrap();
+
+            client_p0
+                .base_client()
+                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
+            client_p0
+                .base_client()
+                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+
+            client_p1
+                .base_client()
+                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
+            client_p1
+                .base_client()
+                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+
+            let (room_event_cache_0_p0, _drop_handles) =
+                client_p0.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+            let (room_event_cache_0_p1, _drop_handles) =
+                client_p1.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+
+            (room_event_cache_0_p0, room_event_cache_0_p1)
+        };
+
+        // Let's make the cross-process lock over the store dirty.
+        {
+            drop(room_event_cache_0_p0.inner.state.read().await.unwrap());
+            drop(room_event_cache_0_p1.inner.state.read().await.unwrap());
+        }
+
+        // Create the `RoomEventCache` for `room_id_1`. During its creation, the
+        // cross-process lock over the store MUST be dirty, which makes no difference as
+        // a clean one: the state is just loaded, not reloaded.
+        let (room_event_cache_1_p0, _) =
+            client_p0.get_room(room_id_1).unwrap().event_cache().await.unwrap();
+
+        // Check the lock isn't dirty because it's been cleared.
+        {
+            let guard = room_event_cache_1_p0.inner.state.read().await.unwrap();
+            assert!(guard.is_dirty().not());
+        }
+
+        // The only way to test this behaviour is to see that the dirty block in
+        // `RoomEventCacheStateLock` is covered by this test.
+    }
+
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
         room_event_cache
             .rfind_map_event_in_memory_by(|event| {
