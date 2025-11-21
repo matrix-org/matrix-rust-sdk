@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
+default = ["unstable-msc4274", "experimental-element-recent-emojis"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -89,7 +89,8 @@ oauth2.workspace = true
 [target.'cfg(target_family = "wasm")'.dependencies]
 console_error_panic_hook = "0.1.7"
 tokio = { workspace = true, features = ["sync", "macros"] }
-uniffi.workspace = true
+uniffi = { workspace = true, features = ["wasm-unstable-single-threaded"] }
+futures-executor.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-compat.workspace = true
