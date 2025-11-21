@@ -119,6 +119,11 @@ impl EventCacheStoreLockGuard {
     pub fn clear_dirty(this: &Self) {
         this.cross_process_lock_guard.clear_dirty();
     }
+
+    /// Force to [`CrossProcessLockGuard::is_dirty`].
+    pub fn is_dirty(this: &Self) -> bool {
+        this.cross_process_lock_guard.is_dirty()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

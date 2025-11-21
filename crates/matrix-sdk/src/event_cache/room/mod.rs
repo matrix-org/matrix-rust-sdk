@@ -1108,6 +1108,11 @@ mod private {
         {
             self.state.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
         }
+
+        #[cfg(test)]
+        pub fn is_dirty(&self) -> bool {
+            EventCacheStoreLockGuard::is_dirty(&self.store)
+        }
     }
 
     impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
@@ -2071,6 +2076,11 @@ mod private {
             .expect("joining failed")?;
 
             Ok(())
+        }
+
+        #[cfg(test)]
+        pub fn is_dirty(&self) -> bool {
+            EventCacheStoreLockGuard::is_dirty(&self.store)
         }
     }
 
@@ -4114,6 +4124,9 @@ mod timed_tests {
                 // shared access.
                 // See `RoomEventCacheStateLock::read` to learn more.
 
+                // The lock is no longer marked as dirty, it's been cleaned.
+                assert!(guard.is_dirty().not());
+
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
@@ -4166,6 +4179,9 @@ mod timed_tests {
 
                 // Guard is kept alive, to ensure we can have multiple read guards alive with a
                 // shared access.
+
+                // The lock is no longer marked as dirty, it's been cleaned.
+                assert!(guard.is_dirty().not());
 
                 // The reload can be observed via the updates too.
                 assert_matches!(
@@ -4220,6 +4236,9 @@ mod timed_tests {
 
                 let guard = room_event_cache.inner.state.write().await.unwrap();
 
+                // The lock is no longer marked as dirty, it's been cleaned.
+                assert!(guard.is_dirty().not());
+
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
@@ -4266,6 +4285,9 @@ mod timed_tests {
                 let updates_stream = &mut updates_stream_p1;
 
                 let guard = room_event_cache.inner.state.write().await.unwrap();
+
+                // The lock is no longer marked as dirty, it's been cleaned.
+                assert!(guard.is_dirty().not());
 
                 // The reload can be observed via the updates too.
                 assert_matches!(
