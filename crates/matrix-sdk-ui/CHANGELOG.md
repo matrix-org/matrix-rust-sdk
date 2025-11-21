@@ -22,6 +22,9 @@ All notable changes to this project will be documented in this file.
   an event.
 - `TimelineFocusKind::Event` can now handle both the existing event pagination and thread pagination if the focused 
   event is part of a thread ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
+- [**breaking**] The `Room` type in `room_list_service` is renamed to
+  `RoomListItem`.
+  ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
 
 ### Bug Fixes
 
@@ -30,12 +33,6 @@ All notable changes to this project will be documented in this file.
   ([#5660](https://github.com/matrix-org/matrix-rust-sdk/pull/5660))
 - Improvement performance of `RoomList` by introducing a new `RoomListItem` type
   (that replaces the `Room` type).
-  ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
-
-### Refactor
-
-- [**breaking**] The `Room` type in `room_list_service` is renamed to
-  `RoomListItem`.
   ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
 
 ## [0.14.0] - 2025-09-04
