@@ -10,7 +10,6 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "Unmaintained paste crate, not critical." },
-    { id = "RUSTSEC-2025-0056", reason = "Unmaintained adler crate, not a direct dependency" },
     { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
 ]
 
@@ -28,9 +27,6 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
-]
-exceptions = [
-    { allow = ["Unicode-DFS-2016"], crate = "unicode-ident" },
 ]
 
 [bans]
