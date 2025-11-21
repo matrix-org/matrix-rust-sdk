@@ -1304,6 +1304,7 @@ pub enum LatestEventValue {
     },
     Local {
         timestamp: Timestamp,
+        profile: ProfileDetails,
         content: TimelineItemContent,
         is_sending: bool,
     },
@@ -1322,9 +1323,12 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     content: content.into(),
                 }
             }
-            UiLatestEventValue::Local { timestamp, content, is_sending } => {
-                Self::Local { timestamp: timestamp.into(), content: content.into(), is_sending }
-            }
+            UiLatestEventValue::Local { timestamp, profile, content, is_sending } => Self::Local {
+                timestamp: timestamp.into(),
+                profile: profile.into(),
+                content: content.into(),
+                is_sending,
+            },
         }
     }
 }

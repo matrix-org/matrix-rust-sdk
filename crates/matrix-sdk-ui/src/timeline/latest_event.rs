@@ -54,6 +54,9 @@ pub enum LatestEventValue {
         /// The timestamp of the local event.
         timestamp: MilliSecondsSinceUnixEpoch,
 
+        /// The sender's profile.
+        profile: TimelineDetails<Profile>,
+
         /// The content of the local event.
         content: TimelineItemContent,
 
@@ -114,11 +117,17 @@ impl LatestEventValue {
                     return Self::None;
                 };
 
+                let sender = client.user_id().expect("The `Client` is supposed to be logged");
+                let profile = room
+                    .profile_from_user_id(sender)
+                    .await
+                    .map(TimelineDetails::Ready)
+                    .unwrap_or(TimelineDetails::Unavailable);
                 let is_sending = matches!(value, BaseLatestEventValue::LocalIsSending(_));
 
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
                     TimelineAction::AddItem { content } => {
-                        Self::Local { timestamp, content, is_sending }
+                        Self::Local { timestamp, profile, content, is_sending }
                     }
 
                     TimelineAction::HandleAggregation { kind, .. } => {
@@ -226,8 +235,9 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, profile, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_matches!(profile, TimelineDetails::Unavailable);
             assert_matches!(
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
@@ -255,8 +265,9 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, profile, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_matches!(profile, TimelineDetails::Unavailable);
             assert_matches!(
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
