@@ -110,6 +110,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Switch QR login implementation from `std::time::Instant` to `ruma::time::Instant` which
+  is compatible with Wasm.
+  ([#5889](https://github.com/matrix-org/matrix-rust-sdk/pull/5889))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features
