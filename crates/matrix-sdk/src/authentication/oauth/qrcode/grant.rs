@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -24,6 +24,7 @@ use matrix_sdk_base::{
     },
 };
 use oauth2::VerificationUriComplete;
+use ruma::time::Instant;
 use url::Url;
 #[cfg(doc)]
 use vodozemac::ecies::CheckCode;
