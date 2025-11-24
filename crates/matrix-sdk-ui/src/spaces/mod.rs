@@ -279,35 +279,35 @@ impl SpaceService {
         if space_room
             .get_state_event_static_for_key::<SpaceChildEventContent, _>(&child_id)
             .await
-            .is_err()
+            .is_ok()
         {
+            // Redacting state is a "weird" thing to do, so send {} instead.
+            // https://github.com/matrix-org/matrix-spec/issues/2252
+            //
+            // Specifically, "The redaction of the state doesn't participate in state
+            // resolution so behaves quite differently from e.g. sending an empty form of
+            // that state events".
+            space_room
+                .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
+                .await
+                .map_err(Error::UpdateRelationship)?;
+        } else {
             warn!("A space child event wasn't found on the parent, ignoring.");
-            return Ok(());
         }
-        // Redacting state is a "weird" thing to do, so send {} instead.
-        // https://github.com/matrix-org/matrix-spec/issues/2252
-        //
-        // Specifically, "The redaction of the state doesn't participate in state
-        // resolution so behaves quite differently from e.g. sending an empty form of
-        // that state events".
-        space_room
-            .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
-            .await
-            .map_err(Error::UpdateRelationship)?;
 
         if child_room
             .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
             .await
-            .is_err()
+            .is_ok()
         {
+            // Same as the comment above.
+            child_room
+                .send_state_event_raw("m.space.parent", space_id.as_str(), serde_json::json!({}))
+                .await
+                .map_err(Error::UpdateRelationship)?;
+        } else {
             warn!("A space parent event wasn't found on the child, ignoring.");
-            return Ok(());
         }
-        // Same as the comment above.
-        child_room
-            .send_state_event_raw("m.space.parent", space_id.as_str(), serde_json::json!({}))
-            .await
-            .map_err(Error::UpdateRelationship)?;
 
         Ok(())
     }
