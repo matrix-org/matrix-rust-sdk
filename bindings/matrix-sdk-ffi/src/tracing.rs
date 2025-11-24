@@ -1,10 +1,12 @@
+#[cfg(feature = "sentry")]
+use std::borrow::ToOwned;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
 
 use once_cell::sync::OnceCell;
-use tracing::{callsite::DefaultCallsite, field::FieldSet, Callsite};
+use tracing::{callsite::DefaultCallsite, debug, error, field::FieldSet, Callsite};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
 /// Log an event.
@@ -96,6 +98,8 @@ fn span_or_event_enabled(callsite: &'static DefaultCallsite) -> bool {
 #[derive(uniffi::Object)]
 pub struct Span(tracing::Span);
 
+pub(crate) const BRIDGE_SPAN_NAME: &str = "<sdk_bridge_span>";
+
 #[matrix_sdk_ffi_macros::export]
 impl Span {
     /// Create a span originating at the given callsite (file, line and column).
@@ -129,18 +133,41 @@ impl Span {
         level: LogLevel,
         target: String,
         name: String,
+        bridge_trace_id: Option<String>,
     ) -> Arc<Self> {
         static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
             Mutex::new(BTreeMap::new());
 
         let loc = MetadataId { file, line, level, target, name: Some(name) };
-        let callsite = get_or_init_metadata(&CALLSITES, loc, &[], MetadataKind::SPAN);
+
+        // If sentry isn't enabled, ignore bridge_trace_id's contents
+        let bridge_trace_id = if cfg!(feature = "sentry") { bridge_trace_id } else { None };
+
+        let callsite = if cfg!(feature = "sentry") {
+            get_or_init_metadata(&CALLSITES, loc, &["sentry", "sentry.trace"], MetadataKind::SPAN)
+        } else {
+            get_or_init_metadata(&CALLSITES, loc, &[], MetadataKind::SPAN)
+        };
+
         let metadata = callsite.metadata();
 
         let span = if span_or_event_enabled(callsite) {
             // This function is hidden from docs, but we have to use it (see above).
-            let values = metadata.fields().value_set(&[]);
-            tracing::Span::new(metadata, &values)
+            let fields = metadata.fields();
+
+            if let Some(parent_trace_id) = bridge_trace_id {
+                debug!("Adding fields | sentry:true, sentry.trace={parent_trace_id}");
+                let sentry_field = fields.field("sentry").unwrap();
+                let sentry_trace_field = fields.field("sentry.trace").unwrap();
+                #[allow(trivial_casts)] // The compiler is lying, it can't infer this cast
+                let values = [
+                    (&sentry_field, Some(&true as &dyn tracing::Value)),
+                    (&sentry_trace_field, Some(&parent_trace_id as &dyn tracing::Value)),
+                ];
+                tracing::Span::new(metadata, &fields.value_set(&values))
+            } else {
+                tracing::Span::new(metadata, &fields.value_set(&[]))
+            }
         } else {
             tracing::Span::none()
         };
@@ -163,6 +190,27 @@ impl Span {
 
     fn is_none(&self) -> bool {
         self.0.is_none()
+    }
+
+    /// Creates a [`Span`] that acts as a bridge between the client spans and
+    /// the SDK ones, allowing them to be joined in Sentry. This function
+    /// will only return a valid span if the `sentry` feature is enabled,
+    /// otherwise it will return a noop span.
+    #[uniffi::constructor]
+    pub fn new_bridge_span(target: String, parent_trace_id: Option<String>) -> Arc<Self> {
+        if cfg!(feature = "sentry") {
+            Self::new(
+                "Bridge".to_owned(),
+                None,
+                LogLevel::Info,
+                target,
+                BRIDGE_SPAN_NAME.to_owned(),
+                parent_trace_id,
+            )
+        } else {
+            error!("Sentry is not enabled!");
+            Arc::new(Self(tracing::Span::none()))
+        }
     }
 }
 
