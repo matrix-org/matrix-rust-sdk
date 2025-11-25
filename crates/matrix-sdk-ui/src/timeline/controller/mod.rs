@@ -468,6 +468,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let event_paginator = Paginator::new(self.room_data_provider.clone());
 
+                let load_events_with_context = || async {
+                    // Start a /context request to load the focussed event and surrounding events.
+                    event_paginator
+                        .start_from(event_id, (*num_context_events).into())
+                        .await
+                        .map(|r| r.events)
+                        .map_err(PaginationError::Paginator)
+                };
+
                 let events = if *num_context_events == 0 {
                     // If no context is requested, try to load the event from the cache first and
                     // include common relations such as reactions and edits.
@@ -487,17 +496,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             events
                         }
                         Err(err) => {
-                            warn!("error when loading focussed event: {err}");
-                            vec![]
+                            error!("error when loading focussed event: {err}");
+                            // Fall back to load the focussed event using /context.
+                            load_events_with_context().await?
                         }
                     }
                 } else {
                     // Start a /context request to load the focussed event and surrounding events.
-                    let start_from_result = event_paginator
-                        .start_from(event_id, (*num_context_events).into())
-                        .await
-                        .map_err(PaginationError::Paginator)?;
-                    start_from_result.events
+                    load_events_with_context().await?
                 };
 
                 // Find the target event, and see if it's part of a thread.
