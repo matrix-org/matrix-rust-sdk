@@ -28,7 +28,10 @@ impl Widget for &mut EventsView<'_> {
                 let events = tokio::task::block_in_place(|| {
                     Handle::current().block_on(async {
                         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-                        room_event_cache.events().await.unwrap()
+                        room_event_cache
+                            .events()
+                            .await
+                            .expect("Failed to fetch the events because of a store error")
                     })
                 });
 
