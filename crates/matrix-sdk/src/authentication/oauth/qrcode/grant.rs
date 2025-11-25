@@ -1783,4 +1783,159 @@ mod test {
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
+
+    #[async_test]
+    async fn test_grant_login_with_generated_qr_code_session_expired() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::from_secs(2))
+                .await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(
+                        GeneratedQrProgress::QrReady(_),
+                    ) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    _ => {
+                        panic!("Alice should abort the process");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        // Bob does not scan the QR code and the channel is never connected.
+
+        // Wait for the rendezvous session to time out.
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NotFound));
+        updates_task.await.expect("Alice should run through all progress states");
+    }
+
+    #[async_test]
+    async fn test_grant_login_with_scanned_qr_code_session_expired() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::from_secs(2))
+                .await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create a secure channel on the new client (Bob) and extract the QR code.
+        let client = HttpClient::new(reqwest::Client::new(), Default::default());
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel.");
+        let qr_code_data = channel.qr_code_data().clone();
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future using the QR code.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .scan(&qr_code_data);
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. }) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    _ => {
+                        panic!("Alice should abort the process");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        // Bob does not connect the channel.
+
+        // Wait for the rendezvous session to time out.
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NotFound));
+        updates_task.await.expect("Alice should run through all progress states");
+    }
 }

@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `QRCodeGrantLoginError::NotFound` for non-existing / expired rendezvous sessions
+  ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - Improve logging around key history bundles when joining a room.
   ([#5866](https://github.com/matrix-org/matrix-rust-sdk/pull/5866))
 - Expose the power level required to modify `m.space.child` on
