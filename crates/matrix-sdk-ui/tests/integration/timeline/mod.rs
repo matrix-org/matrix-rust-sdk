@@ -128,7 +128,7 @@ async fn test_timeline_is_threaded() {
         let thread_root = event_id!("$thread_root");
         let event = f
             .text_msg("hey to you too")
-            .event_id(event_id!("$target"))
+            .event_id(event_id!("$thetarget"))
             .in_thread(thread_root, thread_root)
             .room(room_id)
             .sender(&ALICE)
@@ -138,7 +138,7 @@ async fn test_timeline_is_threaded() {
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$target"),
+                target: owned_event_id!("$thetarget"),
                 num_context_events: 0,
                 hide_threaded_events: true,
             })
