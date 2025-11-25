@@ -21,7 +21,7 @@ use http::{
 use matrix_sdk_base::sleep;
 use ruma::api::{
     EndpointError,
-    error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError, MatrixError},
+    error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError},
 };
 use tracing::{debug, instrument, trace};
 use url::Url;
@@ -93,8 +93,8 @@ pub(super) struct RendezvousChannel {
 fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
     match http::Response::builder().status(status).body(body).map_err(IntoHttpError::from) {
         Ok(response) => {
-            let error = FromHttpResponseError::<RumaApiError>::Server(RumaApiError::Other(
-                MatrixError::from_http_response(response),
+            let error = FromHttpResponseError::<RumaApiError>::Server(RumaApiError::ClientApi(
+                ruma::api::client::Error::from_http_response(response),
             ));
 
             error.into()
@@ -257,13 +257,16 @@ impl RendezvousChannel {
         debug!("Received data from the rendezvous channel {response:?}");
 
         let status_code = response.status();
-        let headers = response.headers();
 
+        if status_code.is_client_error() {
+            return Err(response_to_error(status_code, response.bytes().await?.to_vec()));
+        }
+
+        let headers = response.headers();
         let etag = get_header(headers, &ETAG)?;
         let expires = get_header(headers, &EXPIRES)?;
         let last_modified = get_header(headers, &LAST_MODIFIED)?;
-        let content_type = response
-            .headers()
+        let content_type = headers
             .get(CONTENT_TYPE)
             .map(|c| c.to_str().map_err(FromHttpResponseError::<RumaApiError>::from))
             .transpose()?
