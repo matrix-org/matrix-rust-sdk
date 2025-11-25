@@ -363,6 +363,10 @@ pub enum HumanQrGrantLoginError {
     #[error("Secrets backup not set up: {0}")]
     MissingSecretsBackup(String),
 
+    /// The rendezvous session was not found and might have expired.
+    #[error("The rendezvous session was not found and might have expired")]
+    NotFound,
+
     /// The device could not be created.
     #[error("The device could not be created.")]
     UnableToCreateDevice,
@@ -386,6 +390,7 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             QRCodeGrantLoginError::MissingSecretsBackup(error) => {
                 Self::MissingSecretsBackup(error.map_or("other".to_owned(), |e| e.to_string()))
             }
+            QRCodeGrantLoginError::NotFound => Self::NotFound,
             QRCodeGrantLoginError::Unknown(string) => Self::Unknown(string),
         }
     }
