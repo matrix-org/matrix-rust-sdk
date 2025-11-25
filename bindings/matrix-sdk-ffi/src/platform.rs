@@ -3,8 +3,6 @@ use std::sync::OnceLock;
 use std::sync::{atomic::AtomicBool, Arc};
 
 #[cfg(feature = "sentry")]
-use sentry::MaxRequestBodySize;
-#[cfg(feature = "sentry")]
 use tracing::warn;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 #[cfg(feature = "sentry")]
@@ -481,7 +479,6 @@ impl TracingConfiguration {
                             })),
                             attach_stacktrace: true,
                             release: Some(env!("VERGEN_GIT_SHA").into()),
-                            max_request_body_size: MaxRequestBodySize::None,
                             ..sentry::ClientOptions::default()
                         },
                     ));
@@ -508,7 +505,6 @@ impl TracingConfiguration {
                                 }
                             }
                         })
-                        .enable_span_attributes()
                         .span_filter({
                             let enabled = sentry_enabled.clone();
 
