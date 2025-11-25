@@ -284,6 +284,8 @@ pub enum HumanQrLoginError {
     CheckCodeAlreadySent,
     #[error("The check code could not be sent.")]
     CheckCodeCannotBeSent,
+    #[error("The rendezvous session was not found and might have expired")]
+    NotFound,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
@@ -331,6 +333,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             | QRCodeLoginError::UserIdDiscovery(_)
             | QRCodeLoginError::SecretImport(_)
             | QRCodeLoginError::ServerReset(_) => HumanQrLoginError::Unknown,
+
+            QRCodeLoginError::NotFound => HumanQrLoginError::NotFound,
         }
     }
 }

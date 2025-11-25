@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- Add `HumanQrLoginError::NotFound` for non-existing / expired rendezvous sessions
+  ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - Add `HumanQrGrantLoginError::NotFound` for non-existing / expired rendezvous sessions
   ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - The `LatestEventValue::Local` type gains 2 new fields: `sender` and `profile`.

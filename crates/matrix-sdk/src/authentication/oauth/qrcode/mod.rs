@@ -86,7 +86,11 @@ pub enum QRCodeLoginError {
 
     /// An error happened while exchanging messages with the other device.
     #[error(transparent)]
-    SecureChannel(#[from] SecureChannelError),
+    SecureChannel(SecureChannelError),
+
+    /// The rendezvous session was not found and might have expired.
+    #[error("The rendezvous session was not found and might have expired")]
+    NotFound,
 
     /// The cross-process refresh lock failed to be initialized.
     #[error(transparent)]
@@ -116,6 +120,23 @@ pub enum QRCodeLoginError {
     /// reset the server URL.
     #[error(transparent)]
     ServerReset(crate::Error),
+}
+
+impl From<SecureChannelError> for QRCodeLoginError {
+    fn from(e: SecureChannelError) -> Self {
+        match e {
+            SecureChannelError::RendezvousChannel(HttpError::Api(ref boxed)) => {
+                if let FromHttpResponseError::Server(api_error) = boxed.as_ref()
+                    && let Some(ErrorKind::NotFound) =
+                        api_error.as_client_api_error().and_then(|e| e.error_kind())
+                {
+                    return Self::NotFound;
+                }
+                Self::SecureChannel(e)
+            }
+            e => Self::SecureChannel(e),
+        }
+    }
 }
 
 /// The error type for failures while trying to grant log in to a new device
