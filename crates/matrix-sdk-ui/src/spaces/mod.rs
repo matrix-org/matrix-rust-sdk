@@ -40,13 +40,13 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId, RoomId,
     events::{
-        self, SyncStateEvent,
+        self, StateEventType, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
@@ -59,9 +59,21 @@ pub mod room_list;
 /// Possible [`SpaceService`] errors.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// The user ID was not available from the client.
+    #[error("User ID not available from client")]
+    UserIdNotFound,
+
     /// The requested room was not found.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
+
+    /// The space parent/child state was missing.
+    #[error("Missing `{0}` for `{1}`")]
+    MissingState(StateEventType, OwnedRoomId),
+
+    /// Failed to set the expected m.space.parent or m.space.child state events.
+    #[error("Failed updating space parent/child relationship")]
+    UpdateRelationship(SDKError),
 
     /// Failed to leave a space.
     #[error("Failed to leave space")]
@@ -204,6 +216,98 @@ impl SpaceService {
         SpaceRoomList::new(self.client.clone(), space_id).await
     }
 
+    /// Returns all known direct-parents of a given space room ID.
+    pub async fn joined_parents_of_child(&self, child_id: &RoomId) -> Vec<SpaceRoom> {
+        let graph = &self.space_state.lock().await.graph;
+
+        graph
+            .parents_of(child_id)
+            .into_iter()
+            .filter_map(|parent_id| self.client.get_room(parent_id))
+            .map(|room| {
+                SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64)
+            })
+            .collect()
+    }
+
+    pub async fn add_child_to_space(
+        &self,
+        child_id: OwnedRoomId,
+        space_id: OwnedRoomId,
+    ) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
+        let space_room =
+            self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
+        let child_room =
+            self.client.get_room(&child_id).ok_or(Error::RoomNotFound(child_id.to_owned()))?;
+        let child_power_levels = child_room
+            .power_levels()
+            .await
+            .map_err(|error| Error::UpdateRelationship(matrix_sdk::Error::from(error)))?;
+
+        // Add the child to the space.
+        let child_route = child_room.route().await.map_err(Error::UpdateRelationship)?;
+        space_room
+            .send_state_event_for_key(&child_id, SpaceChildEventContent::new(child_route))
+            .await
+            .map_err(Error::UpdateRelationship)?;
+
+        // Add the space as parent of the child if allowed.
+        if child_power_levels.user_can_send_state(user_id, StateEventType::SpaceParent) {
+            let parent_route = space_room.route().await.map_err(Error::UpdateRelationship)?;
+            child_room
+                .send_state_event_for_key(&space_id, SpaceParentEventContent::new(parent_route))
+                .await
+                .map_err(Error::UpdateRelationship)?;
+        } else {
+            warn!("The current user doesn't have permission to set the child's parent.");
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_child_from_space(
+        &self,
+        child_id: OwnedRoomId,
+        space_id: OwnedRoomId,
+    ) -> Result<(), Error> {
+        let space_room =
+            self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
+        let child_room =
+            self.client.get_room(&child_id).ok_or(Error::RoomNotFound(child_id.to_owned()))?;
+
+        if let Ok(Some(_)) =
+            space_room.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child_id).await
+        {
+            // Redacting state is a "weird" thing to do, so send {} instead.
+            // https://github.com/matrix-org/matrix-spec/issues/2252
+            //
+            // Specifically, "The redaction of the state doesn't participate in state
+            // resolution so behaves quite differently from e.g. sending an empty form of
+            // that state events".
+            space_room
+                .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
+                .await
+                .map_err(Error::UpdateRelationship)?;
+        } else {
+            warn!("A space child event wasn't found on the parent, ignoring.");
+        }
+
+        if let Ok(Some(_)) =
+            child_room.get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id).await
+        {
+            // Same as the comment above.
+            child_room
+                .send_state_event_raw("m.space.parent", space_id.as_str(), serde_json::json!({}))
+                .await
+                .map_err(Error::UpdateRelationship)?;
+        } else {
+            warn!("A space parent event wasn't found on the child, ignoring.");
+        }
+
+        Ok(())
+    }
+
     /// Start a space leave process returning a [`LeaveSpaceHandle`] from which
     /// rooms can be retrieved in reversed BFS order starting from the requested
     /// `space_id` graph node. If the room is unknown then an error will be
@@ -337,6 +441,8 @@ impl SpaceService {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::{StreamExt, pin_mut};
@@ -345,7 +451,7 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
         event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, UserId, owned_room_id, room_id};
+    use ruma::{RoomVersionId, UserId, event_id, owned_room_id, room_id, user_id};
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
 
@@ -367,48 +473,36 @@ mod tests {
         let child_space_id_1 = room_id!("!child_space_1:example.org");
         let child_space_id_2 = room_id!("!child_space_2:example.org");
 
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(child_space_id_1)
-                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
-                    .add_state_event(
-                        factory
-                            .space_parent(parent_space_id.to_owned(), child_space_id_1.to_owned())
-                            .sender(user_id),
-                    ),
-            )
-            .await;
-
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(child_space_id_2)
-                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
-                    .add_state_event(
-                        factory
-                            .space_parent(parent_space_id.to_owned(), child_space_id_2.to_owned())
-                            .sender(user_id),
-                    ),
-            )
-            .await;
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(parent_space_id)
-                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type())
-                    .add_state_event(
-                        factory
-                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned())
-                            .sender(user_id),
-                    )
-                    .add_state_event(
-                        factory
-                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned())
-                            .sender(user_id),
-                    ),
-            )
-            .await;
+        add_room_with_relationships(
+            child_space_id_1,
+            vec![parent_space_id],
+            vec![],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(
+            child_space_id_2,
+            vec![parent_space_id],
+            vec![],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(
+            parent_space_id,
+            vec![],
+            vec![child_space_id_1, child_space_id_2],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
 
         // Only the parent space is returned
         assert_eq!(
@@ -620,6 +714,310 @@ mod tests {
         );
     }
 
+    #[async_test]
+    async fn test_joined_parents_of_child() {
+        // Given a space with three parent spaces, two of which are joined.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id_1 = room_id!("!parent_space_1:example.org");
+        let parent_space_id_2 = room_id!("!parent_space_2:example.org");
+        let unknown_parent_space_id = room_id!("!unknown_parent_space:example.org");
+        let child_space_id = room_id!("!child_space:example.org");
+
+        add_room_with_relationships(
+            child_space_id,
+            vec![parent_space_id_1, parent_space_id_2, unknown_parent_space_id],
+            vec![],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(
+            parent_space_id_1,
+            vec![],
+            vec![parent_space_id_1],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(
+            parent_space_id_2,
+            vec![],
+            vec![parent_space_id_1],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // Wait for the space hierarchy to register.
+        _ = space_service.joined_spaces().await;
+
+        // When retrieving the joined parents of the child space
+        let parents = space_service.joined_parents_of_child(child_space_id).await;
+
+        // Then both parent spaces are returned
+        assert_eq!(
+            parents.iter().map(|space| space.room_id.to_owned()).collect::<Vec<_>>(),
+            vec![parent_space_id_1, parent_space_id_2]
+        );
+    }
+
+    #[async_test]
+    async fn test_add_child_to_space() {
+        // Given a space and child room where the user is admin of both.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_child_event_id = event_id!("$1");
+        let space_parent_event_id = event_id!("$2");
+        server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
+        server.mock_set_space_parent().ok(space_parent_event_id.to_owned()).expect(1).mount().await;
+
+        let space_id = room_id!("!my_space:example.org");
+        let child_id = room_id!("!my_child:example.org");
+
+        add_rooms_with_power_level(
+            vec![(space_id, 100), (child_id, 100)],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When adding the child to the space.
+        let result =
+            space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
+
+        // Then both space child and parent events are set successfully.
+        assert!(result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_add_child_to_space_without_space_admin() {
+        // Given a space and child room where the user is a regular member of both.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        server.mock_set_space_child().unauthorized().expect(1).mount().await;
+        server.mock_set_space_parent().unauthorized().expect(0).mount().await;
+
+        let space_id = room_id!("!my_space:example.org");
+        let child_id = room_id!("!my_child:example.org");
+
+        add_rooms_with_power_level(
+            vec![(space_id, 0), (child_id, 0)],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When adding the child to the space.
+        let result =
+            space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
+
+        // Then the operation fails when trying to set the space child event and the
+        // parent event is not attempted.
+        assert!(result.is_err());
+    }
+
+    #[async_test]
+    async fn test_add_child_to_space_without_child_admin() {
+        // Given a space and child room where the user is admin of the space but not of
+        // the child.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_child_event_id = event_id!("$1");
+        server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
+        server.mock_set_space_parent().unauthorized().expect(0).mount().await;
+
+        let space_id = room_id!("!my_space:example.org");
+        let child_id = room_id!("!my_child:example.org");
+
+        add_rooms_with_power_level(
+            vec![(space_id, 100), (child_id, 0)],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When adding the child to the space.
+        let result =
+            space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
+
+        error!("result: {:?}", result);
+        // Then the operation succeeds in setting the space child event and the parent
+        // event is not attempted.
+        assert!(result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_remove_child_from_space() {
+        // Given a space and child room where the user is admin of both.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_child_event_id = event_id!("$1");
+        let space_parent_event_id = event_id!("$2");
+        server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
+        server.mock_set_space_parent().ok(space_parent_event_id.to_owned()).expect(1).mount().await;
+
+        let parent_id = room_id!("!parent_space:example.org");
+        let child_id = room_id!("!child_space:example.org");
+
+        add_room_with_relationships(
+            parent_id,
+            vec![],
+            vec![child_id],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(
+            child_id,
+            vec![parent_id],
+            vec![],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When removing the child from the space.
+        let result =
+            space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
+
+        // Then both space child and parent events are removed successfully.
+        assert!(result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_remove_child_from_space_without_parent_event() {
+        // Given a space with a child where the m.space.parent event wasn't set.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_child_event_id = event_id!("$1");
+        server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
+        server.mock_set_space_parent().unauthorized().expect(0).mount().await;
+
+        let parent_id = room_id!("!parent_space:example.org");
+        let child_id = room_id!("!child_space:example.org");
+
+        add_room_with_relationships(
+            parent_id,
+            vec![],
+            vec![child_id],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+        add_room_with_relationships(child_id, vec![], vec![], &client, &server, &factory, user_id)
+            .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When removing the child from the space.
+        let result =
+            space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
+
+        // Then the child event is removed successfully and the parent event removal is
+        // not attempted.
+        assert!(result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_remove_child_from_space_without_child_event() {
+        // Given a space with a child where the space's m.space.child event wasn't set.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_parent_event_id = event_id!("$2");
+        server.mock_set_space_child().unauthorized().expect(0).mount().await;
+        server.mock_set_space_parent().ok(space_parent_event_id.to_owned()).expect(1).mount().await;
+
+        let parent_id = room_id!("!parent_space:example.org");
+        let child_id = room_id!("!child_space:example.org");
+
+        add_room_with_relationships(parent_id, vec![], vec![], &client, &server, &factory, user_id)
+            .await;
+        add_room_with_relationships(
+            child_id,
+            vec![parent_id],
+            vec![],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // When removing the child from the space.
+        let result =
+            space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
+
+        // Then the parent event is removed successfully and the child event removal is
+        // not attempted.
+        assert!(result.is_ok());
+    }
+
     async fn add_space_rooms_with(
         rooms: Vec<(&RoomId, Option<&str>)>,
         client: &Client,
@@ -639,6 +1037,56 @@ mod tests {
                       }
                 })));
             }
+
+            server.sync_room(client, builder).await;
+        }
+    }
+
+    async fn add_room_with_relationships(
+        room_id: &RoomId,
+        parents: Vec<&RoomId>,
+        children: Vec<&RoomId>,
+        client: &Client,
+        server: &MatrixMockServer,
+        factory: &EventFactory,
+        user_id: &UserId,
+    ) {
+        let mut builder = JoinedRoomBuilder::new(room_id)
+            .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
+
+        for parent_id in parents {
+            builder = builder.add_state_event(
+                factory.space_parent(parent_id.to_owned(), room_id.to_owned()).sender(user_id),
+            );
+        }
+
+        for child_id in children {
+            builder = builder.add_state_event(
+                factory.space_child(room_id.to_owned(), child_id.to_owned()).sender(user_id),
+            );
+        }
+
+        server.sync_room(client, builder).await;
+    }
+
+    async fn add_rooms_with_power_level(
+        rooms: Vec<(&RoomId, i32)>,
+        client: &Client,
+        server: &MatrixMockServer,
+        factory: &EventFactory,
+        user_id: &UserId,
+    ) {
+        for (room_id, power_level) in rooms {
+            let mut builder = JoinedRoomBuilder::new(room_id);
+            let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
+
+            builder = builder
+                .add_state_event(
+                    factory.create(user_id!("@creator:example.com"), RoomVersionId::V1),
+                )
+                .add_state_event(
+                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                );
 
             server.sync_room(client, builder).await;
         }

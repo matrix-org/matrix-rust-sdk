@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Upgrade Ruma to version 0.14.0.
+  ([#5882](https://github.com/matrix-org/matrix-rust-sdk/pull/5882))
 - `Client::sync_lock` has been renamed `Client::state_store_lock`.
   ([#5707](https://github.com/matrix-org/matrix-rust-sdk/pull/5707))
 

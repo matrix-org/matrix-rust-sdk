@@ -73,6 +73,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
         $( assert pos $pos:expr, )?
+        $( assert timeout $timeout:expr, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -83,6 +84,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
             $( assert pos $pos, )?
+            $( assert timeout $timeout, )?
             assert request $assert_request { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -94,6 +96,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
         $( assert pos $pos:expr, )?
+        $( assert timeout $timeout:expr, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -112,6 +115,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
                 [$server, $stream]
                 sync matches $sync_result,
                 $( assert pos $pos, )?
+                $( assert timeout $timeout, )?
                 assert request $assert_request { $( $request_json )* },
                 respond with = $( ( code $code ) )? { $( $response_json )* },
                 $( after delay = $response_delay, )?
@@ -349,6 +353,10 @@ async fn test_sync_all_states() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => SettingUp,
+        // No `pos` because it's the first fresh query.
+        assert pos None,
+        // No `timeout` because we don't want long-polling.
+        assert timeout None,
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -393,7 +401,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "0",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 420,
+                    "count": 220,
                 },
             },
             "rooms": {
@@ -406,6 +414,10 @@ async fn test_sync_all_states() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = SettingUp => Running,
+        // The previous `pos`.
+        assert pos Some("0"),
+        // Still no long-polling because the list isn't fully-loaded.
+        assert timeout None,
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -419,7 +431,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "1",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 420,
+                    "count": 220,
                 },
             },
             "rooms": {
@@ -431,6 +443,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
+        assert pos Some("1"),
+        // Still no long-polling because the list isn't fully-loaded.
+        assert timeout None,
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -444,7 +459,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "2",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 420,
+                    "count": 220,
                 },
             },
             "rooms": {
@@ -456,11 +471,15 @@ async fn test_sync_all_states() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
+        assert pos Some("2"),
+        // Still no long-polling because the list isn't fully-loaded,
+        // but it's about to be!
+        assert timeout None,
         assert request = {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 299]],
+                    "ranges": [[0, 219]],
                     "timeline_limit": 1,
                 },
             },
@@ -469,7 +488,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "3",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 420,
+                    "count": 220,
                 },
             },
             "rooms": {
@@ -481,11 +500,14 @@ async fn test_sync_all_states() -> Result<(), Error> {
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Running => Running,
+        assert pos Some("3"),
+        // The list is fully-loaded, we can start long-polling.
+        assert timeout Some(30000),
         assert request = {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
-                    "ranges": [[0, 399]],
+                    "ranges": [[0, 219]],
                     "timeline_limit": 1,
                 },
             },
@@ -494,7 +516,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "pos": "4",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 420,
+                    "count": 220,
                 },
             },
             "rooms": {
@@ -518,7 +540,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos None,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -621,7 +643,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos None,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -2993,6 +3015,8 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                 },
             },
         };
+
+        mock_server.reset().await;
     }
 
     // Then, advertise support with support for MSC4306; the extension will be
@@ -3003,7 +3027,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
         .mock_versions()
         .ok_custom(&["v1.11"], &features_map)
         .named("/versions, second time")
-        .mock_once()
+        .up_to_n_times(2)
         .mount()
         .await;
 

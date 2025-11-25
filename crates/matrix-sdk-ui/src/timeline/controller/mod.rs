@@ -15,7 +15,6 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
-use decryption_retry_task::DecryptionRetryTask;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
@@ -25,7 +24,7 @@ use matrix_sdk::Result;
 use matrix_sdk::{
     config::RequestConfig,
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCache, RoomPaginationStatus},
+    event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, PaginationToken, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -74,6 +73,7 @@ use crate::{
     timeline::{
         MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
+        controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
         event_item::TimelineItemHandle,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
@@ -262,10 +262,6 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     pub(super) settings: TimelineSettings,
-
-    /// Long-running task used to retry decryption of timeline items without
-    /// blocking main processing.
-    decryption_retry_task: DecryptionRetryTask<P, P>,
 }
 
 #[derive(Clone)]
@@ -427,10 +423,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             is_room_encrypted,
         )));
 
-        let decryption_retry_task =
-            DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
-
-        Self { state, focus, room_data_provider, settings, decryption_retry_task }
+        Self { state, focus, room_data_provider, settings }
     }
 
     /// Initializes the configured focus with appropriate data.
@@ -1291,10 +1284,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
         true
     }
 
-    pub(crate) async fn retry_event_decryption_inner(&self, session_ids: Option<BTreeSet<String>>) {
-        self.decryption_retry_task
-            .decrypt(self.room_data_provider.clone(), session_ids, self.settings.clone())
-            .await;
+    pub(super) async fn compute_redecryption_candidates(
+        &self,
+    ) -> (BTreeSet<String>, BTreeSet<String>) {
+        let state = self.state.read().await;
+        compute_redecryption_candidates(&state.items)
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
@@ -1785,12 +1779,45 @@ impl TimelineController {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
+        let filter_out_thread_events = match self.focus() {
+            TimelineFocusKind::Thread { .. } => false,
+            TimelineFocusKind::Live { hide_threaded_events } => hide_threaded_events.to_owned(),
+            TimelineFocusKind::Event { paginator } => {
+                paginator.get().is_some_and(|paginator| paginator.hide_threaded_events())
+            }
+            _ => true,
+        };
+
+        // In some timelines, threaded events are added to the `AllRemoteEvents`
+        // collection since they need to be taken into account to calculate read
+        // receipts, but we don't want to actually take them into account for returning
+        // the latest event id since they're not visibly in the timeline
+        state
+            .items
+            .all_remote_events()
+            .iter()
+            .rev()
+            .filter_map(|item| {
+                if !filter_out_thread_events || item.thread_root_id.is_none() {
+                    Some(item.event_id.clone())
+                } else {
+                    None
+                }
+            })
+            .next()
     }
 
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(session_ids).await
+        let (utds, decrypted) = self.compute_redecryption_candidates().await;
+
+        let request = DecryptionRetryRequest {
+            room_id: self.room().room_id().to_owned(),
+            utd_session_ids: utds,
+            refresh_info_session_ids: decrypted,
+        };
+
+        self.room().client().event_cache().request_decryption(request);
     }
 
     /// Combine the global (event cache) pagination status with the local state

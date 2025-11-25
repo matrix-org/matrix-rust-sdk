@@ -1301,6 +1301,12 @@ mod private {
             &self.room_linked_chunk
         }
 
+        /// Returns a mutable reference to the underlying room linked chunk.
+        #[cfg(feature = "e2e-encryption")]
+        pub(in super::super) fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
+            &mut self.room_linked_chunk
+        }
+
         //// Find a single event in this room, starting from the most recent event.
         ///
         /// **Warning**! It looks into the loaded events from the in-memory
@@ -1433,7 +1439,7 @@ mod private {
         /// linked chunk.
         ///
         /// Flushes updates to disk first.
-        async fn post_process_new_events(
+        pub(in super::super) async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
             is_sync: bool,
@@ -1591,7 +1597,7 @@ mod private {
         /// observers that a single item has been replaced. Otherwise,
         /// such a notification is not emitted, because observers are
         /// unlikely to observe the store updates directly.
-        async fn replace_event_at(
+        pub(crate) async fn replace_event_at(
             &mut self,
             location: EventLocation,
             event: Event,

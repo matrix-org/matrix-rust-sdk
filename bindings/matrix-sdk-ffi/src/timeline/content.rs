@@ -20,7 +20,7 @@ use ruma::events::{
     room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
 };
 
-use crate::{timeline::msg_like::MsgLikeContent, utils::Timestamp};
+use crate::{client::JoinRule, timeline::msg_like::MsgLikeContent, utils::Timestamp};
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
@@ -254,7 +254,7 @@ pub enum OtherState {
     RoomEncryption,
     RoomGuestAccess,
     RoomHistoryVisibility { history_visibility: Option<HistoryVisibility> },
-    RoomJoinRules,
+    RoomJoinRules { join_rule: Option<JoinRule> },
     RoomName { name: Option<String> },
     RoomPinnedEvents { change: RoomPinnedEventsChange },
     RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
@@ -305,7 +305,21 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 };
                 Self::RoomHistoryVisibility { history_visibility }
             }
-            Content::RoomJoinRules(_) => Self::RoomJoinRules,
+            Content::RoomJoinRules(c) => {
+                let join_rule = match c {
+                    FullContent::Original { content, .. } => {
+                        match content.join_rule.clone().try_into() {
+                            Ok(jr) => Some(jr),
+                            Err(err) => {
+                                tracing::error!("Failed to convert join rule: {}", err);
+                                None
+                            }
+                        }
+                    }
+                    FullContent::Redacted(_) => None,
+                };
+                Self::RoomJoinRules { join_rule }
+            }
             Content::RoomName(c) => {
                 let name = match c {
                     FullContent::Original { content, .. } => Some(content.name.clone()),

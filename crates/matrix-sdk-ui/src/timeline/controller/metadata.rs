@@ -512,6 +512,10 @@ pub(in crate::timeline) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
 
+    /// If this event is part of a thread, this will contain its thread root
+    /// event id.
+    pub thread_root_id: Option<OwnedEventId>,
+
     /// Whether the event is among the timeline items.
     pub visible: bool,
 
@@ -580,7 +584,11 @@ pub(in crate::timeline) struct EventMeta {
 }
 
 impl EventMeta {
-    pub fn new(event_id: OwnedEventId, visible: bool) -> Self {
-        Self { event_id, visible, timeline_item_index: None }
+    pub fn new(
+        event_id: OwnedEventId,
+        visible: bool,
+        thread_root_id: Option<OwnedEventId>,
+    ) -> Self {
+        Self { event_id, thread_root_id, visible, timeline_item_index: None }
     }
 }

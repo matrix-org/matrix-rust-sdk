@@ -365,9 +365,9 @@ impl Timeline {
         Ok(())
     }
 
-    /// Returns the [`EventId`] of the latest event in the timeline.
+    /// Returns the latest [`EventId`] in the timeline.
     pub async fn latest_event_id(&self) -> Option<String> {
-        self.inner.latest_event().await.and_then(|event| event.event_id().map(ToString::to_string))
+        self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
     }
 
     /// Queues an event in the room's send queue so it's processed for
@@ -1304,6 +1304,8 @@ pub enum LatestEventValue {
     },
     Local {
         timestamp: Timestamp,
+        sender: String,
+        profile: ProfileDetails,
         content: TimelineItemContent,
         is_sending: bool,
     },
@@ -1322,8 +1324,14 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     content: content.into(),
                 }
             }
-            UiLatestEventValue::Local { timestamp, content, is_sending } => {
-                Self::Local { timestamp: timestamp.into(), content: content.into(), is_sending }
+            UiLatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
+                Self::Local {
+                    timestamp: timestamp.into(),
+                    sender: sender.to_string(),
+                    profile: profile.into(),
+                    content: content.into(),
+                    is_sending,
+                }
             }
         }
     }

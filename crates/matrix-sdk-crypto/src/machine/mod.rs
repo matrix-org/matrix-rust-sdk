@@ -62,10 +62,7 @@ use tracing::{
     field::{debug, display},
     info, instrument, trace, warn, Span,
 };
-use vodozemac::{
-    megolm::{DecryptionError, SessionOrdering},
-    Curve25519PublicKey, Ed25519Signature,
-};
+use vodozemac::{megolm::DecryptionError, Curve25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
@@ -916,25 +913,9 @@ impl OlmMachine {
                 let sender_data =
                     SenderDataFinder::find_using_event(self.store(), sender_key, event, &session)
                         .await?;
-
                 session.sender_data = sender_data;
 
-                match self.store().compare_group_session(&session).await? {
-                    SessionOrdering::Better => {
-                        info!("Received a new megolm room key");
-
-                        Ok(Some(session))
-                    }
-                    comparison_result => {
-                        warn!(
-                            ?comparison_result,
-                            "Received a megolm room key that we already have a better version \
-                             of, discarding"
-                        );
-
-                        Ok(None)
-                    }
-                }
+                Ok(self.store().merge_received_group_session(session).await?)
             }
             Err(e) => {
                 Span::current().record("session_id", &content.session_id);

@@ -54,6 +54,9 @@ pub struct RoomPowerLevelChanges {
     /// The level required to change the room's topic.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub room_topic: Option<i64>,
+    /// The level required to change the space's children.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub space_child: Option<i64>,
 }
 
 impl RoomPowerLevelChanges {
@@ -70,6 +73,7 @@ impl RoomPowerLevelChanges {
             room_name: None,
             room_avatar: None,
             room_topic: None,
+            space_child: None,
         }
     }
 }
@@ -103,6 +107,11 @@ impl From<RoomPowerLevels> for RoomPowerLevelChanges {
             room_topic: value
                 .events
                 .get(&StateEventType::RoomTopic.into())
+                .map(|v| (*v).into())
+                .or(Some(value.state_default.into())),
+            space_child: value
+                .events
+                .get(&StateEventType::SpaceChild.into())
                 .map(|v| (*v).into())
                 .or(Some(value.state_default.into())),
         }
@@ -149,6 +158,9 @@ impl RoomPowerLevelsExt for RoomPowerLevels {
         }
         if let Some(room_topic) = settings.room_topic {
             self.events.insert(StateEventType::RoomTopic.into(), room_topic.try_into()?);
+        }
+        if let Some(space_child) = settings.space_child {
+            self.events.insert(StateEventType::SpaceChild.into(), space_child.try_into()?);
         }
 
         Ok(())
@@ -223,6 +235,7 @@ mod tests {
             room_name: None,
             room_avatar: None,
             room_topic: None,
+            space_child: None,
         };
 
         // When applying the settings to the power levels.
@@ -259,6 +272,7 @@ mod tests {
             room_name: Some(new_level.into()),
             room_avatar: Some(new_level.into()),
             room_topic: Some(new_level.into()),
+            space_child: Some(new_level.into()),
         };
 
         // When applying the settings to the power levels.
@@ -272,6 +286,7 @@ mod tests {
                 (StateEventType::RoomName.into(), new_level),
                 (StateEventType::RoomAvatar.into(), new_level),
                 (StateEventType::RoomTopic.into(), new_level),
+                (StateEventType::SpaceChild.into(), new_level),
             ])
         );
         // And the rest should remain unchanged.
@@ -294,6 +309,7 @@ mod tests {
             (StateEventType::RoomName.into(), original_level),
             (StateEventType::RoomAvatar.into(), original_level),
             (StateEventType::RoomTopic.into(), original_level),
+            (StateEventType::SpaceChild.into(), original_level),
         ]);
 
         let settings = RoomPowerLevelChanges {
@@ -307,6 +323,7 @@ mod tests {
             room_name: Some(power_levels.state_default.into()),
             room_avatar: None,
             room_topic: None,
+            space_child: None,
         };
 
         // When applying the settings to the power levels.
@@ -321,6 +338,7 @@ mod tests {
                 (StateEventType::RoomName.into(), power_levels.state_default),
                 (StateEventType::RoomAvatar.into(), original_level),
                 (StateEventType::RoomTopic.into(), original_level),
+                (StateEventType::SpaceChild.into(), original_level),
             ])
         );
         // And the rest should remain unchanged.

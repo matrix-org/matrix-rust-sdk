@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- The `LatestEventValue::Local` type gains 2 new fields: `sender` and `profile`.
+  ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
+- The `Encryption::user_identity()` method has received a new argument. The
+  `fallback_to_server` argument controls if we should attempt to fetch the user
+  identity from the homeserver if it wasn't found in the local storage.
+  ([#5870](https://github.com/matrix-org/matrix-rust-sdk/pull/5870))
+- Expose the power level required to modify `m.space.child` on
+  `room::power_levels::RoomPowerLevelsValues`.
 - Rename `Client::login_with_qr_code` to `Client::new_login_with_qr_code_handler`.
   ([#5836](https://github.com/matrix-org/matrix-rust-sdk/pull/5836))
 - Add the `sqlite` feature, along with the `indexeddb` feature, to enable either
@@ -79,9 +87,11 @@ All notable changes to this project will be documented in this file.
 - Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 - Expose `m.federate` in `OtherState::RoomCreate` and `history_visibility` in `OtherState::RoomHistoryVisibility`, allowing clients to know whether a room federates and how its history is shared in the appropriate timeline events.
+- Expose `join_rule` in `OtherState::RoomJoinRules`, allowing clients to know the join rules of a room from the appropriate timeline events.
 
 ### Changes
 
+- `Timeline::latest_event_id` now uses its `ui::Timeline::latest_event_id` counterpart, instead of getting the latest event from the timeline and then its id.([#5864](https://github.com/matrix-org/matrix-rust-sdk/pull/5864))
 - Build Android ARM64 bindings using better default RUSTFLAGS (the same used for iOS ARM64). This should improve performance. [(#5854)](https://github.com/matrix-org/matrix-rust-sdk/pull/5854)
 
 ## [0.14.0] - 2025-09-04

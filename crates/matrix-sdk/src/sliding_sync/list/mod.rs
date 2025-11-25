@@ -4,12 +4,12 @@ mod request_generator;
 mod sticky;
 
 use std::{
-    fmt::Debug,
+    fmt,
     ops::RangeInclusive,
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::{Observable, SharedObservable, Subscriber};
+use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use ruma::{TransactionId, api::client::sync::sync_events::v5 as http, assign};
 use serde::{Deserialize, Serialize};
@@ -71,10 +71,9 @@ impl SlidingSyncList {
     /// This will change the sync-mode but also the request generator. A new
     /// request generator is generated. Since requests are calculated based on
     /// the request generator, changing the sync-mode is equivalent to
-    /// “resetting” the list. It's actually not calling `Self::reset`, which
-    /// means that the state is not reset **purposely**. The ranges and the
-    /// state will be updated when the next request will be sent and a
-    /// response will be received. The maximum number of rooms won't change.
+    /// “resetting” the list. The ranges and the state will be updated when the
+    /// next request will be sent and a response will be received. The
+    /// maximum number of rooms won't change.
     pub fn set_sync_mode<M>(&self, sync_mode: M)
     where
         M: Into<SlidingSyncMode>,
@@ -90,24 +89,17 @@ impl SlidingSyncList {
 
     /// Get the current state.
     pub fn state(&self) -> SlidingSyncListLoadingState {
-        self.inner.state.read().unwrap().clone()
+        self.inner.state.get()
     }
 
     /// Check whether this list requires a [`http::Request::timeout`] value.
     ///
     /// A list requires a `timeout` query if and only if we want the server to
-    /// wait on new updates, i.e. to do a long-polling. If the list has a
-    /// selective sync mode ([`SlidingSyncMode::Selective`]), we expect the
-    /// server to always wait for new updates as the list ranges are always
-    /// the same. Otherwise, if the list is fully loaded, it means the list
-    /// ranges cover all the available rooms, then we expect the server
-    /// to always wait for new updates. If the list isn't fully loaded, it
-    /// means the current list ranges may hit a set of rooms that have no
-    /// update, but we don't want to wait for updates; we instead want to
-    /// move quickly to the next range.
+    /// wait on new updates, i.e. to do a long-polling.
     pub(super) fn requires_timeout(&self) -> bool {
-        self.inner.request_generator.read().unwrap().is_selective()
-            || self.state().is_fully_loaded()
+        let request_generator = &*self.inner.request_generator.read().unwrap();
+
+        (self.inner.requires_timeout)(request_generator)
     }
 
     /// Get a stream of state updates.
@@ -123,11 +115,7 @@ impl SlidingSyncList {
     pub fn state_stream(
         &self,
     ) -> (SlidingSyncListLoadingState, impl Stream<Item = SlidingSyncListLoadingState>) {
-        let read_lock = self.inner.state.read().unwrap();
-        let previous_value = (*read_lock).clone();
-        let subscriber = Observable::subscribe(&read_lock);
-
-        (previous_value, subscriber)
+        (self.inner.state.get(), self.inner.state.subscribe())
     }
 
     /// Get the timeline limit.
@@ -216,13 +204,18 @@ impl SlidingSyncList {
     }
 }
 
-#[derive(Debug)]
 pub(super) struct SlidingSyncListInner {
     /// Name of this list to easily recognize them.
     name: String,
 
     /// The state this list is in.
-    state: StdRwLock<Observable<SlidingSyncListLoadingState>>,
+    state: SharedObservable<SlidingSyncListLoadingState>,
+
+    /// Does this list require a timeout?
+    #[cfg(not(target_family = "wasm"))]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync>,
+    #[cfg(target_family = "wasm")]
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool>,
 
     /// Parameters that are sticky, and can be sent only once per session (until
     /// the connection is dropped or the server invalidates what the client
@@ -256,6 +249,15 @@ pub(super) struct SlidingSyncListInner {
     sync_mode: StdRwLock<SlidingSyncMode>,
 }
 
+impl fmt::Debug for SlidingSyncListInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SlidingSyncListInner")
+            .field("name", &self.name)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 impl SlidingSyncListInner {
     /// Change the sync-mode.
     ///
@@ -274,20 +276,16 @@ impl SlidingSyncListInner {
             *request_generator = SlidingSyncListRequestGenerator::new(sync_mode);
         }
 
-        {
-            let mut state = self.state.write().unwrap();
-
-            let next_state = match **state {
+        self.state.update(|state| {
+            *state = match state {
                 SlidingSyncListLoadingState::NotLoaded => SlidingSyncListLoadingState::NotLoaded,
                 SlidingSyncListLoadingState::Preloaded => SlidingSyncListLoadingState::Preloaded,
                 SlidingSyncListLoadingState::PartiallyLoaded
                 | SlidingSyncListLoadingState::FullyLoaded => {
                     SlidingSyncListLoadingState::PartiallyLoaded
                 }
-            };
-
-            Observable::set(&mut state, next_state);
-        }
+            }
+        });
     }
 
     /// Update the state to the next request, and return it.
@@ -340,8 +338,10 @@ impl SlidingSyncListInner {
     /// receiving a response.
     fn update_request_generator_state(&self, maximum_number_of_rooms: u32) -> Result<(), Error> {
         let mut request_generator = self.request_generator.write().unwrap();
+
         let new_state = request_generator.handle_response(&self.name, maximum_number_of_rooms)?;
-        Observable::set_if_not_eq(&mut self.state.write().unwrap(), new_state);
+        self.state.set_if_not_eq(new_state);
+
         Ok(())
     }
 
@@ -381,6 +381,7 @@ pub enum SlidingSyncListLoadingState {
     FullyLoaded,
 }
 
+#[cfg(test)]
 impl SlidingSyncListLoadingState {
     /// Check whether the state is [`Self::FullyLoaded`].
     fn is_fully_loaded(&self) -> bool {

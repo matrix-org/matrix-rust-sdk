@@ -85,9 +85,9 @@ async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.4", optional = true }
-bytes = "1.10.1"
-bytesize = "2.0.1"
-cfg-if = "1.0.3"
+bytes = "1.11.0"
+bytesize = "2.3.0"
+cfg-if = "1.0.4"
 event-listener = "5.4.1"
 eyeball.workspace = true
 eyeball-im.workspace = true
@@ -133,7 +133,7 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.16"
+tokio-util = "0.7.17"
 tower = { version = "0.5.2", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -144,7 +144,7 @@ vodozemac.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-backon = "1.5.2"
+backon = "1.6.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

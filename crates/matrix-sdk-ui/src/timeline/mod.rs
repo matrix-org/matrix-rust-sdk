@@ -84,7 +84,6 @@ mod subscriber;
 mod tasks;
 #[cfg(test)]
 mod tests;
-mod to_device;
 mod traits;
 mod virtual_item;
 
@@ -253,7 +252,7 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the latest of the timeline's event items.
+    /// Get the latest of the timeline's event items, both remote and local.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         if self.controller.is_live() {
             self.controller.items().await.iter().rev().find_map(|item| {
@@ -266,6 +265,11 @@ impl Timeline {
         } else {
             None
         }
+    }
+
+    /// Get the latest of the timeline's remote event ids.
+    pub async fn latest_event_id(&self) -> Option<OwnedEventId> {
+        self.controller.latest_event_id().await
     }
 
     /// Get the current timeline items, along with a stream of updates of

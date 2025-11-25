@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, sync::Arc};
+use std::future::Future;
 
 use eyeball::Subscriber;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    AsyncTraitDeps, Result, Room, SendOutsideWasm,
-    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    Result, Room, SendOutsideWasm,
+    deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, thread::PaginableThread},
-    room::PushContext,
 };
 use matrix_sdk_base::{
     RoomInfo, crypto::types::events::CryptoContextInfo, latest_event::LatestEvent,
@@ -28,13 +27,11 @@ use matrix_sdk_base::{
 use ruma::{
     EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::{
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent,
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::encrypted::OriginalSyncRoomEncryptedEvent,
     },
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
 use tracing::error;
 
@@ -102,7 +99,7 @@ impl RoomExt for Room {
 }
 
 pub(super) trait RoomDataProvider:
-    Clone + Decryptor + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
+    Clone + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version_rules(&self) -> RoomVersionRules;
@@ -134,8 +131,6 @@ pub(super) trait RoomDataProvider:
     /// Load the current fully-read event id, from storage.
     fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
-    fn push_context(&self) -> impl Future<Output = Option<PushContext>> + SendOutsideWasm + '_;
-
     /// Send an event to that room.
     fn send(
         &self,
@@ -151,14 +146,6 @@ pub(super) trait RoomDataProvider:
     ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + 'a;
 
     fn room_info(&self) -> Subscriber<RoomInfo>;
-
-    /// Return the encryption info for the Megolm session with the supplied
-    /// session ID.
-    fn get_encryption_info(
-        &self,
-        session_id: &str,
-        sender: &UserId,
-    ) -> impl Future<Output = Option<Arc<EncryptionInfo>>> + SendOutsideWasm;
 
     /// Loads an event from the cache or network.
     fn load_event<'a>(
@@ -242,10 +229,6 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn push_context(&self) -> Option<PushContext> {
-        self.push_context().await.ok().flatten()
-    }
-
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
         match self.account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
@@ -286,40 +269,7 @@ impl RoomDataProvider for Room {
         self.subscribe_info()
     }
 
-    async fn get_encryption_info(
-        &self,
-        session_id: &str,
-        sender: &UserId,
-    ) -> Option<Arc<EncryptionInfo>> {
-        // Pass directly on to `Room::get_encryption_info`
-        self.get_encryption_info(session_id, sender).await
-    }
-
     async fn load_event<'a>(&'a self, event_id: &'a EventId) -> Result<TimelineEvent> {
         self.load_or_fetch_event(event_id, None).await
-    }
-}
-
-// Internal helper to make most of retry_event_decryption independent of a room
-// object, which is annoying to create for testing and not really needed
-pub(crate) trait Decryptor: AsyncTraitDeps + Clone + 'static {
-    fn decrypt_event_impl(
-        &self,
-        raw: &Raw<AnySyncTimelineEvent>,
-        push_ctx: Option<&PushContext>,
-    ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm;
-}
-
-impl Decryptor for Room {
-    async fn decrypt_event_impl(
-        &self,
-        raw: &Raw<AnySyncTimelineEvent>,
-        push_ctx: Option<&PushContext>,
-    ) -> Result<TimelineEvent> {
-        // Note: We specify the cast type in case the
-        // `experimental-encrypted-state-events` feature is enabled, which provides
-        // multiple cast implementations.
-        self.decrypt_event(raw.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx)
-            .await
     }
 }

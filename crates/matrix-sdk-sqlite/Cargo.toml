@@ -38,7 +38,7 @@ ruma.workspace = true
 rusqlite = { version = "0.37.0", features = ["limits"] }
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error = "0.1.17"
+serde_path_to_error = "0.1.20"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true

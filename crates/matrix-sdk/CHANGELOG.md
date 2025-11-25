@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Improve logging around key history bundles when joining a room.
+  ([#5866](https://github.com/matrix-org/matrix-rust-sdk/pull/5866))
+- Expose the power level required to modify `m.space.child` on
+  `room::power_levels::RoomPowerLevelChanges`.
+  ([#5857](https://github.com/matrix-org/matrix-rust-sdk/pull/5857))
 - Add the `Client::server_versions_cached()` method.
   ([#5853](https://github.com/matrix-org/matrix-rust-sdk/pull/5853))
 - Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
@@ -104,6 +109,10 @@ All notable changes to this project will be documented in this file.
   ([#5560](https://github.com/matrix-org/matrix-rust-sdk/pull/5560))
 
 ### Bugfix
+
+- Switch QR login implementation from `std::time::Instant` to `ruma::time::Instant` which
+  is compatible with Wasm.
+  ([#5889](https://github.com/matrix-org/matrix-rust-sdk/pull/5889))
 
 ## [0.14.0] - 2025-09-04
 

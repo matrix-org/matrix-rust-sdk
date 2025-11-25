@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- When we receive an inbound Megolm session from two different sources, merge the two copies together to get the best of both.
+  ([#5865](https://github.com/matrix-org/matrix-rust-sdk/pull/5865)
 - When constructing a key bundle for history sharing, if we had received a key bundle ourselves, in which one or more sessions was marked as "history not shared", pass that on to the new user.
   ([#5820](https://github.com/matrix-org/matrix-rust-sdk/pull/5820)
 - Expose new method `CryptoStore::get_withheld_sessions_by_room_id`.

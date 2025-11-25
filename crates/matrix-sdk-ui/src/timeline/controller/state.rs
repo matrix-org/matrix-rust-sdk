@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
@@ -28,11 +28,9 @@ use tracing::{instrument, trace, warn};
 
 use super::{
     super::{
-        Profile, TimelineItem,
+        Profile,
         date_dividers::DateDividerAdjuster,
-        event_handler::{
-            Flow, TimelineAction, TimelineEventContext, TimelineEventHandler, TimelineItemPosition,
-        },
+        event_handler::{Flow, TimelineAction, TimelineEventContext, TimelineEventHandler},
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
@@ -194,53 +192,6 @@ impl<P: RoomDataProvider> TimelineState<P> {
         TimelineEventHandler::new(&mut txn, ctx)
             .handle_event(&mut date_divider_adjuster, timeline_action)
             .await;
-        txn.adjust_date_dividers(date_divider_adjuster);
-
-        txn.commit();
-    }
-
-    pub(super) async fn retry_event_decryption<Fut>(
-        &mut self,
-        retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
-        retry_indices: Vec<usize>,
-        room_data_provider: &P,
-        settings: &TimelineSettings,
-    ) where
-        Fut: Future<Output = Option<TimelineEvent>>,
-    {
-        let mut txn = self.transaction();
-
-        let mut date_divider_adjuster =
-            DateDividerAdjuster::new(settings.date_divider_mode.clone());
-
-        // Loop through all the indices, in order so we don't decrypt edits
-        // before the event being edited, if both were UTD. Keep track of
-        // index change as UTDs are removed instead of updated.
-        let mut offset = 0;
-        for idx in retry_indices {
-            let idx = idx - offset;
-            let Some(event) = retry_one(txn.items[idx].clone()).await else {
-                continue;
-            };
-
-            let removed_item = txn
-                .handle_remote_event(
-                    event,
-                    TimelineItemPosition::UpdateAt { timeline_item_index: idx },
-                    room_data_provider,
-                    settings,
-                    &mut date_divider_adjuster,
-                    &mut Default::default(),
-                )
-                .await;
-
-            // If the UTD was removed rather than updated, offset all
-            // subsequent loop iterations.
-            if removed_item {
-                offset += 1;
-            }
-        }
-
         txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();

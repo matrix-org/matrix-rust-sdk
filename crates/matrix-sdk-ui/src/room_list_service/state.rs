@@ -94,6 +94,11 @@ impl StateMachine {
         self.state.get()
     }
 
+    /// Clone the inner [`Self::state`].
+    pub(super) fn cloned_state(&self) -> SharedObservable<State> {
+        self.state.clone()
+    }
+
     /// Set the new state.
     ///
     /// Setting a new state will update `Self::last_state_update`.

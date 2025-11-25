@@ -35,7 +35,7 @@ use crate::{SlidingSyncListLoadingState, sliding_sync::Error};
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
-pub(super) enum SlidingSyncListRequestGeneratorKind {
+pub enum SlidingSyncListRequestGeneratorKind {
     /// Growing-mode (see [`SlidingSyncMode`]).
     Growing {
         /// Size of the batch, used to grow the range to fetch more rooms.
@@ -72,7 +72,7 @@ pub(super) enum SlidingSyncListRequestGeneratorKind {
 
 /// A request generator for [`SlidingSyncList`].
 #[derive(Debug)]
-pub(in super::super) struct SlidingSyncListRequestGenerator {
+pub struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
     ///
     /// Note there's only one range in the `Growing` and `Paging` mode.
@@ -114,20 +114,18 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    /// Check whether this request generator is of kind
-    /// [`SlidingSyncListRequestGeneratorKind::Selective`].
-    pub(super) fn is_selective(&self) -> bool {
-        matches!(self.kind, SlidingSyncListRequestGeneratorKind::Selective)
-    }
-
     /// Return a view on the ranges requested by this generator.
     ///
     /// For generators in the selective mode, this is the initial set of ranges.
     /// For growing and paginated generators, this is the range committed in the
     /// latest response received from the server.
-    #[cfg(test)]
-    pub(super) fn requested_ranges(&self) -> &[Range] {
+    pub fn requested_ranges(&self) -> &[Range] {
         &self.ranges
+    }
+
+    /// Return the kind of request generator is used by this generator.
+    pub fn kind(&self) -> &SlidingSyncListRequestGeneratorKind {
+        &self.kind
     }
 
     /// Update internal state of the generator (namely, ranges) before the next
@@ -280,13 +278,20 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn is_fully_loaded(&self) -> bool {
+    /// Check whether the list is fully loaded.
+    pub fn is_fully_loaded(&self) -> bool {
         match self.kind {
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded, .. }
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded, .. } => fully_loaded,
             SlidingSyncListRequestGeneratorKind::Selective => true,
         }
+    }
+
+    /// Check whether this request generator is of kind
+    /// [`SlidingSyncListRequestGeneratorKind::Selective`].
+    #[cfg(test)]
+    pub fn is_selective(&self) -> bool {
+        matches!(self.kind, SlidingSyncListRequestGeneratorKind::Selective)
     }
 }
 

@@ -67,6 +67,14 @@ impl SpaceGraph {
             .map_or(vec![], |node| node.children.iter().map(|id| id.as_ref()).collect())
     }
 
+    /// Returns the parents of a given node. If the node does not exist, it
+    /// returns an empty vector.
+    pub(super) fn parents_of(&self, node_id: &RoomId) -> Vec<&RoomId> {
+        self.nodes
+            .get(node_id)
+            .map_or(vec![], |node| node.parents.iter().map(|id| id.as_ref()).collect())
+    }
+
     /// Adds a node to the graph. If the node already exists, it does nothing.
     pub(super) fn add_node(&mut self, node_id: OwnedRoomId) {
         self.nodes.entry(node_id.clone()).or_insert(SpaceGraphNode::new(node_id));
@@ -184,8 +192,8 @@ mod tests {
 
         assert_eq!(graph.root_nodes(), vec![&a]);
 
-        assert!(graph.nodes[&b].parents.contains(&a));
-        assert!(graph.nodes[&c].parents.contains(&a));
+        assert_eq!(graph.parents_of(&b), vec![&a]);
+        assert_eq!(graph.parents_of(&c), vec![&a]);
 
         assert_eq!(graph.children_of(&a), vec![&b, &c]);
     }

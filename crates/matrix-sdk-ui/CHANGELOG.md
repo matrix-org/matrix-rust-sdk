@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 - Utilize the cache and include common relations when focusing a timeline on an event without
   requestion context.
   ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
+- [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
+  and `profile`.
+  ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
 - Add push actions to `NotificationItem`.
   ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
 - Add support for top level space ordering through [MSC3230](https://github.com/matrix-org/matrix-spec-proposals/pull/3230)
@@ -22,19 +25,17 @@ All notable changes to this project will be documented in this file.
   an event.
 - `TimelineFocusKind::Event` can now handle both the existing event pagination and thread pagination if the focused 
   event is part of a thread ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
+- [**breaking**] The `Room` type in `room_list_service` is renamed to
+  `RoomListItem`.
+  ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
 
 ### Bug Fixes
 
+- `Timeline::latest_event_id` won't take threaded events into account on live/event focused timelines if `hide_threaded_events` is enabled. This fixes a bug in `Timeline::mark_as_read` that incorrectly tried to send a read receipt for threaded events that aren't really part of those timelines. ([#5864](https://github.com/matrix-org/matrix-rust-sdk/pull/5864/))
 - Avoid replacing timeline items when the encryption info is unchanged.
   ([#5660](https://github.com/matrix-org/matrix-rust-sdk/pull/5660))
 - Improvement performance of `RoomList` by introducing a new `RoomListItem` type
   (that replaces the `Room` type).
-  ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
-
-### Refactor
-
-- [**breaking**] The `Room` type in `room_list_service` is renamed to
-  `RoomListItem`.
   ([#5684](https://github.com/matrix-org/matrix-rust-sdk/pull/5684))
 
 ## [0.14.0] - 2025-09-04

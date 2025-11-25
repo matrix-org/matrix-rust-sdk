@@ -128,6 +128,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).
+        info!("No room key bundle from inviter found");
         return Ok(());
     };
 

@@ -634,27 +634,92 @@ impl Store {
         self.inner.store.save_changes(changes).await
     }
 
-    /// Compare the given `InboundGroupSession` with an existing session we have
-    /// in the store.
+    /// Given an `InboundGroupSession` which we have just received, see if we
+    /// have a matching session already in the store, and determine how to
+    /// handle it.
     ///
-    /// This method returns `SessionOrdering::Better` if the given session is
-    /// better than the one we already have or if we don't have such a
-    /// session in the store.
-    pub(crate) async fn compare_group_session(
+    /// If the store already has everything we can gather from the new session,
+    /// returns `None`. Otherwise, returns a merged session which should be
+    /// persisted to the store.
+    pub(crate) async fn merge_received_group_session(
         &self,
-        session: &InboundGroupSession,
-    ) -> Result<SessionOrdering> {
+        session: InboundGroupSession,
+    ) -> Result<Option<InboundGroupSession>> {
         let old_session = self
             .inner
             .store
             .get_inbound_group_session(session.room_id(), session.session_id())
             .await?;
 
-        Ok(if let Some(old_session) = old_session {
-            session.compare(&old_session).await
-        } else {
-            SessionOrdering::Better
-        })
+        // If there is no old session, just use the new session.
+        let Some(old_session) = old_session else {
+            info!("Received a new megolm room key");
+            return Ok(Some(session));
+        };
+
+        let index_comparison = session.compare_ratchet(&old_session).await;
+        let trust_level_comparison =
+            session.sender_data.compare_trust_level(&old_session.sender_data);
+
+        let result = match (index_comparison, trust_level_comparison) {
+            (SessionOrdering::Unconnected, _) => {
+                // If this happens, it means that we have two sessions purporting to have the
+                // same session id, but where the ratchets do not match up.
+                // In other words, someone is playing silly buggers.
+                warn!("Received a group session with an ratchet that does not connect to the one in the store, discarding");
+                None
+            }
+
+            (SessionOrdering::Better, std::cmp::Ordering::Greater)
+            | (SessionOrdering::Better, std::cmp::Ordering::Equal)
+            | (SessionOrdering::Equal, std::cmp::Ordering::Greater) => {
+                // The new session is unambiguously better than what we have in the store.
+                info!(
+                    ?index_comparison,
+                    ?trust_level_comparison,
+                    "Received a megolm room key that we have a worse version of, merging"
+                );
+                Some(session)
+            }
+
+            (SessionOrdering::Worse, std::cmp::Ordering::Less)
+            | (SessionOrdering::Worse, std::cmp::Ordering::Equal)
+            | (SessionOrdering::Equal, std::cmp::Ordering::Less) => {
+                // The new session is unambiguously worse than the one we have in the store.
+                warn!(
+                    ?index_comparison,
+                    ?trust_level_comparison,
+                    "Received a megolm room key that we already have a better version \
+                     of, discarding"
+                );
+                None
+            }
+
+            (SessionOrdering::Equal, std::cmp::Ordering::Equal) => {
+                // The new session is the same as what we have.
+                info!("Received a megolm room key that we already have, discarding");
+                None
+            }
+
+            (SessionOrdering::Better, std::cmp::Ordering::Less) => {
+                // We need to take the ratchet from the new session, and the
+                // sender data from the old session.
+                info!("Upgrading a previously-received megolm session with new ratchet");
+                let result = old_session.with_ratchet(&session);
+                // We'll need to back it up again.
+                result.reset_backup_state();
+                Some(result)
+            }
+
+            (SessionOrdering::Worse, std::cmp::Ordering::Greater) => {
+                // We need to take the ratchet from the old session, and the
+                // sender data from the new session.
+                info!("Upgrading a previously-received megolm session with new sender data");
+                Some(session.with_ratchet(&old_session))
+            }
+        };
+
+        Ok(result)
     }
 
     #[cfg(test)]
@@ -1438,43 +1503,26 @@ impl Store {
     {
         let mut sessions = Vec::new();
 
-        async fn new_session_better(
-            session: &InboundGroupSession,
-            old_session: Option<InboundGroupSession>,
-        ) -> bool {
-            if let Some(old_session) = &old_session {
-                session.compare(old_session).await == SessionOrdering::Better
-            } else {
-                true
-            }
-        }
-
         let total_count = room_keys.len();
         let mut keys = BTreeMap::new();
 
         for (i, key) in room_keys.into_iter().enumerate() {
             match key.try_into() {
                 Ok(session) => {
-                    let old_session = self
-                        .inner
-                        .store
-                        .get_inbound_group_session(session.room_id(), session.session_id())
-                        .await?;
-
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
-                    if new_session_better(&session, old_session).await {
+                    if let Some(merged) = self.merge_received_group_session(session).await? {
                         if from_backup_version.is_some() {
-                            session.mark_as_backed_up();
+                            merged.mark_as_backed_up();
                         }
 
-                        keys.entry(session.room_id().to_owned())
+                        keys.entry(merged.room_id().to_owned())
                             .or_insert_with(BTreeMap::new)
-                            .entry(session.sender_key().to_base64())
+                            .entry(merged.sender_key().to_base64())
                             .or_insert_with(BTreeSet::new)
-                            .insert(session.session_id().to_owned());
+                            .insert(merged.session_id().to_owned());
 
-                        sessions.push(session);
+                        sessions.push(merged);
                     }
                 }
                 Err(e) => {
@@ -1799,9 +1847,9 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::pin::pin;
+    use std::{collections::BTreeMap, pin::pin};
 
-    use assert_matches2::assert_matches;
+    use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
@@ -1813,7 +1861,7 @@ mod tests {
         user_id, RoomId,
     };
     use serde_json::json;
-    use vodozemac::megolm::SessionKey;
+    use vodozemac::{megolm::SessionKey, Ed25519Keypair};
 
     use crate::{
         machine::test_helpers::get_machine_pair,
@@ -1826,8 +1874,143 @@ mod tests {
             },
             EventEncryptionAlgorithm,
         },
-        OlmMachine,
+        Account, OlmMachine,
     };
+
+    #[async_test]
+    async fn test_merge_received_group_session() {
+        let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id!("ABC"));
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF")).await;
+
+        let room_id = room_id!("!test:localhost");
+
+        let megolm_signing_key = Ed25519Keypair::new();
+        let inbound = make_inbound_group_session(&alice_account, &megolm_signing_key, room_id);
+
+        // Bob already knows about the session, at index 5, with the device keys.
+        let mut inbound_at_index_5 =
+            InboundGroupSession::from_export(&inbound.export_at_index(5).await).unwrap();
+        inbound_at_index_5.sender_data = inbound.sender_data.clone();
+        bob.store().save_inbound_group_sessions(&[inbound_at_index_5.clone()]).await.unwrap();
+
+        // No changes if we get a disconnected session.
+        let disconnected = make_inbound_group_session(&alice_account, &megolm_signing_key, room_id);
+        assert_eq!(bob.store().merge_received_group_session(disconnected).await.unwrap(), None);
+
+        // No changes needed when we receive a worse copy of the session
+        let mut worse =
+            InboundGroupSession::from_export(&inbound.export_at_index(10).await).unwrap();
+        worse.sender_data = inbound.sender_data.clone();
+        assert_eq!(bob.store().merge_received_group_session(worse).await.unwrap(), None);
+
+        // Nor when we receive an exact copy of what we already have
+        let mut copy = InboundGroupSession::from_pickle(inbound_at_index_5.pickle().await).unwrap();
+        copy.sender_data = inbound.sender_data.clone();
+        assert_eq!(bob.store().merge_received_group_session(copy).await.unwrap(), None);
+
+        // But when we receive a better copy of the session, we should get it back
+        let mut better =
+            InboundGroupSession::from_export(&inbound.export_at_index(0).await).unwrap();
+        better.sender_data = inbound.sender_data.clone();
+        assert_let!(Some(update) = bob.store().merge_received_group_session(better).await.unwrap());
+        assert_eq!(update.first_known_index(), 0);
+
+        // A worse copy of the ratchet, but better trust data
+        {
+            let mut worse_ratchet_better_trust =
+                InboundGroupSession::from_export(&inbound.export_at_index(10).await).unwrap();
+            let updated_sender_data = SenderData::sender_verified(
+                alice_account.user_id(),
+                alice_account.device_id(),
+                Ed25519Keypair::new().public_key(),
+            );
+            worse_ratchet_better_trust.sender_data = updated_sender_data.clone();
+            assert_let!(
+                Some(update) = bob
+                    .store()
+                    .merge_received_group_session(worse_ratchet_better_trust)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(update.sender_data, updated_sender_data);
+            assert_eq!(update.first_known_index(), 5);
+            assert_eq!(
+                update.export_at_index(0).await.session_key.to_bytes(),
+                inbound.export_at_index(5).await.session_key.to_bytes()
+            );
+        }
+
+        // A better copy of the ratchet, but worse trust data
+        {
+            let mut better_ratchet_worse_trust =
+                InboundGroupSession::from_export(&inbound.export_at_index(0).await).unwrap();
+            let updated_sender_data = SenderData::unknown();
+            better_ratchet_worse_trust.sender_data = updated_sender_data.clone();
+            assert_let!(
+                Some(update) = bob
+                    .store()
+                    .merge_received_group_session(better_ratchet_worse_trust)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(update.sender_data, inbound.sender_data);
+            assert_eq!(update.first_known_index(), 0);
+            assert_eq!(
+                update.export_at_index(0).await.session_key.to_bytes(),
+                inbound.export_at_index(0).await.session_key.to_bytes()
+            );
+        }
+    }
+
+    /// Create an [`InboundGroupSession`] for the given room, using the given
+    /// Ed25519 key as the signing key/session ID.
+    fn make_inbound_group_session(
+        sender_account: &Account,
+        signing_key: &Ed25519Keypair,
+        room_id: &RoomId,
+    ) -> InboundGroupSession {
+        InboundGroupSession::new(
+            sender_account.identity_keys.curve25519,
+            sender_account.identity_keys.ed25519,
+            room_id,
+            &make_session_key(signing_key),
+            SenderData::device_info(crate::types::DeviceKeys::new(
+                sender_account.user_id().to_owned(),
+                sender_account.device_id().to_owned(),
+                vec![],
+                BTreeMap::new(),
+                crate::types::Signatures::new(),
+            )),
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            Some(ruma::events::room::history_visibility::HistoryVisibility::Shared),
+            true,
+        )
+        .unwrap()
+    }
+
+    /// Make a Megolm [`SessionKey`] using the given Ed25519 key as a signing
+    /// key/session ID.
+    fn make_session_key(signing_key: &Ed25519Keypair) -> SessionKey {
+        use rand::Rng;
+
+        // `SessionKey::new` is not public, so the easiest way to construct a Megolm
+        // session using a known Ed25519 key is to build a byte array in the export
+        // format.
+
+        let mut session_key_bytes = vec![0u8; 229];
+        // 0: version
+        session_key_bytes[0] = 2;
+        // 1..5: index
+        // 5..133: ratchet key
+        rand::thread_rng().fill(&mut session_key_bytes[5..133]);
+        // 133..165: public ed25519 key
+        session_key_bytes[133..165].copy_from_slice(signing_key.public_key().as_bytes());
+        // 165..229: signature
+        let sig = signing_key.sign(&session_key_bytes[0..165]);
+        session_key_bytes[165..229].copy_from_slice(&sig.to_bytes());
+
+        SessionKey::from_bytes(&session_key_bytes).unwrap()
+    }
 
     #[async_test]
     async fn test_import_room_keys_notifies_stream() {

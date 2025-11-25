@@ -36,7 +36,7 @@ experimental-send-custom-to-device = [
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
 experimental-encrypted-state-events = [
     "e2e-encryption",
-    "ruma/unstable-msc3414",
+    "ruma/unstable-msc4362",
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
 

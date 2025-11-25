@@ -1,4 +1,4 @@
-# Contributing to matrix-rust-sdk
+# Contributing to `matrix-rust-sdk`
 
 ## Chat rooms
 
@@ -29,50 +29,55 @@ integration tests that need a running synapse instance. These tests reside in
 [README](./testing/matrix-sdk-integration-testing/README.md) to easily set up a
 synapse for testing purposes.
 
-
 ### Snapshot Testing
 
 You can add/review snapshot tests using [insta.rs](https://insta.rs)
 
-Every new struct/enum that derives `Serialize` `Deserialise` should have a snapshot test for it.
-Any code change that breaks serialisation will then break a test, the author will then have to decide
-how to handle migration and test it if needed.
+Every new struct/enum that derives `Serialize` `Deserialise` should have a
+snapshot test for it. Any code change that breaks serialisation will then break
+a test, the author will then have to decide how to handle migration and test it
+if needed.
 
-
-And for an improved review experience it's recommended (but not necessary) to install the cargo-insta tool:
+And for an improved review experience it's recommended (but not necessary) to
+install the `cargo-insta` tool:
 
 Unix:
-```
+
+```shell
 curl -LsSf https://insta.rs/install.sh | sh
 ```
 
 Windows:
-```
+
+```shell
 powershell -c "irm https://insta.rs/install.ps1 | iex"
 ```
 
 Usual flow is to first run the test, then review them.
-```
+
+```shell
 cargo insta test
 cargo insta review
 ```
 
 ### Intermittent failure policy
 
-While we strive to add test coverage for as many features as we can, it sometimes happens that the
-tests will be intermittently failing in CI (such tests are sometimes called "flaky"). This can be
-caused by race conditions of all sorts, either in the test code itself, but sometimes in the
-underlying feature being tested too, and as such, it requires some investigation, usually from the
-original author of the test.
+While we strive to add test coverage for as many features as we can, it
+sometimes happens that the tests will be intermittently failing in CI (such
+tests are sometimes called "flaky"). This can be caused by race conditions
+of all sorts, either in the test code itself, but sometimes in the underlying
+feature being tested too, and as such, it requires some investigation, usually
+from the original author of the test.
 
-Whenever such an intermittent failure happens, we try to open an issue to track the failures,
-adding the
+Whenever such an intermittent failure happens, we try to open an issue to track
+the failures, adding the
 [`intermittent-failure`](https://github.com/matrix-org/matrix-rust-sdk/issues?q=is%3Aissue%20state%3Aopen%20label%3Aintermittent-failure)
 label to it, and commenting with links to CI runs where the failure happened.
 
-If a test has been intermittently failing for **two weeks** or more, and no one is actively working
-on fixing it, then we might decide to mark the test as `ignored` until it is fixed, to not cause
-unrelated failures in other contributors' pull requests and pushes.
+If a test has been intermittently failing for **two weeks** or more, and no one
+is actively working on fixing it, then we might decide to mark the test as
+`ignored` until it is fixed, to not cause unrelated failures in other
+contributors' pull requests and pushes.
 
 ## Pull requests
 
@@ -87,7 +92,7 @@ be a good PR title.
 (An additional bad example of a bad PR title would be `mynickname/branch name`,
 that is, just the branch name.)
 
-# Writing changelog entries
+## Writing changelog entries
 
 Our goal is to maintain clear, concise, and informative changelogs that
 accurately document changes in the project. Changelog entries should be written
@@ -122,12 +127,17 @@ For security-related changelog entries, please include the following additional
 details alongside the pull request number:
 
 * Impact: Clearly describe the issue's potential impact on users or systems.
-* CVE Number: If available, include the CVE (Common Vulnerabilities and Exposures) identifier.
-* GitHub Advisory Link: Provide a link to the corresponding GitHub security advisory for further context.
+* CVE Number: If available, include the CVE (Common Vulnerabilities and
+  Exposures) identifier.
+* GitHub Advisory Link: Provide a link to the corresponding GitHub security
+  advisory for further context.
 
 ```markdown
 - Use a constant-time Base64 encoder for secret key material to mitigate
-  side-channel attacks leaking secret key material ([#156](https://github.com/matrix-org/vodozemac/pull/156)) (Low, [CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640), [GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
+  side-channel attacks leaking secret key material
+  ([#156](https://github.com/matrix-org/vodozemac/pull/156)) (Low,
+  [CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640),
+  [GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
 ```
 
 ## Commit message format
@@ -139,14 +149,15 @@ git trailers are supported and have special meaning (see below).
 
 Conventional Commits are structured as follows:
 
-```
+```text
 <type>(<scope>): <short summary>
 ```
 
-The type of changes which will be included in changelogs is one of the following:
+The type of changes which will be included in changelogs is one of the
+following:
 
 * `feat`: A new feature
-* `fix`: A bug fix
+* `fix`: A bugfix
 * `doc`: Documentation changes
 * `refactor`: Code refactoring
 * `perf`: Performance improvements
@@ -163,15 +174,16 @@ changelog entry.
 
 The metadata must be included in the following git-trailers:
 
-* `Security-Impact`: The magnitude of harm that can be expected, i.e. low/moderate/high/critical.
+* `Security-Impact`: The magnitude of harm that can be expected, i.e.
+  low/moderate/high/critical.
 * `CVE`: The CVE that was assigned to this issue.
 * `GitHub-Advisory`: The GitHub advisory identifier.
 
-Please include all of the fields that are available.
+Please include all the fields that are available.
 
 Example:
 
-```
+```text
 fix(crypto): Use a constant-time Base64 encoder for secret key material
 
 This patch fixes a security issue around a side-channel vulnerability[1]
@@ -213,9 +225,9 @@ your contributions, follow these basic rules:
 
 5. Keep PRs on topic and small. Large PRs are harder to review and more prone to
    delays. Create small, focused commits that address a single topic. Use a
-   combination of [git add] -p or git checkout -p to split changes into logical
-   units. This makes your work easier to review and reduces the chance of
-   introducing unrelated changes.
+   combination of [git add] -p or [git checkout] -p to split changes into
+   logical units. This makes your work easier to review and reduces the chance
+   of introducing unrelated changes.
 
 [git add]: https://git-scm.com/docs/git-add#Documentation/git-add.txt---patch
 [git checkout]: https://git-scm.com/docs/git-checkout#Documentation/git-checkout.txt---patch
@@ -227,12 +239,12 @@ guidelines to make the maintainers life easier and increase the chances that
 your PR will be reviewed swiftly.
 
 1. Use [fixup] commits. When addressing reviewer feedback, you can create fixup
-commits. These commits mark your changes as corrections of specific previous
-commits in the PR.
+   commits. These commits mark your changes as corrections of specific previous
+   commits in the PR.
 
 Example:
 
-```bash
+```shell
 git commit --fixup=<commit-hash>
 ```
 
@@ -247,7 +259,7 @@ requested.
 3. Once the PR has been approved, rebase your PR to squash all the fixup
    commits, the [autosquash] option can help with this.
 
-```bash
+```shell
 git rebase main --interactive --autosquash
 ```
 
@@ -257,14 +269,16 @@ git rebase main --interactive --autosquash
 ## Sign off
 
 In order to have a concrete record that your contribution is intentional
-and you agree to license it under the same terms as the project's license, we've
-adopted the same lightweight approach that the [Linux Kernel](https://www.kernel.org/doc/Documentation/SubmittingPatches),
-[Docker](https://github.com/docker/docker/blob/master/CONTRIBUTING.md), and many other
-projects use: the DCO ([Developer Certificate of Origin](http://developercertificate.org/)).
-This is a simple declaration that you wrote the contribution or otherwise have the right
-to contribute it to Matrix:
+and you agree to license it under the same terms as the project's
+license, we've adopted the same lightweight approach that the [Linux
+Kernel](https://www.kernel.org/doc/Documentation/SubmittingPatches),
+[Docker](https://github.com/docker/docker/blob/master/CONTRIBUTING.md),
+and many other projects use: the DCO ([Developer Certificate of
+Origin](http://developercertificate.org/)). This is a simple declaration that
+you wrote the contribution or otherwise have the right to contribute it to
+Matrix:
 
-```
+```text
 Developer Certificate of Origin
 Version 1.1
 
@@ -305,7 +319,7 @@ By making a contribution to this project, I certify that:
 If you agree to this for your contribution, then all that's needed is to
 include the line in your commit or pull request comment:
 
-```
+```text
 Signed-off-by: Your Name <your@email.example.org>
 ```
 
@@ -316,7 +330,7 @@ Git allows you to add this signoff automatically when using the `-s` flag to
 If you forgot to sign off your commits before making your pull request and are
 on Git 2.17+ you can mass signoff using rebase:
 
-```
+```text
 git rebase --signoff origin/main
 ```
 
@@ -324,8 +338,55 @@ git rebase --signoff origin/main
 
 * [RustRover](https://www.jetbrains.com/rust/) will attempt to sync the project
   with all features enabled, causing an error in `matrix-sdk` ("only one of the
-  features 'native-tls' or 'rustls-tls' can be enabled"). To work around this,
+  features `native-tls` or `rustls-tls` can be enabled"). To work around this,
   open `crates/matrix-sdk/Cargo.toml` in RustRover and uncheck one of the
   `native-tls` or `rustls-tls` feature definitions:
 
   ![Screenshot of RustRover](.img/rustrover-disable-feature.png)
+
+## AI policy
+
+This policy is a copy of the [Forgejo's AI agreement][Forgejo].
+
+### Terminology
+
+This does not necessarily reflect the official or commonly used terminology.
+
+Software and services that heavily rely on large language model technology to
+generate their outcomes are referred to as _Artificial Intelligence_ (AI).
+Examples of products that fit this definition: GitHub Copilot, ChatGPT, Claude
+Sonnet, DeepSeek, Llama and Gemini.
+
+There is a distinction between _general_ and _narrow_ AI, all the aforementioned
+examples fall under general AI as they were not trained to execute a specific
+well-defined task. Narrow AI is trained to be used for specific well-defined
+tasks where the problem space is known in advance.
+
+_Vibe coding_ is the practice where AI creates a code change (feature, bugfix,
+tests, refactor) with a human that describes what needs to be implemented.
+
+_AI agents_ are AIs that are configured to perform interactions or make changes
+with little to no human supervision.
+
+### Agreement
+
+1. If content was made with the help of AI, you **must** convey that this is
+   the case. This includes content that you authored but was motivated by a
+   suggestion of AI.
+2. If at any point you used AI's work in your contribution you should make
+   an effort to **verify** that you can submit this under the license of the
+   repository.
+3. The **accountability** of using AI in a contribution lies with the person
+   that makes that contribution.
+4. All communication, that includes: commit messages, pull request messages,
+   documentation, code comments and issues (and comments on issues/pull
+   requests), that is intended to be read by people to understand your thoughts
+   and work **must not** have been generated with AI. We exclude machine
+   translation and tooling that helps with grammar and spelling check.
+5. Using general AI for review is **forbidden**. If the change contains changes
+   to the user experience it has to be approved by a human reviewer.
+6. It is **not allowed** to use AI in an autonomous-looking way to contribute to
+   the Matrix Rust SDK. This also applies when someone engages in _vibe coding_
+   or uses so-called _agent mode_.
+
+[Forgejo]: https://codeberg.org/forgejo/governance/src/branch/main/AIAgreement.md
