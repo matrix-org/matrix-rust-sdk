@@ -78,6 +78,15 @@ impl SpaceService {
         })))
     }
 
+    /// Returns a flattened list containing all the spaces where the user has
+    /// permission to send `m.space.child` state events.
+    ///
+    /// Note: Unlike [`Self::joined_spaces()`], this method does not recompute
+    /// the space graph, nor does it notify subscribers about changes.
+    pub async fn editable_spaces(&self) -> Vec<SpaceRoom> {
+        self.inner.editable_spaces().await.into_iter().map(Into::into).collect()
+    }
+
     /// Returns a `SpaceRoomList` for the given space ID.
     pub async fn space_room_list(
         &self,
