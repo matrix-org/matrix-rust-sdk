@@ -164,7 +164,7 @@ impl TimelineBuilder {
         room.client().event_cache().subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
-        let (_, event_subscriber) = room_event_cache.subscribe().await.unwrap();
+        let (_, event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_room_encrypted = room
             .latest_encryption_state()
@@ -224,7 +224,7 @@ impl TimelineBuilder {
                     // Note: must be done here *before* spawning the task, to avoid race conditions
                     // with event cache updates happening in the background.
                     let (_events, receiver) =
-                        room_event_cache.subscribe_to_thread(root.clone()).await.unwrap();
+                        room_event_cache.subscribe_to_thread(root.clone()).await?;
 
                     spawn(
                         thread_updates_task(
