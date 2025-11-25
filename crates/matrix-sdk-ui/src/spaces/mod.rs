@@ -451,7 +451,7 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
         event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, UserId, event_id, owned_room_id, room_id, user_id};
+    use ruma::{RoomVersionId, UserId, event_id, owned_room_id, room_id};
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
 
@@ -473,30 +473,30 @@ mod tests {
         let child_space_id_1 = room_id!("!child_space_1:example.org");
         let child_space_id_2 = room_id!("!child_space_2:example.org");
 
-        add_room_with_relationships(
-            child_space_id_1,
-            vec![parent_space_id],
-            vec![],
-            &client,
-            &server,
-            &factory,
-            user_id,
-        )
-        .await;
-        add_room_with_relationships(
-            child_space_id_2,
-            vec![parent_space_id],
-            vec![],
-            &client,
-            &server,
-            &factory,
-            user_id,
-        )
-        .await;
-        add_room_with_relationships(
-            parent_space_id,
-            vec![],
-            vec![child_space_id_1, child_space_id_2],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: child_space_id_1,
+                    order: None,
+                    parents: vec![parent_space_id],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_space_id_2,
+                    order: None,
+                    parents: vec![parent_space_id],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id_1, child_space_id_2],
+                    power_level: None,
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -685,12 +685,36 @@ mod tests {
 
         server.mock_room_state_encryption().plain().mount().await;
 
-        add_space_rooms_with(
+        add_space_rooms(
             vec![
-                (room_id!("!2:a.b"), Some("2")),
-                (room_id!("!4:a.b"), None),
-                (room_id!("!3:a.b"), None),
-                (room_id!("!1:a.b"), Some("1")),
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!2:a.b"),
+                    order: Some("2"),
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!4:a.b"),
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!3:a.b"),
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!1:a.b"),
+                    order: Some("1"),
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
             ],
             &client,
             &server,
@@ -729,30 +753,30 @@ mod tests {
         let unknown_parent_space_id = room_id!("!unknown_parent_space:example.org");
         let child_space_id = room_id!("!child_space:example.org");
 
-        add_room_with_relationships(
-            child_space_id,
-            vec![parent_space_id_1, parent_space_id_2, unknown_parent_space_id],
-            vec![],
-            &client,
-            &server,
-            &factory,
-            user_id,
-        )
-        .await;
-        add_room_with_relationships(
-            parent_space_id_1,
-            vec![],
-            vec![parent_space_id_1],
-            &client,
-            &server,
-            &factory,
-            user_id,
-        )
-        .await;
-        add_room_with_relationships(
-            parent_space_id_2,
-            vec![],
-            vec![parent_space_id_1],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: child_space_id,
+                    order: None,
+                    parents: vec![parent_space_id_1, parent_space_id_2, unknown_parent_space_id],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id_1,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id_2,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id],
+                    power_level: None,
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -793,8 +817,23 @@ mod tests {
         let space_id = room_id!("!my_space:example.org");
         let child_id = room_id!("!my_child:example.org");
 
-        add_rooms_with_power_level(
-            vec![(space_id, 100), (child_id, 100)],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(100),
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(100),
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -828,8 +867,23 @@ mod tests {
         let space_id = room_id!("!my_space:example.org");
         let child_id = room_id!("!my_child:example.org");
 
-        add_rooms_with_power_level(
-            vec![(space_id, 0), (child_id, 0)],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(0),
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(0),
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -866,8 +920,23 @@ mod tests {
         let space_id = room_id!("!my_space:example.org");
         let child_id = room_id!("!my_child:example.org");
 
-        add_rooms_with_power_level(
-            vec![(space_id, 100), (child_id, 0)],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(100),
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: Some(0),
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -905,20 +974,23 @@ mod tests {
         let parent_id = room_id!("!parent_space:example.org");
         let child_id = room_id!("!child_space:example.org");
 
-        add_room_with_relationships(
-            parent_id,
-            vec![],
-            vec![child_id],
-            &client,
-            &server,
-            &factory,
-            user_id,
-        )
-        .await;
-        add_room_with_relationships(
-            child_id,
-            vec![parent_id],
-            vec![],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: parent_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![parent_id],
+                    children: vec![],
+                    power_level: None,
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -953,18 +1025,29 @@ mod tests {
         let parent_id = room_id!("!parent_space:example.org");
         let child_id = room_id!("!child_space:example.org");
 
-        add_room_with_relationships(
-            parent_id,
-            vec![],
-            vec![child_id],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: parent_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+            ],
             &client,
             &server,
             &factory,
             user_id,
         )
         .await;
-        add_room_with_relationships(child_id, vec![], vec![], &client, &server, &factory, user_id)
-            .await;
 
         let space_service = SpaceService::new(client.clone());
 
@@ -994,12 +1077,23 @@ mod tests {
         let parent_id = room_id!("!parent_space:example.org");
         let child_id = room_id!("!child_space:example.org");
 
-        add_room_with_relationships(parent_id, vec![], vec![], &client, &server, &factory, user_id)
-            .await;
-        add_room_with_relationships(
-            child_id,
-            vec![parent_id],
-            vec![],
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: parent_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: child_id,
+                    order: None,
+                    parents: vec![parent_id],
+                    children: vec![],
+                    power_level: None,
+                },
+            ],
             &client,
             &server,
             &factory,
@@ -1018,18 +1112,18 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    async fn add_space_rooms_with(
-        rooms: Vec<(&RoomId, Option<&str>)>,
+    async fn add_space_rooms(
+        rooms: Vec<MockSpaceRoomParameters>,
         client: &Client,
         server: &MatrixMockServer,
         factory: &EventFactory,
         user_id: &UserId,
     ) {
-        for (room_id, order) in rooms {
-            let mut builder = JoinedRoomBuilder::new(room_id)
+        for parameters in rooms {
+            let mut builder = JoinedRoomBuilder::new(parameters.room_id)
                 .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
 
-            if let Some(order) = order {
+            if let Some(order) = parameters.order {
                 builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
                     "type": "m.space_order",
                       "content": {
@@ -1038,57 +1132,39 @@ mod tests {
                 })));
             }
 
-            server.sync_room(client, builder).await;
-        }
-    }
+            for parent_id in parameters.parents {
+                builder = builder.add_state_event(
+                    factory
+                        .space_parent(parent_id.to_owned(), parameters.room_id.to_owned())
+                        .sender(user_id),
+                );
+            }
 
-    async fn add_room_with_relationships(
-        room_id: &RoomId,
-        parents: Vec<&RoomId>,
-        children: Vec<&RoomId>,
-        client: &Client,
-        server: &MatrixMockServer,
-        factory: &EventFactory,
-        user_id: &UserId,
-    ) {
-        let mut builder = JoinedRoomBuilder::new(room_id)
-            .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
+            for child_id in parameters.children {
+                builder = builder.add_state_event(
+                    factory
+                        .space_child(parameters.room_id.to_owned(), child_id.to_owned())
+                        .sender(user_id),
+                );
+            }
 
-        for parent_id in parents {
-            builder = builder.add_state_event(
-                factory.space_parent(parent_id.to_owned(), room_id.to_owned()).sender(user_id),
-            );
-        }
+            if let Some(power_level) = parameters.power_level {
+                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
 
-        for child_id in children {
-            builder = builder.add_state_event(
-                factory.space_child(room_id.to_owned(), child_id.to_owned()).sender(user_id),
-            );
-        }
-
-        server.sync_room(client, builder).await;
-    }
-
-    async fn add_rooms_with_power_level(
-        rooms: Vec<(&RoomId, i32)>,
-        client: &Client,
-        server: &MatrixMockServer,
-        factory: &EventFactory,
-        user_id: &UserId,
-    ) {
-        for (room_id, power_level) in rooms {
-            let mut builder = JoinedRoomBuilder::new(room_id);
-            let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
-
-            builder = builder
-                .add_state_event(
-                    factory.create(user_id!("@creator:example.com"), RoomVersionId::V1),
-                )
-                .add_state_event(
+                builder = builder.add_state_event(
                     factory.power_levels(&mut power_levels).state_key("").sender(user_id),
                 );
+            }
 
             server.sync_room(client, builder).await;
         }
+    }
+
+    struct MockSpaceRoomParameters {
+        room_id: &'static RoomId,
+        order: Option<&'static str>,
+        parents: Vec<&'static RoomId>,
+        children: Vec<&'static RoomId>,
+        power_level: Option<i32>,
     }
 }
