@@ -484,6 +484,8 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
+    use std::time::Duration;
+
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::{SecretsBundle, qr_login::QrCodeModeData};
@@ -583,7 +585,8 @@ mod test {
     #[async_test]
     async fn test_qr_login() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -742,7 +745,8 @@ mod test {
     #[async_test]
     async fn test_generated_qr_login() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -842,7 +846,8 @@ mod test {
     #[async_test]
     async fn test_generated_qr_login_with_homeserver_swap() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -948,7 +953,8 @@ mod test {
         alice_behavior: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -1020,7 +1026,8 @@ mod test {
         alice_behavior: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -1239,7 +1246,8 @@ mod test {
     #[async_test]
     async fn test_device_authorization_endpoint_missing() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();

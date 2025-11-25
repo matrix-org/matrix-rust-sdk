@@ -674,7 +674,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_generated_qr_code() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -817,7 +818,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -943,7 +945,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_with_homeserver_swap() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -1072,7 +1075,8 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_unexpected_message_instead_of_login_protocol()
     {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
@@ -1188,7 +1192,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_unexpected_message_instead_of_login_protocol() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
@@ -1290,7 +1295,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_generated_qr_code_device_already_exists() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -1415,7 +1421,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_device_already_exists() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -1525,7 +1532,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_generated_qr_code_device_not_created() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -1660,7 +1668,8 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_device_not_created() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
