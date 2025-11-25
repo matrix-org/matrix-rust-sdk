@@ -211,6 +211,33 @@ impl SpaceService {
         spaces
     }
 
+    /// Returns a flattened list containing all the spaces where the user has
+    /// permission to send `m.space.child` state events.
+    ///
+    /// Note: Unlike [`Self::joined_spaces()`], this method does not recompute
+    /// graph, nor does it notify subscribers about changes.
+    pub async fn editable_spaces(&self) -> Vec<SpaceRoom> {
+        let Some(user_id) = self.client.user_id() else {
+            return vec![];
+        };
+
+        let graph = &self.space_state.lock().await.graph;
+        let rooms = self.client.joined_space_rooms();
+
+        let mut editable_spaces = Vec::new();
+        for room in &rooms {
+            if let Ok(power_levels) = room.power_levels().await
+                && power_levels.user_can_send_state(user_id, StateEventType::SpaceChild)
+            {
+                let room_id = room.room_id();
+                editable_spaces
+                    .push(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64));
+            }
+        }
+
+        editable_spaces
+    }
+
     /// Returns a `SpaceRoomList` for the given space ID.
     pub async fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id).await
@@ -735,6 +762,74 @@ mod tests {
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
             ]
+        );
+    }
+
+    #[async_test]
+    async fn test_editable_spaces() {
+        // Given a space hierarchy where the user is admin of some spaces and subspaces.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let admin_space_id = room_id!("!admin_space:example.org");
+        let admin_subspace_id = room_id!("!admin_subspace:example.org");
+        let regular_space_id = room_id!("!regular_space:example.org");
+        let regular_subspace_id = room_id!("!regular_subspace:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: admin_space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![regular_subspace_id],
+                    power_level: Some(100),
+                },
+                MockSpaceRoomParameters {
+                    room_id: admin_subspace_id,
+                    order: None,
+                    parents: vec![regular_space_id],
+                    children: vec![],
+                    power_level: Some(100),
+                },
+                MockSpaceRoomParameters {
+                    room_id: regular_space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![admin_subspace_id],
+                    power_level: Some(0),
+                },
+                MockSpaceRoomParameters {
+                    room_id: regular_subspace_id,
+                    order: None,
+                    parents: vec![admin_space_id],
+                    children: vec![],
+                    power_level: Some(0),
+                },
+            ],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // Wait for the space hierarchy to register.
+        _ = space_service.joined_spaces().await;
+
+        // When retrieving all editable joined spaces.
+        let editable_spaces = space_service.editable_spaces().await;
+
+        // Then only the spaces where the user is admin are returned.
+        assert_eq!(
+            editable_spaces.iter().map(|room| room.room_id.to_owned()).collect::<Vec<_>>(),
+            vec![admin_space_id.to_owned(), admin_subspace_id.to_owned()]
         );
     }
 
