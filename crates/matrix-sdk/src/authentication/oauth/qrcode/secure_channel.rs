@@ -229,14 +229,18 @@ impl EstablishedSecureChannel {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(super) mod test {
-    use std::sync::{
-        Arc, Mutex,
-        atomic::{AtomicU8, Ordering},
+    use std::{
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicU8, Ordering},
+        },
+        time::Duration,
     };
 
     use matrix_sdk_base::crypto::types::qr_login::QrCodeMode;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
+    use ruma::time::Instant;
     use serde_json::json;
     use similar_asserts::assert_eq;
     use url::Url;
@@ -252,7 +256,9 @@ pub(super) mod test {
     pub struct MockedRendezvousServer {
         pub homeserver_url: Url,
         pub rendezvous_url: Url,
+        expiration: Duration,
         content: Arc<Mutex<Option<String>>>,
+        created: Arc<Mutex<Option<Instant>>>,
         etag: Arc<AtomicU8>,
         post_guard: MockGuard,
         put_guard: MockGuard,
@@ -260,8 +266,9 @@ pub(super) mod test {
     }
 
     impl MockedRendezvousServer {
-        pub async fn new(server: &MockServer, location: &str) -> Self {
+        pub async fn new(server: &MockServer, location: &str, expiration: Duration) -> Self {
             let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
+            let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
             let etag = Arc::new(AtomicU8::new(0));
 
             let homeserver_url = Url::parse(&server.uri())
@@ -275,7 +282,9 @@ pub(super) mod test {
                 .register_as_scoped(
                     Mock::given(method("POST"))
                         .and(path("/_matrix/client/unstable/org.matrix.msc4108/rendezvous"))
-                        .respond_with(
+                        .respond_with({
+                            *created.lock().unwrap() = Some(Instant::now());
+
                             ResponseTemplate::new(200)
                                 .append_header("X-Max-Bytes", "10240")
                                 .append_header("ETag", "1")
@@ -283,8 +292,8 @@ pub(super) mod test {
                                 .append_header("Last-Modified", "Wed, 07 Sep 2022 14:27:51 GMT")
                                 .set_body_json(json!({
                                     "url": rendezvous_url,
-                                })),
-                        ),
+                                }))
+                        }),
                 )
                 .await;
 
@@ -292,9 +301,18 @@ pub(super) mod test {
                 .register_as_scoped(
                     Mock::given(method("PUT")).and(path("/abcdEFG12345")).respond_with({
                         let content = content.clone();
+                        let created = created.clone();
                         let etag = etag.clone();
 
                         move |request: &wiremock::Request| {
+                            // Fail the request if the session has expired.
+                            if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                return ResponseTemplate::new(404).set_body_json(json!({
+                                    "errcode": "M_NOT_FOUND",
+                                    "error": "This rendezvous session does not exist.",
+                                }));
+                            }
+
                             *content.lock().unwrap() =
                                 Some(String::from_utf8(request.body.clone()).unwrap());
                             let current_etag = etag.fetch_add(1, Ordering::SeqCst);
@@ -312,9 +330,18 @@ pub(super) mod test {
                 .register_as_scoped(
                     Mock::given(method("GET")).and(path("/abcdEFG12345")).respond_with({
                         let content = content.clone();
+                        let created = created.clone();
                         let etag = etag.clone();
 
                         move |request: &wiremock::Request| {
+                            // Fail the request if the session has expired.
+                            if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                return ResponseTemplate::new(404).set_body_json(json!({
+                                    "errcode": "M_NOT_FOUND",
+                                    "error": "This rendezvous session does not exist.",
+                                }));
+                            }
+
                             let requested_etag = request.headers.get("if-none-match").map(|etag| {
                                 str::parse::<u8>(std::str::from_utf8(etag.as_bytes()).unwrap())
                                     .unwrap()
@@ -344,14 +371,25 @@ pub(super) mod test {
                 )
                 .await;
 
-            Self { content, etag, post_guard, put_guard, get_guard, homeserver_url, rendezvous_url }
+            Self {
+                expiration,
+                content,
+                created,
+                etag,
+                post_guard,
+                put_guard,
+                get_guard,
+                homeserver_url,
+                rendezvous_url,
+            }
         }
     }
 
     #[async_test]
     async fn test_creation() {
         let server = MockServer::start().await;
-        let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX).await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
         let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url)
