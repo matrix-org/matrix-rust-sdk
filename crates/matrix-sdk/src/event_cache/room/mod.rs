@@ -650,7 +650,7 @@ mod private {
         serde::Raw,
     };
     use tokio::sync::{
-        RwLock, RwLockReadGuard, RwLockWriteGuard, Semaphore,
+        Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
         broadcast::{Receiver, Sender},
     };
     use tracing::{debug, error, instrument, trace, warn};
@@ -678,7 +678,7 @@ mod private {
 
         /// Please see inline comment of [`Self::read`] to understand why it
         /// exists.
-        read_lock_acquisition: Semaphore,
+        read_lock_acquisition: Mutex<()>,
     }
 
     struct RoomEventCacheStateLockInner {
@@ -838,7 +838,7 @@ mod private {
                     waited_for_initial_prev_token,
                     subscriber_count: Default::default(),
                 }),
-                read_lock_acquisition: Semaphore::new(1),
+                read_lock_acquisition: Mutex::new(()),
             })
         }
 
@@ -860,10 +860,10 @@ mod private {
             // ## Upgradable read lock
             //
             // One may argue that this upgrades can be done with an _upgradable read lock_
-            // [^1] [^2]. We don't want to use this solution because an upgradable read lock
-            // is basically a mutex because we are losing the shared access property: having
-            // multiple read locks at the same time. This is an important property to hold
-            // for performance concerns.
+            // [^1] [^2]. We don't want to use this solution: an upgradable read lock is
+            // basically a mutex because we are losing the shared access property, i.e.
+            // having multiple read locks at the same time. This is an important property to
+            // hold for performance concerns.
             //
             // ## Downgradable write lock
             //
@@ -886,30 +886,19 @@ mod private {
             // new lock acquisition, and it's not possible to pause the runtime in the
             // meantime.
             //
-            // ## Semaphore
+            // ## Semaphore with 1 permit, aka a Mutex
             //
-            // The chosen idea is to allow only one execution at a time of this method. That
-            // way we are free to “upgrade” the read lock by dropping it and obtaining a new
-            // write lock. All callers to this method are waiting, so nothing can happen in
-            // the meantime.
+            // The chosen idea is to allow only one execution at a time of this method: it
+            // becomes a critical section. That way we are free to “upgrade” the read lock
+            // by dropping it and obtaining a new write lock. All callers to this method are
+            // waiting, so nothing can happen in the meantime.
             //
             // Note that it doesn't conflict with the `write` method because this later
             // immediately obtains a write lock, which avoids any conflict with this method.
             //
             // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
             // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-            let _permit = self
-                .read_lock_acquisition
-                .acquire()
-                .await
-                .expect("The `lock_acquisition` semaphore must never be closed");
-
-            // Just a check in case the code is modified without knowing how it works.
-            debug_assert_eq!(
-                self.read_lock_acquisition.available_permits(),
-                0,
-                "The semaphore must have only one permit"
-            );
+            let _one_reader_guard = self.read_lock_acquisition.lock().await;
 
             // Obtain a read lock.
             let state_guard = self.locked_state.read().await;
@@ -920,7 +909,8 @@ mod private {
                 }
                 EventCacheStoreLockState::Dirty(store_guard) => {
                     // Drop the read lock, and take a write lock to modify the state.
-                    // This is safe because only one semaphore permit exists.
+                    // This is safe because only one reader at a time (see
+                    // `Self::read_lock_acquisition`) is allowed.
                     drop(state_guard);
                     let state_guard = self.locked_state.write().await;
 
