@@ -418,7 +418,14 @@ impl RoomEventCache {
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
-        self.inner.state.read().await.unwrap().room_linked_chunk().debug_string()
+        match self.inner.state.read().await {
+            Ok(read_guard) => read_guard.room_linked_chunk().debug_string(),
+            Err(err) => {
+                warn!(?err, "Failed to obtain the read guard for the `RoomEventCache`");
+
+                vec![]
+            }
+        }
     }
 }
 
