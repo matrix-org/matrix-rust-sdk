@@ -511,6 +511,7 @@ mod test {
         UnexpectedMessage,
         UnexpectedMessageInsteadOfSecrets,
         RefuseSecrets,
+        LetSessionExpire,
     }
 
     /// The possible token responses.
@@ -953,17 +954,37 @@ mod test {
         alice_behavior: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
+        let expiration = match alice_behavior {
+            AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
+            _ => Duration::MAX,
+        };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
-        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        let expected_calls = match alice_behavior {
+            AliceBehaviour::LetSessionExpire => 0,
+            _ => 1,
+        };
+        oauth_server
+            .mock_server_metadata()
+            .ok()
+            .expect(expected_calls)
+            .named("server_metadata")
+            .mount()
+            .await;
+        oauth_server
+            .mock_registration()
+            .ok()
+            .expect(expected_calls)
+            .named("registration")
+            .mount()
+            .await;
         oauth_server
             .mock_device_authorization()
             .ok()
-            .expect(1)
+            .expect(expected_calls)
             .named("device_authorization")
             .mount()
             .await;
@@ -1017,7 +1038,12 @@ mod test {
                 }
             }
         });
-        let _alice_task = spawn(async move { grant_login(alice, receiver, alice_behavior).await });
+
+        if !matches!(alice_behavior, AliceBehaviour::LetSessionExpire) {
+            let _alice_task =
+                spawn(async move { grant_login(alice, receiver, alice_behavior).await });
+        }
+
         login_bob.await
     }
 
@@ -1026,18 +1052,39 @@ mod test {
         alice_behavior: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
+        let expiration = match alice_behavior {
+            AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
+            _ => Duration::MAX,
+        };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration).await;
+
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
-        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        let expected_calls = match alice_behavior {
+            AliceBehaviour::LetSessionExpire => 0,
+            _ => 1,
+        };
+        oauth_server
+            .mock_server_metadata()
+            .ok()
+            .expect(expected_calls)
+            .named("server_metadata")
+            .mount()
+            .await;
+        oauth_server
+            .mock_registration()
+            .ok()
+            .expect(expected_calls)
+            .named("registration")
+            .mount()
+            .await;
         oauth_server
             .mock_device_authorization()
             .ok()
-            .expect(1)
+            .expect(expected_calls)
             .named("device_authorization")
             .mount()
             .await;
@@ -1107,9 +1154,13 @@ mod test {
             }
         });
 
-        let _alice_task = spawn(async move {
-            grant_login_with_generated_qr(&alice, qr_receiver, cctx_receiver, alice_behavior).await
-        });
+        if !matches!(alice_behavior, AliceBehaviour::LetSessionExpire) {
+            let _alice_task = spawn(async move {
+                grant_login_with_generated_qr(&alice, qr_receiver, cctx_receiver, alice_behavior)
+                    .await
+            });
+        }
+
         bob_login.await
     }
 
@@ -1241,6 +1292,21 @@ mod test {
 
         assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
         assert_eq!(reason, LoginFailureReason::DeviceNotFound);
+    }
+
+    #[async_test]
+    async fn test_qr_login_session_expired() {
+        let result = test_failure(TokenResponse::Ok, AliceBehaviour::LetSessionExpire).await;
+
+        assert_matches!(result, Err(QRCodeLoginError::NotFound));
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_session_expired() {
+        let result =
+            test_generated_failure(TokenResponse::Ok, AliceBehaviour::LetSessionExpire).await;
+
+        assert_matches!(result, Err(QRCodeLoginError::NotFound));
     }
 
     #[async_test]
