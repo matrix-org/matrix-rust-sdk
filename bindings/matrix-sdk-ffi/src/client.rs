@@ -982,16 +982,19 @@ impl Client {
                 .set_display_name(Some(name.as_str()))
                 .await
                 .context("Unable to set display name")?;
-            Ok(())
         }
 
         #[cfg(target_family = "wasm")]
         {
-            Err(ClientError::Generic {
-                msg: "set_display_name is not supported on wasm platforms".to_owned(),
-                details: None,
-            })
+            self.inner.account().set_display_name(Some(name.as_str())).await.map_err(|e| {
+                ClientError::Generic {
+                    msg: "Unable to set display name".to_owned(),
+                    details: Some(e.to_string()),
+                }
+            })?;
         }
+
+        Ok(())
     }
 }
 
