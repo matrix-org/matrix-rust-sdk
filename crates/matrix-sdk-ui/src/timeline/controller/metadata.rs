@@ -519,6 +519,9 @@ pub(in crate::timeline) struct EventMeta {
     /// Whether the event is among the timeline items.
     pub visible: bool,
 
+    /// Whether the event can show read receipts.
+    pub can_show_read_receipts: bool,
+
     /// Foundation for the mapping between remote events to timeline items.
     ///
     /// Let's explain it. The events represent the first set and are stored in
@@ -587,8 +590,15 @@ impl EventMeta {
     pub fn new(
         event_id: OwnedEventId,
         visible: bool,
+        can_show_read_receipts: bool,
         thread_root_id: Option<OwnedEventId>,
     ) -> Self {
-        Self { event_id, thread_root_id, visible, timeline_item_index: None }
+        Self {
+            event_id,
+            thread_root_id,
+            visible,
+            can_show_read_receipts,
+            timeline_item_index: None,
+        }
     }
 }

@@ -268,6 +268,9 @@ pub(super) struct TimelineSettings {
     /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
 
+    /// Whether state events can show read receipts.
+    pub(super) state_events_can_show_read_receipts: bool,
+
     /// Event filter that controls what's rendered as a timeline item (and thus
     /// what can carry read receipts).
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
@@ -284,6 +287,7 @@ impl fmt::Debug for TimelineSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TimelineSettings")
             .field("track_read_receipts", &self.track_read_receipts)
+            .field("state_events_can_show_read_receipts", &self.state_events_can_show_read_receipts)
             .field("add_failed_to_parse", &self.add_failed_to_parse)
             .finish_non_exhaustive()
     }
@@ -293,6 +297,7 @@ impl Default for TimelineSettings {
     fn default() -> Self {
         Self {
             track_read_receipts: false,
+            state_events_can_show_read_receipts: true,
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
             date_divider_mode: DateDividerMode::Daily,

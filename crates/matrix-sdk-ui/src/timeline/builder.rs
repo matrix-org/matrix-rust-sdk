@@ -141,6 +141,11 @@ impl TimelineBuilder {
         self
     }
 
+    pub fn state_events_can_show_read_receipts(mut self, show: bool) -> Self {
+        self.settings.state_events_can_show_read_receipts = show;
+        self
+    }
+
     /// Whether to add events that failed to deserialize to the timeline.
     ///
     /// Defaults to `true`.
