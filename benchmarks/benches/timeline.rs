@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::TimelineBuilder;
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineReadReceiptTracking};
 use ruma::{
     EventId, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
     owned_user_id,
@@ -103,7 +103,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
         |b| {
             b.to_async(&runtime).iter(|| async {
                 let timeline = TimelineBuilder::new(&room)
-                    .track_read_marker_and_receipts()
+                    .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
                     .build()
                     .await
                     .expect("Could not create timeline");

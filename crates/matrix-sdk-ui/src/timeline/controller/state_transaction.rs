@@ -33,7 +33,8 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineSettings,
+    ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineReadReceiptTracking,
+    TimelineSettings,
     metadata::EventMeta,
 };
 use crate::timeline::{
@@ -468,8 +469,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         event: &AnySyncTimelineEvent,
     ) -> bool {
         match event {
-            AnySyncTimelineEvent::State(_) => settings.state_events_can_show_read_receipts,
-            AnySyncTimelineEvent::MessageLike(_) => true,
+            AnySyncTimelineEvent::State(_) => {
+                settings.track_read_receipts == TimelineReadReceiptTracking::AllEvents
+            }
+            AnySyncTimelineEvent::MessageLike(_) => {
+                settings.track_read_receipts != TimelineReadReceiptTracking::Disabled
+            }
         }
     }
 
@@ -735,7 +740,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 sender,
                 sender_profile,
                 timestamp,
-                read_receipts: if settings.track_read_receipts
+                read_receipts: if settings.track_read_receipts.is_enabled()
                     && should_add
                     && can_show_read_receipts
                 {
@@ -920,7 +925,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     event.visible = event_meta.visible;
                     event.can_show_read_receipts = event_meta.can_show_read_receipts;
 
-                    if settings.track_read_receipts {
+                    if settings.track_read_receipts.is_enabled() {
                         // Since the event's visibility changed, we need to update the read
                         // receipts of the previous visible event.
                         self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
@@ -929,7 +934,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         }
 
-        if settings.track_read_receipts
+        if settings.track_read_receipts.is_enabled()
             && matches!(
                 position,
                 TimelineItemPosition::Start { .. }
