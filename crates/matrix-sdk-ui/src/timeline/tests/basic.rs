@@ -98,7 +98,11 @@ async fn test_replace_with_initial_events_and_read_marker() {
                 .with_fully_read_marker(event_id)
                 .with_initial_user_receipts(receipts),
         )
-        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .settings(TimelineSettings {
+            track_read_receipts: true,
+            state_events_can_show_read_receipts: true,
+            ..Default::default()
+        })
         .build();
 
     let f = &timeline.factory;
