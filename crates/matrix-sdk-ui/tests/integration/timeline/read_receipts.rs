@@ -26,7 +26,7 @@ use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
     event_factory::EventFactory,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
@@ -370,6 +370,188 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert!(event_a.read_receipts().is_empty());
 
     assert_let!(VectorDiff::Set { index: 2, value: item_c } = &timeline_updates[1]);
+    let event_c = item_c.as_event().unwrap();
+    assert_eq!(event_c.read_receipts().len(), 2);
+
+    // Both real and visible receipts are now on event C.
+    let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_event_id, event_c_id);
+    let bob_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_timeline_event, event_c_id);
+
+    // Private read receipt is updated.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(
+                        event_c_id,
+                        own_user_id,
+                        EventReceiptType::ReadPrivate,
+                        ReceiptThread::Unthreaded,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Both real and visible receipts are now on event C.
+    let (own_user_receipt_event_id, _) =
+        timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_user_receipt_event_id, event_c_id);
+    let own_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_timeline_event, event_c_id);
+    assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_read_receipts_updates_on_message_like_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let own_user_id = client.user_id().unwrap();
+
+    let event_a_id = event_id!("$152037280074GZeOm:localhost");
+    let event_b_id = event_id!("$e32037280er453l:localhost");
+    let event_c_id = event_id!("$Sg2037280074GZr34:localhost");
+
+    let timeline = room
+        .timeline_builder()
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
+        .build()
+        .await
+        .unwrap();
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert!(items.is_empty());
+
+    let own_receipt = timeline.latest_user_read_receipt(own_user_id).await;
+    assert_matches!(own_receipt, None);
+    let own_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await;
+    assert_matches!(own_receipt_timeline_event, None);
+    let alice_receipt = timeline.latest_user_read_receipt(*ALICE).await;
+    assert_matches!(alice_receipt, None);
+    let alice_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(*ALICE).await;
+    assert_matches!(alice_receipt_timeline_event, None);
+    let bob_receipt = timeline.latest_user_read_receipt(*BOB).await;
+    assert_matches!(bob_receipt, None);
+    let bob_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(*BOB).await;
+    assert_matches!(bob_receipt_timeline_event, None);
+
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                // Event A
+                .add_timeline_event(
+                    f.text_msg("is dancing").sender(own_user_id).event_id(event_a_id),
+                )
+                // Event B
+                .add_timeline_event(f.room_name("Party Room").sender(*BOB).event_id(event_b_id))
+                // Event C
+                .add_timeline_event(
+                    f.text_msg("Viva la macarena!").sender(*ALICE).event_id(event_c_id),
+                ),
+        )
+        .await;
+
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
+    // We don't list the read receipt of our own user on events.
+    assert_let!(VectorDiff::PushBack { value: item_a } = &timeline_updates[0]);
+    let event_a = item_a.as_event().unwrap();
+    assert!(event_a.read_receipts().is_empty());
+
+    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_event_id, event_a_id);
+    let own_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_timeline_event, event_a_id);
+
+    // Implicit read receipt of @bob:localhost.
+    assert_let!(VectorDiff::Set { index: 0, value: item_a } = &timeline_updates[1]);
+    let event_a = item_a.as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value: item_b } = &timeline_updates[2]);
+    let event_b = item_b.as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 0);
+
+    // Real receipt is on event B.
+    let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_event_id, event_b_id);
+    // Visible receipt is on event A.
+    let bob_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(*BOB).await.unwrap();
+    assert_eq!(bob_receipt_timeline_event, event_a.event_id().unwrap());
+
+    // Implicit read receipt of @alice:localhost.
+    assert_let!(VectorDiff::PushBack { value: item_c } = &timeline_updates[3]);
+    let event_c = item_c.as_event().unwrap();
+    assert_eq!(event_c.read_receipts().len(), 1);
+
+    let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(alice_receipt_event_id, event_c_id);
+    let alice_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(*ALICE).await.unwrap();
+    assert_eq!(alice_receipt_timeline_event, event_c_id);
+
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[4]);
+    assert!(date_divider.is_date_divider());
+
+    // Read receipt on filtered event.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_b_id, own_user_id, EventReceiptType::Read, ReceiptThread::Unthreaded)
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Real receipt changed to event B.
+    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_event_id, event_b_id);
+    // Visible receipt is still on event A.
+    let own_receipt_timeline_event =
+        timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
+    assert_eq!(own_receipt_timeline_event, event_a.event_id().unwrap());
+
+    // Update with explicit read receipt.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_c_id, *BOB, EventReceiptType::Read, ReceiptThread::Unthreaded)
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item_a } = &timeline_updates[0]);
+    let event_a = item_a.as_event().unwrap();
+    assert!(event_a.read_receipts().is_empty());
+
+    assert_let!(VectorDiff::Set { index: 3, value: item_c } = &timeline_updates[1]);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 2);
 
