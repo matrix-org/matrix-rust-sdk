@@ -470,10 +470,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     ) -> bool {
         match event {
             AnySyncTimelineEvent::State(_) => {
-                settings.track_read_receipts == TimelineReadReceiptTracking::AllEvents
+                matches!(settings.track_read_receipts, TimelineReadReceiptTracking::AllEvents)
             }
             AnySyncTimelineEvent::MessageLike(_) => {
-                settings.track_read_receipts != TimelineReadReceiptTracking::Disabled
+                !matches!(settings.track_read_receipts, TimelineReadReceiptTracking::Disabled)
             }
         }
     }
