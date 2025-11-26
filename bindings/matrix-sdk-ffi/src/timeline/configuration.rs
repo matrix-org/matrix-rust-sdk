@@ -164,6 +164,9 @@ pub struct TimelineConfiguration {
     /// How should we filter out events from the timeline?
     pub filter: TimelineFilter,
 
+    /// Can read receipts be shown on state events or only on messages?
+    pub state_events_can_show_read_receipts: bool,
+
     /// An optional String that will be prepended to
     /// all the timeline item's internal IDs, making it possible to
     /// distinguish different timeline instances from each other.
