@@ -3177,7 +3177,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -3256,7 +3256,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -3296,7 +3296,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "assert_matches",
  "assert_matches2",
@@ -3328,7 +3328,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3411,7 +3411,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ffi"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-compat",
@@ -3460,7 +3460,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "assert_matches",
  "assert_matches2",
@@ -3532,7 +3532,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "byteorder",
  "image",
@@ -3544,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-search"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aes",
  "byteorder",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "as_variant",
  "assert_matches",
@@ -3600,7 +3600,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3620,7 +3620,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "as_variant",
  "ctor",
@@ -3642,7 +3642,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-macros"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "quote",
  "syn 2.0.101",
@@ -3650,7 +3650,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-utils"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "ctor",
  "tracing-subscriber",
@@ -3658,7 +3658,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ui"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "as_variant",

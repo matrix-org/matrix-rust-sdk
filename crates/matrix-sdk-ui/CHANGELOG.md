@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.15.0] - 2025-11-26
+
 ### Features
 
 - [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
