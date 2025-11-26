@@ -964,6 +964,9 @@ impl Client {
             Ok(Arc::new(MediaFileHandle::new(handle)))
         }
 
+        /// MediaFileHandle uses SdkMediaFileHandle which requires an
+        /// intermediate TempFile which is not available on wasm
+        /// platforms due to lack of an accessible file system.
         #[cfg(target_family = "wasm")]
         Err(ClientError::Generic {
             msg: "get_media_file is not supported on wasm platforms".to_owned(),
