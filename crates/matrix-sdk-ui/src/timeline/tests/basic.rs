@@ -42,7 +42,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use super::TestTimeline;
 use crate::timeline::{
     MembershipChange, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails, TimelineFocus,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking, VirtualTimelineItem,
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
@@ -99,8 +99,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
                 .with_initial_user_receipts(receipts),
         )
         .settings(TimelineSettings {
-            track_read_receipts: true,
-            state_events_can_show_read_receipts: true,
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
             ..Default::default()
         })
         .build();
@@ -527,7 +526,7 @@ async fn test_latest_event_id_in_main_timeline() {
     let timeline = room
         .timeline_builder()
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
-        .track_read_marker_and_receipts()
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
         .build()
         .await
         .expect("Could not build live timeline");

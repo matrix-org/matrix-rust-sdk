@@ -61,7 +61,8 @@ pub(super) use self::{
 use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
     MediaUploadProgress, PaginationError, Profile, TimelineDetails, TimelineEventItemId,
-    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
+    TimelineReadReceiptTracking, VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
@@ -265,11 +266,9 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
 #[derive(Clone)]
 pub(super) struct TimelineSettings {
-    /// Should the read receipts and read markers be handled?
-    pub(super) track_read_receipts: bool,
-
-    /// Whether state events can show read receipts.
-    pub(super) state_events_can_show_read_receipts: bool,
+    /// Should the read receipts and read markers be handled and on which event
+    /// types?
+    pub(super) track_read_receipts: TimelineReadReceiptTracking,
 
     /// Event filter that controls what's rendered as a timeline item (and thus
     /// what can carry read receipts).
@@ -287,7 +286,6 @@ impl fmt::Debug for TimelineSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TimelineSettings")
             .field("track_read_receipts", &self.track_read_receipts)
-            .field("state_events_can_show_read_receipts", &self.state_events_can_show_read_receipts)
             .field("add_failed_to_parse", &self.add_failed_to_parse)
             .finish_non_exhaustive()
     }
@@ -296,8 +294,7 @@ impl fmt::Debug for TimelineSettings {
 impl Default for TimelineSettings {
     fn default() -> Self {
         Self {
-            track_read_receipts: false,
-            state_events_can_show_read_receipts: true,
+            track_read_receipts: TimelineReadReceiptTracking::Disabled,
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
             date_divider_mode: DateDividerMode::Daily,
@@ -986,8 +983,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
     {
         let mut state = self.state.write().await;
 
-        let track_read_markers = self.settings.track_read_receipts;
-        if track_read_markers {
+        let track_read_markers = &self.settings.track_read_receipts;
+        if track_read_markers.is_enabled() {
             state.populate_initial_user_receipt(&self.room_data_provider, ReceiptType::Read).await;
             state
                 .populate_initial_user_receipt(&self.room_data_provider, ReceiptType::ReadPrivate)
@@ -1011,7 +1008,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
         }
 
-        if track_read_markers {
+        if track_read_markers.is_enabled() {
             if let Some(fully_read_event_id) =
                 self.room_data_provider.load_fully_read_marker().await
             {

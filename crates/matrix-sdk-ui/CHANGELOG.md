@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] `TimelineBuilder::track_read_marker_and_receipts` now takes a parameter to allow tracking to be enabled
+  for all events (like before) or only for message-like events (which prevents read receipts from being placed on state
+  events).
+  ([#5900](https://github.com/matrix-org/matrix-rust-sdk/pull/5900))
+
 ## [0.15.0] - 2025-11-27
 
 ### Features
