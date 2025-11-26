@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use matrix_sdk_ui::timeline::event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter;
+use matrix_sdk_ui::timeline::{
+    event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter,
+    TimelineReadReceiptTracking,
+};
 use ruma::{
     events::{AnySyncTimelineEvent, TimelineEventType},
     EventId,
@@ -164,9 +167,6 @@ pub struct TimelineConfiguration {
     /// How should we filter out events from the timeline?
     pub filter: TimelineFilter,
 
-    /// Can read receipts be shown on state events or only on messages?
-    pub state_events_can_show_read_receipts: bool,
-
     /// An optional String that will be prepended to
     /// all the timeline item's internal IDs, making it possible to
     /// distinguish different timeline instances from each other.
@@ -176,11 +176,11 @@ pub struct TimelineConfiguration {
     pub date_divider_mode: DateDividerMode,
 
     /// Should the read receipts and read markers be tracked for the timeline
-    /// items in this instance?
+    /// items in this instance and on which event types?
     ///
     /// As this has a non negligible performance impact, make sure to enable it
     /// only when you need it.
-    pub track_read_receipts: bool,
+    pub track_read_receipts: TimelineReadReceiptTracking,
 
     /// Whether this timeline instance should report UTDs through the client's
     /// delegate.

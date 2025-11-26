@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- `TimelineConfiguration::track_read_receipts`'s type is now an enum to allow tracking to be enabled for all events
+  (like before) or only for message-like events (which prevents read receipts from being placed on state events).
+  ([#5900](https://github.com/matrix-org/matrix-rust-sdk/pull/5900))
 - `Client::reset_server_info()` has been split into `reset_supported_versions()`
   and `reset_well_known()`.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))

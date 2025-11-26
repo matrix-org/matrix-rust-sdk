@@ -97,11 +97,7 @@ async fn test_default_filter() {
 #[async_test]
 async fn test_filter_always_false() {
     let timeline = TestTimelineBuilder::new()
-        .settings(TimelineSettings {
-            event_filter: Arc::new(|_, _| false),
-            state_events_can_show_read_receipts: true,
-            ..Default::default()
-        })
+        .settings(TimelineSettings { event_filter: Arc::new(|_, _| false), ..Default::default() })
         .build();
 
     let f = &timeline.factory;

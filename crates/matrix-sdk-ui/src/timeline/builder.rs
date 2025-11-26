@@ -25,6 +25,7 @@ use super::{
 };
 use crate::{
     timeline::{
+        TimelineReadReceiptTracking,
         controller::spawn_crypto_tasks,
         tasks::{
             pinned_events_task, room_event_cache_updates_task, room_send_queue_update_task,
@@ -91,17 +92,17 @@ impl TimelineBuilder {
         self
     }
 
-    /// Chose when to insert the date separators, either in between each day
+    /// Choose when to insert the date separators, either in between each day
     /// or each month.
     pub fn with_date_divider_mode(mut self, mode: DateDividerMode) -> Self {
         self.settings.date_divider_mode = mode;
         self
     }
 
-    /// Enable tracking of the fully-read marker and the read receipts on the
-    /// timeline.
-    pub fn track_read_marker_and_receipts(mut self) -> Self {
-        self.settings.track_read_receipts = true;
+    /// Choose whether to enable tracking of the fully-read marker and the read
+    /// receipts and on which event types.
+    pub fn track_read_marker_and_receipts(mut self, tracking: TimelineReadReceiptTracking) -> Self {
+        self.settings.track_read_receipts = tracking;
         self
     }
 
@@ -141,11 +142,6 @@ impl TimelineBuilder {
         self
     }
 
-    pub fn state_events_can_show_read_receipts(mut self, show: bool) -> Self {
-        self.settings.state_events_can_show_read_receipts = show;
-        self
-    }
-
     /// Whether to add events that failed to deserialize to the timeline.
     ///
     /// Defaults to `true`.
@@ -159,7 +155,7 @@ impl TimelineBuilder {
         skip(self),
         fields(
             room_id = ?self.room.room_id(),
-            track_read_receipts = self.settings.track_read_receipts,
+            track_read_receipts = ?self.settings.track_read_receipts,
         )
     )]
     pub async fn build(self) -> Result<Timeline, Error> {

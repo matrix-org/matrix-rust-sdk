@@ -37,7 +37,8 @@ use tracing::error;
 
 use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
 use crate::timeline::{
-    self, Timeline, latest_event::LatestEventValue, pinned_events_loader::PinnedEventsRoom,
+    self, Timeline, TimelineReadReceiptTracking, latest_event::LatestEventValue,
+    pinned_events_loader::PinnedEventsRoom,
 };
 
 pub trait RoomExt {
@@ -77,7 +78,8 @@ impl RoomExt for Room {
     }
 
     fn timeline_builder(&self) -> TimelineBuilder {
-        TimelineBuilder::new(self).track_read_marker_and_receipts()
+        TimelineBuilder::new(self)
+            .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
     }
 
     async fn latest_event_item(&self) -> Option<EventTimelineItem> {
