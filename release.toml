@@ -11,3 +11,6 @@ sign-tag = true
 tag-message = "Release {{crate_name}} version {{version}}"
 tag-name = "{{prefix}}{{version}}"
 shared-version = true
+
+# Necessary to work with jujutsu
+allow-branch = ["HEAD"]
