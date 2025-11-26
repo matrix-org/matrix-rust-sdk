@@ -1104,7 +1104,7 @@ impl TryFrom<GalleryItemInfo> for matrix_sdk::attachment::GalleryItemInfo {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 /// The level of read receipt tracking for the timeline.
 pub enum TimelineReadReceiptTracking {
