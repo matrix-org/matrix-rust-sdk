@@ -967,6 +967,7 @@ impl Client {
                         joined_members_count: room.joined_members_count(),
                         is_encrypted: Some(room.encryption_state().is_encrypted()),
                         is_direct,
+                        is_space: room.is_space(),
                     };
 
                     listener.on_notification(
