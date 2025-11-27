@@ -1016,7 +1016,6 @@ impl Client {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 #[matrix_sdk_ffi_macros::export]
 impl Client {
     /// Retrieves a media file from the media source
@@ -1030,22 +1029,60 @@ impl Client {
         use_cache: bool,
         temp_dir: Option<String>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        let source = (*media_source).clone();
-        let mime_type: mime::Mime = mime_type.parse()?;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let source = (*media_source).clone();
+            let mime_type: mime::Mime = mime_type.parse()?;
 
-        let handle = self
-            .inner
-            .media()
-            .get_media_file(
-                &MediaRequestParameters { source: source.media_source, format: MediaFormat::File },
-                filename,
-                &mime_type,
-                use_cache,
-                temp_dir,
-            )
-            .await?;
+            let handle = self
+                .inner
+                .media()
+                .get_media_file(
+                    &MediaRequestParameters {
+                        source: source.media_source,
+                        format: MediaFormat::File,
+                    },
+                    filename,
+                    &mime_type,
+                    use_cache,
+                    temp_dir,
+                )
+                .await?;
 
-        Ok(Arc::new(MediaFileHandle::new(handle)))
+            Ok(Arc::new(MediaFileHandle::new(handle)))
+        }
+
+        /// MediaFileHandle uses SdkMediaFileHandle which requires an
+        /// intermediate TempFile which is not available on wasm
+        /// platforms due to lack of an accessible file system.
+        #[cfg(target_family = "wasm")]
+        Err(ClientError::Generic {
+            msg: "get_media_file is not supported on wasm platforms".to_owned(),
+            details: None,
+        })
+    }
+
+    pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.inner
+                .account()
+                .set_display_name(Some(name.as_str()))
+                .await
+                .context("Unable to set display name")?;
+        }
+
+        #[cfg(target_family = "wasm")]
+        {
+            self.inner.account().set_display_name(Some(name.as_str())).await.map_err(|e| {
+                ClientError::Generic {
+                    msg: "Unable to set display name".to_owned(),
+                    details: Some(e.to_string()),
+                }
+            })?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1179,15 +1216,6 @@ impl Client {
         let display_name =
             self.inner.account().get_display_name().await?.context("No User ID found")?;
         Ok(display_name)
-    }
-
-    pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
-        self.inner
-            .account()
-            .set_display_name(Some(name.as_str()))
-            .await
-            .context("Unable to set display name")?;
-        Ok(())
     }
 
     pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
@@ -2541,25 +2569,25 @@ fn gen_transaction_id() -> String {
 
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
-#[cfg(not(target_family = "wasm"))]
 #[derive(uniffi::Object)]
 pub struct MediaFileHandle {
+    #[cfg(not(target_family = "wasm"))]
     inner: std::sync::RwLock<Option<SdkMediaFileHandle>>,
 }
 
-#[cfg(not(target_family = "wasm"))]
 impl MediaFileHandle {
+    #[cfg(not(target_family = "wasm"))]
     fn new(handle: SdkMediaFileHandle) -> Self {
         Self { inner: std::sync::RwLock::new(Some(handle)) }
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 #[matrix_sdk_ffi_macros::export]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> Result<String, ClientError> {
-        Ok(self
+        #[cfg(not(target_family = "wasm"))]
+        return Ok(self
             .inner
             .read()
             .unwrap()
@@ -2568,24 +2596,37 @@ impl MediaFileHandle {
             .path()
             .to_str()
             .unwrap()
-            .to_owned())
+            .to_owned());
+        #[cfg(target_family = "wasm")]
+        Err(ClientError::Generic {
+            msg: "MediaFileHandle.path() is not supported on WASM targets".to_string(),
+            details: None,
+        })
     }
 
     pub fn persist(&self, path: String) -> Result<bool, ClientError> {
-        let mut guard = self.inner.write().unwrap();
-        Ok(
-            match guard
-                .take()
-                .context("MediaFileHandle was already persisted")?
-                .persist(path.as_ref())
-            {
-                Ok(_) => true,
-                Err(e) => {
-                    *guard = Some(e.file);
-                    false
-                }
-            },
-        )
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut guard = self.inner.write().unwrap();
+            Ok(
+                match guard
+                    .take()
+                    .context("MediaFileHandle was already persisted")?
+                    .persist(path.as_ref())
+                {
+                    Ok(_) => true,
+                    Err(e) => {
+                        *guard = Some(e.file);
+                        false
+                    }
+                },
+            )
+        }
+        #[cfg(target_family = "wasm")]
+        Err(ClientError::Generic {
+            msg: "MediaFileHandle.persist() is not supported on WASM targets".to_string(),
+            details: None,
+        })
     }
 }
 
