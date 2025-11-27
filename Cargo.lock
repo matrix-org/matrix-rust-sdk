@@ -3551,7 +3551,6 @@ dependencies = [
  "ctr",
  "hkdf",
  "hmac",
- "matrix-sdk",
  "matrix-sdk-test",
  "pbkdf2",
  "rand 0.8.5",
