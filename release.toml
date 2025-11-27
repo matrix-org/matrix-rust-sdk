@@ -13,4 +13,4 @@ tag-name = "{{prefix}}{{version}}"
 shared-version = true
 
 # Necessary to work with jujutsu
-allow-branch = ["HEAD"]
+allow-branch = ["HEAD", "release-*"]
