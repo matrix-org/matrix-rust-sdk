@@ -33,7 +33,8 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineSettings,
+    ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineReadReceiptTracking,
+    TimelineSettings,
     metadata::EventMeta,
 };
 use crate::timeline::{
@@ -460,6 +461,23 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
     }
 
+    /// Whether this event can show read receipts, or if they should be moved
+    /// to the previous event.
+    fn can_show_read_receipts(
+        &self,
+        settings: &TimelineSettings,
+        event: &AnySyncTimelineEvent,
+    ) -> bool {
+        match event {
+            AnySyncTimelineEvent::State(_) => {
+                settings.track_read_receipts == TimelineReadReceiptTracking::AllEvents
+            }
+            AnySyncTimelineEvent::MessageLike(_) => {
+                settings.track_read_receipts != TimelineReadReceiptTracking::Disabled
+            }
+        }
+    }
+
     /// After a deserialization error, adds a failed-to-parse item to the
     /// timeline if configured to do so, or logs the error (and optionally
     /// save metadata) if not.
@@ -477,6 +495,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         Option<OwnedTransactionId>,
         Option<TimelineAction>,
         Option<OwnedEventId>,
+        bool,
         bool,
     )> {
         let state_key: Option<String> = raw.get_field("state_key").ok().flatten();
@@ -537,6 +556,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     Some(TimelineAction::failed_to_parse(event_type, deserialization_error)),
                     None,
                     true,
+                    true,
                 ))
             }
 
@@ -552,7 +572,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 // Remember the event before returning prematurely.
                 // See [`ObservableItems::all_remote_events`].
                 self.add_or_update_remote_event(
-                    EventMeta::new(event_id, false, None),
+                    EventMeta::new(event_id, false, false, None),
                     sender.as_deref(),
                     origin_server_ts,
                     position,
@@ -630,65 +650,74 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             _ => (event.kind.into_raw(), None),
         };
 
-        let (event_id, sender, timestamp, txn_id, timeline_action, thread_root, should_add) =
-            match raw.deserialize() {
-                // Classical path: the event is valid, can be deserialized, everything is alright.
-                Ok(event) => {
-                    let (in_reply_to, thread_root) = self.meta.process_event_relations(
-                        &event,
+        let (
+            event_id,
+            sender,
+            timestamp,
+            txn_id,
+            timeline_action,
+            thread_root,
+            should_add,
+            can_show_read_receipts,
+        ) = match raw.deserialize() {
+            // Classical path: the event is valid, can be deserialized, everything is alright.
+            Ok(event) => {
+                let (in_reply_to, thread_root) = self.meta.process_event_relations(
+                    &event,
+                    &raw,
+                    bundled_edit_encryption_info,
+                    &self.items,
+                    self.focus.is_thread(),
+                );
+
+                let should_add = self.should_add_event_item(
+                    room_data_provider,
+                    settings,
+                    &event,
+                    thread_root.as_deref(),
+                    position,
+                );
+
+                let can_show_read_receipts = self.can_show_read_receipts(settings, &event);
+
+                (
+                    event.event_id().to_owned(),
+                    event.sender().to_owned(),
+                    event.origin_server_ts(),
+                    event.transaction_id().map(ToOwned::to_owned),
+                    TimelineAction::from_event(
+                        event,
                         &raw,
-                        bundled_edit_encryption_info,
-                        &self.items,
-                        self.focus.is_thread(),
-                    );
-
-                    let should_add = self.should_add_event_item(
                         room_data_provider,
-                        settings,
-                        &event,
-                        thread_root.as_deref(),
-                        position,
-                    );
-
-                    (
-                        event.event_id().to_owned(),
-                        event.sender().to_owned(),
-                        event.origin_server_ts(),
-                        event.transaction_id().map(ToOwned::to_owned),
-                        TimelineAction::from_event(
-                            event,
-                            &raw,
-                            room_data_provider,
-                            utd_info.map(|utd_info| {
-                                (utd_info, self.meta.unable_to_decrypt_hook.as_ref())
-                            }),
-                            in_reply_to,
-                            thread_root.clone(),
-                            thread_summary,
-                        )
-                        .await,
-                        thread_root,
-                        should_add,
+                        utd_info
+                            .map(|utd_info| (utd_info, self.meta.unable_to_decrypt_hook.as_ref())),
+                        in_reply_to,
+                        thread_root.clone(),
+                        thread_summary,
                     )
-                }
+                    .await,
+                    thread_root,
+                    should_add,
+                    can_show_read_receipts,
+                )
+            }
 
-                // The event seems invalid…
-                Err(e) => {
-                    if let Some(tuple) = self
-                        .maybe_add_error_item(position, room_data_provider, &raw, e, settings)
-                        .await
-                    {
-                        tuple
-                    } else {
-                        return false;
-                    }
+            // The event seems invalid…
+            Err(e) => {
+                if let Some(tuple) =
+                    self.maybe_add_error_item(position, room_data_provider, &raw, e, settings).await
+                {
+                    tuple
+                } else {
+                    return false;
                 }
-            };
+            }
+        };
 
         // Remember the event.
         // See [`ObservableItems::all_remote_events`].
         self.add_or_update_remote_event(
-            EventMeta::new(event_id.clone(), should_add, thread_root),
+            EventMeta::new(event_id.clone(), should_add, can_show_read_receipts, thread_root),
             Some(&sender),
             Some(timestamp),
             position,
@@ -711,7 +740,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 sender,
                 sender_profile,
                 timestamp,
-                read_receipts: if settings.track_read_receipts && should_add {
+                read_receipts: if settings.track_read_receipts.is_enabled()
+                    && should_add
+                    && can_show_read_receipts
+                {
                     self.meta.read_receipts.compute_event_receipts(
                         &event_id,
                         &mut self.items,
@@ -887,11 +919,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             TimelineItemPosition::UpdateAt { .. } => {
                 if let Some(event) =
                     self.items.get_remote_event_by_event_id_mut(&event_meta.event_id)
-                    && event.visible != event_meta.visible
+                    && (event.visible != event_meta.visible
+                        || event.can_show_read_receipts != event_meta.can_show_read_receipts)
                 {
                     event.visible = event_meta.visible;
+                    event.can_show_read_receipts = event_meta.can_show_read_receipts;
 
-                    if settings.track_read_receipts {
+                    if settings.track_read_receipts.is_enabled() {
                         // Since the event's visibility changed, we need to update the read
                         // receipts of the previous visible event.
                         self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
@@ -900,7 +934,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         }
 
-        if settings.track_read_receipts
+        if settings.track_read_receipts.is_enabled()
             && matches!(
                 position,
                 TimelineItemPosition::Start { .. }

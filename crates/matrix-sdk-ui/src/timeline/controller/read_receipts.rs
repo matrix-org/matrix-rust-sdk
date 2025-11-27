@@ -131,8 +131,13 @@ impl ReadReceipts {
                 old_receipt_pos = Some(pos);
             }
 
-            // The receipt should appear on the first event that is visible.
-            if old_receipt_pos.is_some() && old_item_event_id.is_none() && event.visible {
+            // The receipt should appear on the first visible event that can show read
+            // receipts.
+            if old_receipt_pos.is_some()
+                && old_item_event_id.is_none()
+                && event.visible
+                && event.can_show_read_receipts
+            {
                 old_item_pos = event.timeline_item_index;
                 old_item_event_id = Some(event.event_id.clone());
             }
@@ -141,8 +146,13 @@ impl ReadReceipts {
                 new_receipt_pos = Some(pos);
             }
 
-            // The receipt should appear on the first event that is visible.
-            if new_receipt_pos.is_some() && new_item_event_id.is_none() && event.visible {
+            // The receipt should appear on the first visible event that can show read
+            // receipts.
+            if new_receipt_pos.is_some()
+                && new_item_event_id.is_none()
+                && event.visible
+                && event.can_show_read_receipts
+            {
                 new_item_pos = event.timeline_item_index;
                 new_item_event_id = Some(event.event_id.clone());
             }
@@ -316,11 +326,16 @@ impl ReadReceipts {
             }
         }
 
-        // Include receipts for all the following non-visible events.
+        // Include receipts from all the following events that are hidden or can't show
+        // read receipts.
         let mut hidden = Vec::new();
-        for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
-            if let Some(event_receipts) = self.get_event_receipts(&hidden_event_meta.event_id) {
-                trace!(%hidden_event_meta.event_id, "found receipts on hidden event");
+        for hidden_receipt_event_meta in
+            events_iter.take_while(|meta| !meta.visible || !meta.can_show_read_receipts)
+        {
+            if let Some(event_receipts) =
+                self.get_event_receipts(&hidden_receipt_event_meta.event_id)
+            {
+                trace!(%hidden_receipt_event_meta.event_id, "found receipts on hidden event");
                 hidden.extend(event_receipts.clone());
             }
         }
@@ -659,8 +674,8 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
             .skip_while(|meta| meta.event_id != event_id)
             // Go past the event item.
             .skip(1)
-            // Find the first visible item.
-            .find(|meta| meta.visible)
+            // Find the first visible item that can show read receipts.
+            .find(|meta| meta.visible && meta.can_show_read_receipts)
         else {
             trace!("Couldn't find any previous visible event, exiting");
             return;
@@ -806,7 +821,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)
-            .find(|ev| ev.visible)
+            .find(|ev| ev.visible && ev.can_show_read_receipts)
             .map(|ev| ev.event_id.clone())
     }
 }

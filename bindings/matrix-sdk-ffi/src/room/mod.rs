@@ -233,11 +233,8 @@ impl Room {
 
         builder = builder
             .with_focus(configuration.focus.try_into()?)
-            .with_date_divider_mode(configuration.date_divider_mode.into());
-
-        if configuration.track_read_receipts {
-            builder = builder.track_read_marker_and_receipts();
-        }
+            .with_date_divider_mode(configuration.date_divider_mode.into())
+            .track_read_marker_and_receipts(configuration.track_read_receipts);
 
         match configuration.filter {
             TimelineFilter::All => {

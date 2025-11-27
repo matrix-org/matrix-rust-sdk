@@ -801,6 +801,7 @@ mod observable_items_tests {
             thread_root_id: None,
             timeline_item_index: None,
             visible: false,
+            can_show_read_receipts: false,
         }
     }
 
@@ -2065,6 +2066,7 @@ mod all_remote_events_tests {
             thread_root_id: None,
             timeline_item_index,
             visible: false,
+            can_show_read_receipts: false,
         }
     }
 

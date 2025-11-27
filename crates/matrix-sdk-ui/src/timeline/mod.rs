@@ -1103,3 +1103,26 @@ impl TryFrom<GalleryItemInfo> for matrix_sdk::attachment::GalleryItemInfo {
         })
     }
 }
+
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+/// The level of read receipt tracking for the timeline.
+pub enum TimelineReadReceiptTracking {
+    /// Track read receipts for all events.
+    AllEvents,
+    /// Track read receipts only for message-like events.
+    MessageLikeEvents,
+    /// Disable read receipt tracking.
+    Disabled,
+}
+
+impl TimelineReadReceiptTracking {
+    /// Whether or not read receipt tracking is enabled.
+    pub fn is_enabled(&self) -> bool {
+        match self {
+            TimelineReadReceiptTracking::AllEvents => true,
+            TimelineReadReceiptTracking::MessageLikeEvents => true,
+            TimelineReadReceiptTracking::Disabled => false,
+        }
+    }
+}

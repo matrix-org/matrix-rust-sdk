@@ -28,6 +28,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
+    TimelineReadReceiptTracking,
     controller::TimelineSettings,
     event_item::{EventSendState, RemoteEventOrigin},
     tests::{TestRoomDataProvider, TestTimelineBuilder},
@@ -239,7 +240,10 @@ async fn test_no_read_marker_with_local_echo() {
 
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default().with_fully_read_marker(event_id.to_owned()))
-        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .settings(TimelineSettings {
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
+            ..Default::default()
+        })
         .build();
 
     let f = &timeline.factory;
