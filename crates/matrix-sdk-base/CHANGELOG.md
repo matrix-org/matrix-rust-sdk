@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.15.0] - 2025-11-27
+
 ### Refactor
 
 - [**breaking**] Upgrade Ruma to version 0.14.0.

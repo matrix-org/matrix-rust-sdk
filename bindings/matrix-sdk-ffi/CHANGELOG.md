@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.15.0] - 2025-11-27
+
 ### Breaking changes
 
 - Add `HumanQrLoginError::NotFound` for non-existing / expired rendezvous sessions
