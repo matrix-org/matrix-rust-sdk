@@ -94,6 +94,7 @@ All notable changes to this project will be documented in this file.
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 - Expose `m.federate` in `OtherState::RoomCreate` and `history_visibility` in `OtherState::RoomHistoryVisibility`, allowing clients to know whether a room federates and how its history is shared in the appropriate timeline events.
 - Expose `join_rule` in `OtherState::RoomJoinRules`, allowing clients to know the join rules of a room from the appropriate timeline events.
+- Expose `is_space` in `NotificationRoomInfo`, allowing clients to determine if the room that triggered the notification is a space.
 
 ### Changes
 
