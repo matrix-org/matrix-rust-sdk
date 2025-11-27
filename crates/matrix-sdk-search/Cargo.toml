@@ -37,7 +37,6 @@ zeroize.workspace = true
 
 [dev-dependencies]
 matrix-sdk-test.workspace = true
-matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "experimental-search"] }
 tempfile.workspace = true
 
 [lints]
