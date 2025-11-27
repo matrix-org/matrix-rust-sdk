@@ -354,12 +354,21 @@ impl Timeline {
         Ok(())
     }
 
-    /// Mark the room as read by trying to attach an *unthreaded* read receipt
-    /// to the latest room event.
+    /// Mark the timeline as read by attempting to send a read receipt on the
+    /// latest visible event.
     ///
-    /// This works even if the latest event belongs to a thread, as a threaded
-    /// reply also belongs to the unthreaded timeline. No threaded receipt
-    /// will be sent here (see also #3123).
+    /// The latest visible event is determined from the timeline's focus kind
+    /// and whether or not it hides threaded events. If no latest event can
+    /// be determined and the timeline is live, the room's unread marker is
+    /// unset instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to send. When using
+    ///   [`ReceiptType::FullyRead`], an unthreaded receipt will be sent. This
+    ///   works even if the latest event belongs to a thread, as a threaded
+    ///   reply also belongs to the unthreaded timeline. Otherwise the receipt
+    ///   thread will be determined based on the timeline's focus kind.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
         self.inner.mark_as_read(receipt_type.into()).await?;
         Ok(())
