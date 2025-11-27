@@ -116,6 +116,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- A new local `LatestEventValue` was always created as `LocalIsSending`. It
+  must be created as `LocalCannotBeSent` if a previous local `LatestEventValue`
+  exists and is `LocalCannotBeSent`.
+  ([#5908](https://github.com/matrix-org/matrix-rust-sdk/pull/5908))
 - Switch QR login implementation from `std::time::Instant` to `ruma::time::Instant` which
   is compatible with Wasm.
   ([#5889](https://github.com/matrix-org/matrix-rust-sdk/pull/5889))
