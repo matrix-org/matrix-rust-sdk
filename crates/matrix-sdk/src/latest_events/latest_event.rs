@@ -554,11 +554,21 @@ impl LatestEventValueBuilder {
                     match serialized_event_content.deserialize() {
                         Ok(content) => {
                             if filter_any_message_like_event_content(content) {
-                                let value =
-                                    LatestEventValue::LocalIsSending(LocalLatestEventValue {
-                                        timestamp: MilliSecondsSinceUnixEpoch::now(),
-                                        content: serialized_event_content.clone(),
-                                    });
+                                let local_value = LocalLatestEventValue {
+                                    timestamp: MilliSecondsSinceUnixEpoch::now(),
+                                    content: serialized_event_content.clone(),
+                                };
+
+                                // If a local previous `LatestEventValue` exists and has been marked
+                                // as “cannot be sent”, it means the new `LatestEventValue` must
+                                // also be marked as “cannot be sent”.
+                                let value = if let Some(LatestEventValue::LocalCannotBeSent(_)) =
+                                    buffer_of_values_for_local_events.last()
+                                {
+                                    LatestEventValue::LocalCannotBeSent(local_value)
+                                } else {
+                                    LatestEventValue::LocalIsSending(local_value)
+                                };
 
                                 buffer_of_values_for_local_events
                                     .push(transaction_id.to_owned(), value.clone());
@@ -1818,6 +1828,72 @@ mod tests_latest_event_value_builder {
         }
 
         assert_eq!(buffer.buffer.len(), 2);
+    }
+
+    #[async_test]
+    async fn test_local_new_local_event_when_previous_local_event_cannot_be_sent() {
+        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+
+        // Receiving one `NewLocalEvent`.
+        let transaction_id_0 = {
+            let transaction_id = OwnedTransactionId::from("txnid0");
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            // The `LatestEventValue` matches the new local event.
+            assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValue::LocalIsSending => with body = "A"
+            );
+
+            transaction_id
+        };
+
+        // Receiving a `SendError` targeting the first event. The
+        // `LatestEventValue` must change to indicate it “cannot be sent”.
+        {
+            let update = RoomSendQueueUpdate::SendError {
+                transaction_id: transaction_id_0.clone(),
+                error: Arc::new(Error::UnknownError("oopsy".to_owned().into())),
+                is_recoverable: true,
+            };
+
+            // The `LatestEventValue` has changed, it still matches the latest local
+            // event but it's marked as “cannot be sent”.
+            assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValue::LocalCannotBeSent => with body = "A"
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
+        }
+
+        // Receiving another `NewLocalEvent`, ensuring it's pushed back in the buffer,
+        // and as a `LocalCannotBeSent` because the previous value is itself
+        // `LocalCannotBeSent`.
+        {
+            let transaction_id = OwnedTransactionId::from("txnid1");
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
+
+            // The `LatestEventValue` matches the new local event.
+            assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValue::LocalCannotBeSent => with body = "B"
+            );
+        }
+
+        assert_eq!(buffer.buffer.len(), 2);
+        assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
+        assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
     }
 
     #[async_test]
