@@ -250,6 +250,10 @@ impl EventCacheStore for MemoryStore {
         self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
         Ok(())
     }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
