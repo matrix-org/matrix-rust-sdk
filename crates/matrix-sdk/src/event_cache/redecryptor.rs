@@ -1064,6 +1064,10 @@ mod tests {
         async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
             self.memory_store.save_event(room_id, event).await
         }
+
+        async fn optimize(&self) -> Result<(), Self::Error> {
+            self.memory_store.optimize().await
+        }
     }
 
     async fn set_up_clients(

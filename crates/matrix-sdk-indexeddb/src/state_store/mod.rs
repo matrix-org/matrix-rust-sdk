@@ -2026,6 +2026,10 @@ impl_state_store!({
 
         Ok(())
     }
+
+    async fn optimize(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
 });
 
 /// A room member.

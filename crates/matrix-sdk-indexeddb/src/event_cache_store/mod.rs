@@ -560,6 +560,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         transaction.commit().await?;
         Ok(())
     }
+
+    async fn optimize(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_family = "wasm"))]

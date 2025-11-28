@@ -494,6 +494,10 @@ impl SqliteStateStore {
         let member_room_id = self.encode_key(keys::MEMBER, room_id);
         txn.remove_room_members(&member_room_id, Some(stripped))
     }
+
+    pub async fn vacuum(&self) -> Result<()> {
+        self.write_connection.lock().await.vacuum().await
+    }
 }
 
 impl EncryptableStore for SqliteStateStore {
@@ -2265,6 +2269,10 @@ impl StateStore for SqliteStateStore {
             .await?;
 
         Ok(())
+    }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(self.vacuum().await?)
     }
 }
 

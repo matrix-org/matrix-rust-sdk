@@ -1050,6 +1050,10 @@ impl StateStore for MemoryStore {
 
         Ok(())
     }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
