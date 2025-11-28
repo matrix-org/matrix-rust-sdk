@@ -3221,6 +3221,10 @@ impl Client {
 
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
+    ///
+    /// **Warning:** this was added to check if SQLite fragmentation was the
+    /// source of performance issues, **DO NOT use in production**.
+    #[doc(hidden)]
     pub async fn optimize_stores(&self) -> Result<()> {
         trace!("Optimizing state store...");
         self.state_store().optimize().await?;
