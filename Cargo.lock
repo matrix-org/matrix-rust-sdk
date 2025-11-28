@@ -3418,6 +3418,7 @@ dependencies = [
  "console_error_panic_hook",
  "extension-trait",
  "eyeball-im",
+ "futures-executor",
  "futures-util",
  "language-tags",
  "log-panics",
