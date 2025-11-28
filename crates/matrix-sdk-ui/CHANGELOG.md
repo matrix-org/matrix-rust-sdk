@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Utilize the cache and include common relations when focusing a timeline on an event without
+  requestion context.
+  ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
 - [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
   and `profile`.
   ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
