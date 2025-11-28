@@ -2014,7 +2014,7 @@ impl_state_store!({
     }
 
     #[allow(clippy::unused_async)]
-    async fn optimize(&self) -> Result<(), StoreError> {
+    async fn optimize(&self) -> Result<()> {
         Ok(())
     }
 });
