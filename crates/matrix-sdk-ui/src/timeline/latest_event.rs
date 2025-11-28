@@ -156,15 +156,14 @@ mod tests {
         store::SerializableEventContent,
         test_utils::mocks::MatrixMockServer,
     };
-    use matrix_sdk_test::{JoinedRoomBuilder, async_test};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        MilliSecondsSinceUnixEpoch,
+        MilliSecondsSinceUnixEpoch, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id,
         serde::Raw,
         uint, user_id,
     };
-    use serde_json::json;
 
     use super::{
         super::{MsgLikeContent, MsgLikeKind, TimelineItemContent},
@@ -190,20 +189,15 @@ mod tests {
         let client = server.client_builder().build().await;
         let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
         let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new();
 
         let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
-            Raw::from_json_string(
-                json!({
-                    "content": RoomMessageEventContent::text_plain("raclette"),
-                    "type": "m.room.message",
-                    "event_id": "$ev0",
-                    "room_id": "!r0",
-                    "origin_server_ts": 42,
-                    "sender": sender,
-                })
-                .to_string(),
-            )
-            .unwrap(),
+            event_factory
+                .server_ts(42)
+                .sender(sender)
+                .text_msg("raclette")
+                .event_id(event_id!("$ev0"))
+                .into_raw_sync(),
         ));
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
