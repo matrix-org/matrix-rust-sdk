@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**]: `Client::server_vendor_info()` requires to enable the
   `federation-api` feature.
+  ([#5912](https://github.com/matrix-org/matrix-rust-sdk/pull/5912))
 
 ## [0.15.0] - 2025-11-27
 
