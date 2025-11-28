@@ -1513,6 +1513,7 @@ async fn test_room_sync_state_after() {
     assert_eq!(*member.membership(), MembershipState::Leave);
 }
 
+#[cfg(feature = "federation-api")]
 #[async_test]
 async fn test_server_vendor_info() {
     let server = MatrixMockServer::new().await;
@@ -1567,6 +1568,7 @@ async fn test_server_version_without_auth() {
         .expect("We should not fail here since we did not provide an auth token.");
 }
 
+#[cfg(feature = "federation-api")]
 #[async_test]
 async fn test_server_vendor_info_with_missing_fields() {
     let server = MatrixMockServer::new().await;
