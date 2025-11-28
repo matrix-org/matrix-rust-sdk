@@ -30,8 +30,9 @@ use matrix_sdk_base::{
     store::{
         compare_thread_subscription_bump_stamps, ChildTransactionId, ComposerDraft,
         DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey, SerializableEventContent, ServerInfo, StateChanges,
-        StateStore, StoreError, StoredThreadSubscription, ThreadSubscriptionStatus, TtlStoreValue,
+        RoomLoadSettings, SentRequestKey, SerializableEventContent, StateChanges, StateStore,
+        StoreError, StoredThreadSubscription, SupportedVersionsResponse, ThreadSubscriptionStatus,
+        TtlStoreValue, WellKnownResponse,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ThreadSubscriptionCatchupToken, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -466,8 +467,12 @@ impl IndexeddbStateStore {
             StateStoreDataKey::SyncToken => {
                 self.encode_key(StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN)
             }
-            StateStoreDataKey::ServerInfo => {
-                self.encode_key(StateStoreDataKey::SERVER_INFO, StateStoreDataKey::SERVER_INFO)
+            StateStoreDataKey::SupportedVersions => self.encode_key(
+                StateStoreDataKey::SUPPORTED_VERSIONS,
+                StateStoreDataKey::SUPPORTED_VERSIONS,
+            ),
+            StateStoreDataKey::WellKnown => {
+                self.encode_key(keys::KV, StateStoreDataKey::WELL_KNOWN)
             }
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_name))
@@ -622,10 +627,14 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
-            StateStoreDataKey::ServerInfo => value
-                .map(|f| self.deserialize_value::<TtlStoreValue<ServerInfo>>(&f))
+            StateStoreDataKey::SupportedVersions => value
+                .map(|f| self.deserialize_value::<TtlStoreValue<SupportedVersionsResponse>>(&f))
                 .transpose()?
-                .map(StateStoreDataValue::ServerInfo),
+                .map(StateStoreDataValue::SupportedVersions),
+            StateStoreDataKey::WellKnown => value
+                .map(|f| self.deserialize_value::<TtlStoreValue<Option<WellKnownResponse>>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::WellKnown),
             StateStoreDataKey::Filter(_) => value
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
@@ -673,8 +682,13 @@ impl_state_store!({
         let serialized_value = match key {
             StateStoreDataKey::SyncToken => self
                 .serialize_value(&value.into_sync_token().expect("Session data not a sync token")),
-            StateStoreDataKey::ServerInfo => self.serialize_value(
-                &value.into_server_info().expect("Session data not containing server info"),
+            StateStoreDataKey::SupportedVersions => self.serialize_value(
+                &value
+                    .into_supported_versions()
+                    .expect("Session data not containing supported versions"),
+            ),
+            StateStoreDataKey::WellKnown => self.serialize_value(
+                &value.into_well_known().expect("Session data not containing well-known"),
             ),
             StateStoreDataKey::Filter(_) => {
                 self.serialize_value(&value.into_filter().expect("Session data not a filter"))

@@ -39,8 +39,8 @@ use ruma::{
 use serde_json::{json, value::Value as JsonValue};
 
 use super::{
-    DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings, ServerInfo,
-    TtlStoreValue, WellKnownResponse, send_queue::SentRequestKey,
+    DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
+    SupportedVersionsResponse, TtlStoreValue, WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -101,8 +101,10 @@ pub trait StateStoreIntegrationTests {
     async fn test_send_queue_dependents(&self) -> TestResult;
     /// Test an update to a send queue dependent request.
     async fn test_update_send_queue_dependent(&self) -> TestResult;
-    /// Test saving/restoring server info.
-    async fn test_server_info_saving(&self) -> TestResult;
+    /// Test saving/restoring the supported versions of the server.
+    async fn test_supported_versions_saving(&self) -> TestResult;
+    /// Test saving/restoring the well-known info of the server.
+    async fn test_well_known_saving(&self) -> TestResult;
     /// Test fetching room infos based on [`RoomLoadSettings`].
     async fn test_get_room_infos(&self) -> TestResult;
     /// Test loading thread subscriptions.
@@ -486,40 +488,74 @@ impl StateStoreIntegrationTests for DynStateStore {
         Ok(())
     }
 
-    async fn test_server_info_saving(&self) -> TestResult {
+    async fn test_supported_versions_saving(&self) -> TestResult {
         let versions =
             BTreeSet::from([MatrixVersion::V1_1, MatrixVersion::V1_2, MatrixVersion::V1_11]);
-        let server_info = ServerInfo::new(
-            versions.iter().map(|version| version.as_str().unwrap().to_owned()).collect(),
-            [("org.matrix.experimental".to_owned(), true)].into(),
-            Some(WellKnownResponse {
-                homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
-                identity_server: None,
-                tile_server: None,
-                rtc_foci: vec![RtcFocusInfo::livekit("livekit.example.com".to_owned())],
-            }),
-        );
+        let supported_versions = SupportedVersionsResponse {
+            versions: versions.iter().map(|version| version.as_str().unwrap().to_owned()).collect(),
+            unstable_features: [("org.matrix.experimental".to_owned(), true)].into(),
+        };
 
         self.set_kv_data(
-            StateStoreDataKey::ServerInfo,
-            StateStoreDataValue::ServerInfo(TtlStoreValue::new(server_info.clone())),
+            StateStoreDataKey::SupportedVersions,
+            StateStoreDataValue::SupportedVersions(TtlStoreValue::new(supported_versions.clone())),
         )
         .await?;
 
         assert_let!(
-            Ok(Some(StateStoreDataValue::ServerInfo(stored_info))) =
-                self.get_kv_data(StateStoreDataKey::ServerInfo).await
+            Ok(Some(StateStoreDataValue::SupportedVersions(stored_supported_versions))) =
+                self.get_kv_data(StateStoreDataKey::SupportedVersions).await
         );
+        assert_let!(Some(stored_supported_versions) = stored_supported_versions.into_data());
+        assert_eq!(supported_versions, stored_supported_versions);
 
-        let decoded_server_info = stored_info.into_data().unwrap();
-        let stored_supported = decoded_server_info.supported_versions();
-
+        let stored_supported = stored_supported_versions.supported_versions();
         assert_eq!(stored_supported.versions, versions);
         assert_eq!(stored_supported.features.len(), 1);
         assert!(stored_supported.features.contains(&FeatureFlag::from("org.matrix.experimental")));
 
-        self.remove_kv_data(StateStoreDataKey::ServerInfo).await?;
-        assert_matches!(self.get_kv_data(StateStoreDataKey::ServerInfo).await, Ok(None));
+        self.remove_kv_data(StateStoreDataKey::SupportedVersions).await?;
+        assert_matches!(self.get_kv_data(StateStoreDataKey::SupportedVersions).await, Ok(None));
+
+        Ok(())
+    }
+
+    async fn test_well_known_saving(&self) -> TestResult {
+        let well_known = WellKnownResponse {
+            homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
+            identity_server: None,
+            tile_server: None,
+            rtc_foci: vec![RtcFocusInfo::livekit("livekit.example.com".to_owned())],
+        };
+
+        self.set_kv_data(
+            StateStoreDataKey::WellKnown,
+            StateStoreDataValue::WellKnown(TtlStoreValue::new(Some(well_known.clone()))),
+        )
+        .await?;
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::WellKnown(stored_well_known))) =
+                self.get_kv_data(StateStoreDataKey::WellKnown).await
+        );
+        assert_let!(Some(stored_well_known) = stored_well_known.into_data());
+        assert_eq!(stored_well_known, Some(well_known));
+
+        self.remove_kv_data(StateStoreDataKey::WellKnown).await?;
+        assert_matches!(self.get_kv_data(StateStoreDataKey::WellKnown).await, Ok(None));
+
+        self.set_kv_data(
+            StateStoreDataKey::WellKnown,
+            StateStoreDataValue::WellKnown(TtlStoreValue::new(None)),
+        )
+        .await?;
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::WellKnown(stored_well_known))) =
+                self.get_kv_data(StateStoreDataKey::WellKnown).await
+        );
+        assert_let!(Some(stored_well_known) = stored_well_known.into_data());
+        assert_eq!(stored_well_known, None);
 
         Ok(())
     }
@@ -2022,9 +2058,15 @@ macro_rules! statestore_integration_tests {
             }
 
             #[async_test]
-            async fn test_server_info_saving() -> TestResult {
+            async fn test_supported_versions_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
-                store.test_server_info_saving().await
+                store.test_supported_versions_saving().await
+            }
+
+            #[async_test]
+            async fn test_well_known_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_well_known_saving().await
             }
 
             #[async_test]

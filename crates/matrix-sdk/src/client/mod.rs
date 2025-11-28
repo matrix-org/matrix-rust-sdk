@@ -23,7 +23,6 @@ use std::{
     time::Duration,
 };
 
-use caches::ClientCaches;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
@@ -35,7 +34,10 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
-    store::{DynStateStore, RoomLoadSettings, ServerInfo, TtlStoreValue, WellKnownResponse},
+    store::{
+        DynStateStore, RoomLoadSettings, SupportedVersionsResponse, TtlStoreValue,
+        WellKnownResponse,
+    },
     sync::{Notification, RoomUpdates},
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
@@ -84,7 +86,10 @@ use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use url::Url;
 
-use self::futures::SendRequest;
+use self::{
+    caches::{CachedValue, ClientCaches},
+    futures::SendRequest,
+};
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
@@ -395,7 +400,8 @@ impl ClientInner {
         sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
         base_client: BaseClient,
-        server_info: ClientServerInfo,
+        supported_versions: CachedValue<SupportedVersions>,
+        well_known: CachedValue<Option<WellKnownResponse>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
@@ -407,7 +413,8 @@ impl ClientInner {
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
-            server_info: server_info.into(),
+            supported_versions: supported_versions.into(),
+            well_known: well_known.into(),
             server_metadata: Mutex::new(TtlCache::new()),
         };
 
@@ -543,10 +550,8 @@ impl Client {
         homeserver_url: Url,
     ) -> Result<()> {
         self.set_homeserver(homeserver_url);
-        self.reset_server_info().await?;
-        if let ServerInfo { well_known: Some(well_known), .. } =
-            self.load_or_fetch_server_info().await?
-        {
+        self.reset_well_known().await?;
+        if let Some(well_known) = self.load_or_fetch_well_known().await? {
             self.set_homeserver(Url::parse(&well_known.homeserver.base_url)?);
         }
         Ok(())
@@ -1999,92 +2004,59 @@ impl Client {
         }
     }
 
-    /// Load server info from storage, or fetch them from network and cache
-    /// them.
-    async fn load_or_fetch_server_info(&self) -> HttpResult<ServerInfo> {
-        match self.state_store().get_kv_data(StateStoreDataKey::ServerInfo).await {
+    /// Load supported versions from storage, or fetch them from network and
+    /// cache them.
+    async fn load_or_fetch_supported_versions(&self) -> HttpResult<SupportedVersionsResponse> {
+        match self.state_store().get_kv_data(StateStoreDataKey::SupportedVersions).await {
             Ok(Some(stored)) => {
-                if let Some(server_info) =
-                    stored.into_server_info().and_then(|value| value.into_data())
+                if let Some(supported_versions) =
+                    stored.into_supported_versions().and_then(|value| value.into_data())
                 {
-                    return Ok(server_info);
+                    return Ok(supported_versions);
                 }
             }
             Ok(None) => {
                 // fallthrough: cache is empty
             }
             Err(err) => {
-                warn!("error when loading cached server info: {err}");
+                warn!("error when loading cached supported versions: {err}");
                 // fallthrough to network.
             }
         }
 
         let server_versions = self.fetch_server_versions(None).await?;
-        let well_known = self.fetch_client_well_known().await;
-        let server_info = ServerInfo::new(
-            server_versions.versions.clone(),
-            server_versions.unstable_features.clone(),
-            well_known.map(Into::into),
-        );
+        let supported_versions = SupportedVersionsResponse {
+            versions: server_versions.versions,
+            unstable_features: server_versions.unstable_features,
+        };
 
         // Attempt to cache the result in storage.
         {
             if let Err(err) = self
                 .state_store()
                 .set_kv_data(
-                    StateStoreDataKey::ServerInfo,
-                    StateStoreDataValue::ServerInfo(TtlStoreValue::new(server_info.clone())),
+                    StateStoreDataKey::SupportedVersions,
+                    StateStoreDataValue::SupportedVersions(TtlStoreValue::new(
+                        supported_versions.clone(),
+                    )),
                 )
                 .await
             {
-                warn!("error when caching server info: {err}");
+                warn!("error when caching supported versions: {err}");
             }
         }
 
-        Ok(server_info)
+        Ok(supported_versions)
     }
 
-    pub(crate) async fn get_cached_versions(&self) -> Option<SupportedVersions> {
-        let server_info = &self.inner.caches.server_info;
+    pub(crate) async fn get_cached_supported_versions(&self) -> Option<SupportedVersions> {
+        let supported_versions = &self.inner.caches.supported_versions;
 
-        if let CachedValue::Cached(val) = &server_info.read().await.supported_versions {
+        if let CachedValue::Cached(val) = &*supported_versions.read().await {
             Some(val.clone())
         } else {
             None
         }
-    }
-
-    async fn get_or_load_and_cache_server_info<
-        Value,
-        MapFunction: Fn(&ClientServerInfo) -> CachedValue<Value>,
-    >(
-        &self,
-        map: MapFunction,
-    ) -> HttpResult<Value> {
-        let server_info = &self.inner.caches.server_info;
-        if let CachedValue::Cached(val) = map(&*server_info.read().await) {
-            return Ok(val);
-        }
-
-        let mut guarded_server_info = server_info.write().await;
-        if let CachedValue::Cached(val) = map(&guarded_server_info) {
-            return Ok(val);
-        }
-
-        let server_info = self.load_or_fetch_server_info().await?;
-
-        // Fill both unstable features and server versions at once.
-        let mut supported = server_info.supported_versions();
-        if supported.versions.is_empty() {
-            supported.versions = [MatrixVersion::V1_0].into();
-        }
-
-        guarded_server_info.supported_versions = CachedValue::Cached(supported);
-        guarded_server_info.well_known = CachedValue::Cached(server_info.well_known);
-
-        // SAFETY: all fields were set above, so (assuming the caller doesn't attempt to
-        // fetch an optional property), the function will always return some.
-        Ok(map(&guarded_server_info).unwrap_cached_value())
     }
 
     /// Get the Matrix versions and features supported by the homeserver by
@@ -2115,8 +2087,27 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn supported_versions(&self) -> HttpResult<SupportedVersions> {
-        self.get_or_load_and_cache_server_info(|server_info| server_info.supported_versions.clone())
-            .await
+        let cached_supported_versions = &self.inner.caches.supported_versions;
+        if let CachedValue::Cached(val) = &*cached_supported_versions.read().await {
+            return Ok(val.clone());
+        }
+
+        let mut guarded_supported_versions = cached_supported_versions.write().await;
+        if let CachedValue::Cached(val) = &*guarded_supported_versions {
+            return Ok(val.clone());
+        }
+
+        let supported = self.load_or_fetch_supported_versions().await?;
+
+        // Fill both unstable features and server versions at once.
+        let mut supported_versions = supported.supported_versions();
+        if supported_versions.versions.is_empty() {
+            supported_versions.versions = [MatrixVersion::V1_0].into();
+        }
+
+        *guarded_supported_versions = CachedValue::Cached(supported_versions.clone());
+
+        Ok(supported_versions)
     }
 
     /// Get the Matrix versions and features supported by the homeserver by
@@ -2153,14 +2144,15 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn supported_versions_cached(&self) -> Result<Option<SupportedVersions>, StoreError> {
-        if let Some(cached) = self.get_cached_versions().await {
+        if let Some(cached) = self.get_cached_supported_versions().await {
             Ok(Some(cached))
         } else if let Some(stored) =
-            self.state_store().get_kv_data(StateStoreDataKey::ServerInfo).await?
+            self.state_store().get_kv_data(StateStoreDataKey::SupportedVersions).await?
         {
-            if let Some(server_info) = stored.into_server_info().and_then(|value| value.into_data())
+            if let Some(supported) =
+                stored.into_supported_versions().and_then(|value| value.into_data())
             {
-                Ok(Some(server_info.supported_versions()))
+                Ok(Some(supported.supported_versions()))
             } else {
                 Ok(None)
             }
@@ -2188,10 +2180,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn server_versions(&self) -> HttpResult<BTreeSet<MatrixVersion>> {
-        self.get_or_load_and_cache_server_info(|server_info| {
-            server_info.supported_versions.as_ref().map(|supported| supported.versions.clone())
-        })
-        .await
+        Ok(self.supported_versions().await?.versions)
     }
 
     /// Get the unstable features supported by the homeserver by fetching them
@@ -2214,10 +2203,74 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn unstable_features(&self) -> HttpResult<BTreeSet<FeatureFlag>> {
-        self.get_or_load_and_cache_server_info(|server_info| {
-            server_info.supported_versions.as_ref().map(|supported| supported.features.clone())
-        })
-        .await
+        Ok(self.supported_versions().await?.features)
+    }
+
+    /// Empty the supported versions and unstable features cache.
+    ///
+    /// Since the SDK caches the supported versions, it's possible to have a
+    /// stale entry in the cache. This functions makes it possible to force
+    /// reset it.
+    pub async fn reset_supported_versions(&self) -> Result<()> {
+        // Empty the in-memory caches.
+        self.inner.caches.supported_versions.write().await.take();
+
+        // Empty the store cache.
+        Ok(self.state_store().remove_kv_data(StateStoreDataKey::SupportedVersions).await?)
+    }
+
+    /// Load well-known from storage, or fetch it from network and cache it.
+    async fn load_or_fetch_well_known(&self) -> HttpResult<Option<WellKnownResponse>> {
+        match self.state_store().get_kv_data(StateStoreDataKey::WellKnown).await {
+            Ok(Some(stored)) => {
+                if let Some(well_known) =
+                    stored.into_well_known().and_then(|value| value.into_data())
+                {
+                    return Ok(well_known);
+                }
+            }
+            Ok(None) => {
+                // fallthrough: cache is empty
+            }
+            Err(err) => {
+                warn!("error when loading cached well-known: {err}");
+                // fallthrough to network.
+            }
+        }
+
+        let well_known = self.fetch_client_well_known().await.map(Into::into);
+
+        // Attempt to cache the result in storage.
+        if let Err(err) = self
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::WellKnown,
+                StateStoreDataValue::WellKnown(TtlStoreValue::new(well_known.clone())),
+            )
+            .await
+        {
+            warn!("error when caching well-known: {err}");
+        }
+
+        Ok(well_known)
+    }
+
+    async fn get_or_load_and_cache_well_known(&self) -> HttpResult<Option<WellKnownResponse>> {
+        let well_known = &self.inner.caches.well_known;
+        if let CachedValue::Cached(val) = &*well_known.read().await {
+            return Ok(val.clone());
+        }
+
+        let mut guarded_well_known = well_known.write().await;
+        if let CachedValue::Cached(val) = &*guarded_well_known {
+            return Ok(val.clone());
+        }
+
+        let well_known = self.load_or_fetch_well_known().await?;
+
+        *guarded_well_known = CachedValue::Cached(well_known.clone());
+
+        Ok(well_known)
     }
 
     /// Get information about the homeserver's advertised RTC foci by fetching
@@ -2241,25 +2294,21 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcFocusInfo>> {
-        let well_known = self
-            .get_or_load_and_cache_server_info(|server_info| server_info.well_known.clone())
-            .await?;
+        let well_known = self.get_or_load_and_cache_well_known().await?;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
     }
 
-    /// Empty the server version and unstable features cache.
+    /// Empty the well-known cache.
     ///
-    /// Since the SDK caches server info (versions, unstable features,
-    /// well-known etc), it's possible to have a stale entry in the cache. This
-    /// functions makes it possible to force reset it.
-    pub async fn reset_server_info(&self) -> Result<()> {
+    /// Since the SDK caches the well-known, it's possible to have a stale entry
+    /// in the cache. This functions makes it possible to force reset it.
+    pub async fn reset_well_known(&self) -> Result<()> {
         // Empty the in-memory caches.
-        let mut guard = self.inner.caches.server_info.write().await;
-        guard.supported_versions = CachedValue::NotSet;
+        self.inner.caches.well_known.write().await.take();
 
         // Empty the store cache.
-        Ok(self.state_store().remove_kv_data(StateStoreDataKey::ServerInfo).await?)
+        Ok(self.state_store().remove_kv_data(StateStoreDataKey::WellKnown).await?)
     }
 
     /// Check whether MSC 4028 is enabled on the homeserver.
@@ -2912,7 +2961,8 @@ impl Client {
                     .base_client
                     .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
                     .await?,
-                self.inner.caches.server_info.read().await.clone(),
+                self.inner.caches.supported_versions.read().await.clone(),
+                self.inner.caches.well_known.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
@@ -3117,62 +3167,6 @@ impl WeakClient {
     #[allow(dead_code)]
     pub fn strong_count(&self) -> usize {
         self.client.strong_count()
-    }
-}
-
-#[derive(Clone)]
-struct ClientServerInfo {
-    /// The Matrix versions and unstable features the server supports (known
-    /// ones only).
-    supported_versions: CachedValue<SupportedVersions>,
-
-    /// The server's well-known file, if any.
-    well_known: CachedValue<Option<WellKnownResponse>>,
-}
-
-/// A cached value that can either be set or not set, used to avoid confusion
-/// between a value that is set to `None` (because it doesn't exist) and a value
-/// that has not been cached yet.
-#[derive(Clone)]
-enum CachedValue<Value> {
-    /// A value has been cached.
-    Cached(Value),
-    /// Nothing has been cached yet.
-    NotSet,
-}
-
-impl<Value> CachedValue<Value> {
-    /// Unwraps the cached value, returning it if it exists.
-    ///
-    /// # Panics
-    ///
-    /// If the cached value is not set, this will panic.
-    fn unwrap_cached_value(self) -> Value {
-        match self {
-            CachedValue::Cached(value) => value,
-            CachedValue::NotSet => panic!("Tried to unwrap a cached value that wasn't set"),
-        }
-    }
-
-    /// Converts from `&CachedValue<Value>` to `CachedValue<&Value>`.
-    fn as_ref(&self) -> CachedValue<&Value> {
-        match self {
-            Self::Cached(value) => CachedValue::Cached(value),
-            Self::NotSet => CachedValue::NotSet,
-        }
-    }
-
-    /// Maps a `CachedValue<Value>` to `CachedValue<Other>` by applying a
-    /// function to a contained value (if `Cached`) or returns `NotSet` (if
-    /// `NotSet`).
-    fn map<Other, F>(self, f: F) -> CachedValue<Other>
-    where
-        F: FnOnce(Value) -> Other,
-    {
-        match self {
-            Self::Cached(value) => CachedValue::Cached(f(value)),
-            Self::NotSet => CachedValue::NotSet,
-        }
     }
 }
 
@@ -3555,20 +3549,8 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_server_info_caching() {
+    async fn test_supported_versions_caching() {
         let server = MatrixMockServer::new().await;
-        let server_url = server.uri();
-        let domain = server_url.strip_prefix("http://").unwrap();
-        let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
-
-        let well_known_mock = server
-            .mock_well_known()
-            .ok()
-            .named("well known mock")
-            .expect(2) // One for ClientBuilder discovery, one for the ServerInfo cache.
-            .mount_as_scoped()
-            .await;
 
         let versions_mock = server
             .mock_versions()
@@ -3579,21 +3561,22 @@ pub(crate) mod tests {
             .await;
 
         let memory_store = Arc::new(MemoryStore::new());
-        let client = Client::builder()
-            .insecure_server_name_no_tls(server_name)
-            .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                    .state_store(memory_store.clone()),
-            )
+        let client = server
+            .client_builder()
+            .no_server_versions()
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
             .build()
-            .await
-            .unwrap();
+            .await;
 
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
-        // These subsequent calls hit the in-memory cache.
+        // This subsequent call hits the in-memory cache.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -3622,15 +3605,14 @@ pub(crate) mod tests {
         assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        let supported = client.supported_versions().await.unwrap();
+        assert!(supported.versions.contains(&MatrixVersion::V1_0));
+        assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
 
         drop(versions_mock);
-        drop(well_known_mock);
 
         // Now, reset the cache, and observe the endpoints being called again once.
-        client.reset_server_info().await.unwrap();
-
-        server.mock_well_known().ok().named("second well known mock").expect(1).mount().await;
+        client.reset_supported_versions().await.unwrap();
 
         server.mock_versions().ok().expect(1).named("second versions mock").mount().await;
 
@@ -3638,39 +3620,38 @@ pub(crate) mod tests {
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
         // Hits in-memory cache again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
     }
 
     #[async_test]
-    async fn test_server_info_without_a_well_known() {
+    async fn test_well_known_caching() {
         let server = MatrixMockServer::new().await;
-        let rtc_foci: Vec<RtcFocusInfo> = vec![];
+        let server_url = server.uri();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let server_name = <&ServerName>::try_from(domain).unwrap();
+        let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
 
-        let versions_mock = server
-            .mock_versions()
-            .ok_with_unstable_features()
-            .named("first versions mock")
-            .expect(1)
+        let well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well known mock")
+            .expect(2) // One for ClientBuilder discovery, one for the ServerInfo cache.
             .mount_as_scoped()
             .await;
 
         let memory_store = Arc::new(MemoryStore::new());
-        let client = server
-            .client_builder()
-            .no_server_versions()
-            .on_builder(|builder| {
-                builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                        .state_store(memory_store.clone()),
-                )
-            })
+        let client = Client::builder()
+            .insecure_server_name_no_tls(server_name)
+            .store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(memory_store.clone()),
+            )
             .build()
-            .await;
+            .await
+            .unwrap();
 
-        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
-        // These subsequent calls hit the in-memory cache.
-        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        // This subsequent call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
         drop(client);
@@ -3688,28 +3669,89 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert!(
-            client
-                .unstable_features()
-                .await
-                .unwrap()
-                .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
-        );
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
-        drop(versions_mock);
+        drop(well_known_mock);
 
         // Now, reset the cache, and observe the endpoints being called again once.
-        client.reset_server_info().await.unwrap();
+        client.reset_well_known().await.unwrap();
 
-        server.mock_versions().ok().expect(1).named("second versions mock").mount().await;
+        server.mock_well_known().ok().named("second well known mock").expect(1).mount().await;
 
         // Hits network again.
-        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+    }
+
+    #[async_test]
+    async fn test_missing_well_known_caching() {
+        let server = MatrixMockServer::new().await;
+        let rtc_foci: Vec<RtcFocusInfo> = vec![];
+
+        let well_known_mock = server
+            .mock_well_known()
+            .error_unrecognized()
+            .named("first well-known mock")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        let memory_store = Arc::new(MemoryStore::new());
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        // This subsequent call hits the in-memory cache.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        drop(client);
+
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        // This call to the new client hits the on-disk cache.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        // Then this call hits the in-memory cache.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        drop(well_known_mock);
+
+        // Now, reset the cache, and observe the endpoints being called again once.
+        client.reset_well_known().await.unwrap();
+
+        server
+            .mock_well_known()
+            .error_unrecognized()
+            .expect(1)
+            .named("second well-known mock")
+            .mount()
+            .await;
+
+        // Hits network again.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        // Hits in-memory cache again.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
     }
 

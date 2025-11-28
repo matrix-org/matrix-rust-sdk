@@ -1057,36 +1057,22 @@ impl<T> TtlStoreValue<T> {
     }
 }
 
-/// Useful server info such as data returned by the /client/versions and
-/// .well-known/client/matrix endpoints.
+/// Serialisable representation of get_supported_versions::Response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServerInfo {
+pub struct SupportedVersionsResponse {
     /// Versions supported by the remote server.
     pub versions: Vec<String>,
 
     /// List of unstable features and their enablement status.
     pub unstable_features: BTreeMap<String, bool>,
-
-    /// Information about the server found in the client well-known file.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub well_known: Option<WellKnownResponse>,
 }
 
-impl ServerInfo {
-    /// Encode server info into this serializable struct.
-    pub fn new(
-        versions: Vec<String>,
-        unstable_features: BTreeMap<String, bool>,
-        well_known: Option<WellKnownResponse>,
-    ) -> Self {
-        Self { versions, unstable_features, well_known }
-    }
-
+impl SupportedVersionsResponse {
     /// Extracts known Matrix versions and features from the un-typed lists of
     /// strings.
     ///
-    /// Note: Matrix versions that Ruma cannot parse, or does not know about,
-    /// are discarded.
+    /// Note: Matrix versions and features that Ruma cannot parse, or does not
+    /// know about, are discarded.
     pub fn supported_versions(&self) -> SupportedVersions {
         SupportedVersions::from_parts(&self.versions, &self.unstable_features)
     }
@@ -1134,8 +1120,11 @@ pub enum StateStoreDataValue {
     /// The sync token.
     SyncToken(String),
 
-    /// The server info (versions, well-known etc).
-    ServerInfo(TtlStoreValue<ServerInfo>),
+    /// The supported versions of the server.
+    SupportedVersions(TtlStoreValue<SupportedVersionsResponse>),
+
+    /// The well-known information of the server.
+    WellKnown(TtlStoreValue<Option<WellKnownResponse>>),
 
     /// A filter with the given ID.
     Filter(String),
@@ -1347,9 +1336,14 @@ impl StateStoreDataValue {
         as_variant!(self, Self::ComposerDraft)
     }
 
-    /// Get this value if it is the server info metadata.
-    pub fn into_server_info(self) -> Option<TtlStoreValue<ServerInfo>> {
-        as_variant!(self, Self::ServerInfo)
+    /// Get this value if it is the supported versions metadata.
+    pub fn into_supported_versions(self) -> Option<TtlStoreValue<SupportedVersionsResponse>> {
+        as_variant!(self, Self::SupportedVersions)
+    }
+
+    /// Get this value if it is the well-known metadata.
+    pub fn into_well_known(self) -> Option<TtlStoreValue<Option<WellKnownResponse>>> {
+        as_variant!(self, Self::WellKnown)
     }
 
     /// Get this value if it is the data for the ignored join requests.
@@ -1372,8 +1366,11 @@ pub enum StateStoreDataKey<'a> {
     /// The sync token.
     SyncToken,
 
-    /// The server info,
-    ServerInfo,
+    /// The supported versions of the server,
+    SupportedVersions,
+
+    /// The well-known information of the server,
+    WellKnown,
 
     /// A filter with the given name.
     Filter(&'a str),
@@ -1409,10 +1406,14 @@ impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
     pub const SYNC_TOKEN: &'static str = "sync_token";
 
-    /// Key to use for the [`ServerInfo`][Self::ServerInfo]
+    /// Key to use for the [`SupportedVersions`][Self::SupportedVersions]
     /// variant.
-    pub const SERVER_INFO: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
-    //
+    pub const SUPPORTED_VERSIONS: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
+
+    /// Key to use for the [`WellKnown`][Self::WellKnown]
+    /// variant.
+    pub const WELL_KNOWN: &'static str = "well_known";
+
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
     pub const FILTER: &'static str = "filter";
 
@@ -1481,7 +1482,7 @@ pub fn compare_thread_subscription_bump_stamps(
 mod tests {
     use serde_json::json;
 
-    use super::{ServerInfo, TtlStoreValue, now_timestamp_ms};
+    use super::{SupportedVersionsResponse, TtlStoreValue, now_timestamp_ms};
 
     #[test]
     fn test_stale_ttl_store_value() {
@@ -1499,10 +1500,9 @@ mod tests {
 
     #[test]
     fn test_stale_ttl_store_value_serialize_roundtrip() {
-        let server_info = ServerInfo {
+        let server_info = SupportedVersionsResponse {
             versions: vec!["1.2".to_owned(), "1.3".to_owned(), "1.4".to_owned()],
             unstable_features: [("org.matrix.msc3916.stable".to_owned(), true)].into(),
-            well_known: Default::default(),
         };
         let ttl_value = TtlStoreValue { data: server_info.clone(), last_fetch_ts: 1000.0 };
         let json = json!({
@@ -1515,7 +1515,8 @@ mod tests {
 
         assert_eq!(serde_json::to_value(&ttl_value).unwrap(), json);
 
-        let deserialized = serde_json::from_value::<TtlStoreValue<ServerInfo>>(json).unwrap();
+        let deserialized =
+            serde_json::from_value::<TtlStoreValue<SupportedVersionsResponse>>(json).unwrap();
         assert_eq!(deserialized.data, server_info);
         assert!(deserialized.last_fetch_ts - ttl_value.last_fetch_ts < 0.0001);
     }
