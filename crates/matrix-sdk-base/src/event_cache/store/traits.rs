@@ -175,6 +175,10 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// If the event was already stored with the same id, it must be replaced,
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
+
+    /// Perform database optimizations if any are available, i.e. vacuuming in
+    /// SQLite.
+    async fn optimize(&self) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -281,6 +285,11 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn optimize(&self) -> Result<(), Self::Error> {
+        self.0.optimize().await.map_err(Into::into)?;
+        Ok(())
     }
 }
 
