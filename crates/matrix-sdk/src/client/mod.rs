@@ -35,7 +35,7 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
-    store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
+    store::{DynStateStore, RoomLoadSettings, ServerInfo, TtlStoreValue, WellKnownResponse},
     sync::{Notification, RoomUpdates},
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
@@ -2005,7 +2005,7 @@ impl Client {
         match self.state_store().get_kv_data(StateStoreDataKey::ServerInfo).await {
             Ok(Some(stored)) => {
                 if let Some(server_info) =
-                    stored.into_server_info().and_then(|info| info.maybe_decode())
+                    stored.into_server_info().and_then(|value| value.into_data())
                 {
                     return Ok(server_info);
                 }
@@ -2033,7 +2033,7 @@ impl Client {
                 .state_store()
                 .set_kv_data(
                     StateStoreDataKey::ServerInfo,
-                    StateStoreDataValue::ServerInfo(server_info.clone()),
+                    StateStoreDataValue::ServerInfo(TtlStoreValue::new(server_info.clone())),
                 )
                 .await
             {
@@ -2158,8 +2158,7 @@ impl Client {
         } else if let Some(stored) =
             self.state_store().get_kv_data(StateStoreDataKey::ServerInfo).await?
         {
-            if let Some(server_info) =
-                stored.into_server_info().and_then(|info| info.maybe_decode())
+            if let Some(server_info) = stored.into_server_info().and_then(|value| value.into_data())
             {
                 Ok(Some(server_info.supported_versions()))
             } else {

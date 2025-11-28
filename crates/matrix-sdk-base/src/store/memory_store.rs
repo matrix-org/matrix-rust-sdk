@@ -38,7 +38,7 @@ use tracing::{debug, instrument, warn};
 
 use super::{
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
-    RoomLoadSettings, StateChanges, StateStore, StoreError,
+    RoomLoadSettings, StateChanges, StateStore, StoreError, TtlStoreValue,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::{ComposerDraft, ServerInfo},
 };
@@ -58,7 +58,7 @@ struct MemoryStoreInner {
     composer_drafts: HashMap<(OwnedRoomId, Option<OwnedEventId>), ComposerDraft>,
     user_avatar_url: HashMap<OwnedUserId, OwnedMxcUri>,
     sync_token: Option<String>,
-    server_info: Option<ServerInfo>,
+    server_info: Option<TtlStoreValue<ServerInfo>>,
     filters: HashMap<String, String>,
     utd_hook_manager_data: Option<GrowableBloom>,
     one_time_key_uploaded_error: bool,

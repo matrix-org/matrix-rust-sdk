@@ -1026,6 +1026,37 @@ where
     }
 }
 
+/// A TTL value in the store whose data can only be accessed before it expires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtlStoreValue<T> {
+    /// The data of the item.
+    #[serde(flatten)]
+    data: T,
+
+    /// Last time we fetched this data from the server, in milliseconds since
+    /// epoch.
+    last_fetch_ts: f64,
+}
+
+impl<T> TtlStoreValue<T> {
+    /// The number of milliseconds after which the data is considered stale.
+    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
+
+    /// Construct a new `TtlStoreValue` with the given data.
+    pub fn new(data: T) -> Self {
+        Self { data, last_fetch_ts: now_timestamp_ms() }
+    }
+
+    /// Get the data of this value, if it hasn't expired.
+    pub fn into_data(self) -> Option<T> {
+        if now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
+            None
+        } else {
+            Some(self.data)
+        }
+    }
+}
+
 /// Useful server info such as data returned by the /client/versions and
 /// .well-known/client/matrix endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1039,36 +1070,16 @@ pub struct ServerInfo {
     /// Information about the server found in the client well-known file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub well_known: Option<WellKnownResponse>,
-
-    /// Last time we fetched this data from the server, in milliseconds since
-    /// epoch.
-    last_fetch_ts: f64,
 }
 
 impl ServerInfo {
-    /// The number of milliseconds after which the data is considered stale.
-    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
-
     /// Encode server info into this serializable struct.
     pub fn new(
         versions: Vec<String>,
         unstable_features: BTreeMap<String, bool>,
         well_known: Option<WellKnownResponse>,
     ) -> Self {
-        Self { versions, unstable_features, well_known, last_fetch_ts: now_timestamp_ms() }
-    }
-
-    /// Decode server info from this serializable struct.
-    ///
-    /// May return `None` if the data is considered stale, after
-    /// [`Self::STALE_THRESHOLD`] milliseconds since the last time we stored
-    /// it.
-    pub fn maybe_decode(&self) -> Option<Self> {
-        if now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
-            None
-        } else {
-            Some(self.clone())
-        }
+        Self { versions, unstable_features, well_known }
     }
 
     /// Extracts known Matrix versions and features from the un-typed lists of
@@ -1124,7 +1135,7 @@ pub enum StateStoreDataValue {
     SyncToken(String),
 
     /// The server info (versions, well-known etc).
-    ServerInfo(ServerInfo),
+    ServerInfo(TtlStoreValue<ServerInfo>),
 
     /// A filter with the given ID.
     Filter(String),
@@ -1337,7 +1348,7 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is the server info metadata.
-    pub fn into_server_info(self) -> Option<ServerInfo> {
+    pub fn into_server_info(self) -> Option<TtlStoreValue<ServerInfo>> {
         as_variant!(self, Self::ServerInfo)
     }
 
@@ -1468,22 +1479,44 @@ pub fn compare_thread_subscription_bump_stamps(
 
 #[cfg(test)]
 mod tests {
-    use super::{ServerInfo, now_timestamp_ms};
+    use serde_json::json;
+
+    use super::{ServerInfo, TtlStoreValue, now_timestamp_ms};
 
     #[test]
-    fn test_stale_server_info() {
-        let mut server_info = ServerInfo {
-            versions: Default::default(),
-            unstable_features: Default::default(),
-            well_known: Default::default(),
-            last_fetch_ts: now_timestamp_ms() - ServerInfo::STALE_THRESHOLD - 1.0,
-        };
-
+    fn test_stale_ttl_store_value() {
         // Definitely stale.
-        assert!(server_info.maybe_decode().is_none());
+        let ttl_value = TtlStoreValue {
+            data: (),
+            last_fetch_ts: now_timestamp_ms() - TtlStoreValue::<()>::STALE_THRESHOLD - 1.0,
+        };
+        assert!(ttl_value.into_data().is_none());
 
         // Definitely not stale.
-        server_info.last_fetch_ts = now_timestamp_ms() - 1.0;
-        assert!(server_info.maybe_decode().is_some());
+        let ttl_value = TtlStoreValue::new(());
+        assert!(ttl_value.into_data().is_some());
+    }
+
+    #[test]
+    fn test_stale_ttl_store_value_serialize_roundtrip() {
+        let server_info = ServerInfo {
+            versions: vec!["1.2".to_owned(), "1.3".to_owned(), "1.4".to_owned()],
+            unstable_features: [("org.matrix.msc3916.stable".to_owned(), true)].into(),
+            well_known: Default::default(),
+        };
+        let ttl_value = TtlStoreValue { data: server_info.clone(), last_fetch_ts: 1000.0 };
+        let json = json!({
+            "versions": ["1.2", "1.3", "1.4"],
+            "unstable_features": {
+                "org.matrix.msc3916.stable": true,
+            },
+            "last_fetch_ts": 1000.0,
+        });
+
+        assert_eq!(serde_json::to_value(&ttl_value).unwrap(), json);
+
+        let deserialized = serde_json::from_value::<TtlStoreValue<ServerInfo>>(json).unwrap();
+        assert_eq!(deserialized.data, server_info);
+        assert!(deserialized.last_fetch_ts - ttl_value.last_fetch_ts < 0.0001);
     }
 }

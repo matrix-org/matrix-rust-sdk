@@ -40,7 +40,7 @@ use serde_json::{json, value::Value as JsonValue};
 
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings, ServerInfo,
-    WellKnownResponse, send_queue::SentRequestKey,
+    TtlStoreValue, WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -502,7 +502,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.set_kv_data(
             StateStoreDataKey::ServerInfo,
-            StateStoreDataValue::ServerInfo(server_info.clone()),
+            StateStoreDataValue::ServerInfo(TtlStoreValue::new(server_info.clone())),
         )
         .await?;
 
@@ -510,9 +510,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             Ok(Some(StateStoreDataValue::ServerInfo(stored_info))) =
                 self.get_kv_data(StateStoreDataKey::ServerInfo).await
         );
-        assert_eq!(stored_info, server_info);
 
-        let decoded_server_info = stored_info.maybe_decode().unwrap();
+        let decoded_server_info = stored_info.into_data().unwrap();
         let stored_supported = decoded_server_info.supported_versions();
 
         assert_eq!(stored_supported.versions, versions);

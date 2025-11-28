@@ -31,7 +31,7 @@ use matrix_sdk_base::{
         compare_thread_subscription_bump_stamps, ChildTransactionId, ComposerDraft,
         DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequest, QueuedRequestKind,
         RoomLoadSettings, SentRequestKey, SerializableEventContent, ServerInfo, StateChanges,
-        StateStore, StoreError, StoredThreadSubscription, ThreadSubscriptionStatus,
+        StateStore, StoreError, StoredThreadSubscription, ThreadSubscriptionStatus, TtlStoreValue,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ThreadSubscriptionCatchupToken, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -623,7 +623,7 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::ServerInfo => value
-                .map(|f| self.deserialize_value::<ServerInfo>(&f))
+                .map(|f| self.deserialize_value::<TtlStoreValue<ServerInfo>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::ServerInfo),
             StateStoreDataKey::Filter(_) => value
