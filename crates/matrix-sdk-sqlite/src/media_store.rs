@@ -189,6 +189,10 @@ impl SqliteMediaStore {
 
         Ok(connection)
     }
+
+    pub async fn vacuum(&self) -> Result<()> {
+        self.write_connection.lock().await.vacuum().await
+    }
 }
 
 /// Run migrations for the given version of the database.
@@ -388,6 +392,10 @@ impl MediaStore for SqliteMediaStore {
         let _timer = timer!("method");
 
         self.media_service.clean(self).await
+    }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(self.vacuum().await?)
     }
 }
 

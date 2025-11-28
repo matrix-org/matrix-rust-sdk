@@ -269,6 +269,10 @@ impl MediaStore for IndexeddbMediaStore {
         let _timer = timer!("method");
         self.media_service.clean(self).await
     }
+
+    async fn optimize(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(target_family = "wasm")]

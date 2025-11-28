@@ -387,7 +387,7 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
-        Ok(())
+        self.0.optimize().await.map_err(Into::into)
     }
 }
 

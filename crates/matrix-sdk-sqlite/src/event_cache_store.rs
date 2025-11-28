@@ -219,6 +219,10 @@ impl SqliteEventCacheStore {
             relates_to: relates_to.map(|relates_to| relates_to.to_string()),
         })
     }
+
+    pub async fn vacuum(&self) -> Result<()> {
+        self.write_connection.lock().await.vacuum().await
+    }
 }
 
 struct EncodedEvent {
@@ -1425,6 +1429,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                 Ok(())
             })
             .await
+    }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(self.vacuum().await?)
     }
 }
 
