@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- [**breaking**] `ServerInfo` has been renamed to `SupportedVersionsResponse`,
+  and its `well_known` field has been removed. It is also wrapped in a
+  `TtlStoreValue` that handles the expiration of the data, rather than calling
+  `maybe_decode()`. Its constructor has been removed since all its fields are
+  now public.
+  ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
+  - `StateStoreData(Key/Value)::ServerInfo` has been split into the
+    `SupportedVersions` and `WellKnown` variants.
+
 ## [0.15.0] - 2025-11-27
 
 ### Refactor

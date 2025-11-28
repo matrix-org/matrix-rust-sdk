@@ -819,8 +819,8 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
         .await
         .unwrap();
 
-    // Ensure that we don't have any server info.
-    client.reset_server_info().await.unwrap();
+    // Ensure that we don't have any supported versions.
+    client.reset_supported_versions().await.unwrap();
 
     assert_eq!(client.session_tokens(), Some(mock_prev_session_tokens_with_refresh()));
 

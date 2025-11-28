@@ -264,7 +264,7 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
         skip_auth: bool,
     ) -> HttpResult<Cow<'static, SupportedVersions>> {
         if skip_auth {
-            let cached_versions = client.get_cached_versions().await;
+            let cached_versions = client.get_cached_supported_versions().await;
 
             let versions = if let Some(versions) = cached_versions {
                 versions

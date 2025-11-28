@@ -51,10 +51,7 @@ use crate::search_index::SearchIndexStoreKind;
 use crate::{
     HttpError, IdParseError,
     authentication::{AuthCtx, oauth::OAuthCtx},
-    client::{
-        CachedValue::{Cached, NotSet},
-        ClientServerInfo,
-    },
+    client::caches::CachedValue::{Cached, NotSet},
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
@@ -596,14 +593,13 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
-        let server_info = ClientServerInfo {
-            supported_versions: match self.server_versions {
-                Some(versions) => {
-                    Cached(SupportedVersions { versions, features: Default::default() })
-                }
-                None => NotSet,
-            },
-            well_known: Cached(well_known.map(Into::into)),
+        let supported_versions = match self.server_versions {
+            Some(versions) => Cached(SupportedVersions { versions, features: Default::default() }),
+            None => NotSet,
+        };
+        let well_known = match well_known {
+            Some(well_known) => Cached(Some(well_known.into())),
+            None => NotSet,
         };
 
         let event_cache = OnceCell::new();
@@ -621,7 +617,8 @@ impl ClientBuilder {
             sliding_sync_version,
             http_client,
             base_client,
-            server_info,
+            supported_versions,
+            well_known,
             self.respect_login_well_known,
             event_cache,
             send_queue,

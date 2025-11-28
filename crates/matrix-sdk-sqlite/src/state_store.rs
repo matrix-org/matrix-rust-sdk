@@ -409,7 +409,10 @@ impl SqliteStateStore {
     fn encode_state_store_data_key(&self, key: StateStoreDataKey<'_>) -> Key {
         let key_s = match key {
             StateStoreDataKey::SyncToken => Cow::Borrowed(StateStoreDataKey::SYNC_TOKEN),
-            StateStoreDataKey::ServerInfo => Cow::Borrowed(StateStoreDataKey::SERVER_INFO),
+            StateStoreDataKey::SupportedVersions => {
+                Cow::Borrowed(StateStoreDataKey::SUPPORTED_VERSIONS)
+            }
+            StateStoreDataKey::WellKnown => Cow::Borrowed(StateStoreDataKey::WELL_KNOWN),
             StateStoreDataKey::Filter(f) => {
                 Cow::Owned(format!("{}:{f}", StateStoreDataKey::FILTER))
             }
@@ -1052,8 +1055,11 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::SyncToken => {
                         StateStoreDataValue::SyncToken(self.deserialize_value(&data)?)
                     }
-                    StateStoreDataKey::ServerInfo => {
-                        StateStoreDataValue::ServerInfo(self.deserialize_value(&data)?)
+                    StateStoreDataKey::SupportedVersions => {
+                        StateStoreDataValue::SupportedVersions(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::WellKnown => {
+                        StateStoreDataValue::WellKnown(self.deserialize_value(&data)?)
                     }
                     StateStoreDataKey::Filter(_) => {
                         StateStoreDataValue::Filter(self.deserialize_value(&data)?)
@@ -1095,8 +1101,13 @@ impl StateStore for SqliteStateStore {
             StateStoreDataKey::SyncToken => self.serialize_value(
                 &value.into_sync_token().expect("Session data not a sync token"),
             )?,
-            StateStoreDataKey::ServerInfo => self.serialize_value(
-                &value.into_server_info().expect("Session data not containing server info"),
+            StateStoreDataKey::SupportedVersions => self.serialize_value(
+                &value
+                    .into_supported_versions()
+                    .expect("Session data not containing supported versions"),
+            )?,
+            StateStoreDataKey::WellKnown => self.serialize_value(
+                &value.into_well_known().expect("Session data not containing well-known"),
             )?,
             StateStoreDataKey::Filter(_) => {
                 self.serialize_value(&value.into_filter().expect("Session data not a filter"))?

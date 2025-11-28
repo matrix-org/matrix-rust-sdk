@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- [**breaking**]: `Client::reset_server_info()` has been split into
+  `reset_supported_versions()` and `reset_well_known()`.
+  ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
+
 ## [0.15.0] - 2025-11-27
 
 ### Features
