@@ -57,6 +57,7 @@ matrix-sdk = { workspace = true, features = [
     "markdown",
     "socks",
     "uniffi",
+    "federation-api",
 ] }
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true

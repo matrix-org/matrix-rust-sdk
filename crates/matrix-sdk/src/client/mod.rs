@@ -73,7 +73,6 @@ use ruma::{
             user_directory::search_users,
         },
         error::FromHttpResponseError,
-        federation::discovery::get_server_version,
         path_builder::PathBuilder,
     },
     assign,
@@ -604,10 +603,13 @@ impl Client {
     /// );
     /// # anyhow::Ok(()) };
     /// ```
+    #[cfg(feature = "federation-api")]
     pub async fn server_vendor_info(
         &self,
         request_config: Option<RequestConfig>,
     ) -> HttpResult<ServerVendorInfo> {
+        use ruma::api::federation::discovery::get_server_version;
+
         let res = self
             .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
             .await?;
