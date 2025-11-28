@@ -2012,6 +2012,11 @@ impl_state_store!({
 
         Ok(())
     }
+
+    #[allow(clippy::unused_async)]
+    async fn optimize(&self) -> Result<()> {
+        Ok(())
+    }
 });
 
 /// A room member.

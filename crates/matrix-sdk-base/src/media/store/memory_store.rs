@@ -218,6 +218,10 @@ impl MediaStore for MemoryMediaStore {
     async fn clean(&self) -> Result<(), Self::Error> {
         self.media_service.clean(self).await
     }
+
+    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
