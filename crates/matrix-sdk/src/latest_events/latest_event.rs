@@ -29,7 +29,6 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
-        relation::RelationType,
         room::{member::MembershipState, message::MessageType, power_levels::RoomPowerLevels},
     },
 };
@@ -977,20 +976,7 @@ fn filter_any_message_like_event_content(event: AnyMessageLikeEventContent) -> b
                 return false;
             }
 
-            // Check if this is a replacement for another message. If it is, ignore
-            // it.
-            //
-            // TODO: if we want to support something like
-            // `LatestEventContent::EditedRoomMessage`, it's here :-].
-            let is_replacement = message.relates_to.as_ref().is_some_and(|relates_to| {
-                if let Some(relation_type) = relates_to.rel_type() {
-                    relation_type == RelationType::Replacement
-                } else {
-                    false
-                }
-            });
-
-            !is_replacement
+            true
         }
 
         AnyMessageLikeEventContent::UnstablePollStart(_)
@@ -1124,7 +1110,7 @@ mod tests_latest_event_content {
                     .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
                     .into_event()
             }
-            is not a candidate
+            is a candidate
         );
     }
 
