@@ -26,7 +26,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 use zeroize::Zeroize;
 
 use crate::{
@@ -196,6 +196,8 @@ pub(crate) trait SqliteAsyncConnExt {
             // We want to know if there is an error with this step during tests.
             #[cfg(any(test, debug_assertions))]
             return Err(error.into());
+        } else {
+            trace!("VACUUM complete");
         }
 
         Ok(())
