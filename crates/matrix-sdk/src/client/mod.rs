@@ -3218,6 +3218,21 @@ impl Client {
     pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
+
+    /// Perform database optimizations if any are available, i.e. vacuuming in
+    /// SQLite.
+    pub async fn optimize_stores(&self) -> Result<()> {
+        trace!("Optimizing state store...");
+        self.state_store().optimize().await?;
+
+        trace!("Optimizing event cache store...");
+        self.event_cache_store().lock().await?.as_clean().unwrap().optimize().await?;
+
+        trace!("Optimizing media store...");
+        self.media_store().lock().await?.optimize().await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(any(feature = "testing", test))]
