@@ -66,14 +66,14 @@ pub(crate) type ReloadSessionCallback =
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
-    pub(crate) oauth: OAuthCtx,
+    oauth: OAuthCtx,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
     pub(crate) handle_refresh_tokens: bool,
 
     /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Arc<AsyncMutex<Result<(), RefreshTokenError>>>,
+    refresh_token_lock: Arc<AsyncMutex<Result<(), RefreshTokenError>>>,
 
     /// Session change publisher. Allows the subscriber to handle changes to the
     /// session such as logging out when the access token is invalid or
@@ -84,7 +84,7 @@ pub(crate) struct AuthCtx {
     pub(crate) auth_data: OnceCell<AuthData>,
 
     /// The current session tokens.
-    pub(crate) tokens: OnceCell<Mutex<SessionTokens>>,
+    tokens: OnceCell<Mutex<SessionTokens>>,
 
     /// A callback called whenever we need an absolute source of truth for the
     /// current session tokens.
@@ -103,6 +103,20 @@ pub(crate) struct AuthCtx {
 }
 
 impl AuthCtx {
+    /// Construct a new `AuthCtx` with the given settings.
+    pub(crate) fn new(handle_refresh_tokens: bool, allow_insecure_oauth: bool) -> Self {
+        Self {
+            handle_refresh_tokens,
+            refresh_token_lock: Arc::new(AsyncMutex::new(Ok(()))),
+            session_change_sender: broadcast::Sender::new(1),
+            auth_data: OnceCell::default(),
+            tokens: OnceCell::default(),
+            reload_session_callback: OnceCell::default(),
+            save_session_callback: OnceCell::default(),
+            oauth: OAuthCtx::new(allow_insecure_oauth),
+        }
+    }
+
     /// The current session tokens.
     pub(crate) fn session_tokens(&self) -> Option<SessionTokens> {
         Some(self.tokens.get()?.lock().clone())

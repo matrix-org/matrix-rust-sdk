@@ -36,7 +36,9 @@ use ruma::{
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
 };
 use thiserror::Error;
-use tokio::sync::{Mutex, OnceCell, broadcast};
+#[cfg(feature = "experimental-search")]
+use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
@@ -50,7 +52,7 @@ use crate::search_index::SearchIndex;
 use crate::search_index::SearchIndexStoreKind;
 use crate::{
     HttpError, IdParseError,
-    authentication::{AuthCtx, oauth::OAuthCtx},
+    authentication::AuthCtx,
     client::caches::CachedValue::{Cached, NotSet},
     config::RequestConfig,
     error::RumaApiError,
@@ -578,17 +580,7 @@ impl ClientBuilder {
         };
 
         let allow_insecure_oauth = homeserver.scheme() == "http";
-
-        let auth_ctx = Arc::new(AuthCtx {
-            handle_refresh_tokens: self.handle_refresh_tokens,
-            refresh_token_lock: Arc::new(Mutex::new(Ok(()))),
-            session_change_sender: broadcast::Sender::new(1),
-            auth_data: OnceCell::default(),
-            tokens: OnceCell::default(),
-            reload_session_callback: OnceCell::default(),
-            save_session_callback: OnceCell::default(),
-            oauth: OAuthCtx::new(allow_insecure_oauth),
-        });
+        let auth_ctx = Arc::new(AuthCtx::new(self.handle_refresh_tokens, allow_insecure_oauth));
 
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
