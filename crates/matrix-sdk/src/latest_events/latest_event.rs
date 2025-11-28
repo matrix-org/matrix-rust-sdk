@@ -29,7 +29,12 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
-        room::{member::MembershipState, message::MessageType, power_levels::RoomPowerLevels},
+        relation::Replacement,
+        room::{
+            member::MembershipState,
+            message::{MessageType, Relation},
+            power_levels::RoomPowerLevels,
+        },
     },
 };
 use tracing::{error, instrument, warn};
@@ -519,8 +524,9 @@ impl LatestEventValueBuilder {
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event| {
-                filter_timeline_event(event, own_user_id, power_levels).then(|| event.clone())
+            .rfind_map_event_in_memory_by(|event, previous_event_id| {
+                filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
+                    .then(|| event.clone())
             })
             .await
         {
@@ -552,7 +558,7 @@ impl LatestEventValueBuilder {
                 LocalEchoContent::Event { serialized_event: serialized_event_content, .. } => {
                     match serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content) {
+                            if filter_any_message_like_event_content(content, None) {
                                 let local_value = LocalLatestEventValue {
                                     timestamp: MilliSecondsSinceUnixEpoch::now(),
                                     content: serialized_event_content.clone(),
@@ -660,7 +666,7 @@ impl LatestEventValueBuilder {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
                     match new_serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content) {
+                            if filter_any_message_like_event_content(content, None) {
                                 buffer_of_values_for_local_events.replace_content(
                                     position,
                                     new_serialized_event_content.clone(),
@@ -933,6 +939,7 @@ impl LatestEventValuesForLocalEvents {
 
 fn filter_timeline_event(
     event: &TimelineEvent,
+    previous_event_id: Option<OwnedEventId>,
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
@@ -953,9 +960,10 @@ fn filter_timeline_event(
     match event {
         AnySyncTimelineEvent::MessageLike(message_like_event) => {
             match message_like_event.original_content() {
-                Some(any_message_like_event_content) => {
-                    filter_any_message_like_event_content(any_message_like_event_content)
-                }
+                Some(any_message_like_event_content) => filter_any_message_like_event_content(
+                    any_message_like_event_content,
+                    previous_event_id,
+                ),
 
                 // The event has been redacted.
                 None => true,
@@ -968,7 +976,10 @@ fn filter_timeline_event(
     }
 }
 
-fn filter_any_message_like_event_content(event: AnyMessageLikeEventContent) -> bool {
+fn filter_any_message_like_event_content(
+    event: AnyMessageLikeEventContent,
+    previous_event_id: Option<OwnedEventId>,
+) -> bool {
     match event {
         AnyMessageLikeEventContent::RoomMessage(message) => {
             // Don't show incoming verification requests.
@@ -976,7 +987,16 @@ fn filter_any_message_like_event_content(event: AnyMessageLikeEventContent) -> b
                 return false;
             }
 
-            true
+            // Not all relations are accepted. Let's filter them.
+            match &message.relates_to {
+                Some(Relation::Replacement(Replacement { event_id, .. })) => {
+                    // If the edit relates to the immediate previous event, this is an acceptable
+                    // latest event, otherwise let's ignore it.
+                    Some(event_id) == previous_event_id.as_ref()
+                }
+
+                _ => true,
+            }
         }
 
         AnyMessageLikeEventContent::UnstablePollStart(_)
@@ -1074,7 +1094,7 @@ mod tests_latest_event_content {
                 $event_builder
             };
 
-            assert_eq!(filter_timeline_event(&event, Some(user_id!("@mnt_io:matrix.org")), None), $expect );
+            assert_eq!(filter_timeline_event(&event, None, Some(user_id!("@mnt_io:matrix.org")), None), $expect );
         };
     }
 
@@ -1103,15 +1123,59 @@ mod tests_latest_event_content {
 
     #[test]
     fn test_room_message_replacement() {
-        assert_latest_event_content!(
-            event | event_factory | {
-                event_factory
-                    .text_msg("bonjour")
-                    .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
-                    .into_event()
-            }
-            is a candidate
-        );
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id);
+        let event = event_factory
+            .text_msg("bonjour")
+            .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
+            .into_event();
+
+        // Without a previous event.
+        //
+        // This is an edge case where either the event cache has been emptied and only
+        // the edit is received via the sync for example, or either the previous event
+        // is part of another chunk that is not loaded in memory yet. In this case,
+        // let's not consider the event as a `LatestEventValue` candidate.
+        {
+            let previous_event_id = None;
+
+            assert!(
+                filter_timeline_event(
+                    &event,
+                    previous_event_id,
+                    Some(user_id!("@mnt_io:matrix.org")),
+                    None
+                )
+                .not()
+            );
+        }
+
+        // With a previous event, but the one being replaced.
+        {
+            let previous_event_id = Some(event_id!("$ev1").to_owned());
+
+            assert!(
+                filter_timeline_event(
+                    &event,
+                    previous_event_id,
+                    Some(user_id!("@mnt_io:matrix.org")),
+                    None
+                )
+                .not()
+            );
+        }
+
+        // With a previous event, and that's the one being replaced!
+        {
+            let previous_event_id = Some(event_id!("$ev0").to_owned());
+
+            assert!(filter_timeline_event(
+                &event,
+                previous_event_id,
+                Some(user_id!("@mnt_io:matrix.org")),
+                None
+            ));
+        }
     }
 
     #[test]
@@ -1258,7 +1322,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)).not(),
+                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)).not(),
                 "cannot accept, cannot decline",
             );
         }
@@ -1268,7 +1332,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
                 "can accept, cannot decline",
             );
         }
@@ -1278,7 +1342,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
                 "cannot accept, can decline",
             );
         }
@@ -1288,7 +1352,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
                 "can accept, can decline",
             );
         }
@@ -1304,7 +1368,7 @@ mod tests_latest_event_content {
             room_power_levels.kick = 0.into();
 
             assert!(
-                filter_timeline_event(&event, Some(user_id), Some(&room_power_levels)).not(),
+                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)).not(),
                 "cannot accept, can decline, at least same user levels",
             );
         }
