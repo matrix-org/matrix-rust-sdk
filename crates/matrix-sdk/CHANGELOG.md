@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: `Client::server_vendor_info()` requires to enable the
+  `federation-api` feature.
+  ([#5912](https://github.com/matrix-org/matrix-rust-sdk/pull/5912))
 - [**breaking**]: `Client::reset_server_info()` has been split into
   `reset_supported_versions()` and `reset_well_known()`.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
