@@ -513,6 +513,10 @@ pub trait StateStore: AsyncTraitDeps {
         room: &RoomId,
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
+
+    /// Perform database optimizations if any are available, i.e. vacuuming in
+    /// SQLite.
+    async fn optimize(&self) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -831,6 +835,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
+    }
+
+    async fn optimize(&self) -> Result<(), Self::Error> {
+        self.0.optimize().await.map_err(Into::into)
     }
 }
 

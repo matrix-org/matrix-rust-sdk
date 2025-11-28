@@ -165,6 +165,10 @@ pub trait MediaStore: AsyncTraitDeps {
     ///
     /// If there is already an ongoing cleanup, this is a noop.
     async fn clean(&self) -> Result<(), Self::Error>;
+
+    /// Perform database optimizations if any are available, i.e. vacuuming in
+    /// SQLite.
+    async fn optimize(&self) -> Result<(), Self::Error>;
 }
 
 /// An abstract trait that can be used to implement different store backends
@@ -380,6 +384,10 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
 
     async fn clean(&self) -> Result<(), Self::Error> {
         self.0.clean().await.map_err(Into::into)
+    }
+
+    async fn optimize(&self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
