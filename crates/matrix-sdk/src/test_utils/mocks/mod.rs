@@ -1968,6 +1968,22 @@ impl<'a, T> MockEndpoint<'a, T> {
         self.respond_with(ResponseTemplate::new(500))
     }
 
+    /// Returns a mocked endpoint that emulates an unimplemented endpoint, i.e
+    /// responds with a 404 HTTP status code and an `M_UNRECOGNIZED` Matrix
+    /// error code.
+    ///
+    /// Note that the default behavior of the mock server is to return a 404
+    /// status code for endpoints that are not mocked with an empty response.
+    ///
+    /// This can be useful to check if an endpoint is called, even if it is not
+    /// implemented by the server.
+    pub fn error_unrecognized(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_UNRECOGNIZED",
+            "error": "Unrecognized request",
+        })))
+    }
+
     /// Internal helper to return an `{ event_id }` JSON struct along with a 200
     /// ok response.
     fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {

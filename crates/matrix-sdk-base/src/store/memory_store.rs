@@ -38,9 +38,10 @@ use tracing::{debug, instrument, warn};
 
 use super::{
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
-    RoomLoadSettings, StateChanges, StateStore, StoreError, TtlStoreValue,
+    RoomLoadSettings, StateChanges, StateStore, StoreError, SupportedVersionsResponse,
+    TtlStoreValue, WellKnownResponse,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
-    traits::{ComposerDraft, ServerInfo},
+    traits::ComposerDraft,
 };
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
@@ -58,7 +59,8 @@ struct MemoryStoreInner {
     composer_drafts: HashMap<(OwnedRoomId, Option<OwnedEventId>), ComposerDraft>,
     user_avatar_url: HashMap<OwnedUserId, OwnedMxcUri>,
     sync_token: Option<String>,
-    server_info: Option<TtlStoreValue<ServerInfo>>,
+    supported_versions: Option<TtlStoreValue<SupportedVersionsResponse>>,
+    well_known: Option<TtlStoreValue<Option<WellKnownResponse>>>,
     filters: HashMap<String, String>,
     utd_hook_manager_data: Option<GrowableBloom>,
     one_time_key_uploaded_error: bool,
@@ -156,8 +158,11 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::SyncToken => {
                 inner.sync_token.clone().map(StateStoreDataValue::SyncToken)
             }
-            StateStoreDataKey::ServerInfo => {
-                inner.server_info.clone().map(StateStoreDataValue::ServerInfo)
+            StateStoreDataKey::SupportedVersions => {
+                inner.supported_versions.clone().map(StateStoreDataValue::SupportedVersions)
+            }
+            StateStoreDataKey::WellKnown => {
+                inner.well_known.clone().map(StateStoreDataValue::WellKnown)
             }
             StateStoreDataKey::Filter(filter_name) => {
                 inner.filters.get(filter_name).cloned().map(StateStoreDataValue::Filter)
@@ -239,10 +244,16 @@ impl StateStore for MemoryStore {
                     value.into_composer_draft().expect("Session data not a composer draft"),
                 );
             }
-            StateStoreDataKey::ServerInfo => {
-                inner.server_info = Some(
-                    value.into_server_info().expect("Session data not containing server info"),
+            StateStoreDataKey::SupportedVersions => {
+                inner.supported_versions = Some(
+                    value
+                        .into_supported_versions()
+                        .expect("Session data not containing supported versions"),
                 );
+            }
+            StateStoreDataKey::WellKnown => {
+                inner.well_known =
+                    Some(value.into_well_known().expect("Session data not containing well-known"));
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 inner.seen_knock_requests.insert(
@@ -267,7 +278,8 @@ impl StateStore for MemoryStore {
         let mut inner = self.inner.write().unwrap();
         match key {
             StateStoreDataKey::SyncToken => inner.sync_token = None,
-            StateStoreDataKey::ServerInfo => inner.server_info = None,
+            StateStoreDataKey::SupportedVersions => inner.supported_versions = None,
+            StateStoreDataKey::WellKnown => inner.well_known = None,
             StateStoreDataKey::Filter(filter_name) => {
                 inner.filters.remove(filter_name);
             }
