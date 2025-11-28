@@ -359,6 +359,12 @@ impl Client {
 
 #[matrix_sdk_ffi_macros::export]
 impl Client {
+    /// Perform database optimizations if any are available, i.e. vacuuming in
+    /// SQLite.
+    pub async fn optimize_stores(&self) -> Result<(), ClientError> {
+        Ok(self.inner.optimize_stores().await?)
+    }
+
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oauth = self.inner.oauth();
