@@ -7,12 +7,15 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
     HttpError, RefreshTokenError, SessionChange, SessionTokens,
-    authentication::matrix::MatrixSession,
+    authentication::{matrix::MatrixSession, oauth::OAuthError},
     config::RequestConfig,
     executor::spawn,
     store::RoomLoadSettings,
     test_utils::{
-        client::mock_session_meta,
+        client::{
+            mock_prev_session_tokens_with_refresh, mock_session_meta,
+            mock_session_tokens_with_refresh, oauth::mock_session,
+        },
         logged_in_client_with_server,
         mocks::{LoginResponseTemplate200, MatrixMockServer},
         no_retry_test_client_with_server, test_client_builder_with_server,
@@ -30,7 +33,7 @@ use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     Mock, ResponseTemplate,
-    matchers::{body_partial_json, header, method, path, path_regex},
+    matchers::{body_partial_json, header, method, path},
 };
 
 fn session() -> MatrixSession {
@@ -563,17 +566,12 @@ async fn test_refresh_token_handled_other_error() {
 
 #[async_test]
 async fn test_oauth_refresh_token_handled_success() {
-    use matrix_sdk::test_utils::{
-        client::{mock_prev_session_tokens_with_refresh, oauth::mock_session},
-        mocks::MatrixMockServer,
-    };
-
     let server = MatrixMockServer::new().await;
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
         .expect_access_token("prev-access-token")
-        .err_unknown_token()
+        .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
         .mount()
@@ -619,20 +617,12 @@ async fn test_oauth_refresh_token_handled_success() {
 
 #[async_test]
 async fn test_oauth_refresh_token_handled_failure() {
-    use matrix_sdk::{
-        authentication::oauth::OAuthError,
-        test_utils::{
-            client::{mock_prev_session_tokens_with_refresh, oauth::mock_session},
-            mocks::MatrixMockServer,
-        },
-    };
-
     let server = MatrixMockServer::new().await;
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
         .expect_access_token("prev-access-token")
-        .err_unknown_token()
+        .error_unknown_token(false)
         .expect(1)
         .named("whoami_unknown_token")
         .mount()
@@ -688,14 +678,6 @@ async fn test_oauth_refresh_token_handled_failure() {
 
 #[async_test]
 async fn test_oauth_handle_refresh_tokens() {
-    use matrix_sdk::test_utils::{
-        client::{
-            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
-            oauth::mock_session,
-        },
-        mocks::MatrixMockServer,
-    };
-
     let server = MatrixMockServer::new().await;
     let oauth_server = server.oauth();
 
@@ -767,38 +749,39 @@ async fn test_oauth_handle_refresh_tokens() {
 
 #[async_test]
 async fn test_oauth_handle_refresh_tokens_without_versions() {
-    use matrix_sdk::test_utils::{
-        client::{
-            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
-            oauth::mock_session,
-        },
-        mocks::MatrixMockServer,
-    };
-
     let server = MatrixMockServer::new().await;
     let oauth_server = server.oauth();
 
     // If we provide an access token, we encounter a failure, likely because the
     // token has expired.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/versions"))
-        .and(header("authorization", "Bearer prev-access-token"))
-        .respond_with(ResponseTemplate::new(401))
-        .mount(server.server())
+    server
+        .mock_versions()
+        .expect_access_token("prev-access-token")
+        .error_unknown_token(true)
+        .expect(1..)
+        .named("versions with expired token")
+        .mount()
         .await;
 
     // If we do not provide an access token, all is fine as the endpoint does not
     // require one.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": [
-                "r0.0.1",
-                "v1.1"
-            ]
-        })))
+    server
+        .mock_versions()
+        .expect_missing_access_token()
+        .ok_with_unstable_features()
         .expect(1..)
-        .mount(server.server())
+        .named("unauthenticated versions")
+        .mount()
+        .await;
+
+    // If we provide the new access token, all is fine.
+    server
+        .mock_versions()
+        .expect_default_access_token()
+        .ok_with_unstable_features()
+        .expect(1)
+        .named("versions with fresh token")
+        .mount()
         .await;
 
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
@@ -806,6 +789,7 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
     let client = server
         .client_builder()
         .unlogged()
+        .no_server_versions()
         .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
         .await;
