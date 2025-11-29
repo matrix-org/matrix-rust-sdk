@@ -1861,7 +1861,7 @@ pub struct MockEndpoint<'a, T> {
 
 impl<'a, T> MockEndpoint<'a, T> {
     fn new(server: &'a MockServer, mock: MockBuilder, endpoint: T) -> Self {
-        Self { server, mock, endpoint, expected_access_token: ExpectedAccessToken::None }
+        Self { server, mock, endpoint, expected_access_token: ExpectedAccessToken::Ignore }
     }
 
     /// Expect authentication with the default access token on this endpoint.
@@ -1876,12 +1876,30 @@ impl<'a, T> MockEndpoint<'a, T> {
         self
     }
 
-    /// Don't expect authentication with an access token on this endpoint.
+    /// Expect authentication with any access token on this endpoint, regardless
+    /// of its value.
     ///
-    /// This should be used to override the default behavior of the endpoint,
-    /// when the access token is unknown for example.
-    pub fn do_not_expect_access_token(mut self) -> Self {
-        self.expected_access_token = ExpectedAccessToken::None;
+    /// This is useful if we don't want to track the value of the access token.
+    pub fn expect_any_access_token(mut self) -> Self {
+        self.expected_access_token = ExpectedAccessToken::Any;
+        self
+    }
+
+    /// Expect no authentication on this endpoint.
+    ///
+    /// This means that the endpoint will not match if an `AUTHENTICATION`
+    /// header is present.
+    pub fn expect_missing_access_token(mut self) -> Self {
+        self.expected_access_token = ExpectedAccessToken::Missing;
+        self
+    }
+
+    /// Ignore the access token on this endpoint.
+    ///
+    /// This should be used to override the default behavior of an endpoint that
+    /// requires access tokens.
+    pub fn ignore_access_token(mut self) -> Self {
+        self.expected_access_token = ExpectedAccessToken::Ignore;
         self
     }
 
@@ -1927,10 +1945,7 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn respond_with<R: Respond + 'static>(self, func: R) -> MatrixMock<'a> {
-        let mock = self
-            .expected_access_token
-            .maybe_match_authorization_header(self.mock)
-            .respond_with(func);
+        let mock = self.mock.and(self.expected_access_token).respond_with(func);
         MatrixMock { mock, server: self.server }
     }
 
@@ -1981,6 +1996,17 @@ impl<'a, T> MockEndpoint<'a, T> {
         self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_UNRECOGNIZED",
             "error": "Unrecognized request",
+        })))
+    }
+
+    /// Returns a mocked endpoint that emulates an unknown token error, i.e
+    /// responds with a 401 HTTP status code and an `M_UNKNOWN_TOKEN` Matrix
+    /// error code.
+    pub fn error_unknown_token(self, soft_logout: bool) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "errcode": "M_UNKNOWN_TOKEN",
+            "error": "Unrecognized access token",
+            "soft_logout": soft_logout,
         })))
     }
 
@@ -2036,25 +2062,44 @@ impl<'a, T> MockEndpoint<'a, T> {
 
 /// The access token to expect on an endpoint.
 enum ExpectedAccessToken {
-    /// We don't expect an access token.
-    None,
+    /// Ignore any access token or lack thereof.
+    Ignore,
 
     /// We expect the default access token.
     Default,
 
     /// We expect the given access token.
     Custom(&'static str),
+
+    /// We expect any access token.
+    Any,
+
+    /// We expect that there is no access token.
+    Missing,
 }
 
 impl ExpectedAccessToken {
-    /// Match an `Authorization` header on the given mock if one is expected.
-    fn maybe_match_authorization_header(&self, mock: MockBuilder) -> MockBuilder {
-        let token = match self {
-            Self::None => return mock,
-            Self::Default => "1234",
-            Self::Custom(token) => token,
-        };
-        mock.and(header(http::header::AUTHORIZATION, format!("Bearer {token}")))
+    /// Get the access token from the given request.
+    fn access_token(request: &Request) -> Option<&str> {
+        request
+            .headers
+            .get(&http::header::AUTHORIZATION)?
+            .to_str()
+            .ok()?
+            .strip_prefix("Bearer ")
+            .filter(|token| !token.is_empty())
+    }
+}
+
+impl wiremock::Match for ExpectedAccessToken {
+    fn matches(&self, request: &Request) -> bool {
+        match self {
+            Self::Ignore => true,
+            Self::Default => Self::access_token(request) == Some("1234"),
+            Self::Custom(token) => Self::access_token(request) == Some(token),
+            Self::Any => Self::access_token(request).is_some(),
+            Self::Missing => request.headers.get(&http::header::AUTHORIZATION).is_none(),
+        }
     }
 }
 
@@ -3481,14 +3526,6 @@ impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "user_id": "@joe:example.org",
             "device_id": device_id,
-        })))
-    }
-
-    /// Returns an error response with an `M_UNKNOWN_TOKEN`.
-    pub fn err_unknown_token(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
-            "errcode": "M_UNKNOWN_TOKEN",
-            "error": "Invalid token"
         })))
     }
 }

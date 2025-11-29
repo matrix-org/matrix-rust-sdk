@@ -1173,6 +1173,7 @@ impl OAuth {
         if let Some(save_session_callback) = self.client.auth_ctx().save_session_callback.get() {
             // Satisfies the save_session_callback invariant: set_session_tokens has
             // been called just above.
+            tracing::debug!("call save_session_callback");
             if let Err(err) = save_session_callback(self.client.clone()) {
                 error!("when saving session after refresh: {err}");
             }
@@ -1183,6 +1184,7 @@ impl OAuth {
             lock.save_in_memory_and_db(&tokens_clone).await?;
         }
 
+        tracing::debug!("broadcast session changed");
         _ = self.client.auth_ctx().session_change_sender.send(SessionChange::TokensRefreshed);
 
         Ok(())

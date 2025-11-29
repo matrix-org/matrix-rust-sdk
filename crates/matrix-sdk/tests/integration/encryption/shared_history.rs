@@ -140,7 +140,7 @@ async fn test_shared_history_out_of_order() {
     let bundle_info = bundle_info.await;
     matrix_mock_server
         .mock_authed_media_download()
-        .do_not_expect_access_token()
+        .expect_any_access_token()
         .ok_bytes(bundle)
         .mock_once()
         .named("media_download")
