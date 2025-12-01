@@ -402,6 +402,17 @@ impl RoomEventCache {
         Ok(())
     }
 
+    /// Handle a single event from the `SendQueue`.
+    pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
+        self.inner
+            .handle_timeline(
+                Timeline { limited: false, prev_batch: None, events: vec![event] },
+                Vec::new(),
+                BTreeMap::new(),
+            )
+            .await
+    }
+
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {

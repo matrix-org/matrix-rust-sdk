@@ -1644,7 +1644,11 @@ impl StateStoreIntegrationTests for DynStateStore {
             .mark_dependent_queued_requests_as_ready(
                 room_id,
                 &txn0,
-                SentRequestKey::Event(event_id.clone()),
+                SentRequestKey::Event {
+                    event_id: event_id.clone(),
+                    event: Raw::from_json_string("{}".to_string()),
+                    event_type: "m.foo".to_string(),
+                },
             )
             .await?;
         assert_eq!(num_updated, 1);

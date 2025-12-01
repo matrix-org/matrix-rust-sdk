@@ -145,6 +145,7 @@ use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     RoomState, StoreError,
     cross_process_lock::CrossProcessLockError,
+    deserialized_responses::TimelineEvent,
     event_cache::store::EventCacheStoreError,
     media::{MediaRequestParameters, store::MediaStoreError},
     store::{
@@ -718,13 +719,123 @@ impl RoomSendQueue {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
                 {
                     Ok(()) => match parent_key {
-                        SentRequestKey::Event(event_id) => {
+                        SentRequestKey::Event { event_id, event, event_type } => {
                             send_update(
                                 &global_update_sender,
                                 &update_sender,
                                 room_id,
-                                RoomSendQueueUpdate::SentEvent { transaction_id: txn_id, event_id },
+                                RoomSendQueueUpdate::SentEvent {
+                                    transaction_id: txn_id,
+                                    event_id: event_id.clone(),
+                                },
                             );
+
+                            // The event has been sent to the server and the server has received it.
+                            // Yepee! Now, we usually wait on the server to give us back the event
+                            // via the sync.
+                            //
+                            // Problem: sometimes the network lags, can be down, or the server may
+                            // be slow; well, anything can happen.
+                            //
+                            // It results in a weird situation where the user sees its event being
+                            // sent, then disappears before it's received again from the server.
+                            //
+                            // To avoid this situation, we eagerly save the event in the Event
+                            // Cache. It's similar to what would happen if the event was echoed back
+                            // from the server via the sync, but we avoid any network issues. The
+                            // Event Cache is smart enough to deduplicate events based on the event
+                            // ID, so it's safe to do that.
+                            //
+                            // If this little feature fails, it MUST NOT stop the Send Queue. Any
+                            // errors are logged, but the Send Queue will continue as if everything
+                            // happened successfully. This feature is not considered “crucial”.
+                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            {
+                                let timeline_event = match event_type.as_str() {
+                                    #[cfg(feature = "e2e-encryption")]
+                                    "m.room.encrypted" => {
+                                        use ruma::events::{
+                                            OriginalSyncMessageLikeEvent,
+                                            room::encrypted::RoomEncryptedEventContent,
+                                        };
+
+                                        let push_context = room.push_context().await.ok().flatten();
+
+                                        // SAFETY: The event type is `m.room.encrypted`, so we hope
+                                        // it can
+                                        // be casted from an `AnyMessageLikeEventContent` to an
+                                        // `OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>`. It is
+                                        // wrong if and only if the event type doesn't match the
+                                        // event content.
+                                        let event: Raw<AnyMessageLikeEventContent> = event;
+                                        let event: Raw<
+                                            OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>,
+                                        > = event.cast_unchecked();
+
+                                        match room
+                                            .decrypt_event(&event, push_context.as_ref())
+                                            .await
+                                        {
+                                            Ok(timeline_event) => Some(timeline_event),
+                                            Err(err) => {
+                                                error!(
+                                                    ?err,
+                                                    "Failed to decrypt the event before the saving in the Event Cache"
+                                                );
+                                                None
+                                            }
+                                        }
+                                    }
+
+                                    event_type => {
+                                        match Raw::from_json_string(
+                                            // Create a compact string: remove all useless spaces.
+                                            format!(
+                                                "{{\
+                                                    \"event_id\":\"{event_id}\",\
+                                                    \"origin_server_ts\":{ts},\
+                                                    \"sender\":\"{sender}\",\
+                                                    \"type\":\"{type}\",\
+                                                    \"content\":{content}\
+                                                }}",
+                                                event_id = event_id,
+                                                ts = MilliSecondsSinceUnixEpoch::now().get(),
+                                                sender = room.client().user_id().expect("Client must be logged-in"),
+                                                type = event_type,
+                                                content = event.into_json(),
+                                            ),
+                                        ) {
+                                            Ok(event) => Some(TimelineEvent::from_plaintext(event)),
+                                            Err(err) => {
+                                                error!(
+                                                    ?err,
+                                                    "Failed to build the (sync) event before the saving in the Event Cache"
+                                                );
+                                                None
+                                            }
+                                        }
+                                    }
+                                };
+
+                                // In case of an error, just log the error but not stop the Send
+                                // Queue. This feature is not
+                                // crucial.
+                                if let Some(timeline_event) = timeline_event
+                                    && let Err(err) = room_event_cache
+                                        .insert_sent_event_from_send_queue(timeline_event)
+                                        .await
+                                {
+                                    error!(
+                                        ?err,
+                                        "Failed to save the sent event in the Event Cache"
+                                    );
+                                }
+                            } else {
+                                info!(
+                                    "Cannot insert the sent event in the Event Cache because \
+                                    either the room no longer exists, or the Room Event Cache cannot be retrieved"
+                                );
+                            }
                         }
 
                         SentRequestKey::Media(sent_media_info) => {
@@ -842,16 +953,17 @@ impl RoomSendQueue {
     ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
-                let (event, event_type) = content.raw();
+                let (event, event_type) = content.into_raw();
 
                 let res = room
-                    .send_raw(event_type, event)
+                    .send_raw(&event_type, &event)
                     .with_transaction_id(&request.transaction_id)
                     .with_request_config(RequestConfig::short_retry())
                     .await?;
 
                 trace!(txn_id = %request.transaction_id, event_id = %res.event_id, "event successfully sent");
-                Ok(Some(SentRequestKey::Event(res.event_id)))
+
+                Ok(Some(SentRequestKey::Event { event_id: res.event_id, event, event_type }))
             }
 
             QueuedRequestKind::MediaUpload {
