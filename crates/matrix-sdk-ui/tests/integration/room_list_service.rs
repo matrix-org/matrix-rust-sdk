@@ -2714,10 +2714,11 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 1.
         {
-            // The state transitions into `Init`. The `SyncIndicator` must be `Show`.
+            // The state transitions into `Init`. The `SyncIndicator` stays in `Hide` as
+            // nothing is happening yet.
             assert_next_sync_indicator!(
                 sync_indicator,
-                SyncIndicator::Show,
+                SyncIndicator::Hide,
                 under DELAY_BEFORE_SHOWING + request_margin,
             );
         }
@@ -2726,7 +2727,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 2.
         {
-            // The state transitions into `SettingUp`. The `SyncIndicator` stays in `Show`.
+            // The state transitions into `SettingUp`. The `SyncIndicator` must be `Show` as
+            // the service has now been started.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
