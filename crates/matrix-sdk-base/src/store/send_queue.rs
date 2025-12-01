@@ -412,7 +412,16 @@ impl From<AccumulatedSentMediaInfo> for SentMediaInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SentRequestKey {
     /// The parent transaction returned an event when it succeeded.
-    Event(OwnedEventId),
+    Event {
+        /// The event ID returned by the server.
+        event_id: OwnedEventId,
+
+        /// The sent event.
+        event: Raw<AnyMessageLikeEventContent>,
+
+        /// The type of the sent event.
+        event_type: String,
+    },
 
     /// The parent transaction returned an uploaded resource URL.
     Media(SentMediaInfo),
@@ -421,7 +430,7 @@ pub enum SentRequestKey {
 impl SentRequestKey {
     /// Converts the current parent key into an event id, if possible.
     pub fn into_event_id(self) -> Option<OwnedEventId> {
-        as_variant!(self, Self::Event)
+        as_variant!(self, Self::Event { event_id, .. } => event_id)
     }
 
     /// Converts the current parent key into information about a sent media, if
