@@ -134,13 +134,10 @@ mod tests_latest_event_value {
     fn test_timestamp_with_local_is_sending() {
         let value = LatestEventValue::LocalIsSending(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         });
 
         assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
@@ -150,13 +147,10 @@ mod tests_latest_event_value {
     fn test_timestamp_with_local_cannot_be_sent() {
         let value = LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         });
 
         assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));

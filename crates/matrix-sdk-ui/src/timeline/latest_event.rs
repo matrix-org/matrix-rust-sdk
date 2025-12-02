@@ -269,13 +269,10 @@ mod tests {
 
         let base_value = BaseLatestEventValue::LocalIsSending(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         });
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
@@ -300,13 +297,10 @@ mod tests {
 
         let base_value = BaseLatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         });
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;

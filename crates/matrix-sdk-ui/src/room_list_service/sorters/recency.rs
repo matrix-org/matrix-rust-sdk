@@ -143,26 +143,20 @@ mod tests {
     fn local_is_sending(origin_server_ts: u32) -> LatestEventValue {
         LatestEventValue::LocalIsSending(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         })
     }
 
     fn local_cannot_be_sent(origin_server_ts: u32) -> LatestEventValue {
         LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain("raclette"),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
         })
     }
 
