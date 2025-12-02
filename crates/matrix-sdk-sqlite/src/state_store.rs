@@ -403,6 +403,17 @@ impl SqliteStateStore {
             .await?;
         }
 
+        if from < 15 && to >= 15 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/013_send_queue_new_parent_key_format.sql"
+                ))?;
+                txn.set_db_version(15)
+            })
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -2093,7 +2104,7 @@ impl StateStore for SqliteStateStore {
         parent_key: SentRequestKey,
     ) -> Result<usize> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
-        let parent_key = self.serialize_value(&parent_key)?;
+        let parent_key = self.serialize_json(&parent_key)?;
 
         // See comment in `save_send_queue_request`.
         let parent_txn_id = parent_txn_id.to_string();
@@ -2164,7 +2175,7 @@ impl StateStore for SqliteStateStore {
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
-                parent_key: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
+                parent_key: entry.2.map(|json| self.deserialize_json(&json)).transpose()?,
                 kind: self.deserialize_json(&entry.3)?,
                 created_at,
             });
