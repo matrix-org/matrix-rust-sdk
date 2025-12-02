@@ -66,7 +66,7 @@ rand = "0.8.5"
 regex = "1.12.2"
 reqwest = { version = "0.12.24", default-features = false }
 rmp-serde = "1.3.0"
-ruma = { version = "0.14.0", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a67081e402dce14365089b34f50489dacc9c53b5", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-arbitrary-length-ids",

@@ -3629,8 +3629,8 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
         })))
     }
 
-    /// Returns an error response with an OAuth 2.0 UIAA stage.
-    pub fn uiaa_oauth(self) -> MatrixMock<'a> {
+    /// Returns an error response with an unstable OAuth 2.0 UIAA stage.
+    pub fn uiaa_unstable_oauth(self) -> MatrixMock<'a> {
         let server_uri = self.server.uri();
         self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "session": "dummy",
@@ -3639,6 +3639,23 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
             }],
             "params": {
                 "org.matrix.cross_signing_reset": {
+                    "url": format!("{server_uri}/account/?action=org.matrix.cross_signing_reset"),
+                }
+            },
+            "msg": "To reset your end-to-end encryption cross-signing identity, you first need to approve it and then try again."
+        })))
+    }
+
+    /// Returns an error response with a stable OAuth 2.0 UIAA stage.
+    pub fn uiaa_stable_oauth(self) -> MatrixMock<'a> {
+        let server_uri = self.server.uri();
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "session": "dummy",
+            "flows": [{
+                "stages": [ "m.oauth" ]
+            }],
+            "params": {
+                "m.oauth": {
                     "url": format!("{server_uri}/account/?action=org.matrix.cross_signing_reset"),
                 }
             },
