@@ -18,15 +18,13 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{
-    executor::spawn, ruma::MilliSecondsSinceUnixEpoch, test_utils::mocks::MatrixMockServer,
-};
+use matrix_sdk::{executor::spawn, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
-    room_id, uint, user_id,
+    room_id, user_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -82,43 +80,70 @@ async fn test_echo() {
     send_hdl.await.unwrap().unwrap();
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 5);
 
+    // The `EventSendState` has been updated.
     assert_let!(VectorDiff::Set { index: 1, value: sent_confirmation } = &timeline_updates[0]);
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
     assert_eq!(item.event_id(), Some(event_id));
 
+    // The local event is removed.
+    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
+
+    // The new event is inserted in the Event Cache: it comes as a remote event.
+    assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
+    let item = remote_event.as_event().unwrap();
+    assert_let!(Some(msg) = item.content().as_message());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "Hello, World!");
+    assert_eq!(item.event_id(), Some(event_id));
+
+    // The date divider is adjusted.
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
+    assert!(date_divider.is_date_divider());
+    assert_matches!(&timeline_updates[4], VectorDiff::Remove { index: 2 });
+
+    assert_pending!(timeline_stream);
+
+    let another_event_id = event_id!("$ev1");
     let f = EventFactory::new();
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("Hello, World!")
-                    .sender(user_id!("@example:localhost"))
-                    .event_id(event_id)
-                    .server_ts(152038280)
-                    .unsigned_transaction_id(txn_id),
-            ),
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("Hello, World!")
+                        .sender(user_id!("@example:localhost"))
+                        .event_id(event_id)
+                        .server_ts(152038280)
+                        .unsigned_transaction_id(txn_id),
+                )
+                .add_timeline_event(
+                    f.text_msg("Raclette")
+                        .sender(user_id!("@example:localhost"))
+                        .event_id(another_event_id)
+                        .server_ts(152038281),
+                ),
         )
         .await;
 
+    // The Event Cache deduplicates the first event, but we receive a second one.
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 4);
+    assert_eq!(timeline_updates.len(), 5);
 
-    // Local echo is replaced with the remote echo.
-    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
+    assert_matches!(&timeline_updates[0], VectorDiff::Remove { index: 1 });
 
-    assert_let!(VectorDiff::PushFront { value: remote_echo } = &timeline_updates[1]);
-    let item = remote_echo.as_event().unwrap();
-    assert!(item.is_own());
-    assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
+    assert_let!(VectorDiff::PushFront { value: first_event } = &timeline_updates[1]);
+    assert_eq!(first_event.as_event().unwrap().event_id(), Some(event_id));
 
-    // The date divider is also replaced.
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
+    assert_let!(VectorDiff::Insert { index: 1, value: second_event } = &timeline_updates[2]);
+    assert_eq!(second_event.as_event().unwrap().event_id(), Some(another_event_id));
+
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
     assert!(date_divider.is_date_divider());
 
-    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[3]);
+    assert_matches!(&timeline_updates[4], VectorDiff::Remove { index: 3 });
 
     assert_pending!(timeline_stream);
 }

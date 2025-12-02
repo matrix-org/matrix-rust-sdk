@@ -202,6 +202,14 @@ async fn test_send_attachment_from_file() -> TestResult {
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
             assert_eq!(event_id, event_id!("$media"));
         });
+
+        // Since it's sent, it's inserted in the Event Cache, and becomes a
+        // remote event.
+        assert_let_timeout!(Some(VectorDiff::Remove { index: 1 }) = timeline_stream.next());
+        assert_let_timeout!(
+            Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
+        );
+        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!
@@ -336,6 +344,14 @@ async fn test_send_attachment_from_bytes() -> TestResult {
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
             assert_eq!(event_id, event_id!("$media"));
         });
+
+        // Since it's sent, it's inserted in the Event Cache, and becomes a
+        // remote event.
+        assert_let_timeout!(Some(VectorDiff::Remove { index: 1 }) = timeline_stream.next());
+        assert_let_timeout!(
+            Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
+        );
+        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!
@@ -508,6 +524,14 @@ async fn test_send_gallery_from_bytes() -> TestResult {
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
             assert_eq!(event_id, event_id!("$media"));
         });
+
+        // Since it's sent, it's inserted in the Event Cache, and becomes a
+        // remote event.
+        assert_let_timeout!(Some(VectorDiff::Remove { index: 1 }) = timeline_stream.next());
+        assert_let_timeout!(
+            Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
+        );
+        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!

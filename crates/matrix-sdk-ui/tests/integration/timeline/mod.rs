@@ -386,7 +386,8 @@ async fn test_redact_local_sent_message() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // Mock event sending.
-    server.mock_room_send().ok(event_id!("$wWgymRfo7ri1uQx0NXO40vLJ")).mock_once().mount().await;
+    let event_id = event_id!("$ev0");
+    server.mock_room_send().ok(event_id).mock_once().mount().await;
 
     // Send the event so it's added to the send queue as a local event.
     timeline
@@ -408,18 +409,26 @@ async fn test_redact_local_sent_message() {
     assert!(date_divider.is_date_divider());
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 5);
 
     // We receive an update in the timeline from the send queue.
-    assert_let!(VectorDiff::Set { index, value: item } = &timeline_updates[0]);
-    assert_eq!(*index, 1);
-
-    assert_pending!(timeline_stream);
-
-    // Check the event is sent but still considered local.
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
     let event = item.as_event().unwrap();
     assert!(event.is_local_echo());
     assert_matches!(event.send_state(), Some(EventSendState::Sent { .. }));
+
+    // And then it's inserted in the Event Cache, and considered remote.
+    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
+    assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
+    assert_eq!(remote_event.as_event().unwrap().event_id(), Some(event_id));
+
+    // The date divider is adjusted.
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
+    assert!(date_divider.is_date_divider());
+
+    assert_matches!(&timeline_updates[4], VectorDiff::Remove { index: 2 });
+
+    assert_pending!(timeline_stream);
 
     // Mock the redaction response for the event we just sent. Ensure it's called
     // once.

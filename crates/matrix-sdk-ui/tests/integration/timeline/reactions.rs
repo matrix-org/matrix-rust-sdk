@@ -34,7 +34,7 @@ async fn test_abort_before_being_sent() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let room = server.sync_joined_room(&client, room_id).await;
 
     server.mock_room_state_encryption().plain().mount().await;
@@ -188,12 +188,17 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // In a real-world setup with a background sync, the reaction may flash to the
-    // user, because the sync may return the reaction event, and later the
-    // redaction of the reaction. In our case, we're done here.
-
     // Wait for the redaction to be done in the background.
     tokio::time::timeout(Duration::from_secs(2), rx).await.expect("timeout").expect("recv error");
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    // The remote event comes in.
+    assert_matches!(&timeline_updates[0], VectorDiff::Set { index: 1, value: remote_event });
+    let remote_event = remote_event.as_event().unwrap();
+    assert_eq!(remote_event.event_id(), Some(event_id));
+    assert_eq!(remote_event.content().reactions().unwrap().len(), 1);
 
     assert_pending!(stream);
 }
@@ -411,7 +416,7 @@ async fn test_local_reaction_to_local_echo() {
     // Now, wait for the remote echo for the message itself.
     {
         assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = stream.next());
-        assert_eq!(timeline_updates.len(), 1);
+        assert_eq!(timeline_updates.len(), 5);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
@@ -425,17 +430,32 @@ async fn test_local_reaction_to_local_echo() {
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         // TODO(bnjbvr): why not LocalToRemote here?
         assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+
+        // And since the local event has been sent, it is inserted in the Event
+        // Cache, which transforms it to a remote event.
+        assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
+
+        assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
+        assert_eq!(remote_event.as_event().unwrap().event_id(), Some(event_id!("$0")));
+
+        // Adjust the date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
+        assert!(date_divider.is_date_divider());
+
+        assert_pending!(stream);
     }
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert!(!timeline_updates.is_empty());
 
     // And then the remote echo for the reaction itself.
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
-    assert_eq!(reactions.len(), 1);
-    let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-    assert_matches!(&reaction_info.status, ReactionStatus::RemoteToRemote(..));
+    for timeline_update in timeline_updates {
+        assert_let!(VectorDiff::Set { index: 1, value: item } = timeline_update);
+        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        assert_eq!(reactions.len(), 1);
+        let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
+        assert_matches!(&reaction_info.status, ReactionStatus::RemoteToRemote(..));
+    }
 
     // And we're done.
     tokio::time::sleep(Duration::from_millis(150)).await;

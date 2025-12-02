@@ -68,7 +68,7 @@ async fn test_message_order() {
         .and(body_string_contains("First!"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_body_json(json!({ "event_id": "$ev0" }))
                 .set_delay(Duration::from_millis(200)),
         )
         .mount(&server)
@@ -81,7 +81,7 @@ async fn test_message_order() {
         .and(body_string_contains("Second."))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
+                .set_body_json(json!({ "event_id": "$ev1" }))
                 .set_delay(Duration::from_millis(100)),
         )
         .mount(&server)
@@ -110,14 +110,26 @@ async fn test_message_order() {
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert!(value.is_editable(), "remote echo of first can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
-        assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
+        assert_eq!(value.event_id().unwrap(), "$ev0");
+    });
+
+    // The sent event is added in the Event Cache and becomes a remote event.
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value: remote_event } => {
+        assert_eq!(remote_event.event_id().unwrap(), "$ev0");
     });
 
     // Then the second one.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         assert!(value.is_editable(), "remote echo of second can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
-        assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
+        assert_eq!(value.event_id().unwrap(), "$ev1");
+    });
+
+    // The sent event is added in the Event Cache and becomes a remote event.
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: remote_event } => {
+        assert_eq!(remote_event.event_id().unwrap(), "$ev1");
     });
 
     assert_pending!(timeline_stream);
@@ -182,7 +194,7 @@ async fn test_retry_order() {
         .and(body_string_contains("First!"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_body_json(json!({ "event_id": "$ev0" }))
                 .set_delay(Duration::from_millis(100)),
         )
         .mount(&server)
@@ -195,7 +207,7 @@ async fn test_retry_order() {
         .and(body_string_contains("Second."))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
+                .set_body_json(json!({ "event_id": "$ev1" }))
                 .set_delay(Duration::from_millis(200)),
         )
         .mount(&server)
@@ -212,14 +224,28 @@ async fn test_retry_order() {
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
         assert_matches!(value.send_state().unwrap(), EventSendState::Sent { .. });
-        assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
+        assert_eq!(value.event_id().unwrap(), "$ev0");
+    });
+
+    // Once sent, the message is added in the Event Cache, thus it becomes a remote
+    // event.
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 0 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value: remote_event } => {
+        assert_eq!(remote_event.event_id(), Some(event_id!("$ev0")));
     });
 
     // Then the second.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
         assert_matches!(value.send_state().unwrap(), EventSendState::Sent { .. });
-        assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
+        assert_eq!(value.event_id().unwrap(), "$ev1");
+    });
+
+    // Once sent, the message is added in the Event Cache, thus it becomes a remote
+    // event.
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: remote_event } => {
+        assert_eq!(remote_event.event_id(), Some(event_id!("$ev1")));
     });
 
     assert_pending!(timeline_stream);
@@ -431,7 +457,7 @@ async fn test_no_duplicate_date_divider() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({
-                    "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP",
+                    "event_id": "$ev0",
                 }))
                 .set_delay(Duration::from_millis(200)),
         )
@@ -446,7 +472,7 @@ async fn test_no_duplicate_date_divider() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({
-                    "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ",
+                    "event_id": "$ev1",
                 }))
                 .set_delay(Duration::from_millis(100)),
         )
@@ -476,19 +502,35 @@ async fn test_no_duplicate_date_divider() {
     sleep(Duration::from_millis(500)).await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 8);
 
     // The first item should be updated first.
     assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let value = value.as_event().unwrap();
+    assert_matches!(value.send_state(), Some(EventSendState::Sent { event_id }) => {
+        assert_eq!(event_id, "$ev0");
+    });
     assert_eq!(value.content().as_message().unwrap().body(), "First!");
-    assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
+    assert_eq!(value.event_id().unwrap(), "$ev0");
 
-    // Then the second one.
-    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[1]);
-    let value = value.as_event().unwrap();
-    assert_eq!(value.content().as_message().unwrap().body(), "Second.");
-    assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
+    // Now they are sent, they are inserted in the Event Cache, and thus become
+    // remote events.
+    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
+    assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
+    assert_eq!(remote_event.as_event().unwrap().event_id().unwrap(), "$ev0");
+
+    // Now the date divider is adjusted.
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
+    assert!(date_divider.is_date_divider());
+
+    assert_matches!(&timeline_updates[4], VectorDiff::Remove { index: 2 });
+
+    assert_let!(VectorDiff::Set { index: 2, value: remote_event } = &timeline_updates[5]);
+    assert_eq!(remote_event.as_event().unwrap().event_id().unwrap(), "$ev1");
+
+    assert_matches!(&timeline_updates[6], VectorDiff::Remove { index: 2 });
+    assert_let!(VectorDiff::PushBack { value: remote_event } = &timeline_updates[7]);
+    assert_eq!(remote_event.as_event().unwrap().event_id().unwrap(), "$ev1");
 
     assert_pending!(timeline_stream);
 
@@ -501,14 +543,10 @@ async fn test_no_duplicate_date_divider() {
     sync_response_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(
-                f.text_msg("First!")
-                    .sender(client.user_id().unwrap())
-                    .event_id(event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP")),
+                f.text_msg("First!").sender(client.user_id().unwrap()).event_id(event_id!("$ev2")),
             )
             .add_timeline_event(
-                f.text_msg("Second.")
-                    .sender(client.user_id().unwrap())
-                    .event_id(event_id!("$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ")),
+                f.text_msg("Second.").sender(client.user_id().unwrap()).event_id(event_id!("$ev3")),
             ),
     );
 
@@ -517,31 +555,15 @@ async fn test_no_duplicate_date_divider() {
     server.reset().await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 6);
+    assert_eq!(timeline_updates.len(), 2);
 
-    // The first message is removed -> [DD Second]
-    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
-
-    // The first message is reinserted -> [First DD Second]
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let value = value.as_event().unwrap();
-    assert_eq!(value.content().as_message().unwrap().body(), "First!");
-    assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
+    assert_eq!(value.event_id().unwrap(), "$ev2");
 
-    // The second message is replaced -> [First Second DD]
-    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[2]);
-
-    assert_let!(VectorDiff::Insert { index: 1, value } = &timeline_updates[3]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     let value = value.as_event().unwrap();
-    assert_eq!(value.content().as_message().unwrap().body(), "Second.");
-    assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
-
-    // A new date divider is inserted -> [DD First Second DD]
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
-    assert!(value.is_date_divider());
-
-    // The useless date divider is removed. -> [DD First Second]
-    assert_let!(VectorDiff::Remove { index: 3 } = &timeline_updates[5]);
+    assert_eq!(value.event_id().unwrap(), "$ev3");
 
     assert_pending!(timeline_stream);
 }

@@ -205,9 +205,7 @@ mod tests {
     use ruma::{
         MilliSecondsSinceUnixEpoch, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
-        serde::Raw,
-        uint, user_id,
+        room_id, uint, user_id,
     };
 
     use super::{
