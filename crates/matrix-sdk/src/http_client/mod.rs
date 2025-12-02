@@ -38,7 +38,7 @@ use ruma::api::{
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, field::debug, instrument, trace};
 
-use crate::{HttpResult, config::RequestConfig, error::HttpError};
+use crate::{HttpResult, client::caches::CachedValue, config::RequestConfig, error::HttpError};
 
 #[cfg(not(target_family = "wasm"))]
 mod native;
@@ -263,7 +263,26 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
         client: &crate::Client,
         skip_auth: bool,
     ) -> HttpResult<Cow<'static, SupportedVersions>> {
-        if skip_auth {
+        // We always enable "failsafe" mode for the GET /versions requests in this
+        // function. It disables trying to refresh the access token for those requests,
+        // to avoid possible deadlocks.
+
+        if !client.auth_ctx().has_valid_access_token() {
+            // Get the value in the cache without waiting. If the lock is not available, we
+            // are in the middle of refreshing the cache so waiting for it would result in a
+            // deadlock.
+            if let Ok(CachedValue::Cached(versions)) =
+                client.inner.caches.supported_versions.try_read().as_deref()
+            {
+                return Ok(Cow::Owned(versions.clone()));
+            }
+
+            // The request will skip auth so we might not get all the supported features, so
+            // just fetch the supported versions and don't cache them.
+            let response = client.fetch_server_versions_inner(true, None).await?;
+
+            Ok(Cow::Owned(response.as_supported_versions()))
+        } else if skip_auth {
             let cached_versions = client.get_cached_supported_versions().await;
 
             let versions = if let Some(versions) = cached_versions {
@@ -272,14 +291,15 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
                 // If we're skipping auth we might not get all the supported features, so just
                 // fetch the versions and don't cache them.
                 let request_config = RequestConfig::default().retry_limit(5).skip_auth();
-                let response = client.fetch_server_versions(Some(request_config)).await?;
+                let response =
+                    client.fetch_server_versions_inner(true, Some(request_config)).await?;
 
                 response.as_supported_versions()
             };
 
             Ok(Cow::Owned(versions))
         } else {
-            client.supported_versions().await.map(Cow::Owned)
+            client.supported_versions_inner(true).await.map(Cow::Owned)
         }
     }
 }

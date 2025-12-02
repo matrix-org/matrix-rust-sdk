@@ -774,16 +774,6 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
         .mount()
         .await;
 
-    // If we provide the new access token, all is fine.
-    server
-        .mock_versions()
-        .expect_default_access_token()
-        .ok_with_unstable_features()
-        .expect(1)
-        .named("versions with fresh token")
-        .mount()
-        .await;
-
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
 
     let client = server
@@ -818,4 +808,118 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
         Some(mock_session_tokens_with_refresh()),
         "The session tokens should have been updated with the new values"
     );
+}
+
+#[async_test]
+async fn test_supported_versions_handle_refresh_token() {
+    let server = MatrixMockServer::new().await;
+
+    // Request with the expired access token returns an unknown token error.
+    server
+        .mock_versions()
+        .expect_access_token("prev-access-token")
+        .error_unknown_token(true)
+        .named("versions with expired access token")
+        .expect(1)
+        .mount()
+        .await;
+
+    // Request with the new access token succeeds.
+    server
+        .mock_versions()
+        .expect_default_access_token()
+        .ok_with_unstable_features()
+        .named("versions with new access token")
+        .expect(1)
+        .mount()
+        .await;
+
+    // Request without an access token succeeds.
+    server
+        .mock_versions()
+        .expect_missing_access_token()
+        .ok_with_unstable_features()
+        .named("unauthenticated versions")
+        .expect(1)
+        .mount()
+        .await;
+
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    oauth_server.mock_token().ok().mock_once().named("refresh_token").mount().await;
+
+    let client = server
+        .client_builder()
+        .unlogged()
+        .no_server_versions()
+        .on_builder(|builder| builder.handle_refresh_tokens())
+        .build()
+        .await;
+
+    // Restore the expired access token.
+    let oauth = client.oauth();
+    oauth
+        .restore_session(
+            mock_session(mock_prev_session_tokens_with_refresh()),
+            RoomLoadSettings::default(),
+        )
+        .await
+        .unwrap();
+
+    // This call should:
+    //
+    // 1. Call the GET /versions endpoint with the expired access token.
+    // 2. Try to refresh the token:
+    //   a. Call the GET /versions endpoint without an access token to get the
+    //      server metadata.
+    //   b. Call the refresh token endpoint.
+    // 3. Call the GET /versions endpoint again with the new access token.
+    assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+
+    // The result was cached.
+    assert_matches!(client.supported_versions_cached().await, Ok(Some(_)));
+    // The access token was refreshed.
+    assert_eq!(client.access_token().as_deref(), Some("1234"));
+
+    // This call hits the cache.
+    assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+}
+
+#[async_test]
+async fn test_refresh_token_not_handled_supported_versions_not_cached() {
+    let server = MatrixMockServer::new().await;
+
+    // Request with the expired access token returns an unknown token error.
+    server
+        .mock_versions()
+        .expect_default_access_token()
+        .error_unknown_token(true)
+        .named("versions with expired access token")
+        .expect(1)
+        .mount()
+        .await;
+
+    // Request without an access token succeeds.
+    server
+        .mock_versions()
+        .expect_missing_access_token()
+        .ok_with_unstable_features()
+        .named("unauthenticated versions")
+        .expect(1..)
+        .mount()
+        .await;
+
+    let client = server.client_builder().no_server_versions().build().await;
+
+    // We need to use an endpoint that doesn't require authentication, so it doesn't
+    // try to refresh the token.
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+
+    // The call succeeds after calling the authenticated and unauthenticated
+    // versions endpoints.
+    client.oauth().server_metadata().await.unwrap();
+
+    // The supported versions were not cached.
+    assert_matches!(client.supported_versions_cached().await, Ok(None));
 }

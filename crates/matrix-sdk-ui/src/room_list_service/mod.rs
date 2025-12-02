@@ -63,7 +63,7 @@ use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
-    config::RequestConfig, event_cache::EventCacheError, timeout::timeout,
+    event_cache::EventCacheError, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
@@ -165,14 +165,8 @@ impl RoomListService {
             {
                 cached.features
             } else {
-                // Our `/versions` calls don't support token refresh as of now (11.11.2025), so
-                // we're going to skip the sending of the authentication headers in case they
-                // might have expired.
-                //
-                // We only care about a feature which is advertised without being authenticaded
-                // anyways.
                 client
-                    .fetch_server_versions(Some(RequestConfig::new().skip_auth()))
+                    .fetch_server_versions(None)
                     .await
                     .map_err(|e| Error::SlidingSync(e.into()))?
                     .as_supported_versions()
