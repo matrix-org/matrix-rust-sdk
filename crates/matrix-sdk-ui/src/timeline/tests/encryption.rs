@@ -674,7 +674,7 @@ async fn test_retry_message_decryption_highlighted() {
 
 #[async_test]
 async fn test_utd_cause_for_nonmember_event_is_found() {
-    // Given a timline
+    // Given a timeline
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -695,7 +695,7 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
 
 #[async_test]
 async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
-    // Given a timline
+    // Given a timeline
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -720,7 +720,7 @@ async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
 
 #[async_test]
 async fn test_utd_cause_for_member_event_is_unknown() {
-    // Given a timline
+    // Given a timeline
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -741,7 +741,7 @@ async fn test_utd_cause_for_member_event_is_unknown() {
 
 #[async_test]
 async fn test_utd_cause_for_missing_membership_is_unknown() {
-    // Given a timline
+    // Given a timeline
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
