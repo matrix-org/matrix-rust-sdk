@@ -1611,7 +1611,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             room_id,
             txn0.clone(),
             MilliSecondsSinceUnixEpoch::now(),
-            event0.into(),
+            event0.clone().into(),
             0,
         )
         .await?;
@@ -1639,6 +1639,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
 
         // Update the event id.
+        let (event, event_type) = event0.raw();
         let event_id = owned_event_id!("$1");
         let num_updated = self
             .mark_dependent_queued_requests_as_ready(
@@ -1646,8 +1647,8 @@ impl StateStoreIntegrationTests for DynStateStore {
                 &txn0,
                 SentRequestKey::Event {
                     event_id: event_id.clone(),
-                    event: Raw::from_json_string("{}".to_string()),
-                    event_type: "m.foo".to_string(),
+                    event: event.clone(),
+                    event_type: event_type.to_owned(),
                 },
             )
             .await?;
@@ -1658,9 +1659,18 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
-        assert_matches!(dependents[0].parent_key.as_ref(), Some(SentRequestKey::Event(eid)) => {
-            assert_eq!(*eid, event_id);
-        });
+        assert_matches!(
+            dependents[0].parent_key.as_ref(),
+            Some(SentRequestKey::Event {
+                event_id: received_event_id,
+                event: received_event,
+                event_type: received_event_type
+            }) => {
+                assert_eq!(received_event_id, &event_id);
+                assert_eq!(received_event.json().to_string(), event.json().to_string());
+                assert_eq!(received_event_type.as_str(), event_type);
+            }
+        );
         assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
 
         // Now remove it.

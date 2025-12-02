@@ -1018,12 +1018,18 @@ async fn test_thread_timeline_gets_local_echoes() {
 
     // Then the local echo morphs into a sent local echo.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 3);
 
+    // The local event is updated.
     assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(sent_event_id));
     assert!(event_item.content().reactions().unwrap().is_empty());
+
+    // The local event is inserted in the Event Cache as a remote event.
+    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 2 });
+    assert_let!(VectorDiff::PushBack { value: remote_event } = &timeline_updates[2]);
+    assert_eq!(remote_event.as_event().unwrap().event_id(), Some(sent_event_id));
 
     // Then nothing else.
     assert_pending!(stream);
@@ -1061,11 +1067,16 @@ async fn test_thread_timeline_gets_local_echoes() {
 
     // Then as a remote echo.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 1);
-    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), sent_event_id);
-    assert!(event_item.content().reactions().unwrap().is_empty().not());
+    assert!(!timeline_updates.is_empty());
+
+    // Sometimes, a double `VectorDiff::Set` is received because of another update.
+    // Let's make the test reliable.
+    for timeline_update in timeline_updates {
+        assert_let!(VectorDiff::Set { index: 2, value } = timeline_update);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), sent_event_id);
+        assert!(event_item.content().reactions().unwrap().is_empty().not());
+    }
 
     // Then we're done.
     assert_pending!(stream);
