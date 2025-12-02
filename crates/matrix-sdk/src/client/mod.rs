@@ -1936,7 +1936,8 @@ impl Client {
         let path_builder_input =
             Request::PathBuilder::get_path_builder_input(self, skip_auth).await?;
 
-        self.inner
+        let result = self
+            .inner
             .http_client
             .send(
                 request,
@@ -1946,7 +1947,17 @@ impl Client {
                 path_builder_input,
                 send_progress,
             )
-            .await
+            .await;
+
+        if let Err(Some(ErrorKind::UnknownToken { .. })) =
+            result.as_ref().map_err(HttpError::client_api_error_kind)
+            && let Some(access_token) = &access_token
+        {
+            // Mark the access token as expired.
+            self.auth_ctx().set_access_token_expired(access_token);
+        }
+
+        result
     }
 
     fn broadcast_unknown_token(&self, soft_logout: &bool) {
@@ -2030,9 +2041,9 @@ impl Client {
             unstable_features: server_versions.unstable_features,
         };
 
-        // Attempt to cache the result in storage.
-        {
-            if let Err(err) = self
+        // Only attempt to cache the result in storage if the request was authenticated.
+        if self.auth_ctx().has_valid_access_token()
+            && let Err(err) = self
                 .state_store()
                 .set_kv_data(
                     StateStoreDataKey::SupportedVersions,
@@ -2041,9 +2052,8 @@ impl Client {
                     )),
                 )
                 .await
-            {
-                warn!("error when caching supported versions: {err}");
-            }
+        {
+            warn!("error when caching supported versions: {err}");
         }
 
         Ok(supported_versions)
@@ -2105,7 +2115,10 @@ impl Client {
             supported_versions.versions = [MatrixVersion::V1_0].into();
         }
 
-        *guarded_supported_versions = CachedValue::Cached(supported_versions.clone());
+        // Only cache the result if the request was authenticated.
+        if self.auth_ctx().has_valid_access_token() {
+            *guarded_supported_versions = CachedValue::Cached(supported_versions.clone());
+        }
 
         Ok(supported_versions)
     }
