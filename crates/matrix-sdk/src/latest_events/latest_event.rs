@@ -191,9 +191,7 @@ mod tests_latest_event {
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
-        serde::Raw,
-        user_id,
+        room_id, user_id,
     };
 
     use super::{LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent};
@@ -207,13 +205,10 @@ mod tests_latest_event {
     fn local_room_message(body: &str) -> LocalLatestEventValue {
         LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain(body),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain(body),
+            ))
+            .unwrap(),
         }
     }
 
@@ -1450,7 +1445,6 @@ mod tests_latest_event_values_for_local_events {
                     "content": RoomMessageEventContent::text_plain(body),
                     "type": "m.room.message",
                     "event_id": "$ev0",
-                    "room_id": "!r0",
                     "origin_server_ts": 42,
                     "sender": "@mnt_io:matrix.org",
                 })
@@ -1463,13 +1457,10 @@ mod tests_latest_event_values_for_local_events {
     fn local_room_message(body: &str) -> LocalLatestEventValue {
         LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::from_raw(
-                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                    RoomMessageEventContent::text_plain(body),
-                ))
-                .unwrap(),
-                "m.room.message".to_owned(),
-            ),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain(body),
+            ))
+            .unwrap(),
         }
     }
 
