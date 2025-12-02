@@ -399,6 +399,9 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
+
+    /// Returns the size of the store in bytes, if known.
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -647,6 +650,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
         self.0.next_batch_token().await.map_err(Into::into)
+    }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        self.0.get_size().await.map_err(Into::into)
     }
 }
 

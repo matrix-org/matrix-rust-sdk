@@ -3237,6 +3237,54 @@ impl Client {
 
         Ok(())
     }
+
+    /// Returns the sizes of the existing stores, if known.
+    pub async fn get_store_sizes(&self) -> Result<StoreSizes> {
+        #[cfg(feature = "e2e-encryption")]
+        let crypto_store_size = if let Some(olm_machine) = self.olm_machine().await.as_ref()
+            && let Ok(Some(store_size)) = olm_machine.store().get_size().await
+        {
+            Some(store_size)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "e2e-encryption"))]
+        let crypto_store_size = None;
+
+        let state_store_size = self.state_store().get_size().await.ok().flatten();
+
+        let event_cache_store_size = if let Some(clean_lock) =
+            self.event_cache_store().lock().await?.as_clean()
+            && let Ok(Some(store_size)) = clean_lock.get_size().await
+        {
+            Some(store_size)
+        } else {
+            None
+        };
+
+        let media_store_size = self.media_store().lock().await?.get_size().await.ok().flatten();
+
+        Ok(StoreSizes {
+            crypto_store: crypto_store_size,
+            state_store: state_store_size,
+            event_cache_store: event_cache_store_size,
+            media_store: media_store_size,
+        })
+    }
+}
+
+/// Contains the disk size of the different stores, if known. It won't be
+/// available for in-memory stores.
+#[derive(Debug, Clone)]
+pub struct StoreSizes {
+    /// The size of the CryptoStore.
+    pub crypto_store: Option<usize>,
+    /// The size of the StateStore.
+    pub state_store: Option<usize>,
+    /// The size of the EventCacheStore.
+    pub event_cache_store: Option<usize>,
+    /// The size of the MediaStore.
+    pub media_store: Option<usize>,
 }
 
 #[cfg(any(feature = "testing", test))]

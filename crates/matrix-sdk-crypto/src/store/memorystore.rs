@@ -775,6 +775,10 @@ impl CryptoStore for MemoryStore {
     ) -> Result<Option<CrossProcessLockGeneration>> {
         Ok(try_take_leased_lock(&mut self.leases.write(), lease_duration_ms, key, holder))
     }
+
+    async fn get_size(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -1597,6 +1601,10 @@ mod integration_tests {
 
         async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
             self.0.next_batch_token().await
+        }
+
+        async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+            self.0.get_size().await
         }
     }
 

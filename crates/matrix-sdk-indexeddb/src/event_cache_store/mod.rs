@@ -564,6 +564,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        Ok(None)
+    }
 }
 
 #[cfg(all(test, target_family = "wasm"))]

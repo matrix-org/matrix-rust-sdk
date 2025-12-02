@@ -68,7 +68,7 @@ pub use authentication::{AuthApi, AuthSession, SessionTokens};
 #[cfg(feature = "experimental-search")]
 pub mod search_index;
 pub use client::{
-    Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange,
+    Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange, StoreSizes,
     sanitize_server_name,
 };
 pub use error::{

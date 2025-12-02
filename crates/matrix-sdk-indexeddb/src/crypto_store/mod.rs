@@ -1657,6 +1657,11 @@ impl_crypto_store! {
             None
         })
     }
+
+    #[allow(clippy::unused_async)]
+    async fn get_size(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
 }
 
 impl Drop for IndexeddbCryptoStore {
