@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `is_space` in `NotificationItem`, allowing clients to determine if the room that triggered the notification is a space.
 - [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
   and `profile`.
   ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))

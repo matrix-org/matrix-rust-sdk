@@ -881,6 +881,8 @@ pub struct NotificationItem {
     pub is_direct_message_room: bool,
     /// Numbers of members who joined the room.
     pub joined_members_count: u64,
+    /// Is the room a space?
+    pub is_space: bool,
 
     /// Is it a noisy notification? (i.e. does any push action contain a sound
     /// action)
@@ -982,6 +984,7 @@ impl NotificationItem {
                 .map(|state| state.is_encrypted())
                 .ok(),
             joined_members_count: room.joined_members_count(),
+            is_space: room.is_space(),
             is_noisy,
             has_mention,
             thread_id,
