@@ -22,9 +22,13 @@ use tokio::sync::RwLock;
 /// A collection of in-memory data that the `Client` might want to cache to
 /// avoid hitting the homeserver every time users request the data.
 pub(crate) struct ClientCaches {
-    /// Supported versions, either prefilled during building or fetched from the
-    /// server.
-    pub(super) supported_versions: RwLock<CachedValue<SupportedVersions>>,
+    /// The supported versions of the homeserver.
+    ///
+    /// We only want to cache:
+    ///
+    /// - The versions prefilled with `ClientBuilder::server_versions()`
+    /// - The versions fetched from an *authenticated* request to the server.
+    pub(crate) supported_versions: RwLock<CachedValue<SupportedVersions>>,
     /// Well-known information.
     pub(super) well_known: RwLock<CachedValue<Option<WellKnownResponse>>>,
     pub(crate) server_metadata: tokio::sync::Mutex<TtlCache<String, AuthorizationServerMetadata>>,
@@ -34,7 +38,7 @@ pub(crate) struct ClientCaches {
 /// between a value that is set to `None` (because it doesn't exist) and a value
 /// that has not been cached yet.
 #[derive(Clone)]
-pub(super) enum CachedValue<Value> {
+pub(crate) enum CachedValue<Value> {
     /// A value has been cached.
     Cached(Value),
     /// Nothing has been cached yet.

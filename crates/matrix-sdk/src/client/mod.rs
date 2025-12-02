@@ -1973,11 +1973,73 @@ impl Client {
         &self,
         request_config: Option<RequestConfig>,
     ) -> HttpResult<get_supported_versions::Response> {
-        let server_versions = self
-            .send_inner(get_supported_versions::Request::new(), request_config, Default::default())
-            .await?;
+        // Since this was called by the user, try to refresh the access token if
+        // necessary.
+        self.fetch_server_versions_inner(false, request_config).await
+    }
 
-        Ok(server_versions)
+    /// Fetches server versions from network; no caching.
+    ///
+    /// If the access token is expired and `failsafe` is `false`, this will
+    /// attempt to refresh the access token, otherwise this will try to make an
+    /// unauthenticated request instead.
+    pub(crate) async fn fetch_server_versions_inner(
+        &self,
+        failsafe: bool,
+        request_config: Option<RequestConfig>,
+    ) -> HttpResult<get_supported_versions::Response> {
+        if !failsafe {
+            // `Client::send()` handles refreshing access tokens.
+            return self
+                .send(get_supported_versions::Request::new())
+                .with_request_config(request_config)
+                .await;
+        }
+
+        let homeserver = self.homeserver().to_string();
+
+        // If we have a fresh access token, try with it first.
+        if !request_config.as_ref().is_some_and(|config| config.skip_auth && !config.force_auth)
+            && self.auth_ctx().has_valid_access_token()
+            && let Some(access_token) = self.access_token()
+        {
+            let result = self
+                .inner
+                .http_client
+                .send(
+                    get_supported_versions::Request::new(),
+                    request_config,
+                    homeserver.clone(),
+                    Some(&access_token),
+                    (),
+                    Default::default(),
+                )
+                .await;
+
+            if let Err(Some(ErrorKind::UnknownToken { .. })) =
+                result.as_ref().map_err(HttpError::client_api_error_kind)
+            {
+                // If the access token is actually expired, mark it as expired and fallback to
+                // the unauthenticated request below.
+                self.auth_ctx().set_access_token_expired(&access_token);
+            } else {
+                // If the request succeeded or it's an other error, just stop now.
+                return result;
+            }
+        }
+
+        // Try without authentication.
+        self.inner
+            .http_client
+            .send(
+                get_supported_versions::Request::new(),
+                request_config,
+                homeserver.clone(),
+                None,
+                (),
+                Default::default(),
+            )
+            .await
     }
 
     /// Fetches client well_known from network; no caching.
@@ -2017,7 +2079,13 @@ impl Client {
 
     /// Load supported versions from storage, or fetch them from network and
     /// cache them.
-    async fn load_or_fetch_supported_versions(&self) -> HttpResult<SupportedVersionsResponse> {
+    ///
+    /// If `failsafe` is true, this will try to minimize side effects to avoid
+    /// possible deadlocks.
+    async fn load_or_fetch_supported_versions(
+        &self,
+        failsafe: bool,
+    ) -> HttpResult<SupportedVersionsResponse> {
         match self.state_store().get_kv_data(StateStoreDataKey::SupportedVersions).await {
             Ok(Some(stored)) => {
                 if let Some(supported_versions) =
@@ -2035,7 +2103,7 @@ impl Client {
             }
         }
 
-        let server_versions = self.fetch_server_versions(None).await?;
+        let server_versions = self.fetch_server_versions_inner(failsafe, None).await?;
         let supported_versions = SupportedVersionsResponse {
             versions: server_versions.versions,
             unstable_features: server_versions.unstable_features,
@@ -2097,6 +2165,18 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn supported_versions(&self) -> HttpResult<SupportedVersions> {
+        self.supported_versions_inner(false).await
+    }
+
+    /// Get the Matrix versions and features supported by the homeserver by
+    /// fetching them from the server or the cache.
+    ///
+    /// If `failsafe` is true, this will try to minimize side effects to avoid
+    /// possible deadlocks.
+    pub(crate) async fn supported_versions_inner(
+        &self,
+        failsafe: bool,
+    ) -> HttpResult<SupportedVersions> {
         let cached_supported_versions = &self.inner.caches.supported_versions;
         if let CachedValue::Cached(val) = &*cached_supported_versions.read().await {
             return Ok(val.clone());
@@ -2107,7 +2187,7 @@ impl Client {
             return Ok(val.clone());
         }
 
-        let supported = self.load_or_fetch_supported_versions().await?;
+        let supported = self.load_or_fetch_supported_versions(failsafe).await?;
 
         // Fill both unstable features and server versions at once.
         let mut supported_versions = supported.supported_versions();
@@ -3567,6 +3647,7 @@ pub(crate) mod tests {
 
         let versions_mock = server
             .mock_versions()
+            .expect_default_access_token()
             .ok_with_unstable_features()
             .named("first versions mock")
             .expect(1)
@@ -3588,6 +3669,8 @@ pub(crate) mod tests {
 
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
+        // The result was cached.
+        assert_matches!(client.supported_versions_cached().await, Ok(Some(_)));
         // This subsequent call hits the in-memory cache.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
