@@ -108,8 +108,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         key: &str,
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>, IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-
         let transaction =
             self.transaction(&[Lease::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
 
