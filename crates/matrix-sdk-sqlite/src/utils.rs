@@ -202,6 +202,15 @@ pub(crate) trait SqliteAsyncConnExt {
 
         Ok(())
     }
+
+    async fn get_db_size(&self) -> Result<usize> {
+        let page_size =
+            self.query_row("PRAGMA page_size;", (), |row| row.get::<_, usize>(0)).await?;
+        let total_pages =
+            self.query_row("PRAGMA page_count;", (), |row| row.get::<_, usize>(0)).await?;
+
+        Ok(total_pages * page_size)
+    }
 }
 
 #[async_trait]

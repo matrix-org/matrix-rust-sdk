@@ -223,6 +223,10 @@ impl SqliteEventCacheStore {
     pub async fn vacuum(&self) -> Result<()> {
         self.write_connection.lock().await.vacuum().await
     }
+
+    async fn get_db_size(&self) -> Result<Option<usize>> {
+        Ok(Some(self.pool.get().await?.get_db_size().await?))
+    }
 }
 
 struct EncodedEvent {
@@ -1433,6 +1437,10 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(self.vacuum().await?)
+    }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        self.get_db_size().await
     }
 }
 

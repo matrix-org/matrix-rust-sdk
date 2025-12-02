@@ -521,6 +521,9 @@ pub trait StateStore: AsyncTraitDeps {
     /// source of performance issues, **DO NOT use in production**.
     #[doc(hidden)]
     async fn optimize(&self) -> Result<(), Self::Error>;
+
+    /// Returns the size of the store in bytes, if known.
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -843,6 +846,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn optimize(&self) -> Result<(), Self::Error> {
         self.0.optimize().await.map_err(Into::into)
+    }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        self.0.get_size().await.map_err(Into::into)
     }
 }
 

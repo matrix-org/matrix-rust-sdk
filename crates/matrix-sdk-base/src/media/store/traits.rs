@@ -173,6 +173,9 @@ pub trait MediaStore: AsyncTraitDeps {
     /// source of performance issues, **DO NOT use in production**.
     #[doc(hidden)]
     async fn optimize(&self) -> Result<(), Self::Error>;
+
+    /// Returns the size of the store in bytes, if known.
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
 }
 
 /// An abstract trait that can be used to implement different store backends
@@ -392,6 +395,10 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
 
     async fn optimize(&self) -> Result<(), Self::Error> {
         self.0.optimize().await.map_err(Into::into)
+    }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        self.0.get_size().await.map_err(Into::into)
     }
 }
 

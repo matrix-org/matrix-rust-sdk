@@ -498,6 +498,11 @@ impl SqliteStateStore {
     pub async fn vacuum(&self) -> Result<()> {
         self.write_connection.lock().await.vacuum().await
     }
+
+    pub async fn get_db_size(&self) -> Result<Option<usize>> {
+        let read_conn = self.pool.get().await?;
+        Ok(Some(read_conn.get_db_size().await?))
+    }
 }
 
 impl EncryptableStore for SqliteStateStore {
@@ -2271,8 +2276,12 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
-    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+    async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(self.vacuum().await?)
+    }
+
+    async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+        self.get_db_size().await
     }
 }
 
