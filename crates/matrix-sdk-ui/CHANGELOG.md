@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `is_space` in `NotificationItem`, allowing clients to determine if the room that triggered the notification is a space.
 - [**breaking**] The `LatestEventValue::Local` type gains 2 new fields: `sender`
   and `profile`.
   ([#5885](https://github.com/matrix-org/matrix-rust-sdk/pull/5885))
@@ -17,7 +18,6 @@ All notable changes to this project will be documented in this file.
   ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
 - Add support for top level space ordering through [MSC3230](https://github.com/matrix-org/matrix-spec-proposals/pull/3230)
   and `m.space_order` room account data fields ([#5799](https://github.com/matrix-org/matrix-rust-sdk/pull/5799))
-- Expose `is_space` in `NotificationItem`, allowing clients to determine if the room that triggered the notification is a space.
 
 ### Refactor
 
