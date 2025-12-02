@@ -394,7 +394,7 @@ impl MediaStore for SqliteMediaStore {
         self.media_service.clean(self).await
     }
 
-    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+    async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(self.vacuum().await?)
     }
 }

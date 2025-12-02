@@ -251,7 +251,7 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn optimize(&self) -> std::result::Result<(), Self::Error> {
+    async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
