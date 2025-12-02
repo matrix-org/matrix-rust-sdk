@@ -167,9 +167,6 @@ impl SqliteEventCacheStore {
     /// Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        trace!("Taking a `read` connection");
-        let _timer = timer!("connection");
-
         let connection = self.pool.get().await?;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
@@ -184,9 +181,6 @@ impl SqliteEventCacheStore {
     /// Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
-        trace!("Taking a `write` connection");
-        let _timer = timer!("connection");
-
         let connection = self.write_connection.clone().lock_owned().await;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
@@ -505,8 +499,6 @@ impl EventCacheStore for SqliteEventCacheStore {
         key: &str,
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>> {
-        let _timer = timer!("method");
-
         let key = key.to_owned();
         let holder = holder.to_owned();
 

@@ -16,7 +16,7 @@ use matrix_sdk_base::{
         QueuedRequestKind, RoomLoadSettings, SentRequestKey, StoredThreadSubscription,
         ThreadSubscriptionStatus,
     },
-    timer, MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -462,18 +462,12 @@ impl SqliteStateStore {
     /// Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        trace!("Taking a `read` connection");
-        let _timer = timer!("connection");
-
         Ok(self.pool.get().await?)
     }
 
     /// Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
-        trace!("Taking a `write` connection");
-        let _timer = timer!("connection");
-
         self.write_connection.clone().lock_owned().await
     }
 

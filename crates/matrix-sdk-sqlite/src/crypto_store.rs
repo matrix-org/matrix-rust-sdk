@@ -20,7 +20,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use matrix_sdk_base::{cross_process_lock::CrossProcessLockGeneration, timer};
+use matrix_sdk_base::cross_process_lock::CrossProcessLockGeneration;
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -1501,8 +1501,6 @@ impl CryptoStore for SqliteCryptoStore {
         key: &str,
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>> {
-        let _timer = timer!("method");
-
         let key = key.to_owned();
         let holder = holder.to_owned();
 

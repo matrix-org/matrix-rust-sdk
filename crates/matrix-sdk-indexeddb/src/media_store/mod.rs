@@ -111,8 +111,6 @@ impl MediaStore for IndexeddbMediaStore {
         key: &str,
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>, IndexeddbMediaStoreError> {
-        let _timer = timer!("method");
-
         let transaction = self.transaction(&[Lease::OBJECT_STORE], TransactionMode::Readwrite)?;
 
         let now = Duration::from_millis(MilliSecondsSinceUnixEpoch::now().get().into());
