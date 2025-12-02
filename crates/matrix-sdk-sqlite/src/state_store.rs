@@ -1891,7 +1891,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         let content = self.serialize_json(&content)?;
-        // See comment in [`Self::save_send_queue_event`] to understand why the
+        // See comment in [`Self::save_send_queue_request`] to understand why the
         // transaction id is neither encrypted or hashed.
         let transaction_id = transaction_id.to_string();
 
@@ -1912,7 +1912,7 @@ impl StateStore for SqliteStateStore {
     ) -> Result<bool, Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let transaction_id = transaction_id.to_string();
 
         let num_deleted = self
@@ -1937,7 +1937,7 @@ impl StateStore for SqliteStateStore {
 
         // Note: ROWID is always present and is an auto-incremented integer counter. We
         // want to maintain the insertion order, so we can sort using it.
-        // Note 2: transaction_id is not encoded, see why in `save_send_queue_event`.
+        // Note 2: transaction_id is not encoded, see why in `save_send_queue_request`.
         let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize, Option<u64>)> = self
             .read()
             .await?
@@ -1979,7 +1979,7 @@ impl StateStore for SqliteStateStore {
     ) -> Result<(), Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let transaction_id = transaction_id.to_string();
 
         // Serialize the error to json bytes (encrypted if option is enabled) if set.
@@ -2028,7 +2028,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&content)?;
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let parent_txn_id = parent_txn_id.to_string();
         let own_txn_id = own_txn_id.to_string();
 
@@ -2062,7 +2062,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&new_content)?;
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let own_txn_id = own_transaction_id.to_string();
 
         let num_updated = self
@@ -2095,7 +2095,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let parent_key = self.serialize_value(&parent_key)?;
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let parent_txn_id = parent_txn_id.to_string();
 
         self.write()
@@ -2116,7 +2116,7 @@ impl StateStore for SqliteStateStore {
     ) -> Result<bool> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
-        // See comment in `save_send_queue_event`.
+        // See comment in `save_send_queue_request`.
         let txn_id = txn_id.to_string();
 
         let num_deleted = self
@@ -2139,7 +2139,7 @@ impl StateStore for SqliteStateStore {
     ) -> Result<Vec<DependentQueuedRequest>> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
-        // Note: transaction_id is not encoded, see why in `save_send_queue_event`.
+        // Note: transaction_id is not encoded, see why in `save_send_queue_request`.
         let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, Option<u64>)> = self
             .read()
             .await?
