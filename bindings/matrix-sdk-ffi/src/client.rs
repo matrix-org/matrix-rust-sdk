@@ -365,6 +365,11 @@ impl Client {
         Ok(self.inner.optimize_stores().await?)
     }
 
+    /// Returns the sizes of the existing stores, if known.
+    pub async fn get_store_sizes(&self) -> Result<StoreSizes, ClientError> {
+        Ok(self.inner.get_store_sizes().await?.into())
+    }
+
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oauth = self.inner.oauth();
@@ -2854,6 +2859,31 @@ impl TryFrom<RumaAllowRule> for AllowRule {
                 Ok(Self::Custom { json })
             }
             _ => Err(format!("Invalid AllowRule: {value:?}")),
+        }
+    }
+}
+
+/// Contains the disk size of the different stores, if known. It won't be
+/// available for in-memory stores.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StoreSizes {
+    /// The size of the CryptoStore.
+    crypto_store: Option<u64>,
+    /// The size of the StateStore.
+    state_store: Option<u64>,
+    /// The size of the EventCacheStore.
+    event_cache_store: Option<u64>,
+    /// The size of the MediaStore.
+    media_store: Option<u64>,
+}
+
+impl From<matrix_sdk::StoreSizes> for StoreSizes {
+    fn from(value: matrix_sdk::StoreSizes) -> Self {
+        Self {
+            crypto_store: value.crypto_store.map(|v| v as u64),
+            state_store: value.state_store.map(|v| v as u64),
+            event_cache_store: value.event_cache_store.map(|v| v as u64),
+            media_store: value.media_store.map(|v| v as u64),
         }
     }
 }
