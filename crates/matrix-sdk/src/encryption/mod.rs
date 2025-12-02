@@ -62,7 +62,7 @@ use ruma::{
         to_device::send_event_to_device::v3::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
-        uiaa::{AuthData, UiaaInfo},
+        uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
@@ -337,7 +337,7 @@ pub enum CrossSigningResetAuthType {
 impl CrossSigningResetAuthType {
     fn new(error: &HttpError) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
-            if let Ok(auth_info) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
+            if let Ok(Some(auth_info)) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
                 Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
                 Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
@@ -357,30 +357,13 @@ pub struct OAuthCrossSigningResetInfo {
 }
 
 impl OAuthCrossSigningResetInfo {
-    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
-        let parameters = serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(
-            auth_info.params.as_ref().map(|value| value.get()).unwrap_or_default(),
-        )?;
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Option<Self>> {
+        let Some(parameters) = auth_info.params::<OAuthParams>(&AuthType::OAuth)? else {
+            return Ok(None);
+        };
 
-        Ok(OAuthCrossSigningResetInfo { approval_url: parameters.reset.url })
+        Ok(Some(OAuthCrossSigningResetInfo { approval_url: parameters.url.as_str().try_into()? }))
     }
-}
-
-/// The parsed `parameters` part of a [`ruma::api::client::uiaa::UiaaInfo`]
-/// response
-#[derive(Debug, Deserialize)]
-struct OAuthCrossSigningResetUiaaParameters {
-    /// The URL where the user can approve the reset of the cross-signing keys.
-    #[serde(rename = "org.matrix.cross_signing_reset")]
-    reset: OAuthCrossSigningResetUiaaResetParameter,
-}
-
-/// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
-/// dictionary.
-#[derive(Debug, Deserialize)]
-struct OAuthCrossSigningResetUiaaResetParameter {
-    /// The URL where the user can approve the reset of the cross-signing keys.
-    url: Url,
 }
 
 /// A struct that helps to parse the custom error message Synapse posts if a
