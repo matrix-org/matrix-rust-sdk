@@ -48,6 +48,20 @@ impl fmt::Debug for SessionTokens {
     }
 }
 
+/// The tokens for a user session and their state.
+pub(crate) struct SessionTokensState {
+    /// The inner tokens.
+    inner: SessionTokens,
+
+    /// Whether the access token is expired.
+    ///
+    /// We keep track of this information here, rather than dropping the access
+    /// token, because we still want to make most requests with the expired
+    /// access token to try to refresh it, or wait for it to be refreshed. If we
+    /// make a request without the access token we will get the wrong error.
+    access_token_expired: bool,
+}
+
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
 
 #[cfg(not(target_family = "wasm"))]
@@ -83,8 +97,8 @@ pub(crate) struct AuthCtx {
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
 
-    /// The current session tokens.
-    tokens: OnceCell<Mutex<SessionTokens>>,
+    /// The current session tokens and their state.
+    tokens: OnceCell<Mutex<SessionTokensState>>,
 
     /// A callback called whenever we need an absolute source of truth for the
     /// current session tokens.
@@ -119,20 +133,45 @@ impl AuthCtx {
 
     /// The current session tokens.
     pub(crate) fn session_tokens(&self) -> Option<SessionTokens> {
-        Some(self.tokens.get()?.lock().clone())
+        Some(self.tokens.get()?.lock().inner.clone())
     }
 
     /// The current access token.
     pub(crate) fn access_token(&self) -> Option<String> {
-        Some(self.tokens.get()?.lock().access_token.clone())
+        Some(self.tokens.get()?.lock().inner.access_token.clone())
+    }
+
+    /// Whether we have a valid session token.
+    pub(crate) fn has_valid_access_token(&self) -> bool {
+        self.tokens.get().is_some_and(|tokens| !tokens.lock().access_token_expired)
     }
 
     /// Set the current session tokens.
     pub(crate) fn set_session_tokens(&self, session_tokens: SessionTokens) {
+        let session_tokens = SessionTokensState {
+            inner: session_tokens,
+            // We just got the tokens, so we assume that they are not expired.
+            access_token_expired: false,
+        };
+
         if let Some(tokens) = self.tokens.get() {
             *tokens.lock() = session_tokens;
         } else {
             let _ = self.tokens.set(Mutex::new(session_tokens));
+        }
+    }
+
+    /// Set the given access token as expired.
+    ///
+    /// We take the value of the access token to make sure that we don't mark
+    /// the wrong access token as expired.
+    pub(crate) fn set_access_token_expired(&self, access_token: &str) {
+        if let Some(tokens) = self.tokens.get() {
+            let mut tokens = tokens.lock();
+
+            if tokens.inner.access_token == access_token {
+                tokens.access_token_expired = true;
+            }
         }
     }
 }
