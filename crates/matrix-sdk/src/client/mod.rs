@@ -3230,7 +3230,9 @@ impl Client {
         self.state_store().optimize().await?;
 
         trace!("Optimizing event cache store...");
-        self.event_cache_store().lock().await?.as_clean().unwrap().optimize().await?;
+        if let Some(clean_lock) = self.event_cache_store().lock().await?.as_clean() {
+            clean_lock.optimize().await?;
+        }
 
         trace!("Optimizing media store...");
         self.media_store().lock().await?.optimize().await?;
