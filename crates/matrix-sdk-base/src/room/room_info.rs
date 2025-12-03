@@ -224,7 +224,7 @@ impl BaseRoomInfo {
                 | JoinRule::Restricted(_)
                 | JoinRule::KnockRestricted(_)
                 | JoinRule::Public => self.join_rules = Some(c.into()),
-                r => warn!("Encountered a custom joine rule {}, skipping", r.as_str()),
+                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
             },
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
@@ -307,7 +307,7 @@ impl BaseRoomInfo {
                 | JoinRule::Restricted(_)
                 | JoinRule::KnockRestricted(_)
                 | JoinRule::Public => self.join_rules = Some(c.into()),
-                r => warn!("Encountered a custom joine rule {}, skipping", r.as_str()),
+                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
             },
             AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
