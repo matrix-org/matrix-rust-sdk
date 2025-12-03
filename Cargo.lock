@@ -2698,43 +2698,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
-name = "indexed_db_futures"
-version = "0.6.4"
-source = "git+https://github.com/matrix-org/rust-indexed-db?rev=201caac274e38756c6e523ba7cf84ffb625b7c48#201caac274e38756c6e523ba7cf84ffb625b7c48"
-dependencies = [
- "accessory",
- "cfg-if",
- "delegate-display",
- "derive_more 2.0.1",
- "fancy_constructor",
- "futures-core",
- "indexed_db_futures_macros_internal",
- "js-sys",
- "sealed",
- "serde",
- "serde-wasm-bindgen",
- "smallvec",
- "thiserror 2.0.17",
- "tokio",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm_evt_listener",
- "web-sys",
- "web-time",
-]
-
-[[package]]
-name = "indexed_db_futures_macros_internal"
-version = "1.0.0"
-source = "git+https://github.com/matrix-org/rust-indexed-db?rev=201caac274e38756c6e523ba7cf84ffb625b7c48#201caac274e38756c6e523ba7cf84ffb625b7c48"
-dependencies = [
- "macroific",
- "proc-macro2",
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3473,13 +3436,13 @@ dependencies = [
  "gloo-utils",
  "growable-bloom-filter",
  "hkdf",
- "indexed_db_futures",
  "js-sys",
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
+ "matrix_indexed_db_futures",
  "rand 0.8.5",
  "rmp-serde",
  "ruma",
@@ -3704,6 +3667,45 @@ dependencies = [
  "uniffi",
  "url",
  "wiremock",
+]
+
+[[package]]
+name = "matrix_indexed_db_futures"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "245ff6a224b4df7b0c90dda2dd5a6eb46112708d49e8bdd8b007fccb09fea8e4"
+dependencies = [
+ "accessory",
+ "cfg-if",
+ "delegate-display",
+ "derive_more 2.0.1",
+ "fancy_constructor",
+ "futures-core",
+ "js-sys",
+ "matrix_indexed_db_futures_macros_internal",
+ "sealed",
+ "serde",
+ "serde-wasm-bindgen",
+ "smallvec",
+ "thiserror 2.0.17",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm_evt_listener",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
+name = "matrix_indexed_db_futures_macros_internal"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b428aee5c0fe9e5babd29e99d289b7f64718c444989aac0442d1fd6d3e3f66d1"
+dependencies = [
+ "macroific",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
 ]
 
 [[package]]
