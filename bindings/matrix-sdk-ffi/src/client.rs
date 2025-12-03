@@ -1870,6 +1870,12 @@ impl Client {
             .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
     }
 
+    /// Checks if the server supports login using a QR code.
+    pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
+        Ok(matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_)))
+            && self.inner.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108))
+    }
+
     /// Get server vendor information from the federation API.
     ///
     /// This method retrieves information about the server's name and version
