@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
 
 ## [0.15.0] - 2025-11-27
 
+### Security Fixes
+
+- Skip the serialization of custom join rules in the `RoomInfo` which prevented
+  the processing of sync responses containing events with custom join rules.
+  ([#5924](https://github.com/matrix-org/matrix-rust-sdk/pull/5924))
+
 ### Refactor
 
 - [**breaking**] Upgrade Ruma to version 0.14.0.

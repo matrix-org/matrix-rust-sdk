@@ -17,7 +17,8 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent,
+    StrippedStateTestEvent, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
@@ -61,6 +62,7 @@ use ruma::{
 };
 use serde_json::{Value as JsonValue, json};
 use stream_assert::{assert_next_matches, assert_pending};
+use tempfile::tempdir;
 use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
     Mock, Request, ResponseTemplate,
@@ -1823,4 +1825,84 @@ async fn test_sync_thread_subscriptions_with_catchup() {
     // room_get_thread_subscription endpoint for thread3.)
     let sub3 = room1.load_or_fetch_thread_subscription(&thread3).await.unwrap();
     assert_eq!(sub3, Some(matrix_sdk::room::ThreadSubscription { automatic: false }));
+}
+
+#[async_test]
+#[cfg(feature = "sqlite")]
+async fn test_sync_processing_of_custom_join_rule() {
+    let tempdir = tempdir().unwrap();
+
+    let room_id = room_id!("!room0:matrix.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.sqlite_store(tempdir.path(), None))
+        .build()
+        .await;
+
+    server
+        .mock_sync()
+        .ok(|builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
+                StateTestEvent::Custom(json!({
+                        "content": {
+                            "join_rule": "my_custom_rule"
+                        },
+                        "event_id": "$15139375513VdeRF:localhost",
+                        "origin_server_ts": 151393755,
+                        "sender": "@example:localhost",
+                        "state_key": "",
+                        "type": "m.room.join_rules",
+                })),
+            ));
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    client
+        .sync_once(Default::default())
+        .await
+        .expect("We should be able to process the sync despite there being a custom join rule");
+}
+
+#[async_test]
+#[cfg(feature = "sqlite")]
+async fn test_sync_processing_of_custom_stripped_join_rule() {
+    let tempdir = tempdir().unwrap();
+
+    let room_id = room_id!("!room0:matrix.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.sqlite_store(tempdir.path(), None))
+        .build()
+        .await;
+
+    server
+        .mock_sync()
+        .ok(|builder| {
+            builder.add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
+                StrippedStateTestEvent::Custom(json!({
+                        "content": {
+                            "join_rule": "my_custom_rule"
+                        },
+                        "event_id": "$15139375513VdeRF:localhost",
+                        "origin_server_ts": 151393755,
+                        "sender": "@example:localhost",
+                        "state_key": "",
+                        "type": "m.room.join_rules",
+                })),
+            ));
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    client
+        .sync_once(Default::default())
+        .await
+        .expect("We should be able to process the sync despite there being a custom join rule");
 }

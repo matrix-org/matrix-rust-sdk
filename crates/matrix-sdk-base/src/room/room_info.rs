@@ -217,9 +217,15 @@ impl BaseRoomInfo {
             AnySyncStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = Some(g.into());
             }
-            AnySyncStateEvent::RoomJoinRules(c) => {
-                self.join_rules = Some(c.into());
-            }
+            AnySyncStateEvent::RoomJoinRules(c) => match c.join_rule() {
+                JoinRule::Invite
+                | JoinRule::Knock
+                | JoinRule::Private
+                | JoinRule::Restricted(_)
+                | JoinRule::KnockRestricted(_)
+                | JoinRule::Public => self.join_rules = Some(c.into()),
+                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
+            },
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
             }
@@ -294,9 +300,15 @@ impl BaseRoomInfo {
             AnyStrippedStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = Some(g.into());
             }
-            AnyStrippedStateEvent::RoomJoinRules(c) => {
-                self.join_rules = Some(c.into());
-            }
+            AnyStrippedStateEvent::RoomJoinRules(c) => match &c.content.join_rule {
+                JoinRule::Invite
+                | JoinRule::Knock
+                | JoinRule::Private
+                | JoinRule::Restricted(_)
+                | JoinRule::KnockRestricted(_)
+                | JoinRule::Public => self.join_rules = Some(c.into()),
+                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
+            },
             AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
             }
