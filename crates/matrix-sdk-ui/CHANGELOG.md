@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.16.0] - 2025-12-04
+
 ### Features
 
 - [**breaking**] `TimelineBuilder::track_read_marker_and_receipts` now takes a parameter to allow tracking to be enabled

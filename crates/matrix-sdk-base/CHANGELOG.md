@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.16.0] - 2025-12-04
+
 ### Refactor
 
 - [**breaking**] `ServerInfo` has been renamed to `SupportedVersionsResponse`,
