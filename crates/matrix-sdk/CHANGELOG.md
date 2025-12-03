@@ -11,20 +11,6 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - Add `Client::get_store_sizes()` so to query the size of the existing stores, if available. ([#5911](https://github.com/matrix-org/matrix-rust-sdk/pull/5911))
-
-### Refactor
-
-- [**breaking**]: `Client::server_vendor_info()` requires to enable the
-  `federation-api` feature.
-  ([#5912](https://github.com/matrix-org/matrix-rust-sdk/pull/5912))
-- [**breaking**]: `Client::reset_server_info()` has been split into
-  `reset_supported_versions()` and `reset_well_known()`.
-  ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
-
-## [0.15.0] - 2025-11-27
-
-### Features
-
 - Add `QRCodeLoginError::NotFound` for non-existing / expired rendezvous sessions
   ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - Add `QRCodeGrantLoginError::NotFound` for non-existing / expired rendezvous sessions
@@ -72,6 +58,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: `Client::server_vendor_info()` requires to enable the
+  `federation-api` feature.
+  ([#5912](https://github.com/matrix-org/matrix-rust-sdk/pull/5912))
+- [**breaking**]: `Client::reset_server_info()` has been split into
+  `reset_supported_versions()` and `reset_well_known()`.
+  ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
 - [**breaking**]: `Client::send()` has extra bounds where
   `Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>` and
   `Request::PathBuilder: SupportedPathBuilder`. This method should still work for any request to the

@@ -8,8 +8,6 @@ All notable changes to this project will be documented in this file.
 
 ## [0.16.0] - 2025-12-04
 
-## [0.15.0] - 2025-11-27
-
 ### Features
 
 - Implement new method `CryptoStore::get_withheld_sessions_by_room_id`.

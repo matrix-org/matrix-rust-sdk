@@ -8,8 +8,6 @@ All notable changes to this project will be documented in this file.
 
 ## [0.16.0] - 2025-12-04
 
-## [0.15.0] - 2025-11-27
-
 ### Features
 
 - [**breaking**] Cross-process lock can be dirty. The `CrossProcess::try_lock_once` now returns a new type `CrossProcessResult`, which is an enum with `Clean`, `Dirty` or `Unobtained` variants. When the lock is dirty it means it's been acquired once, then acquired another time from another holder, so the current holder may want to refresh its internal state.

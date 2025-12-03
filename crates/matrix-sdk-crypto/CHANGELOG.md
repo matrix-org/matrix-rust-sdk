@@ -8,8 +8,6 @@ All notable changes to this project will be documented in this file.
 
 ## [0.16.0] - 2025-12-04
 
-## [0.15.0] - 2025-11-27
-
 ### Features
 
 - When we receive an inbound Megolm session from two different sources, merge the two copies together to get the best of both.

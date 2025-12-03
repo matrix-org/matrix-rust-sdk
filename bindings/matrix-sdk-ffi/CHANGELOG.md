@@ -8,10 +8,6 @@ All notable changes to this project will be documented in this file.
 
 ## [0.16.0] - 2025-12-04
 
-### Features
-
-- Add `Client::get_store_sizes()` so to query the size of the existing stores, if available. ([#5911](https://github.com/matrix-org/matrix-rust-sdk/pull/5911))
-
 ### Breaking changes
 
 - `TimelineConfiguration::track_read_receipts`'s type is now an enum to allow tracking to be enabled for all events
@@ -20,11 +16,6 @@ All notable changes to this project will be documented in this file.
 - `Client::reset_server_info()` has been split into `reset_supported_versions()`
   and `reset_well_known()`.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
-
-## [0.15.0] - 2025-11-27
-
-### Breaking changes
-
 - Add `HumanQrLoginError::NotFound` for non-existing / expired rendezvous sessions
   ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - Add `HumanQrGrantLoginError::NotFound` for non-existing / expired rendezvous sessions
@@ -93,6 +84,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::get_store_sizes()` so to query the size of the existing stores, if available. ([#5911](https://github.com/matrix-org/matrix-rust-sdk/pull/5911))
 - Expose `is_space` in `NotificationRoomInfo`, allowing clients to determine if the room that triggered the notification is a space.
 - Add push actions to `NotificationItem` and replace `SyncNotification` with `NotificationItem`.
   ([#5835](https://github.com/matrix-org/matrix-rust-sdk/pull/5835))
