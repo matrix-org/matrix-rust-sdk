@@ -626,15 +626,12 @@ impl LatestEventValueBuilder {
                 // First, compute the new value. Then we remove the sent local event from the
                 // buffer.
                 //
-                // Why in this order? Because in between sending and remote echoing, the event
-                // will only be stored as a local echo and not as a full event in the event
-                // cache. Just after sending, it won't show up as a `LatestEventValue` as it
-                // will immediately be replaced by an event from the event cache. By computing
-                // the new value before removing it from the buffer, we ensure the
-                // `LatestEventValue` represents the just sent local event.
-                //
-                // Note: the next sync may not include the just sent local event. This is a race
-                // condition we are aware of, see https://github.com/matrix-org/matrix-rust-sdk/issues/3941.
+                // Why in this order? Because even if the Send Queue inserts the sent event in
+                // the Event Cache, the Send Queue sends its updates (this update) before the
+                // insertion in the Event Cache. Thus, the Event Cache isn't yet aware of the
+                // newly sent event yet at this time of execution. Computing the
+                // `LatestEventValue` from the local ones ensure no hide-and-seek game with the
+                // event before it lands in the Event Cache.
                 let value = Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
                     room_event_cache,
