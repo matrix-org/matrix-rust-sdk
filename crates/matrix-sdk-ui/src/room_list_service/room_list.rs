@@ -420,10 +420,10 @@ pub struct RoomListItem {
     /// The inner room.
     inner: Room,
 
-    /// Cache of `Room::new_latest_event_timestamp`.
+    /// Cache of `Room::latest_event_timestamp`.
     pub(super) cached_latest_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
-    /// Cache of `Room::new_latest_event_is_local`.
+    /// Cache of `Room::latest_event_is_local`.
     pub(super) cached_latest_event_is_local: bool,
 
     /// Cache of `Room::recency_stamp`.
@@ -447,8 +447,8 @@ impl RoomListItem {
 
     /// Refresh the cached data.
     pub(super) fn refresh_cached_data(&mut self) {
-        self.cached_latest_event_timestamp = self.inner.new_latest_event_timestamp();
-        self.cached_latest_event_is_local = self.inner.new_latest_event_is_local();
+        self.cached_latest_event_timestamp = self.inner.latest_event_timestamp();
+        self.cached_latest_event_is_local = self.inner.latest_event_is_local();
         self.cached_recency_stamp = self.inner.recency_stamp();
         self.cached_display_name = self.inner.cached_display_name().map(|name| name.to_string());
         self.cached_is_space = self.inner.is_space();
@@ -458,8 +458,8 @@ impl RoomListItem {
 
 impl From<Room> for RoomListItem {
     fn from(inner: Room) -> Self {
-        let cached_latest_event_timestamp = inner.new_latest_event_timestamp();
-        let cached_latest_event_is_local = inner.new_latest_event_is_local();
+        let cached_latest_event_timestamp = inner.latest_event_timestamp();
+        let cached_latest_event_is_local = inner.latest_event_is_local();
         let cached_recency_stamp = inner.recency_stamp();
         let cached_display_name = inner.cached_display_name().map(|name| name.to_string());
         let cached_is_space = inner.is_space();

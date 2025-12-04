@@ -115,7 +115,7 @@ impl RoomInfoV1 {
             last_prev_batch,
             sync_info,
             encryption_state_synced,
-            new_latest_event: LatestEventValue::None,
+            latest_event_value: LatestEventValue::None,
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),

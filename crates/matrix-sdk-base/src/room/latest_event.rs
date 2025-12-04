@@ -20,19 +20,19 @@ use crate::latest_event::LatestEventValue;
 impl Room {
     /// Return the [`LatestEventValue`] of this room.
     ///
-    /// Note that it clones the [`LatestEventValue`]! This can be add pressure
+    /// Note that it clones the [`LatestEventValue`]! This can add pressure
     /// on the memory if used in a hot path.
-    pub fn new_latest_event(&self) -> LatestEventValue {
-        self.info.read().new_latest_event.clone()
+    pub fn latest_event(&self) -> LatestEventValue {
+        self.info.read().latest_event_value.clone()
     }
 
     /// Return the value of [`LatestEventValue::timestamp`].
-    pub fn new_latest_event_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.info.read().new_latest_event.timestamp()
+    pub fn latest_event_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.info.read().latest_event_value.timestamp()
     }
 
     /// Return the value of [`LatestEventValue::is_local`].
-    pub fn new_latest_event_is_local(&self) -> bool {
-        self.info.read().new_latest_event.is_local()
+    pub fn latest_event_is_local(&self) -> bool {
+        self.info.read().latest_event_value.is_local()
     }
 }
