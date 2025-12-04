@@ -15,9 +15,15 @@
 use std::{fmt::Formatter, sync::Arc};
 
 use futures_util::{StreamExt, stream};
-use matrix_sdk::{BoxFuture, Room, SendOutsideWasm, SyncOutsideWasm, config::RequestConfig};
+use matrix_sdk::{
+    BoxFuture, Room, SendOutsideWasm, SyncOutsideWasm,
+    config::RequestConfig,
+    room::{IncludeRelations, RelationsOptions},
+};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, events::relation::RelationType};
+use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, events::relation::RelationType, uint,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
@@ -180,7 +186,28 @@ impl PinnedEventsRoom for Room {
             }
 
             debug!("Loading pinned event {event_id} from HS");
-            self.event(event_id, request_config).await.map(|e| (e, Vec::new()))
+            let event = self.event(event_id, request_config).await?;
+
+            debug!("Loading relations of pinned event {event_id} from HS");
+            let mut related_events = Vec::new();
+            let mut opts = RelationsOptions {
+                include_relations: IncludeRelations::AllRelations,
+                recurse: true,
+                limit: Some(uint!(1000)),
+                ..Default::default()
+            };
+
+            loop {
+                let relations = self.relations(event_id.to_owned(), opts.clone()).await?;
+                related_events.extend(relations.chunk);
+                if let Some(next_from) = relations.next_batch_token {
+                    opts.from = Some(next_from);
+                } else {
+                    break;
+                }
+            }
+
+            Ok((event, related_events))
         })
     }
 
