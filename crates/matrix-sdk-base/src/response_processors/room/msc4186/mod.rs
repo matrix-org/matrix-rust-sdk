@@ -18,8 +18,6 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
 
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -42,8 +40,6 @@ use super::{
     super::{Context, notification, state_events, timeline},
     RoomCreationData,
 };
-#[cfg(feature = "e2e-encryption")]
-use crate::StateChanges;
 use crate::{
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomState,
@@ -153,18 +149,6 @@ pub async fn update_any_room(
         e2ee.clone(),
     )
     .await?;
-
-    // Cache the latest decrypted event in room_info, and also keep any later
-    // encrypted events, so we can slot them in when we get the keys.
-    #[cfg(feature = "e2e-encryption")]
-    cache_latest_events(
-        &room,
-        &mut room_info,
-        &timeline.events,
-        Some(&context.state_changes),
-        Some(state_store),
-    )
-    .await;
 
     #[cfg(feature = "e2e-encryption")]
     e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
@@ -416,147 +400,6 @@ fn properties(
             }
         }
     }
-}
-
-/// Find the most recent decrypted event and cache it in the supplied RoomInfo.
-///
-/// If any encrypted events are found after that one, store them in the RoomInfo
-/// too so we can use them when we get the relevant keys.
-///
-/// It is the responsibility of the caller to update the `RoomInfo` instance
-/// stored in the `Room`.
-#[cfg(feature = "e2e-encryption")]
-pub(crate) async fn cache_latest_events(
-    room: &Room,
-    room_info: &mut RoomInfo,
-    events: &[TimelineEvent],
-    changes: Option<&StateChanges>,
-    store: Option<&BaseStateStore>,
-) {
-    use tracing::warn;
-
-    use crate::{
-        deserialized_responses::DisplayName,
-        latest_event::{LatestEvent, PossibleLatestEvent, is_suitable_for_latest_event},
-        store::ambiguity_map::is_display_name_ambiguous,
-    };
-
-    let _timer = timer!(tracing::Level::TRACE, "cache_latest_events");
-
-    let mut encrypted_events =
-        Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
-
-    // Try to get room power levels from the current changes. If we didn't get any
-    // info, try getting it from local data.
-    let power_levels = match changes.and_then(|changes| changes.power_levels(room_info.room_id())) {
-        Some(power_levels) => Some(power_levels),
-        None => room.power_levels().await.ok(),
-    };
-
-    let power_levels_info = Some(room.own_user_id()).zip(power_levels.as_ref());
-
-    for event in events.iter().rev() {
-        if let Ok(timeline_event) = event.raw().deserialize() {
-            match is_suitable_for_latest_event(&timeline_event, power_levels_info) {
-                PossibleLatestEvent::YesRoomMessage(_)
-                | PossibleLatestEvent::YesPoll(_)
-                | PossibleLatestEvent::YesCallInvite(_)
-                | PossibleLatestEvent::YesRtcNotification(_)
-                | PossibleLatestEvent::YesSticker(_)
-                | PossibleLatestEvent::YesKnockedStateEvent(_) => {
-                    // We found a suitable latest event. Store it.
-
-                    // In order to make the latest event fast to read, we want to keep the
-                    // associated sender in cache. This is a best-effort to gather enough
-                    // information for creating a user profile as fast as possible. If information
-                    // are missing, let's go back on the “slow” path.
-
-                    let mut sender_profile = None;
-                    let mut sender_name_is_ambiguous = None;
-
-                    // First off, look up the sender's profile from the `StateChanges`, they are
-                    // likely to be the most recent information.
-                    if let Some(changes) = changes {
-                        sender_profile = changes
-                            .profiles
-                            .get(room.room_id())
-                            .and_then(|profiles_by_user| {
-                                profiles_by_user.get(timeline_event.sender())
-                            })
-                            .cloned();
-
-                        if let Some(sender_profile) = sender_profile.as_ref() {
-                            sender_name_is_ambiguous = sender_profile
-                                .as_original()
-                                .and_then(|profile| profile.content.displayname.as_ref())
-                                .and_then(|display_name| {
-                                    let display_name = DisplayName::new(display_name);
-
-                                    changes.ambiguity_maps.get(room.room_id()).and_then(
-                                        |map_for_room| {
-                                            map_for_room.get(&display_name).map(|users| {
-                                                is_display_name_ambiguous(&display_name, users)
-                                            })
-                                        },
-                                    )
-                                });
-                        }
-                    }
-
-                    // Otherwise, look up the sender's profile from the `Store`.
-                    if sender_profile.is_none()
-                        && let Some(store) = store
-                    {
-                        sender_profile = store
-                            .get_profile(room.room_id(), timeline_event.sender())
-                            .await
-                            .ok()
-                            .flatten();
-
-                        // TODO: need to update `sender_name_is_ambiguous`,
-                        // but how?
-                    }
-
-                    let latest_event = Box::new(LatestEvent::new_with_sender_details(
-                        event.clone(),
-                        sender_profile,
-                        sender_name_is_ambiguous,
-                    ));
-
-                    // Store it in the return RoomInfo (it will be saved for us in the room later).
-                    room_info.latest_event = Some(latest_event);
-                    // We don't need any of the older encrypted events because we have a new
-                    // decrypted one.
-                    room.latest_encrypted_events.write().unwrap().clear();
-                    // We can stop looking through the timeline now because everything else is
-                    // older.
-                    break;
-                }
-                PossibleLatestEvent::NoEncrypted => {
-                    // m.room.encrypted - this might be the latest event later - we can't tell until
-                    // we are able to decrypt it, so store it for now
-                    //
-                    // Check how many encrypted events we have seen. Only store another if we
-                    // haven't already stored the maximum number.
-                    if encrypted_events.len() < encrypted_events.capacity() {
-                        encrypted_events.push(event.raw().clone());
-                    }
-                }
-                _ => {
-                    // Ignore unsuitable events
-                }
-            }
-        } else {
-            warn!(
-                event_id = ?event.event_id(),
-                "Failed to deserialize event as `AnySyncTimelineEvent`",
-            );
-        }
-    }
-
-    // Push the encrypted events we found into the Room, in reverse order, so
-    // the latest is last
-    room.latest_encrypted_events.write().unwrap().extend(encrypted_events.into_iter().rev());
 }
 
 impl State {

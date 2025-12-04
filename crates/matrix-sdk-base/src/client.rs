@@ -611,34 +611,13 @@ impl BaseClient {
         let mut context = Context::new(StateChanges::new(response.next_batch.clone()));
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device = {
-            let processors::e2ee::to_device::Output {
-                processed_to_device_events: to_device,
-                room_key_updates,
-            } = processors::e2ee::to_device::from_sync_v2(
+        let processors::e2ee::to_device::Output { processed_to_device_events: to_device } =
+            processors::e2ee::to_device::from_sync_v2(
                 &response,
                 olm_machine.as_ref(),
                 &self.decryption_settings,
             )
             .await?;
-
-            processors::latest_event::decrypt_from_rooms(
-                &mut context,
-                room_key_updates
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|room_key_info| self.get_room(&room_key_info.room_id))
-                    .collect(),
-                processors::e2ee::E2EE::new(
-                    olm_machine.as_ref(),
-                    &self.decryption_settings,
-                    self.handle_verification_events,
-                ),
-            )
-            .await?;
-
-            to_device
-        };
 
         #[cfg(not(feature = "e2e-encryption"))]
         let to_device = response

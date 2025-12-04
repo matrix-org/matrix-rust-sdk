@@ -17,9 +17,7 @@ use std::collections::BTreeMap;
 use matrix_sdk_common::deserialized_responses::{
     ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
 };
-use matrix_sdk_crypto::{
-    DecryptionSettings, EncryptionSyncChanges, OlmMachine, store::types::RoomKeyInfo,
-};
+use matrix_sdk_crypto::{DecryptionSettings, EncryptionSyncChanges, OlmMachine};
 use ruma::{
     OneTimeKeyAlgorithm, UInt,
     api::client::sync::sync_events::{DeviceLists, v3, v5},
@@ -100,10 +98,10 @@ async fn process(
         // decrypts to-device events, but leaves room events alone.
         // This makes sure that we have the decryption keys for the room
         // events at hand.
-        let (events, room_key_updates) =
+        let (events, _room_key_updates) =
             olm_machine.receive_sync_changes(encryption_sync_changes, decryption_settings).await?;
 
-        Output { processed_to_device_events: events, room_key_updates: Some(room_key_updates) }
+        Output { processed_to_device_events: events }
     } else {
         // If we have no `OlmMachine`, just return the clear events that were passed in.
         // The encrypted ones are dropped as they are un-usable.
@@ -131,12 +129,10 @@ async fn process(
                     }
                 })
                 .collect(),
-            room_key_updates: None,
         }
     })
 }
 
 pub struct Output {
     pub processed_to_device_events: Vec<ProcessedToDeviceEvent>,
-    pub room_key_updates: Option<Vec<RoomKeyInfo>>,
 }
