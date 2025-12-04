@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ops::Not, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -22,11 +22,10 @@ use matrix_sdk_ui::{
         ALL_ROOMS_LIST_NAME as ALL_ROOMS, Error, RoomListLoadingState, State, SyncIndicator,
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
     },
-    timeline::{RoomExt as _, TimelineItemKind, VirtualTimelineItem},
+    timeline::{LatestEventValue, RoomExt as _, TimelineItemKind, VirtualTimelineItem},
 };
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
-    event_id,
     events::room::message::RoomMessageEventContent,
     mxc_uri, room_id,
     time::{Duration, Instant},
@@ -2609,7 +2608,7 @@ async fn test_room_empty_timeline() {
 
 #[async_test]
 async fn test_room_latest_event() -> Result<(), Error> {
-    let (_, server, room_list) = new_room_list_service().await?;
+    let (client, server, room_list) = new_room_list_service().await?;
     mock_encryption_state(&server, false).await;
 
     let sync = room_list.sync();
@@ -2638,8 +2637,14 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let room = room_list.room(room_id)?;
     let timeline = room.timeline_builder().build().await.unwrap();
 
+    // We could subscribe to the room —with `RoomList::subscribe_to_rooms`— to
+    // automatically listen to the latest event updates, but we will do it
+    // manually here (so that we can ignore the subscription thingies).
+    let latest_events = client.latest_events().await;
+    latest_events.listen_to_room(room_id).await.unwrap();
+
     // The latest event does not exist.
-    assert!(room.latest_event_item().await.is_none());
+    assert_matches!(room.new_latest_event().await, LatestEventValue::None);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2657,58 +2662,19 @@ async fn test_room_latest_event() -> Result<(), Error> {
         },
     };
 
+    yield_now().await;
+
     // The latest event exists.
-    assert_matches!(
-        room.latest_event_item().await,
-        Some(event) => {
-            assert!(event.is_local_echo().not());
-            assert_eq!(event.event_id(), Some(event_id!("$x0:bar.org")));
-        }
-    );
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        assert request >= {},
-        respond with = {
-            "pos": "2",
-            "lists": {},
-            "rooms": {
-                room_id: {
-                    "timeline": [
-                        timeline_event!("$x1:bar.org" at 1 sec),
-                    ],
-                },
-            },
-        },
-    };
-
-    // The latest event has been updated.
-    let latest_event = room.latest_event_item().await.unwrap();
-    assert!(latest_event.is_local_echo().not());
-    assert_eq!(latest_event.event_id(), Some(event_id!("$x1:bar.org")));
-
-    // The latest event matches the latest event of the `Timeline`.
-    assert_matches!(
-        timeline.latest_event().await,
-        Some(timeline_event) => {
-            assert_eq!(timeline_event.event_id(), latest_event.event_id());
-        }
-    );
+    assert_matches!(room.new_latest_event().await, LatestEventValue::Remote { .. });
 
     // Insert a local event in the `Timeline`.
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    // Let the send queue send the message, and the timeline process it.
+    // Let the latest event be computed.
     yield_now().await;
 
-    // The latest event of the `Timeline` is a local event.
-    assert_matches!(
-        timeline.latest_event().await,
-        Some(timeline_event) => {
-            assert!(timeline_event.is_local_echo());
-            assert_eq!(timeline_event.event_id(), None);
-        }
-    );
+    // The latest event has been updated.
+    assert_matches!(room.new_latest_event().await, LatestEventValue::Local { .. });
 
     Ok(())
 }
