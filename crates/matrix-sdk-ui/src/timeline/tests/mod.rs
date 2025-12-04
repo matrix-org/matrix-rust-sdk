@@ -34,9 +34,7 @@ use matrix_sdk::{
     room::{EventWithContextResponse, Messages, MessagesOptions, Relations},
     send_queue::RoomSendQueueUpdate,
 };
-use matrix_sdk_base::{
-    RoomInfo, RoomState, crypto::types::events::CryptoContextInfo, latest_event::LatestEvent,
-};
+use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -344,10 +342,6 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn profile_from_user_id<'a>(&'a self, _user_id: &'a UserId) -> Option<Profile> {
-        None
-    }
-
-    fn profile_from_latest_event(&self, _latest_event: &LatestEvent) -> Option<Profile> {
         None
     }
 

@@ -252,21 +252,6 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the latest of the timeline's event items, both remote and local.
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        if self.controller.is_live() {
-            self.controller.items().await.iter().rev().find_map(|item| {
-                if let TimelineItemKind::Event(event) = item.kind() {
-                    Some(event.to_owned())
-                } else {
-                    None
-                }
-            })
-        } else {
-            None
-        }
-    }
-
     /// Get the latest of the timeline's remote event ids.
     pub async fn latest_event_id(&self) -> Option<OwnedEventId> {
         self.controller.latest_event_id().await

@@ -15,21 +15,16 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk_base::{
-    crypto::types::events::UtdCause,
-    latest_event::{PossibleLatestEvent, is_suitable_for_latest_event},
-};
+use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
-        MessageLikeEventType, StateEventType,
-        call::invite::SyncCallInviteEvent,
+        AnyFullStateEventContent, FullStateEventContent, Mentions, MessageLikeEventType,
+        StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        poll::unstable_start::{SyncUnstablePollStartEvent, UnstablePollStartEventContent},
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -40,24 +35,22 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
-            member::{Change, RoomMemberEventContent, SyncRoomMemberEvent},
-            message::{MessageType, Relation, SyncRoomMessageEvent},
+            member::{Change, RoomMemberEventContent},
+            message::MessageType,
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
-            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            power_levels::RoomPowerLevelsEventContent,
             server_acl::RoomServerAclEventContent,
             third_party_invite::RoomThirdPartyInviteEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        rtc::notification::SyncRtcNotificationEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        sticker::{StickerEventContent, SyncStickerEvent},
+        sticker::StickerEventContent,
     },
     html::RemoveReplyFallback,
     room_version_rules::RedactionRules,
 };
-use tracing::warn;
 
 mod message;
 mod msg_like;
@@ -123,220 +116,6 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// If the supplied event is suitable to be used as a `latest_event` in a
-    /// message preview, extract its contents and wrap it as a
-    /// `TimelineItemContent`.
-    pub(crate) fn from_latest_event_content(
-        event: AnySyncTimelineEvent,
-        power_levels_info: Option<(&UserId, &RoomPowerLevels)>,
-    ) -> Option<TimelineItemContent> {
-        match is_suitable_for_latest_event(&event, power_levels_info) {
-            PossibleLatestEvent::YesRoomMessage(m) => {
-                Some(Self::from_suitable_latest_event_content(m))
-            }
-            PossibleLatestEvent::YesSticker(s) => {
-                Some(Self::from_suitable_latest_sticker_content(s))
-            }
-            PossibleLatestEvent::YesPoll(poll) => {
-                Some(Self::from_suitable_latest_poll_event_content(poll))
-            }
-            PossibleLatestEvent::YesCallInvite(call_invite) => {
-                Some(Self::from_suitable_latest_call_invite_content(call_invite))
-            }
-            PossibleLatestEvent::YesRtcNotification(rtc_notification) => {
-                Some(Self::from_suitable_latest_rtc_notification_content(rtc_notification))
-            }
-            PossibleLatestEvent::NoUnsupportedEventType => {
-                // TODO: when we support state events in message previews, this will need change
-                warn!("Found a state event cached as latest_event! ID={}", event.event_id());
-                None
-            }
-            PossibleLatestEvent::NoUnsupportedMessageLikeType => {
-                // TODO: When we support reactions in message previews, this will need to change
-                warn!(
-                    "Found an event cached as latest_event, but I don't know how \
-                        to wrap it in a TimelineItemContent. type={}, ID={}",
-                    event.event_type().to_string(),
-                    event.event_id()
-                );
-                None
-            }
-            PossibleLatestEvent::YesKnockedStateEvent(member) => {
-                Some(Self::from_suitable_latest_knock_state_event_content(member))
-            }
-            PossibleLatestEvent::NoEncrypted => {
-                warn!("Found an encrypted event cached as latest_event! ID={}", event.event_id());
-                None
-            }
-        }
-    }
-
-    /// Given some message content that is from an event that we have already
-    /// determined is suitable for use as a latest event in a message preview,
-    /// extract its contents and wrap it as a `TimelineItemContent`.
-    fn from_suitable_latest_event_content(event: &SyncRoomMessageEvent) -> TimelineItemContent {
-        match event {
-            SyncRoomMessageEvent::Original(event) => {
-                // Grab the content of this event
-                let event_content = event.content.clone();
-
-                // Feed the bundled edit, if present, or we might miss showing edited content.
-                let edit = event
-                    .unsigned
-                    .relations
-                    .replace
-                    .as_ref()
-                    .and_then(|boxed| match &boxed.content.relates_to {
-                        Some(Relation::Replacement(re)) => Some(re.new_content.clone()),
-                        _ => {
-                            warn!("got m.room.message event with an edit without a valid m.replace relation");
-                            None
-                        }
-                    });
-
-                // We're not interested in aggregations for the latest preview item.
-                let reactions = Default::default();
-                let thread_root = None;
-                let in_reply_to = None;
-                let thread_summary = None;
-
-                let msglike = MsgLikeContent {
-                    kind: MsgLikeKind::Message(Message::from_event(
-                        event_content.msgtype,
-                        event_content.mentions,
-                        edit,
-                        RemoveReplyFallback::Yes,
-                    )),
-                    reactions,
-                    thread_root,
-                    in_reply_to,
-                    thread_summary,
-                };
-
-                TimelineItemContent::MsgLike(msglike)
-            }
-
-            SyncRoomMessageEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
-            }
-        }
-    }
-
-    fn from_suitable_latest_knock_state_event_content(
-        event: &SyncRoomMemberEvent,
-    ) -> TimelineItemContent {
-        match event {
-            SyncRoomMemberEvent::Original(event) => {
-                let content = event.content.clone();
-                let prev_content = event.prev_content().cloned();
-                TimelineItemContent::room_member(
-                    event.state_key.to_owned(),
-                    FullStateEventContent::Original { content, prev_content },
-                    event.sender.to_owned(),
-                )
-            }
-            SyncRoomMemberEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
-            }
-        }
-    }
-
-    /// Given some sticker content that is from an event that we have already
-    /// determined is suitable for use as a latest event in a message preview,
-    /// extract its contents and wrap it as a `TimelineItemContent`.
-    fn from_suitable_latest_sticker_content(event: &SyncStickerEvent) -> TimelineItemContent {
-        match event {
-            SyncStickerEvent::Original(event) => {
-                // Grab the content of this event
-                let event_content = event.content.clone();
-
-                // We're not interested in aggregations for the latest preview item.
-                let reactions = Default::default();
-                let thread_root = None;
-                let in_reply_to = None;
-                let thread_summary = None;
-
-                let msglike = MsgLikeContent {
-                    kind: MsgLikeKind::Sticker(Sticker { content: event_content }),
-                    reactions,
-                    thread_root,
-                    in_reply_to,
-                    thread_summary,
-                };
-
-                TimelineItemContent::MsgLike(msglike)
-            }
-            SyncStickerEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
-            }
-        }
-    }
-
-    /// Extracts a `TimelineItemContent` from a poll start event for use as a
-    /// latest event in a message preview.
-    fn from_suitable_latest_poll_event_content(
-        event: &SyncUnstablePollStartEvent,
-    ) -> TimelineItemContent {
-        let SyncUnstablePollStartEvent::Original(event) = event else {
-            return TimelineItemContent::MsgLike(MsgLikeContent::redacted());
-        };
-
-        // Feed the bundled edit, if present, or we might miss showing edited content.
-        let edit =
-            event.unsigned.relations.replace.as_ref().and_then(|boxed| match &boxed.content {
-                UnstablePollStartEventContent::Replacement(re) => {
-                    Some(re.relates_to.new_content.clone())
-                }
-                _ => {
-                    warn!("got poll event with an edit without a valid m.replace relation");
-                    None
-                }
-            });
-
-        let mut poll = PollState::new(event.content.poll_start().clone(), None);
-        if let Some(edit) = edit {
-            poll = poll.edit(edit).expect("the poll can't be ended yet!"); // TODO or can it?
-        }
-
-        // We're not interested in aggregations for the latest preview item.
-        let reactions = Default::default();
-        let thread_root = None;
-        let in_reply_to = None;
-        let thread_summary = None;
-
-        let msglike = MsgLikeContent {
-            kind: MsgLikeKind::Poll(poll),
-            reactions,
-            thread_root,
-            in_reply_to,
-            thread_summary,
-        };
-
-        TimelineItemContent::MsgLike(msglike)
-    }
-
-    fn from_suitable_latest_call_invite_content(
-        event: &SyncCallInviteEvent,
-    ) -> TimelineItemContent {
-        match event {
-            SyncCallInviteEvent::Original(_) => TimelineItemContent::CallInvite,
-            SyncCallInviteEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
-            }
-        }
-    }
-
-    fn from_suitable_latest_rtc_notification_content(
-        event: &SyncRtcNotificationEvent,
-    ) -> TimelineItemContent {
-        match event {
-            SyncRtcNotificationEvent::Original(_) => TimelineItemContent::RtcNotification,
-            SyncRtcNotificationEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
-            }
-        }
-    }
-
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
         as_variant!(self, TimelineItemContent::MsgLike)
     }

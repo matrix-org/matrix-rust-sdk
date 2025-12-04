@@ -1174,9 +1174,7 @@ async fn test_mark_as_read() {
         .await;
 
     // And I try to mark the latest event related to a timeline item as read,
-    let latest_event = timeline.latest_event().await.expect("missing timeline event item");
-    let latest_event_id =
-        latest_event.event_id().expect("missing event id for latest timeline event item");
+    let latest_event_id = original_event_id;
 
     let has_sent = timeline
         .send_single_receipt(CreateReceiptType::Read, latest_event_id.to_owned())
