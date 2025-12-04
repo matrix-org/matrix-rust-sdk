@@ -61,7 +61,7 @@ pub trait RoomExt {
     fn timeline_builder(&self) -> TimelineBuilder;
 
     /// Return a [`LatestEventValue`] corresponding to this room's latest event.
-    fn new_latest_event(&self) -> impl Future<Output = LatestEventValue>;
+    fn latest_event(&self) -> impl Future<Output = LatestEventValue>;
 }
 
 impl RoomExt for Room {
@@ -74,9 +74,9 @@ impl RoomExt for Room {
             .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
     }
 
-    async fn new_latest_event(&self) -> LatestEventValue {
+    async fn latest_event(&self) -> LatestEventValue {
         LatestEventValue::from_base_latest_event_value(
-            (**self).new_latest_event(),
+            (**self).latest_event(),
             self,
             &self.client(),
         )

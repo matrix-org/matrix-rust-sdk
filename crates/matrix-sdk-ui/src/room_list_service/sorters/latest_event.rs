@@ -59,9 +59,9 @@ where
 pub fn new_sorter() -> impl Sorter {
     let latest_events = |left: &RoomListItem, right: &RoomListItem| {
         // Be careful. This method is called **a lot** in the context of a sorter. Using
-        // `Room::new_latest_event` would be dramatic as it returns a clone of the
+        // `Room::latest_event` would be dramatic as it returns a clone of the
         // `LatestEventValue`. It's better to use the more specific method
-        // `Room::new_latest_event_is_local`, where the value is cached in this module's
+        // `Room::latest_event_is_local`, where the value is cached in this module's
         // `Room` type.
         (left.cached_latest_event_is_local, right.cached_latest_event_is_local)
     };

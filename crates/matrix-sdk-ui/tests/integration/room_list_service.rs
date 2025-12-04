@@ -2644,7 +2644,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     latest_events.listen_to_room(room_id).await.unwrap();
 
     // The latest event does not exist.
-    assert_matches!(room.new_latest_event().await, LatestEventValue::None);
+    assert_matches!(room.latest_event().await, LatestEventValue::None);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2665,7 +2665,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     yield_now().await;
 
     // The latest event exists.
-    assert_matches!(room.new_latest_event().await, LatestEventValue::Remote { .. });
+    assert_matches!(room.latest_event().await, LatestEventValue::Remote { .. });
 
     // Insert a local event in the `Timeline`.
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
@@ -2674,7 +2674,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     yield_now().await;
 
     // The latest event has been updated.
-    assert_matches!(room.new_latest_event().await, LatestEventValue::Local { .. });
+    assert_matches!(room.latest_event().await, LatestEventValue::Local { .. });
 
     Ok(())
 }

@@ -159,7 +159,7 @@ impl LatestEvent {
 
         // Compute a new `RoomInfo`.
         let mut room_info = room.clone_info();
-        room_info.set_new_latest_event(new_value);
+        room_info.set_latest_event(new_value);
 
         let mut state_changes = StateChanges::default();
         state_changes.add_room(room_info.clone());
@@ -437,7 +437,7 @@ mod tests_latest_event {
 
             // Check there is no `LatestEventValue` for the moment.
             {
-                let latest_event = room.new_latest_event();
+                let latest_event = room.latest_event();
 
                 assert_matches!(latest_event, LatestEventValue::None);
             }
@@ -463,7 +463,7 @@ mod tests_latest_event {
 
             // Check it's in the `RoomInfo` and in `Room`.
             {
-                let latest_event = room.new_latest_event();
+                let latest_event = room.latest_event();
 
                 assert_matches!(latest_event, LatestEventValue::Remote(_));
             }
@@ -478,7 +478,7 @@ mod tests_latest_event {
                 .build()
                 .await;
             let room = client.get_room(&room_id).unwrap();
-            let latest_event = room.new_latest_event();
+            let latest_event = room.latest_event();
 
             assert_matches!(latest_event, LatestEventValue::Remote(_));
         }

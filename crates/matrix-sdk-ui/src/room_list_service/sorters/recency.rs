@@ -34,12 +34,12 @@ fn cmp_impl(a: Option<Score>, b: Option<Score>) -> Ordering {
 }
 
 /// Create a new sorter that will sort two [`RoomListItem`] by “recency score”,
-/// i.e. by comparing their [`RoomInfo::new_latest_event`]'s timestamp value, or
-/// their [`RoomInfo::recency_stamp`] value. The `Room` with the newest “recency
-/// score” comes first, i.e. newest < oldest.
+/// i.e. by comparing their [`RoomInfo::latest_event_value`]'s timestamp value,
+/// or their [`RoomInfo::recency_stamp`] value. The `Room` with the newest
+/// “recency score” comes first, i.e. newest < oldest.
 ///
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
-/// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
+/// [`RoomInfo::latest_event_value`]: matrix_sdk_base::RoomInfo::latest_event_value
 pub fn new_sorter() -> impl Sorter {
     |left, right| -> Ordering { cmp(extract_scores, left, right) }
 }
@@ -49,21 +49,24 @@ pub fn new_sorter() -> impl Sorter {
 /// stamp of the room). This type hides `u64` for the sake of semantics.
 type Score = u64;
 
-/// Extract the recency _scores_ from either the [`RoomInfo::new_latest_event`]
-/// or from [`RoomInfo::recency_stamp`].
+/// Extract the recency _scores_ from either the
+/// [`RoomInfo::latest_event_value`] or from [`RoomInfo::recency_stamp`].
 ///
 /// We must be very careful to return data of the same nature: either a
 /// _score_ from the [`LatestEventValue`]'s timestamp, or from the
 /// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
+///
+/// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
+/// [`RoomInfo::latest_event_value`]: matrix_sdk_base::RoomInfo::latest_event_value
 fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, Option<Score>) {
     // Warning 1.
     //
     // Be careful. This method is called **a lot** in the context of a sorter. Using
-    // `Room::new_latest_event` would be dramatic as it returns a clone of the
+    // `Room::latest_event` would be dramatic as it returns a clone of the
     // `LatestEventValue`. It's better to use the more specific method
-    // `Room::new_latest_event_timestamp`, where the value is cached in
+    // `Room::latest_event_timestamp`, where the value is cached in
     // `RoomListItem::cached_latest_event_timestamp`.
 
     // Warning 2.
@@ -162,7 +165,7 @@ mod tests {
 
     fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
         let mut room_info = room.clone_info();
-        room_info.set_new_latest_event(latest_event_value);
+        room_info.set_latest_event(latest_event_value);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
         room.refresh_cached_data();
     }

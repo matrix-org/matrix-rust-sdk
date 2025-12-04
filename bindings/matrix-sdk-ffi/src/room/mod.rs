@@ -302,8 +302,8 @@ impl Room {
             .unwrap_or(false)
     }
 
-    async fn new_latest_event(&self) -> LatestEventValue {
-        self.inner.new_latest_event().await.into()
+    async fn latest_event(&self) -> LatestEventValue {
+        self.inner.latest_event().await.into()
     }
 
     pub async fn latest_encryption_state(&self) -> Result<EncryptionState, ClientError> {

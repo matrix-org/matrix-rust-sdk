@@ -463,10 +463,8 @@ pub struct RoomInfo {
     pub(crate) encryption_state_synced: bool,
 
     /// The latest event value of this room.
-    ///
-    /// TODO(@hywan): Rename to `latest_event`.
     #[serde(default)]
-    pub(crate) new_latest_event: LatestEventValue,
+    pub(crate) latest_event_value: LatestEventValue,
 
     /// Information about read receipts for this room.
     #[serde(default)]
@@ -534,7 +532,7 @@ impl RoomInfo {
             last_prev_batch: None,
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
-            new_latest_event: LatestEventValue::default(),
+            latest_event_value: LatestEventValue::default(),
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
@@ -1034,8 +1032,8 @@ impl RoomInfo {
     }
 
     /// Sets the new [`LatestEventValue`].
-    pub fn set_new_latest_event(&mut self, new_value: LatestEventValue) {
-        self.new_latest_event = new_value;
+    pub fn set_latest_event(&mut self, new_value: LatestEventValue) {
+        self.latest_event_value = new_value;
     }
 
     /// Updates the recency stamp of this room.
@@ -1308,7 +1306,7 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            new_latest_event: LatestEventValue::None,
+            latest_event_value: LatestEventValue::None,
             base_info: Box::new(
                 assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
@@ -1341,14 +1339,7 @@ mod tests {
             "last_prev_batch": "pb",
             "sync_info": "FullySynced",
             "encryption_state_synced": true,
-            "latest_event": {
-                "event": {
-                    "kind": {"PlainText": {"event": {"sender": "@u:i.uk"}}},
-                    "thread_summary": "None",
-                    "timestamp": null,
-                },
-            },
-            "new_latest_event": "None",
+            "latest_event_value": "None",
             "base_info": {
                 "avatar": null,
                 "canonical_alias": null,
@@ -1543,7 +1534,7 @@ mod tests {
         assert_eq!(info.last_prev_batch, Some("pb".to_owned()));
         assert_eq!(info.sync_info, SyncInfo::FullySynced);
         assert!(info.encryption_state_synced);
-        assert_matches!(info.new_latest_event, LatestEventValue::None);
+        assert_matches!(info.latest_event_value, LatestEventValue::None);
         assert!(info.base_info.avatar.is_none());
         assert!(info.base_info.canonical_alias.is_none());
         assert!(info.base_info.create.is_none());
