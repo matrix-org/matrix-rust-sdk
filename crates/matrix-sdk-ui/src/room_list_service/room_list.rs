@@ -25,7 +25,7 @@ use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     executor::{JoinHandle, spawn},
 };
-use matrix_sdk_base::RoomInfoNotableUpdate;
+use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 use ruma::MilliSecondsSinceUnixEpoch;
 use tokio::{
     select,
@@ -257,6 +257,22 @@ fn merge_stream_and_receiver(
                 update = room_info_notable_update_receiver.recv() => {
                     match update {
                         Ok(update) => {
+                            // Filter which _reason_ can trigger an update of
+                            // the room list.
+                            //
+                            // If the update is strictly about the
+                            // `RECENCY_STAMP`, let's ignore it, because the
+                            // Latest Event type is used to sort the room list
+                            // by recency already. We don't want to trigger an
+                            // update because of `RECENCY_STAMP`.
+                            //
+                            // If the update contains more reasons than
+                            // `RECENCY_STAMP`, then it's fine. That's why we
+                            // are using `==` instead of `contains`.
+                            if update.reasons == RoomInfoNotableUpdateReasons::RECENCY_STAMP {
+                                continue;
+                            }
+
                             // Emit a `VectorDiff::Set` for the specific rooms.
                             if let Some(index) = current_values.iter().position(|room| room.room_id() == update.room_id) {
                                 let mut room = current_values[index].clone();
