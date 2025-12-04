@@ -4,6 +4,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::grouped_room_list::{
+    GroupedRoomListFilterType as UIGroupedRoomListFilterType,
     GroupedRoomListItem as UIGroupedRoomListItem,
     GroupedRoomListService as UIGroupedRoomListService,
 };
@@ -12,6 +13,12 @@ use crate::{
     room::Room, room_list::RoomListEntriesDynamicFilterKind, runtime::get_runtime_handle,
     TaskHandle,
 };
+
+#[derive(uniffi::Enum)]
+pub enum GroupedRoomListFilterType {
+    Standard { filter: RoomListEntriesDynamicFilterKind },
+    GroupedSpaces,
+}
 
 #[derive(uniffi::Enum)]
 pub enum GroupedRoomListItem {
@@ -69,8 +76,17 @@ impl GroupedRoomListService {
         })))
     }
 
-    async fn set_filter(&self, kind: Option<RoomListEntriesDynamicFilterKind>) -> bool {
-        self.inner.set_filter(kind.map(|k| k.into())).await
+    async fn set_filter(&self, filter: GroupedRoomListFilterType) {
+        match filter {
+            GroupedRoomListFilterType::Standard { filter } => {
+                self.inner
+                    .set_filter(UIGroupedRoomListFilterType::Standard { filter: filter.into() })
+                    .await
+            }
+            GroupedRoomListFilterType::GroupedSpaces => {
+                self.inner.set_filter(UIGroupedRoomListFilterType::GroupedSpaces).await
+            }
+        }
     }
 }
 

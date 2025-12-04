@@ -32,6 +32,11 @@ use crate::{
     spaces::SpaceService,
 };
 
+pub enum GroupedRoomListFilterType {
+    Standard { filter: BoxedFilterFn },
+    GroupedSpaces,
+}
+
 #[derive(Debug, Clone)]
 pub enum GroupedRoomListItem {
     Room(RoomListItem),
@@ -134,41 +139,44 @@ impl GroupedRoomListService {
     }
 
     // TODO This probably needs a rewrite, it's sort of nasty
-    pub async fn set_filter(&self, filter: Option<BoxedFilterFn>) -> bool {
+    pub async fn set_filter(&self, filter: GroupedRoomListFilterType) {
         let mut room_list_state = self.room_list_state.lock().await;
 
-        if let Some(filter) = filter {
-            trace!("Setting room list filter");
+        match filter {
+            // Standard means no grouping but limited to the current's space
+            // children applying the filter as is
+            GroupedRoomListFilterType::Standard { filter } => {
+                trace!("Setting standard room list filter");
 
-            let filter = if let Some(descendants) = &room_list_state.descendants {
-                Box::new(new_filter_all(vec![
-                    Box::new(new_filter_identifiers(descendants.clone())),
-                    filter,
-                ]))
-            } else {
-                filter
-            };
+                let filter = if let Some(descendants) = &room_list_state.descendants {
+                    Box::new(new_filter_all(vec![
+                        Box::new(new_filter_identifiers(descendants.clone())),
+                        filter,
+                    ]))
+                } else {
+                    filter
+                };
 
-            room_list_state.grouping_enabled = false;
+                room_list_state.grouping_enabled = false;
 
-            if let Some(controller) = &room_list_state.room_list_controller {
-                controller.set_filter(Box::new(new_filter_all(vec![filter])));
-                true
-            } else {
-                false
+                if let Some(controller) = &room_list_state.room_list_controller {
+                    controller.set_filter(filter);
+                }
             }
-        } else {
-            trace!("Clearing room list filter");
+            // Grouped means we merge the rooms into their parent spaces but
+            // only keep the spaces at the end. We can't actually change the
+            // filter as we need the whole list for this. Instead we just
+            // apply the non-left filter as a base.
+            GroupedRoomListFilterType::GroupedSpaces => {
+                trace!("Setting grouped spaces room list filter");
 
-            let base_filter = new_filter_non_left();
+                room_list_state.grouping_enabled = true;
 
-            room_list_state.grouping_enabled = true;
+                let base_filter = new_filter_non_left();
 
-            if let Some(controller) = &room_list_state.room_list_controller {
-                controller.set_filter(Box::new(base_filter));
-                true
-            } else {
-                false
+                if let Some(controller) = &room_list_state.room_list_controller {
+                    controller.set_filter(Box::new(base_filter));
+                }
             }
         }
     }
@@ -197,7 +205,7 @@ impl GroupedRoomListService {
     ///   for being the space's preview room.
     /// - With those in hand it's now time to iterate the raw room list and
     ///   build the grouped room list. For each room in raw rooms:
-    ///     * if it's a top level non-space room, add it to the list
+    ///     * if it's a top level non-space room, remove it
     ///     * if it's a space room with no descendants, add it to the list
     ///     * otherwise, check the space's descendants map to see if the room
     ///       appears in that list. If it doesn't, then keep going.
@@ -284,14 +292,14 @@ impl GroupedRoomListService {
         let mut room_list = Vec::new();
         for room in room_list_state.raw_rooms.iter() {
             // If the room is an orphan OR if it's a top level non-space room
-            // that's a direct descendant, keep it in place
+            // that's a direct descendant, drop it
             if orphan_rooms.contains(&room.room_id().to_owned())
                 || !room.is_space() && direct_descendants.contains(&room.room_id().to_owned())
             {
-                room_list.push(GroupedRoomListItem::Room(room.clone()));
+                continue;
             }
-            // Similarly, if the room is a top level space with no descendants
-            // keep it in place
+            // If the room is a top level space with no descendants keep it in
+            // place
             else if room.is_space()
                 && direct_descendants.contains(&room.room_id().to_owned())
                 && all_descendants.get(&room.room_id().to_owned()).is_none_or(|v| v.is_empty())
@@ -513,8 +521,7 @@ mod tests {
                 .collect::<Vec<(&RoomId, Option<&RoomId>)>>(),
             vec![
                 (room_id!("!S1:example.org"), Some(room_id!("!S1.1:example.org"))),
-                (room_id!("!S2:example.org"), Some(room_id!("!R2.1:example.org"))),
-                (room_id!("!R3:example.org"), None)
+                (room_id!("!S2:example.org"), Some(room_id!("!R2.1:example.org")))
             ]
         );
     }
