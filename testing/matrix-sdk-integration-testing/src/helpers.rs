@@ -107,11 +107,6 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn http_proxy(mut self, url: String) -> Self {
-        self.http_proxy = Some(url);
-        self
-    }
-
     pub fn cross_process_store_locks_holder_name(mut self, holder_name: String) -> Self {
         self.cross_process_store_locks_holder_name = Some(holder_name);
         self

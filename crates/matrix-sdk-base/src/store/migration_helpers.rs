@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
     deserialized_responses::SyncOrStrippedState,
-    latest_event::{LatestEvent, LatestEventValue},
+    latest_event::LatestEventValue,
     room::{BaseRoomInfo, RoomSummary, SyncInfo},
     sync::UnreadNotificationsCount,
 };
@@ -101,7 +101,7 @@ impl RoomInfoV1 {
             last_prev_batch,
             sync_info,
             encryption_state_synced,
-            latest_event,
+            latest_event: _, // deprecated
             base_info,
         } = self;
 
@@ -115,7 +115,6 @@ impl RoomInfoV1 {
             last_prev_batch,
             sync_info,
             encryption_state_synced,
-            latest_event: latest_event.map(|ev| Box::new(LatestEvent::new(ev))),
             new_latest_event: LatestEventValue::None,
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),

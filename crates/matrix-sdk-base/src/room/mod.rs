@@ -26,8 +26,6 @@ mod state;
 mod tags;
 mod tombstone;
 
-#[cfg(feature = "e2e-encryption")]
-use std::sync::RwLock as SyncRwLock;
 use std::{
     collections::{BTreeMap, HashSet},
     sync::Arc,
@@ -39,8 +37,6 @@ pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_common::ring_buffer::RingBuffer;
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
@@ -63,8 +59,6 @@ use ruma::{
     },
     room::RoomType,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::{Deserialize, Serialize};
 pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
@@ -94,18 +88,6 @@ pub struct Room {
     pub(super) info: SharedObservable<RoomInfo>,
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     pub(super) store: Arc<DynStateStore>,
-
-    /// The most recent few encrypted events. When the keys come through to
-    /// decrypt these, the most recent relevant one will replace
-    /// `latest_event`. (We can't tell which one is relevant until
-    /// they are decrypted.)
-    ///
-    /// Currently, these are held in Room rather than RoomInfo, because we were
-    /// not sure whether holding too many of them might make the cache too
-    /// slow to load on startup. Keeping them here means they are not cached
-    /// to disk but held in memory.
-    #[cfg(feature = "e2e-encryption")]
-    pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
 
     /// A map for ids of room membership events in the knocking state linked to
     /// the user id of the user affected by the member event, that the current
@@ -141,10 +123,6 @@ impl Room {
             room_id: room_info.room_id.clone(),
             store,
             info: SharedObservable::new(room_info),
-            #[cfg(feature = "e2e-encryption")]
-            latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
-                Self::MAX_ENCRYPTED_EVENTS,
-            ))),
             room_info_notable_update_sender,
             seen_knock_request_ids_map: SharedObservable::new_async(None),
             room_member_updates_sender,

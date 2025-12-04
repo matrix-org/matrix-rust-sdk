@@ -498,12 +498,10 @@ async fn test_room_notification_count() -> Result<()> {
             update_observer.next().await.expect("we should get an update when Bob joins the room");
 
         assert_eq!(update.joined_members_count(), 2);
-        assert!(update.latest_event().is_none());
 
         assert_eq!(alice_room.num_unread_messages(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
         assert_eq!(alice_room.num_unread_notifications(), 0);
-        assert!(alice_room.latest_event().is_none());
 
         update_observer.assert_is_pending();
     }
@@ -518,8 +516,6 @@ async fn test_room_notification_count() -> Result<()> {
             .next()
             .await
             .expect("we should get an update when Bob sent a non-mention message");
-
-        assert!(update.latest_event().is_some());
 
         assert_eq!(alice_room.num_unread_messages(), 1);
         assert_eq!(alice_room.num_unread_notifications(), 1);
@@ -730,113 +726,6 @@ impl wiremock::Respond for &CustomResponder {
     }
 }
 
-#[tokio::test]
-#[ignore]
-async fn test_delayed_decryption_latest_event() -> Result<()> {
-    let server = MockServer::start().await;
-
-    // Setup mockserver that can drop to-device messages.
-    static CUSTOM_RESPONDER: Lazy<Arc<CustomResponder>> =
-        Lazy::new(|| Arc::new(CustomResponder::new()));
-
-    server.register(Mock::given(AnyMatcher).respond_with(&**CUSTOM_RESPONDER)).await;
-
-    let alice =
-        TestClientBuilder::new("alice").use_sqlite().http_proxy(server.uri()).build().await?;
-    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
-
-    let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
-    alice_sync_service.start().await;
-
-    let bob_sync_service = SyncService::builder(bob.clone()).build().await.unwrap();
-    bob_sync_service.start().await;
-
-    // Alice creates a room and invites Bob.
-    let room = alice
-        .create_room(assign!(CreateRoomRequest::new(), {
-            invite: vec![bob.user_id().unwrap().to_owned()],
-            is_direct: true,
-            preset: Some(RoomPreset::TrustedPrivateChat),
-        }))
-        .await?;
-
-    // Room is created by Alice. Let's enable encryption.
-    room.enable_encryption().await.unwrap();
-
-    // Wait for Alice to see its new room…
-    let alice_room = wait_for_room(&alice, room.room_id()).await;
-
-    // …and for Bob to receive the invitation.
-    let bob_room = wait_for_room(&bob, room.room_id()).await;
-
-    // Bob accepts the invitation by joining the room.
-    bob_room.join().await.unwrap();
-
-    assert_eq!(alice_room.state(), RoomState::Joined);
-    assert!(alice_room.latest_encryption_state().await.unwrap().is_encrypted());
-
-    assert_eq!(bob_room.state(), RoomState::Joined);
-    assert!(bob_room.latest_encryption_state().await.unwrap().is_encrypted());
-
-    // Get the room list of Alice.
-    let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
-    let (alice_room_list_stream, entries) = alice_all_rooms.entries_with_dynamic_adapters(10);
-    entries.set_filter(Box::new(new_filter_all(vec![])));
-    pin_mut!(alice_room_list_stream);
-
-    // The room list receives its initial rooms.
-    assert_let!(
-        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
-    );
-    assert_eq!(diffs.len(), 1);
-    assert_matches!(
-        &diffs[0],
-        VectorDiff::Reset { values: rooms } => {
-            assert_eq!(rooms.len(), 1, "{rooms:?}");
-            assert_eq!(rooms[0].room_id(), room.room_id());
-        }
-    );
-
-    // Send a message, but the keys won't arrive because to-device events are
-    // stripped away from the server's response
-    let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
-
-    // Wait the message to be received by Alice.
-    assert_let!(
-        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
-    );
-    assert_eq!(diffs.len(), 1);
-    assert_matches!(
-        &diffs[0],
-        VectorDiff::Set { index: 0, value: room } => {
-            // The latest event is not decrypted.
-            assert!(room.latest_event().is_none());
-        }
-    );
-
-    assert_pending!(alice_room_list_stream);
-
-    // Now we allow the key to come through
-    *CUSTOM_RESPONDER.drop_todevice.lock().unwrap() = false;
-
-    assert_let!(
-        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
-    );
-    assert_eq!(diffs.len(), 1);
-    assert_matches!(
-        &diffs[0],
-        VectorDiff::Set { index: 0, value: room } => {
-            // The latest event is now decrypted!
-            assert_eq!(room.latest_event().unwrap().event().event_id().unwrap(), event.event_id);
-        }
-    );
-
-    sleep(Duration::from_secs(2)).await;
-    assert_pending!(alice_room_list_stream);
-
-    Ok(())
-}
-
 async fn get_or_wait_for_room(client: &Client, room_id: &RoomId) -> Room {
     let (mut rooms, mut room_stream) = client.rooms_stream();
 
@@ -1008,9 +897,6 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
 
     // Wait the message from Bob to be sent.
     sleep(Duration::from_secs(2)).await;
-
-    // Latest event is set now.
-    assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // Room has been updated because of the latest event.
     assert_let!(Ok(Some(diffs)) = timeout(Duration::from_secs(3), alice_rooms.next()).await);
