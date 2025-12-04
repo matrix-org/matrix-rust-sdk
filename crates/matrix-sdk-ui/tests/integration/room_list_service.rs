@@ -1744,15 +1744,26 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 "!r0:bar.org": {
                     "initial": true,
                     "bump_stamp": 9,
-                    "required_state": [],
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Look, a new name"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$s8",
+                            "origin_server_ts": 9,
+                        },
+                    ],
                 },
             },
         },
     };
 
     // Assert the dynamic entries.
-    // `!r0:bar.org` has a more recent message.
-    // The room must move in the room list.
+    // `!r0:bar.org` has a new state event. The room must move in the room list
+    // because it has the highest recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
@@ -1910,14 +1921,44 @@ async fn test_room_sorting() -> Result<(), Error> {
                 },
             },
             "rooms": {
-                "!r0:bar.org": {
+              "!r0:bar.org": {
                     "bump_stamp": 7,
+                    "timeline": [{
+                        "content": {
+                              "body": "foo",
+                              "msgtype": "m.text"
+                          },
+                          "event_id": "$ev7",
+                          "origin_server_ts": 7,
+                          "sender": "@example:bar.org",
+                          "type": "m.room.message",
+                    }],
                 },
                 "!r1:bar.org": {
                     "bump_stamp": 6,
+                    "timeline": [{
+                        "content": {
+                              "body": "foo",
+                              "msgtype": "m.text"
+                          },
+                          "event_id": "$ev6",
+                          "origin_server_ts": 6,
+                          "sender": "@example:bar.org",
+                          "type": "m.room.message",
+                    }],
                 },
                 "!r2:bar.org": {
                     "bump_stamp": 9,
+                    "timeline": [{
+                        "content": {
+                              "body": "foo",
+                              "msgtype": "m.text"
+                          },
+                          "event_id": "$ev9",
+                          "origin_server_ts": 9,
+                          "sender": "@example:bar.org",
+                          "type": "m.room.message",
+                    }],
                 },
             },
         },
@@ -1975,6 +2016,23 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r4     | 5       |      |
     // | 4     | !r3     | 4       |      |
 
+    // The Latest Events are updated.
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r0:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r1:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r2:bar.org" ];
+        end;
+    };
+
     assert_pending!(stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1999,9 +2057,29 @@ async fn test_room_sorting() -> Result<(), Error> {
                 "!r6:bar.org": {
                     "initial": true,
                     "bump_stamp": 8,
+                    "timeline": [{
+                        "content": {
+                              "body": "foo",
+                              "msgtype": "m.text"
+                          },
+                          "event_id": "$ev8",
+                          "origin_server_ts": 8,
+                          "sender": "@example:bar.org",
+                          "type": "m.room.message",
+                    }],
                 },
                 "!r3:bar.org": {
                     "bump_stamp": 10,
+                    "timeline": [{
+                        "content": {
+                              "body": "foo",
+                              "msgtype": "m.text"
+                          },
+                          "event_id": "$ev10",
+                          "origin_server_ts": 10,
+                          "sender": "@example:bar.org",
+                          "type": "m.room.message",
+                    }],
                 },
             },
         },
@@ -2009,7 +2087,19 @@ async fn test_room_sorting() -> Result<(), Error> {
 
     assert_entries_batch! {
         [stream]
-        insert [ 1 ] [ "!r6:bar.org" ];
+        insert [ 3 ] [ "!r6:bar.org" ];
+        end;
+    };
+
+    // The Latest Event is updated.
+    assert_entries_batch! {
+        [stream]
+        set [ 3 ] [ "!r6:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [stream]
+        set [ 3 ] [ "!r6:bar.org" ];
         end;
     };
 
@@ -2042,66 +2132,17 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
+    // The Latest Events are updated.
     assert_entries_batch! {
         [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
+        set [ 4 ] [ "!r6:bar.org" ];
         end;
     };
-
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    assert_pending!(stream);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = Running => Running,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 5]],
-                    "timeline_limit": 1,
-                },
-            },
-        },
-        respond with = {
-            "pos": "3",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 6,
-                },
-            },
-            "rooms": {
-                "!r3:bar.org": {
-                    "bump_stamp": 11,
-                },
-            },
-        },
-    };
-
     assert_entries_batch! {
         [stream]
         set [ 0 ] [ "!r3:bar.org" ];
         end;
     };
-
-    // Now we have:
-    //
-    // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
-    // | 0     | !r3     | 11      |      |
-    // | 1     | !r2     | 9       |      |
-    // | 2     | !r6     | 8       |      |
-    // | 3     | !r0     | 7       | Bbb  |
-    // | 4     | !r1     | 6       | Aaa  |
-    // | 5     | !r4     | 5       |      |
 
     assert_pending!(stream);
 
