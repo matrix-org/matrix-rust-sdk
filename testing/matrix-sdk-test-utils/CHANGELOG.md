@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
-## [0.15.0] - 2025-11-27
+## [0.16.0] - 2025-12-04
 
 No notable changes in this release.
 
