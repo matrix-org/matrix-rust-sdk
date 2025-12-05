@@ -936,6 +936,22 @@ fn filter_timeline_event(
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
+    filter_timeline_event_with_redacted_message_like_event(
+        event,
+        previous_event,
+        own_user_id,
+        power_levels,
+        false,
+    )
+}
+
+fn filter_timeline_event_with_redacted_message_like_event(
+    event: &TimelineEvent,
+    previous_event: Option<&TimelineEvent>,
+    own_user_id: Option<&UserId>,
+    power_levels: Option<&RoomPowerLevels>,
+    consider_redacted_event: bool,
+) -> bool {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
     // ignore the event.
     let event = match event.raw().deserialize() {
@@ -958,8 +974,8 @@ fn filter_timeline_event(
                     previous_event,
                 ),
 
-                // The event has been redacted. It cannot be a candidate.
-                None => false,
+                // The event has been redacted.
+                None => consider_redacted_event,
             }
         }
 
@@ -1016,11 +1032,12 @@ fn filter_any_message_like_event_content(
             // let's ignore it.
             if let Some(previous_event) = previous_event {
                 redacts == previous_event.event_id()
-                    && filter_timeline_event(
+                    && filter_timeline_event_with_redacted_message_like_event(
                         previous_event, // because the previous event is `None`, it cannot loop.
                         None,
                         None,
                         None,
+                        true,
                     )
             } else {
                 false
@@ -1234,7 +1251,27 @@ mod tests_latest_event_content {
             let previous_event =
                 event_factory.text_msg("bonjour").event_id(event_id!("$ev0")).into_event();
 
+            // Let's ensure `previous_event` is a valid candidate.
+            assert!(filter_timeline_event(&previous_event, None, Some(user_id), None));
+
             let previous_event = Some(previous_event);
+
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
+        }
+
+        // With a previous event, and that's the one being redacted, even if the
+        // redacted event is already redacted (this is the best scenario as the SDK will
+        // redact the event before computing the Latest Event)!
+        {
+            let previous_event = Some(
+                event_factory
+                    .redacted(
+                        user_id,
+                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
+                    )
+                    .event_id(event_id!("$ev0"))
+                    .into_event(),
+            );
 
             assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
         }
