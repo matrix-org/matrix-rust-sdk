@@ -66,7 +66,7 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -137,7 +137,7 @@ async fn test_pinned_event_with_reaction() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(vec![reaction]))
         .mock_once()
         .mount()
@@ -200,7 +200,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(vec![reaction_1]).next_batch(token))
         .mock_once()
         .mount()
@@ -208,7 +208,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .match_from(token)
         .ok(RoomRelationsResponseTemplate::default().events(vec![reaction_2]))
         .mock_once()
@@ -275,7 +275,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     server
         .mock_room_relations()
         .match_target_event(event_id_1.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -283,7 +283,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     server
         .mock_room_relations()
         .match_target_event(event_id_2.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -406,7 +406,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -608,7 +608,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -645,7 +645,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
@@ -728,7 +728,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     server
         .mock_room_relations()
         .match_target_event(event_id.to_owned())
-        .match_limit(1000)
+        .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
         .mount()
