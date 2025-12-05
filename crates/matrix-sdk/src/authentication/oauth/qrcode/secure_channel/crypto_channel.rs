@@ -35,7 +35,7 @@ use vodozemac::{
 };
 
 use crate::authentication::oauth::qrcode::{
-    MessageDecodeError,
+    DecryptionError, MessageDecodeError,
     SecureChannelError::{self as Error},
 };
 
@@ -65,7 +65,9 @@ impl CryptoChannel {
         match self {
             CryptoChannel::Ecies(ecies) => {
                 let message = InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
-                Ok(CryptoChannelCreationResult::Ecies(ecies.establish_inbound_channel(&message)?))
+                Ok(CryptoChannelCreationResult::Ecies(
+                    ecies.establish_inbound_channel(&message).map_err(DecryptionError::from)?,
+                ))
             }
         }
     }
@@ -119,7 +121,7 @@ impl EstablishedCryptoChannel {
         let plaintext = match self {
             EstablishedCryptoChannel::Ecies(channel) => {
                 let message = Message::decode(message).map_err(MessageDecodeError::from)?;
-                channel.decrypt(&message)?
+                channel.decrypt(&message).map_err(DecryptionError::from)?
             }
         };
 

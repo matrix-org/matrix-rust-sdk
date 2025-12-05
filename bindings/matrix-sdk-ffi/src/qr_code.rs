@@ -372,7 +372,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                     HumanQrLoginError::UnsupportedQrCodeType
                 }
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => {
                     HumanQrLoginError::ConnectionInsecure
@@ -467,7 +467,7 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 }
                 SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => Self::ConnectionInsecure,
                 SecureChannelError::InvalidIntent => Self::OtherDeviceAlreadySignedIn,

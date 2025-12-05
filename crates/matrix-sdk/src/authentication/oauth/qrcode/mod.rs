@@ -262,13 +262,21 @@ pub enum MessageDecodeError {
     Json(#[from] serde_json::Error),
 }
 
+/// Error type for decryption failures of the secure channel.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// A ECIES message failed to be decrypted.
+    #[error(transparent)]
+    Ecies(#[from] EciesError),
+}
+
 /// Error type for failures in when receiving or sending messages over the
 /// secure channel.
 #[derive(Debug, Error)]
 pub enum SecureChannelError {
     /// A message has failed to be decrypted.
     #[error(transparent)]
-    Ecies(#[from] EciesError),
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]
