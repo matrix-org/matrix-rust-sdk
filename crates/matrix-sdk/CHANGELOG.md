@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**]: The new Latest Event API replaces the old API. All the
+  `new_` prefixes have been removed, thus `Room::new_latest_event` becomes
+  and overwrites the `Room::latest_event` value. The new Latest Event values
+  stored in `RoomInfo` are also erased once during the first update of the
+  SDK. The new values will be re-calculated. The following types or functions
+  are removed: `PossibleLatestEvent`, `is_suitable_for_latest_event`, and
+  `LatestEvent` (replaced by `LatestEventValue`). See the documentation of
+  `matrix_sdk::latest_event` to learn about the new API.
+  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

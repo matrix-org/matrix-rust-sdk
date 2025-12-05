@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**]: The new Latest Event API replaces the old API.
+  `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
+  documentation of `matrix_sdk::latest_event` to learn about the new API.
+  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+
 ## [0.16.0] - 2025-12-04
 
 ### Breaking changes

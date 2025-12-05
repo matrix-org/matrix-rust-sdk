@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**]: The new Latest Event API replaces the old API. All the
+  `new_` prefixes have been removed. The following methods are removed:
+  `EventTimelineItem::from_latest_event`, and `Timeline::latest_event`. See the
+  documentation of `matrix_sdk::latest_event` to learn about the new API.
+  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
