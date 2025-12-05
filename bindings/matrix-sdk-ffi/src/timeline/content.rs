@@ -18,9 +18,127 @@ use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
     room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
+    TimelineEventType as RumaTimelineEventType,
 };
 
-use crate::{client::JoinRule, timeline::msg_like::MsgLikeContent, utils::Timestamp};
+use crate::{
+    client::JoinRule,
+    event::{MessageLikeEventType, StateEventType},
+    timeline::msg_like::MsgLikeContent,
+    utils::Timestamp,
+};
+
+#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
+pub enum FFITimelineEventType {
+    StateEvent { event: StateEventType },
+    MessageLike { event: MessageLikeEventType },
+    Custom { event_type: String },
+}
+
+impl From<RumaTimelineEventType> for FFITimelineEventType {
+    fn from(event_type: RumaTimelineEventType) -> Self {
+        // Avoid duplication and endless copy paste
+        fn message_like(e: MessageLikeEventType) -> FFITimelineEventType {
+            FFITimelineEventType::MessageLike { event: e }
+        }
+
+        fn state_event(e: StateEventType) -> FFITimelineEventType {
+            FFITimelineEventType::StateEvent { event: e }
+        }
+
+        match event_type {
+            // Message-like events
+            RumaTimelineEventType::CallAnswer => message_like(MessageLikeEventType::CallAnswer),
+            RumaTimelineEventType::CallInvite => message_like(MessageLikeEventType::CallInvite),
+            RumaTimelineEventType::CallHangup => message_like(MessageLikeEventType::CallHangup),
+            RumaTimelineEventType::RtcNotification => {
+                message_like(MessageLikeEventType::RtcNotification)
+            }
+            RumaTimelineEventType::CallCandidates => {
+                message_like(MessageLikeEventType::CallCandidates)
+            }
+            RumaTimelineEventType::KeyVerificationReady => {
+                message_like(MessageLikeEventType::KeyVerificationReady)
+            }
+            RumaTimelineEventType::KeyVerificationStart => {
+                message_like(MessageLikeEventType::KeyVerificationStart)
+            }
+            RumaTimelineEventType::KeyVerificationCancel => {
+                message_like(MessageLikeEventType::KeyVerificationCancel)
+            }
+            RumaTimelineEventType::KeyVerificationAccept => {
+                message_like(MessageLikeEventType::KeyVerificationAccept)
+            }
+            RumaTimelineEventType::KeyVerificationKey => {
+                message_like(MessageLikeEventType::KeyVerificationKey)
+            }
+            RumaTimelineEventType::KeyVerificationMac => {
+                message_like(MessageLikeEventType::KeyVerificationMac)
+            }
+            RumaTimelineEventType::KeyVerificationDone => {
+                message_like(MessageLikeEventType::KeyVerificationDone)
+            }
+            RumaTimelineEventType::Reaction => message_like(MessageLikeEventType::Reaction),
+            RumaTimelineEventType::RoomEncrypted => {
+                message_like(MessageLikeEventType::RoomEncrypted)
+            }
+            RumaTimelineEventType::RoomMessage => message_like(MessageLikeEventType::RoomMessage),
+            RumaTimelineEventType::RoomRedaction => {
+                message_like(MessageLikeEventType::RoomRedaction)
+            }
+            RumaTimelineEventType::Sticker => message_like(MessageLikeEventType::Sticker),
+            RumaTimelineEventType::PollEnd => message_like(MessageLikeEventType::PollEnd),
+            RumaTimelineEventType::PollResponse => message_like(MessageLikeEventType::PollResponse),
+            RumaTimelineEventType::PollStart => message_like(MessageLikeEventType::PollStart),
+            RumaTimelineEventType::UnstablePollEnd => {
+                message_like(MessageLikeEventType::UnstablePollEnd)
+            }
+            RumaTimelineEventType::UnstablePollResponse => {
+                message_like(MessageLikeEventType::UnstablePollResponse)
+            }
+            RumaTimelineEventType::UnstablePollStart => {
+                message_like(MessageLikeEventType::UnstablePollStart)
+            }
+            RumaTimelineEventType::CallMember => state_event(StateEventType::CallMember),
+
+            // State events
+            RumaTimelineEventType::PolicyRuleRoom => state_event(StateEventType::PolicyRuleRoom),
+            RumaTimelineEventType::PolicyRuleServer => {
+                state_event(StateEventType::PolicyRuleServer)
+            }
+            RumaTimelineEventType::PolicyRuleUser => state_event(StateEventType::PolicyRuleUser),
+            RumaTimelineEventType::RoomAliases => state_event(StateEventType::RoomAliases),
+            RumaTimelineEventType::RoomAvatar => state_event(StateEventType::RoomAvatar),
+            RumaTimelineEventType::RoomCanonicalAlias => {
+                state_event(StateEventType::RoomCanonicalAlias)
+            }
+            RumaTimelineEventType::RoomCreate => state_event(StateEventType::RoomCreate),
+            RumaTimelineEventType::RoomEncryption => state_event(StateEventType::RoomEncryption),
+            RumaTimelineEventType::RoomGuestAccess => state_event(StateEventType::RoomGuestAccess),
+            RumaTimelineEventType::RoomHistoryVisibility => {
+                state_event(StateEventType::RoomHistoryVisibility)
+            }
+            RumaTimelineEventType::RoomJoinRules => state_event(StateEventType::RoomJoinRules),
+            RumaTimelineEventType::RoomName => state_event(StateEventType::RoomName),
+            RumaTimelineEventType::RoomMember => state_event(StateEventType::RoomMemberEvent),
+            RumaTimelineEventType::RoomPinnedEvents => {
+                state_event(StateEventType::RoomPinnedEvents)
+            }
+            RumaTimelineEventType::RoomPowerLevels => state_event(StateEventType::RoomPowerLevels),
+            RumaTimelineEventType::RoomServerAcl => state_event(StateEventType::RoomServerAcl),
+            RumaTimelineEventType::RoomThirdPartyInvite => {
+                state_event(StateEventType::RoomThirdPartyInvite)
+            }
+            RumaTimelineEventType::RoomTombstone => state_event(StateEventType::RoomTombstone),
+            RumaTimelineEventType::RoomTopic => state_event(StateEventType::RoomTopic),
+            RumaTimelineEventType::SpaceChild => state_event(StateEventType::SpaceChild),
+            RumaTimelineEventType::SpaceParent => state_event(StateEventType::SpaceParent),
+
+            // Custom event types not covered above
+            _ => FFITimelineEventType::Custom { event_type: event_type.to_string() },
+        }
+    }
+}
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
@@ -248,23 +366,54 @@ pub enum OtherState {
     PolicyRuleServer,
     PolicyRuleUser,
     RoomAliases,
-    RoomAvatar { url: Option<String> },
+    RoomAvatar {
+        url: Option<String>,
+    },
     RoomCanonicalAlias,
-    RoomCreate { federate: Option<bool> },
+    RoomCreate {
+        federate: Option<bool>,
+    },
     RoomEncryption,
     RoomGuestAccess,
-    RoomHistoryVisibility { history_visibility: Option<HistoryVisibility> },
-    RoomJoinRules { join_rule: Option<JoinRule> },
-    RoomName { name: Option<String> },
-    RoomPinnedEvents { change: RoomPinnedEventsChange },
-    RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
+    RoomHistoryVisibility {
+        history_visibility: Option<HistoryVisibility>,
+    },
+    RoomJoinRules {
+        join_rule: Option<JoinRule>,
+    },
+    RoomName {
+        name: Option<String>,
+    },
+    RoomPinnedEvents {
+        change: RoomPinnedEventsChange,
+    },
+    RoomPowerLevels {
+        events: HashMap<FFITimelineEventType, i64>,
+        previous_events: Option<HashMap<FFITimelineEventType, i64>>,
+        ban: Option<i64>,
+        kick: Option<i64>,
+        events_default: Option<i64>,
+        invite: Option<i64>,
+        redact: Option<i64>,
+        state_default: Option<i64>,
+        users_default: Option<i64>,
+        notifications: Option<i64>,
+        users: HashMap<String, i64>,
+        previous: Option<HashMap<String, i64>>,
+    },
     RoomServerAcl,
-    RoomThirdPartyInvite { display_name: Option<String> },
+    RoomThirdPartyInvite {
+        display_name: Option<String>,
+    },
     RoomTombstone,
-    RoomTopic { topic: Option<String> },
+    RoomTopic {
+        topic: Option<String>,
+    },
     SpaceChild,
     SpaceParent,
-    Custom { event_type: String },
+    Custom {
+        event_type: String,
+    },
 }
 
 impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
@@ -330,6 +479,26 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::RoomPinnedEvents(c) => Self::RoomPinnedEvents { change: c.into() },
             Content::RoomPowerLevels(c) => match c {
                 FullContent::Original { content, prev_content } => Self::RoomPowerLevels {
+                    events: content
+                        .events
+                        .iter()
+                        .map(|(k, &v)| (k.clone().into(), v.into()))
+                        .collect(),
+                    previous_events: prev_content.as_ref().map(|prev_content| {
+                        prev_content
+                            .events
+                            .iter()
+                            .map(|(k, &v)| (k.clone().into(), v.into()))
+                            .collect()
+                    }),
+                    ban: Some(content.ban.into()),
+                    kick: Some(content.kick.into()),
+                    events_default: Some(content.events_default.into()),
+                    invite: Some(content.invite.into()),
+                    redact: Some(content.redact.into()),
+                    state_default: Some(content.state_default.into()),
+                    users_default: Some(content.users_default.into()),
+                    notifications: Some(content.notifications.room.into()),
                     users: power_level_user_changes(content, prev_content)
                         .iter()
                         .map(|(k, v)| (k.to_string(), *v))
@@ -338,9 +507,20 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                         prev_content.users.iter().map(|(k, &v)| (k.to_string(), v.into())).collect()
                     }),
                 },
-                FullContent::Redacted(_) => {
-                    Self::RoomPowerLevels { users: Default::default(), previous: None }
-                }
+                FullContent::Redacted(_) => Self::RoomPowerLevels {
+                    events: Default::default(),
+                    previous_events: None,
+                    ban: None,
+                    kick: None,
+                    events_default: None,
+                    invite: None,
+                    redact: None,
+                    state_default: None,
+                    users_default: None,
+                    notifications: None,
+                    users: Default::default(),
+                    previous: None,
+                },
             },
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
