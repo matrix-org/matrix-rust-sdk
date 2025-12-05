@@ -32,8 +32,9 @@ use ruma::{
         relation::Replacement,
         room::{
             member::MembershipState,
-            message::{MessageType, Relation},
+            message::{MessageType, Relation, RoomMessageEventContent},
             power_levels::RoomPowerLevels,
+            redaction::RoomRedactionEventContent,
         },
     },
 };
@@ -519,8 +520,8 @@ impl LatestEventValueBuilder {
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
+            .rfind_map_event_in_memory_by(|event, previous_event| {
+                filter_timeline_event(event, previous_event, own_user_id, power_levels)
                     .then(|| event.clone())
             })
             .await
@@ -931,7 +932,7 @@ impl LatestEventValuesForLocalEvents {
 
 fn filter_timeline_event(
     event: &TimelineEvent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
@@ -954,11 +955,11 @@ fn filter_timeline_event(
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
-                    previous_event_id,
+                    previous_event,
                 ),
 
-                // The event has been redacted.
-                None => true,
+                // The event has been redacted. It cannot be a candidate.
+                None => false,
             }
         }
 
@@ -970,34 +971,67 @@ fn filter_timeline_event(
 
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
 ) -> bool {
     match event {
-        AnyMessageLikeEventContent::RoomMessage(message) => {
+        // `m.room.message`
+        AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
+            msgtype,
+            relates_to,
+            ..
+        }) => {
             // Don't show incoming verification requests.
-            if let MessageType::VerificationRequest(_) = message.msgtype {
+            if let MessageType::VerificationRequest(_) = msgtype {
                 return false;
             }
 
             // Not all relations are accepted. Let's filter them.
-            match &message.relates_to {
+            match relates_to {
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
                     // If the edit relates to the immediate previous event, this is an acceptable
-                    // latest event, otherwise let's ignore it.
-                    Some(event_id) == previous_event_id.as_ref()
+                    // latest event candidate, otherwise let's ignore it.
+                    Some(event_id) == previous_event.and_then(|event| event.event_id())
                 }
 
                 _ => true,
             }
         }
 
+        // `org.matrix.msc3381.poll.start`
+        // `m.call.invite`
+        // `m.rtc.notification`
+        // `m.sticker`
         AnyMessageLikeEventContent::UnstablePollStart(_)
         | AnyMessageLikeEventContent::CallInvite(_)
         | AnyMessageLikeEventContent::RtcNotification(_)
         | AnyMessageLikeEventContent::Sticker(_) => true,
 
-        // Encrypted events are not suitable.
-        AnyMessageLikeEventContent::RoomEncrypted(_) => false,
+        // `m.room.redaction`
+        AnyMessageLikeEventContent::RoomRedaction(RoomRedactionEventContent {
+            redacts, ..
+        }) => {
+            // If the redaction relates to the immediate previous event, and if the
+            // immediate previous event is an acceptable latest event candidate, then this
+            // redaction is an acceptable latest event candidate, otherwise
+            // let's ignore it.
+            if let Some(previous_event) = previous_event {
+                redacts == previous_event.event_id()
+                    && filter_timeline_event(
+                        previous_event, // because the previous event is `None`, it cannot loop.
+                        None,
+                        None,
+                        None,
+                    )
+            } else {
+                false
+            }
+        }
+
+        // `m.room.encrypted`
+        AnyMessageLikeEventContent::RoomEncrypted(_) => {
+            // Encrypted events are **explicitly** not suitable.
+            false
+        }
 
         // Everything else is considered not suitable.
         _ => false,
@@ -1099,21 +1133,6 @@ mod tests_latest_event_content {
     }
 
     #[test]
-    fn test_redacted() {
-        assert_latest_event_content!(
-            event | event_factory | {
-                event_factory
-                    .redacted(
-                        user_id!("@mnt_io:matrix.org"),
-                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
-                    )
-                    .into_event()
-            }
-            is a candidate
-        );
-    }
-
-    #[test]
     fn test_room_message_replacement() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id);
@@ -1131,42 +1150,93 @@ mod tests_latest_event_content {
         {
             let previous_event_id = None;
 
-            assert!(
-                filter_timeline_event(
-                    &event,
-                    previous_event_id,
-                    Some(user_id!("@mnt_io:matrix.org")),
-                    None
-                )
-                .not()
-            );
+            assert!(filter_timeline_event(&event, previous_event_id, Some(user_id), None).not());
         }
 
-        // With a previous event, but the one being replaced.
+        // With a previous event, but not the one being replaced.
         {
-            let previous_event_id = Some(event_id!("$ev1").to_owned());
+            let previous_event =
+                Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
 
             assert!(
-                filter_timeline_event(
-                    &event,
-                    previous_event_id,
-                    Some(user_id!("@mnt_io:matrix.org")),
-                    None
-                )
-                .not()
+                filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None).not()
             );
         }
 
         // With a previous event, and that's the one being replaced!
         {
-            let previous_event_id = Some(event_id!("$ev0").to_owned());
+            let previous_event =
+                Some(event_factory.text_msg("hello").event_id(event_id!("$ev0")).into_event());
 
-            assert!(filter_timeline_event(
-                &event,
-                previous_event_id,
-                Some(user_id!("@mnt_io:matrix.org")),
-                None
-            ));
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
+        }
+    }
+
+    #[test]
+    fn test_redaction() {
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id);
+        let event = event_factory.redaction(event_id!("$ev0")).into_event();
+
+        // Without a previous event.
+        //
+        // This is an edge case where either the event cache has been emptied and only
+        // the redaction is received via the sync for example, or either the previous
+        // event is part of another chunk that is not loaded in memory yet. In
+        // this case, let's not consider the event as a `LatestEventValue`
+        // candidate.
+        {
+            let previous_event_id = None;
+
+            assert!(filter_timeline_event(&event, previous_event_id, Some(user_id), None).not());
+        }
+
+        // With a previous event, but NOT the one being redacted.
+        {
+            let previous_event =
+                Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
+
+            assert!(
+                filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None).not()
+            );
+        }
+
+        // With a previous event, and that's the one being redacted, but the redacted
+        // event is NOT a candidate!
+        {
+            use ruma::{OwnedDeviceId, events::room::message};
+
+            let previous_event = event_factory
+                .event(RoomMessageEventContent::new(message::MessageType::VerificationRequest(
+                    message::KeyVerificationRequestEventContent::new(
+                        "body".to_owned(),
+                        vec![],
+                        OwnedDeviceId::from("device_id"),
+                        user_id!("@user:server.name").to_owned(),
+                    ),
+                )))
+                .into_event();
+
+            // Let's ensure `previous_event` is not a valid candidate.
+            assert!(filter_timeline_event(&previous_event, None, Some(user_id), None).not());
+
+            let previous_event = Some(previous_event);
+
+            // Despites the `m.room.redaction` pointing to an immediate previous event, this
+            // previous event is not a candidate.
+            assert!(
+                filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None).not()
+            );
+        }
+
+        // With a previous event, and that's the one being redacted!
+        {
+            let previous_event =
+                event_factory.text_msg("bonjour").event_id(event_id!("$ev0")).into_event();
+
+            let previous_event = Some(previous_event);
+
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
         }
     }
 
@@ -1263,6 +1333,21 @@ mod tests_latest_event_content {
         // Take a random message-like event.
         assert_latest_event_content!(
             event | event_factory | { event_factory.reaction(event_id!("$ev0"), "+1").into_event() }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_redacted() {
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .redacted(
+                        user_id!("@mnt_io:matrix.org"),
+                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
+                    )
+                    .into_event()
+            }
             is not a candidate
         );
     }
