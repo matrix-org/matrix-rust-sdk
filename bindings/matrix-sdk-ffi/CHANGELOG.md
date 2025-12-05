@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
+  events defaults, per-event overrides, notifications), so clients can compute the required power level
+  for actions and compare with previous values.
 
 ## [0.16.0] - 2025-12-04
 
