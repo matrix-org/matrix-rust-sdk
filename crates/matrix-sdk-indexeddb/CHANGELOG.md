@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Ensure that encrypted tests are run with a `StoreCipher`. This happened to reveal tests which fail in an
+  encrypted `EventCacheStore`, which required fixing queries for all events in a room. ([#5933](https://github.com/matrix-org/matrix-rust-sdk/pull/5933))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

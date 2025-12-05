@@ -599,13 +599,21 @@ mod tests {
     }
 
     mod encrypted {
+        use std::sync::Arc;
+
+        use matrix_sdk_store_encryption::StoreCipher;
+
         use super::*;
 
         wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
         async fn get_event_cache_store() -> Result<IndexeddbEventCacheStore, EventCacheStoreError> {
             let name = format!("test-event-cache-store-{}", Uuid::new_v4().as_hyphenated());
-            Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
+            Ok(IndexeddbEventCacheStore::builder()
+                .database_name(name)
+                .store_cipher(Arc::new(StoreCipher::new().expect("store cipher")))
+                .build()
+                .await?)
         }
 
         event_cache_store_integration_tests!();

@@ -503,13 +503,21 @@ mod tests {
     }
 
     mod encrypted {
+        use std::sync::Arc;
+
+        use matrix_sdk_store_encryption::StoreCipher;
+
         use super::*;
 
         wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
         async fn get_media_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
             let name = format!("test-media-store-{}", Uuid::new_v4().as_hyphenated());
-            Ok(IndexeddbMediaStore::builder().database_name(name).build().await?)
+            Ok(IndexeddbMediaStore::builder()
+                .database_name(name)
+                .store_cipher(Arc::new(StoreCipher::new().expect("store cipher")))
+                .build()
+                .await?)
         }
 
         #[cfg(target_family = "wasm")]
