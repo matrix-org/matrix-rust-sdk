@@ -1017,6 +1017,33 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+
+        for (room_id, thread_id, mut new) in updates {
+            let room_subs = inner.thread_subscriptions.entry(room_id.to_owned()).or_default();
+
+            if let Some(previous) = room_subs.get(thread_id) {
+                if *previous == new {
+                    continue;
+                }
+                if !compare_thread_subscription_bump_stamps(
+                    previous.bump_stamp,
+                    &mut new.bump_stamp,
+                ) {
+                    continue;
+                }
+            }
+
+            room_subs.insert(thread_id.to_owned(), new);
+        }
+
+        Ok(())
+    }
+
     async fn load_thread_subscription(
         &self,
         room: &RoomId,

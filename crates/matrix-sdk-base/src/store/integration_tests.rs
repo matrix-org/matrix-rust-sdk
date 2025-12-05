@@ -111,6 +111,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_thread_subscriptions(&self) -> TestResult;
     /// Test thread subscription bumpstamp semantics.
     async fn test_thread_subscriptions_bumpstamps(&self) -> TestResult;
+    /// Test thread subscriptions bulk upsert, including bumpstamp semantics.
+    async fn test_thread_subscriptions_bulk_upsert(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -2004,6 +2006,183 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_thread_subscriptions_bulk_upsert(&self) -> TestResult {
+        let threads = [
+            event_id!("$t1"),
+            event_id!("$t2"),
+            event_id!("$t3"),
+            event_id!("$t4"),
+            event_id!("$t5"),
+            event_id!("$t6"),
+        ];
+        // Helper for building the input for `upsert_thread_subscriptions()`,
+        // which is of the type: Vec<(&RoomId, &EventId, StoredThreadSubscription)>
+        let build_subscription_updates = |subs: &[StoredThreadSubscription]| {
+            threads
+                .iter()
+                .zip(subs)
+                .map(|(&event_id, &sub)| (room_id(), event_id, sub))
+                .collect::<Vec<_>>()
+        };
+
+        // Test bump_stamp logic
+        let initial_subscriptions = build_subscription_updates(&[
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(14),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(210),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(5),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(100),
+            },
+        ]);
+
+        let update_subscriptions = build_subscription_updates(&[
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(1101),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(222),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(1),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(100),
+            },
+        ]);
+
+        let expected_subscriptions = build_subscription_updates(&[
+            // Status should be updated, because prev and new bump_stamp are both None
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            },
+            // Status should be updated, but keep initial bump_stamp (new is None)
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(14),
+            },
+            // Status should be updated and also bump_stamp should be updated (initial was None)
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(1101),
+            },
+            // Status should be updated and also bump_stamp should be updated (initial was lower)
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(222),
+            },
+            // Status shouldn't change, as new bump_stamp is lower
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(5),
+            },
+            // Status shouldn't change, as bump_stamp is equal to the previous one
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(100),
+            },
+        ]);
+
+        // Set the initial subscriptions
+        self.upsert_thread_subscriptions(initial_subscriptions.clone()).await?;
+
+        // Assert the subscriptions have been added
+        for (room_id, thread_id, expected_sub) in &initial_subscriptions {
+            let stored_subscription = self.load_thread_subscription(room_id, thread_id).await?;
+            assert_eq!(stored_subscription, Some(*expected_sub));
+        }
+
+        // Update subscriptions
+        self.upsert_thread_subscriptions(update_subscriptions).await?;
+
+        // Assert the expected subscriptions and bump_stamps
+        for (room_id, thread_id, expected_sub) in &expected_subscriptions {
+            let stored_subscription = self.load_thread_subscription(room_id, thread_id).await?;
+            assert_eq!(stored_subscription, Some(*expected_sub));
+        }
+
+        // Test just state changes, but first remove previous subscriptions
+        for (room_id, thread_id, _) in &expected_subscriptions {
+            self.remove_thread_subscription(room_id, thread_id).await?;
+        }
+
+        let initial_subscriptions = build_subscription_updates(&[
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(1),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: Some(1),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(1),
+            },
+        ]);
+
+        self.upsert_thread_subscriptions(initial_subscriptions.clone()).await?;
+
+        for (room_id, thread_id, expected_sub) in &initial_subscriptions {
+            let stored_subscription = self.load_thread_subscription(room_id, thread_id).await?;
+            assert_eq!(stored_subscription, Some(*expected_sub));
+        }
+
+        let update_subscriptions = build_subscription_updates(&[
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: Some(2),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: Some(2),
+            },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: Some(2),
+            },
+        ]);
+
+        self.upsert_thread_subscriptions(update_subscriptions.clone()).await?;
+
+        for (room_id, thread_id, expected_sub) in &update_subscriptions {
+            let stored_subscription = self.load_thread_subscription(room_id, thread_id).await?;
+            assert_eq!(stored_subscription, Some(*expected_sub));
+        }
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2195,6 +2374,12 @@ macro_rules! statestore_integration_tests {
             async fn test_thread_subscriptions_bumpstamps() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_thread_subscriptions_bumpstamps().await
+            }
+
+            #[async_test]
+            async fn test_thread_subscriptions_bulk_upsert() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_thread_subscriptions_bulk_upsert().await
             }
         }
     };
