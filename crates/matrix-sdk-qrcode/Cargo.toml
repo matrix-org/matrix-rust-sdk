@@ -16,7 +16,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-js = ["vodozemac/js"]
+js = ["vodozemac/wasm_js"]
 
 [dependencies]
 byteorder.workspace = true

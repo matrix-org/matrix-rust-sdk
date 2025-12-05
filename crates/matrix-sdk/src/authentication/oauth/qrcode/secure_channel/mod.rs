@@ -20,7 +20,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
 use vodozemac::ecies::{
-    CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult,
+    CheckCode, DigitMode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult,
 };
 
 use super::{
@@ -140,7 +140,7 @@ impl AlmostEstablishedSecureChannel {
     /// The check code needs to be received out of band from the other side of
     /// the secure channel.
     pub(super) fn confirm(self, check_code: u8) -> Result<EstablishedSecureChannel, Error> {
-        if check_code == self.secure_channel.check_code().to_digit() {
+        if check_code == self.secure_channel.check_code().to_digit(DigitMode::AllowLeadingZero) {
             Ok(self.secure_channel)
         } else {
             Err(Error::InvalidCheckCode)
@@ -288,6 +288,7 @@ pub(super) mod test {
     use serde_json::json;
     use similar_asserts::assert_eq;
     use url::Url;
+    use vodozemac::hpke::DigitMode;
     use wiremock::{
         Mock, MockGuard, MockServer, ResponseTemplate,
         matchers::{method, path},
@@ -465,7 +466,7 @@ pub(super) mod test {
         assert_eq!(alice.secure_channel.check_code(), bob.check_code());
 
         let alice = alice
-            .confirm(bob.check_code().to_digit())
+            .confirm(bob.check_code().to_digit(DigitMode::AllowLeadingZero))
             .expect("Alice should be able to confirm the established secure channel.");
 
         assert_eq!(bob.channel.rendezvous_info(), alice.channel.rendezvous_info());
