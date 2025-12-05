@@ -28,6 +28,10 @@
 //! [HPKE]: https://www.rfc-editor.org/rfc/rfc9180.html
 //! [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
 
+#[cfg(feature = "unstable-msc4388")]
+use vodozemac::hpke::{
+    self, EstablishedHpkeChannel, HpkeRecipientChannel, RecipientCreationResult,
+};
 use vodozemac::{
     Curve25519PublicKey,
     ecies::{Ecies, EstablishedEcies, InboundCreationResult, InitialMessage, Message},
@@ -35,13 +39,14 @@ use vodozemac::{
 };
 
 use crate::authentication::oauth::qrcode::{
-    MessageDecodeError,
-    SecureChannelError::{self as Error},
+    DecryptionError, MessageDecodeError, SecureChannelError as Error,
 };
 
 /// A cryptographic communication channel.
 pub(super) enum CryptoChannel {
     Ecies(Ecies),
+    #[cfg(feature = "unstable-msc4388")]
+    Hpke(HpkeRecipientChannel),
 }
 
 impl CryptoChannel {
@@ -50,10 +55,18 @@ impl CryptoChannel {
         CryptoChannel::Ecies(Ecies::new())
     }
 
+    /// Create a new HPKE-based [`CryptoChannel`].
+    #[cfg(feature = "unstable-msc4388")]
+    pub(super) fn new_hpke() -> Self {
+        CryptoChannel::Hpke(HpkeRecipientChannel::new())
+    }
+
     /// Get the [`Curve25519PublicKey`] of this cryptographic channel.
     pub(super) fn public_key(&self) -> Curve25519PublicKey {
         match self {
             CryptoChannel::Ecies(ecies) => ecies.public_key(),
+            #[cfg(feature = "unstable-msc4388")]
+            CryptoChannel::Hpke(hpke) => hpke.public_key(),
         }
     }
 
@@ -65,7 +78,17 @@ impl CryptoChannel {
         match self {
             CryptoChannel::Ecies(ecies) => {
                 let message = InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
-                Ok(CryptoChannelCreationResult::Ecies(ecies.establish_inbound_channel(&message)?))
+                Ok(CryptoChannelCreationResult::Ecies(
+                    ecies.establish_inbound_channel(&message).map_err(DecryptionError::from)?,
+                ))
+            }
+            #[cfg(feature = "unstable-msc4388")]
+            CryptoChannel::Hpke(hpke) => {
+                let message =
+                    hpke::InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
+                Ok(CryptoChannelCreationResult::Hpke(
+                    hpke.establish_channel(&message, &[]).map_err(DecryptionError::from)?,
+                ))
             }
         }
     }
@@ -73,6 +96,8 @@ impl CryptoChannel {
 
 pub(super) enum CryptoChannelCreationResult {
     Ecies(InboundCreationResult),
+    #[cfg(feature = "unstable-msc4388")]
+    Hpke(RecipientCreationResult),
 }
 
 impl CryptoChannelCreationResult {
@@ -82,6 +107,8 @@ impl CryptoChannelCreationResult {
             CryptoChannelCreationResult::Ecies(inbound_creation_result) => {
                 &inbound_creation_result.message
             }
+            #[cfg(feature = "unstable-msc4388")]
+            CryptoChannelCreationResult::Hpke(result) => &result.message,
         }
     }
 }
@@ -92,6 +119,8 @@ impl CryptoChannelCreationResult {
 /// cryptographic messages.
 pub(super) enum EstablishedCryptoChannel {
     Ecies(EstablishedEcies),
+    #[cfg(feature = "unstable-msc4388")]
+    Hpke(EstablishedHpkeChannel),
 }
 
 impl EstablishedCryptoChannel {
@@ -101,25 +130,48 @@ impl EstablishedCryptoChannel {
             EstablishedCryptoChannel::Ecies(established_ecies) => {
                 established_ecies.check_code().to_digit(DigitMode::AllowLeadingZero)
             }
+            #[cfg(feature = "unstable-msc4388")]
+            EstablishedCryptoChannel::Hpke(established_hpke_channel) => {
+                established_hpke_channel.check_code().to_digit(DigitMode::NoLeadingZero)
+            }
         }
     }
 
     /// Seal the given plaintext using this [`EstablishedCryptoChannel`].
-    pub(super) fn seal(&mut self, plaintext: &str) -> String {
+    pub(super) fn seal(
+        &mut self,
+        plaintext: &str,
+        #[allow(unused_variables)] aad: &[u8],
+    ) -> String {
         match self {
             EstablishedCryptoChannel::Ecies(channel) => {
                 let message = channel.encrypt(plaintext.as_bytes());
+                message.encode()
+            }
+            #[cfg(feature = "unstable-msc4388")]
+            EstablishedCryptoChannel::Hpke(channel) => {
+                let message = channel.seal(plaintext.as_bytes(), aad);
                 message.encode()
             }
         }
     }
 
     /// Open the given sealed message using this [`EstablishedCryptoChannel`].
-    pub(super) fn open(&mut self, message: &str) -> Result<String, Error> {
+    #[allow(unused_variables)]
+    pub(super) fn open(
+        &mut self,
+        message: &str,
+        #[allow(unused_variables)] aad: &[u8],
+    ) -> Result<String, Error> {
         let plaintext = match self {
             EstablishedCryptoChannel::Ecies(channel) => {
                 let message = Message::decode(message).map_err(MessageDecodeError::from)?;
-                channel.decrypt(&message)?
+                channel.decrypt(&message).map_err(DecryptionError::from)?
+            }
+            #[cfg(feature = "unstable-msc4388")]
+            EstablishedCryptoChannel::Hpke(channel) => {
+                let message = hpke::Message::decode(message).map_err(MessageDecodeError::from)?;
+                channel.open(&message, aad).map_err(DecryptionError::from)?
             }
         };
 

@@ -37,7 +37,10 @@ use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
-pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError};
+pub use vodozemac::{
+    ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError},
+    hpke::{Error as HpkeError, MessageDecodeError as HpkeMessageDecodeError},
+};
 
 mod grant;
 mod login;
@@ -253,6 +256,9 @@ pub enum MessageDecodeError {
     /// A received message has failed to be decoded.
     #[error(transparent)]
     Ecies(#[from] EciesMessageDecodeError),
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Hpke(#[from] HpkeMessageDecodeError),
     /// A message we received over the secure channel was not a valid UTF-8
     /// encoded string.
     #[error(transparent)]
@@ -268,6 +274,9 @@ pub enum DecryptionError {
     /// A ECIES message failed to be decrypted.
     #[error(transparent)]
     Ecies(#[from] EciesError),
+    /// A HPKE message failed to be decrypted.
+    #[error(transparent)]
+    Hpke(#[from] HpkeError),
 }
 
 /// Error type for failures in when receiving or sending messages over the
@@ -276,7 +285,7 @@ pub enum DecryptionError {
 pub enum SecureChannelError {
     /// A message has failed to be decrypted.
     #[error(transparent)]
-    Ecies(#[from] EciesError),
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]

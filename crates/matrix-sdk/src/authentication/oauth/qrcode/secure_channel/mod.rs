@@ -20,13 +20,19 @@ use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
 use vodozemac::ecies::{Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult};
+#[cfg(feature = "unstable-msc4388")]
+use vodozemac::hpke::{
+    BidirectionalCreationResult, HpkeSenderChannel, InitialResponse, RecipientCreationResult,
+    SenderCreationResult, UnidirectionalSenderChannel,
+};
 
 use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
 use crate::{
-    authentication::oauth::qrcode::MessageDecodeError, config::RequestConfig,
+    authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
+    config::RequestConfig,
     http_client::HttpClient,
 };
 mod crypto_channel;
@@ -117,6 +123,16 @@ impl SecureChannel {
                     secure_channel.send(LOGIN_OK_MESSAGE).await?;
                     secure_channel
                 }
+                #[cfg(feature = "unstable-msc4388")]
+                CryptoChannelCreationResult::Hpke(RecipientCreationResult { channel, .. }) => {
+                    let BidirectionalCreationResult { channel, message } =
+                        channel.establish_bidirectional_channel(LOGIN_OK_MESSAGE.as_bytes(), &[]);
+                    self.channel.send(message.encode()).await?;
+
+                    let crypto_channel = EstablishedCryptoChannel::Hpke(channel);
+
+                    EstablishedSecureChannel { channel: self.channel, crypto_channel }
+                }
             };
 
             Ok(AlmostEstablishedSecureChannel { secure_channel })
@@ -164,6 +180,8 @@ impl EstablishedSecureChannel {
     ) -> Result<Self, Error> {
         enum ChannelType {
             Ecies(EstablishedEcies),
+            #[cfg(feature = "unstable-msc4388")]
+            Hpke(UnidirectionalSenderChannel),
         }
 
         if qr_code_data.intent() == expected_mode {
@@ -178,14 +196,32 @@ impl EstablishedSecureChannel {
             // the QR code, until it receives and successfully
             // decrypts the initial message. We're here encrypting
             // the `LOGIN_INITIATE_MESSAGE`.
-            let (crypto_channel, encoded_message) = {
+            let (crypto_channel, encoded_message) = if true {
                 let ecies = Ecies::new();
 
-                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key(),
-                    LOGIN_INITIATE_MESSAGE.as_bytes(),
-                )?;
+                let OutboundCreationResult { ecies, message } = ecies
+                    .establish_outbound_channel(
+                        qr_code_data.public_key(),
+                        LOGIN_INITIATE_MESSAGE.as_bytes(),
+                    )
+                    .map_err(DecryptionError::from)?;
                 (ChannelType::Ecies(ecies), message.encode())
+            } else {
+                #[cfg(feature = "unstable-msc4388")]
+                {
+                    let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
+                        .establish_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                            // TODO: Do we want to include some additional authenticated data here?
+                            &[],
+                        )
+                        .unwrap();
+                    (ChannelType::Hpke(channel), message.encode())
+                }
+
+                #[cfg(not(feature = "unstable-msc4388"))]
+                return Err(Error::UnsupportedQrCodeType);
             };
 
             // The other side has crated a rendezvous channel, we're going to
@@ -227,6 +263,30 @@ impl EstablishedSecureChannel {
                     let response = channel.receive().await?;
                     (response, channel)
                 }
+                #[cfg(feature = "unstable-msc4388")]
+                ChannelType::Hpke(crypto_channel) => {
+                    let response = channel.receive().await?;
+                    let response =
+                        InitialResponse::decode(&response).map_err(MessageDecodeError::from)?;
+
+                    let BidirectionalCreationResult { channel: crypto_channel, message } =
+                        crypto_channel
+                            .establish_bidirectional_channel(&response, &[])
+                            .map_err(DecryptionError::from)?;
+                    let response = String::from_utf8(message)
+                        .map_err(|e| MessageDecodeError::from(e.utf8_error()))?;
+                    let crypto_channel = EstablishedCryptoChannel::Hpke(crypto_channel);
+
+                    // We can create our EstablishedSecureChannel struct now and
+                    // use the convenient helpers which
+                    // transparently decrypt on receival.
+                    let channel = Self { channel, crypto_channel };
+
+                    // We can create our EstablishedSecureChannel struct now and
+                    // use the convenient helpers which
+                    // transparently decrypt on receival.
+                    (response, channel)
+                }
             };
 
             trace!("Received the LOGIN OK message, maybe.");
@@ -265,14 +325,13 @@ impl EstablishedSecureChannel {
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.crypto_channel.seal(message);
-
+        let message = self.crypto_channel.seal(message, &[]);
         Ok(self.channel.send(message).await?)
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
         let message = self.channel.receive().await?;
-        self.crypto_channel.open(&message)
+        self.crypto_channel.open(&message, &[])
     }
 }
 

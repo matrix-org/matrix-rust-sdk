@@ -94,6 +94,9 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 # MSC4480 extension.
 unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
 
+# Support for the MSC4388 variant of the QR code login.
+unstable-msc4388 = []
+
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
