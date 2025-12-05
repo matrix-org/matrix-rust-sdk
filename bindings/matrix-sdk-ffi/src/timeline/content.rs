@@ -360,6 +360,18 @@ impl From<matrix_sdk_ui::timeline::MembershipChange> for MembershipChange {
     }
 }
 
+#[derive(Clone, uniffi::Record)]
+pub struct PowerLevelChanges {
+    ban: i64,
+    kick: i64,
+    events_default: i64,
+    invite: i64,
+    redact: i64,
+    state_default: i64,
+    users_default: i64,
+    notifications: i64,
+}
+
 #[derive(Clone, uniffi::Enum)]
 #[allow(clippy::large_enum_variant)]
 // Added because the RoomPowerLevels variant is quite large.
@@ -393,16 +405,10 @@ pub enum OtherState {
     RoomPowerLevels {
         events: HashMap<FFITimelineEventType, i64>,
         previous_events: Option<HashMap<FFITimelineEventType, i64>>,
-        ban: Option<i64>,
-        kick: Option<i64>,
-        events_default: Option<i64>,
-        invite: Option<i64>,
-        redact: Option<i64>,
-        state_default: Option<i64>,
-        users_default: Option<i64>,
-        notifications: Option<i64>,
         users: HashMap<String, i64>,
         previous: Option<HashMap<String, i64>>,
+        thresholds: Option<PowerLevelChanges>,
+        previous_thresholds: Option<PowerLevelChanges>,
     },
     RoomServerAcl,
     RoomThirdPartyInvite {
@@ -494,14 +500,28 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                             .map(|(k, &v)| (k.clone().into(), v.into()))
                             .collect()
                     }),
-                    ban: Some(content.ban.into()),
-                    kick: Some(content.kick.into()),
-                    events_default: Some(content.events_default.into()),
-                    invite: Some(content.invite.into()),
-                    redact: Some(content.redact.into()),
-                    state_default: Some(content.state_default.into()),
-                    users_default: Some(content.users_default.into()),
-                    notifications: Some(content.notifications.room.into()),
+                    thresholds: Some(PowerLevelChanges {
+                        ban: content.ban.into(),
+                        kick: content.kick.into(),
+                        events_default: content.events_default.into(),
+                        invite: content.invite.into(),
+                        redact: content.redact.into(),
+                        state_default: content.state_default.into(),
+                        users_default: content.users_default.into(),
+                        notifications: content.notifications.room.into(),
+                    }),
+                    previous_thresholds: prev_content.as_ref().map(|prev_content| {
+                        PowerLevelChanges {
+                            ban: prev_content.ban.into(),
+                            kick: prev_content.kick.into(),
+                            events_default: prev_content.events_default.into(),
+                            invite: prev_content.invite.into(),
+                            redact: prev_content.redact.into(),
+                            state_default: prev_content.state_default.into(),
+                            users_default: prev_content.users_default.into(),
+                            notifications: prev_content.notifications.room.into(),
+                        }
+                    }),
                     users: power_level_user_changes(content, prev_content)
                         .iter()
                         .map(|(k, v)| (k.to_string(), *v))
@@ -513,16 +533,10 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 FullContent::Redacted(_) => Self::RoomPowerLevels {
                     events: Default::default(),
                     previous_events: None,
-                    ban: None,
-                    kick: None,
-                    events_default: None,
-                    invite: None,
-                    redact: None,
-                    state_default: None,
-                    users_default: None,
-                    notifications: None,
                     users: Default::default(),
                     previous: None,
+                    thresholds: None,
+                    previous_thresholds: None,
                 },
             },
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
