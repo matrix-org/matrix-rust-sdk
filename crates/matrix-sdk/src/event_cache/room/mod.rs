@@ -379,6 +379,26 @@ impl RoomEventCache {
             .flatten())
     }
 
+    /// Try to find the related events for an event by ID in this room.
+    ///
+    /// You can filter which types of related events to retrieve using
+    /// `filter`. `None` will retrieve related events of any type.
+    ///
+    /// The related events are sorted like this:
+    ///
+    /// - events saved out-of-band (with `RoomEventCache::save_events`) will be
+    ///   located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the storage)
+    ///   will be sorted according to their ordering in the linked chunk.
+    pub async fn find_event_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<Vec<Event>> {
+        // Search in all loaded or stored events.
+        self.inner.state.read().await?.find_event_relations(event_id, filter.clone()).await
+    }
+
     /// Clear all the storage for this [`RoomEventCache`].
     ///
     /// This will get rid of all the events from the linked chunk and persisted
@@ -1100,6 +1120,34 @@ mod private {
             filters: Option<Vec<RelationType>>,
         ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
             find_event_with_relations(
+                event_id,
+                &self.state.room_id,
+                filters,
+                &self.state.room_linked_chunk,
+                &self.store,
+            )
+            .await
+        }
+
+        /// Find all relations for an event in the persisted storage.
+        ///
+        /// This goes straight to the database, as a simplification; we don't
+        /// expect to need to have to look up in memory events, or that
+        /// all the related events are actually loaded.
+        ///
+        /// The related events are sorted like this:
+        /// - events saved out-of-band with
+        ///   [`super::RoomEventCache::save_events`] will be located at the
+        ///   beginning of the array.
+        /// - events present in the linked chunk (be it in memory or in the
+        ///   database) will be sorted according to their ordering in the linked
+        ///   chunk.
+        pub async fn find_event_relations(
+            &self,
+            event_id: &EventId,
+            filters: Option<Vec<RelationType>>,
+        ) -> Result<Vec<Event>, EventCacheError> {
+            find_event_relations(
                 event_id,
                 &self.state.room_id,
                 filters,
@@ -2318,7 +2366,23 @@ mod private {
             return Ok(None);
         };
 
-        // Then, initialize the stack with all the related events, to find the
+        // Then, find the transitive closure of all the related events.
+        let related =
+            find_event_relations(event_id, room_id, filters, room_linked_chunk, store).await?;
+
+        Ok(Some((target, related)))
+    }
+
+    /// Implementation of
+    /// [`RoomEventCacheStateLockReadGuard::find_event_relations`].
+    async fn find_event_relations(
+        event_id: &EventId,
+        room_id: &RoomId,
+        filters: Option<Vec<RelationType>>,
+        room_linked_chunk: &EventLinkedChunk,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<Vec<Event>, EventCacheError> {
+        // Initialize the stack with all the related events, to find the
         // transitive closure of all the related events.
         let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
         let mut stack =
@@ -2379,7 +2443,7 @@ mod private {
         // Keep only the events, not their positions.
         let related = related.into_iter().map(|(event, _pos)| event).collect();
 
-        Ok(Some((target, related)))
+        Ok(related)
     }
 }
 
