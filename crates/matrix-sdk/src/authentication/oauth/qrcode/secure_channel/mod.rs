@@ -26,7 +26,8 @@ use super::{
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
 use crate::{
-    authentication::oauth::qrcode::MessageDecodeError, config::RequestConfig,
+    authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
+    config::RequestConfig,
     http_client::HttpClient,
 };
 mod crypto_channel;
@@ -180,10 +181,12 @@ impl EstablishedSecureChannel {
             let (crypto_channel, encoded_message) = {
                 let ecies = Ecies::new();
 
-                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key(),
-                    LOGIN_INITIATE_MESSAGE.as_bytes(),
-                )?;
+                let OutboundCreationResult { ecies, message } = ecies
+                    .establish_outbound_channel(
+                        qr_code_data.public_key(),
+                        LOGIN_INITIATE_MESSAGE.as_bytes(),
+                    )
+                    .map_err(DecryptionError::from)?;
                 (ChannelType::Ecies(ecies), message.encode())
             };
 
