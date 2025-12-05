@@ -193,7 +193,7 @@ impl PinnedEventsRoom for Room {
             let mut opts = RelationsOptions {
                 include_relations: IncludeRelations::AllRelations,
                 recurse: true,
-                limit: Some(uint!(1000)),
+                limit: Some(uint!(256)),
                 ..Default::default()
             };
 
