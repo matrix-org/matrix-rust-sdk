@@ -41,7 +41,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 wiremock.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 wasm-bindgen-test.workspace = true
 
 [lints]
