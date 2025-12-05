@@ -361,6 +361,9 @@ impl From<matrix_sdk_ui::timeline::MembershipChange> for MembershipChange {
 }
 
 #[derive(Clone, uniffi::Enum)]
+#[allow(clippy::large_enum_variant)]
+// Added because the RoomPowerLevels variant is quite large.
+// This is the same issue than for TimelineItemContent.
 pub enum OtherState {
     PolicyRuleRoom,
     PolicyRuleServer,
