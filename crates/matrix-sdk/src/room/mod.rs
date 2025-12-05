@@ -4100,7 +4100,16 @@ impl Room {
         event_id: OwnedEventId,
         opts: RelationsOptions,
     ) -> Result<Relations> {
-        opts.send(self, event_id).await
+        let relations = opts.send(self, event_id).await;
+
+        // Save any new related events to the cache.
+        if let Ok(Relations { chunk, .. }) = &relations
+            && let Ok((cache, _handles)) = self.event_cache().await
+        {
+            cache.save_events(chunk.clone()).await;
+        }
+
+        relations
     }
 
     /// Search this room's [`RoomIndex`] for query and return at most
