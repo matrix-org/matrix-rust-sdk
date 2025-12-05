@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
   `LatestEvent` (replaced by `LatestEventValue`). See the documentation of
   `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- Expose a new method `RoomEventCache::find_event_relations` for loading
+  events relating to a specific event ID from the cache.
+  [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
 
 ## [0.16.0] - 2025-12-04
 

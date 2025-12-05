@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   `EventTimelineItem::from_latest_event`, and `Timeline::latest_event`. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- `Room::load_event_with_relations` now also calls `/relations` to fetch related events when falling back
+  to network mode after a cache miss.
+  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))
 
 ## [0.16.0] - 2025-12-04
 

@@ -15,9 +15,15 @@
 use std::{fmt::Formatter, sync::Arc};
 
 use futures_util::{StreamExt, stream};
-use matrix_sdk::{BoxFuture, Room, SendOutsideWasm, SyncOutsideWasm, config::RequestConfig};
+use matrix_sdk::{
+    BoxFuture, Room, SendOutsideWasm, SyncOutsideWasm,
+    config::RequestConfig,
+    room::{IncludeRelations, RelationsOptions},
+};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, events::relation::RelationType};
+use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, events::relation::RelationType, uint,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
@@ -171,16 +177,50 @@ impl PinnedEventsRoom for Room {
         related_event_filters: Option<Vec<RelationType>>,
     ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
         Box::pin(async move {
+            // First try to load both the event and its relations from the cache.
             if let Ok((cache, _handles)) = self.event_cache().await
                 && let Some(ret) =
-                    cache.find_event_with_relations(event_id, related_event_filters).await?
+                    cache.find_event_with_relations(event_id, related_event_filters.clone()).await?
             {
                 debug!("Loaded pinned event {event_id} and related events from cache");
                 return Ok(ret);
             }
 
+            // The event was not in the cache. Try loading it from the homeserver.
             debug!("Loading pinned event {event_id} from HS");
-            self.event(event_id, request_config).await.map(|e| (e, Vec::new()))
+            let event = self.event(event_id, request_config).await?;
+
+            // Maybe at least some relations are in the cache?
+            if let Ok((cache, _handles)) = self.event_cache().await {
+                let related_events =
+                    cache.find_event_relations(event_id, related_event_filters).await?;
+                if !related_events.is_empty() {
+                    debug!("Loaded relations for pinned event {event_id} from cache");
+                    return Ok((event, related_events));
+                }
+            }
+
+            // No relations were found in the cache. Try loading them from the homeserver.
+            debug!("Loading relations of pinned event {event_id} from HS");
+            let mut related_events = Vec::new();
+            let mut opts = RelationsOptions {
+                include_relations: IncludeRelations::AllRelations,
+                recurse: true,
+                limit: Some(uint!(256)),
+                ..Default::default()
+            };
+
+            loop {
+                let relations = self.relations(event_id.to_owned(), opts.clone()).await?;
+                related_events.extend(relations.chunk);
+                if let Some(next_from) = relations.next_batch_token {
+                    opts.from = Some(next_from);
+                } else {
+                    break;
+                }
+            }
+
+            Ok((event, related_events))
         })
     }
 
