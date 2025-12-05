@@ -15,12 +15,8 @@
 use std::sync::LazyLock;
 
 use matrix_sdk_base::linked_chunk::ChunkIdentifier;
-use ruma::OwnedEventId;
 
-use crate::{
-    event_cache_store::types::Position,
-    serializer::{INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_UPPER_CHARACTER},
-};
+use crate::event_cache_store::types::Position;
 
 /// A [`ChunkIdentifier`] constructed with `0`.
 ///
@@ -37,24 +33,6 @@ pub static INDEXED_KEY_LOWER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
 /// [`INDEXED_KEY_LOWER_CHUNK_IDENTIFIER`].
 pub static INDEXED_KEY_UPPER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
     LazyLock::new(|| ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64));
-
-/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_LOWER_CHARACTER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`EventId`]s when used in conjunction with
-/// [`INDEXED_KEY_UPPER_EVENT_ID`].
-pub static INDEXED_KEY_LOWER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
-    OwnedEventId::try_from(format!("${INDEXED_KEY_LOWER_CHARACTER}")).expect("valid event id")
-});
-
-/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_UPPER_CHARACTER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`EventId`]s when used in conjunction with
-/// [`INDEXED_KEY_LOWER_EVENT_ID`].
-pub static INDEXED_KEY_UPPER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
-    OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
-});
 
 /// The lowest possible index that can be used to reference an [`Event`] inside
 /// a [`Chunk`] - i.e., `0`.
