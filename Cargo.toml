@@ -112,7 +112,7 @@ uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs", rev = "870b814"
 url = "2.5.7"
 uuid = "1.18.1"
 vergen-gitcl = "1.0.8"
-vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "04e9579e", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.105"
 wasm-bindgen-test = "0.3.55"
 web-sys = "0.3.82"

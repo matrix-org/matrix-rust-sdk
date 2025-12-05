@@ -26,7 +26,7 @@ experimental-encrypted-state-events = [
     "ruma/unstable-msc4362"
 ]
 
-js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
+js = ["ruma/js", "vodozemac/wasm_js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 experimental-algorithms = []
 uniffi = ["dep:uniffi"]
