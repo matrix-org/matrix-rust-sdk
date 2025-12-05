@@ -14,12 +14,15 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::authentication::oauth::{
-    qrcode::{
-        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+use matrix_sdk::{
+    authentication::oauth::{
+        qrcode::{
+            self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
+            DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+        },
+        OAuth,
     },
-    OAuth,
+    encryption::vodozemac::hpke::DigitMode,
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -531,7 +534,7 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
         match value {
             LoginProgress::Starting => Self::Starting,
             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
+                let check_code = check_code.to_digit(DigitMode::AllowLeadingZero);
 
                 Self::EstablishingSecureChannel {
                     check_code,
@@ -633,7 +636,7 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
         match value {
             GrantLoginProgress::Starting => Self::Starting,
             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
+                let check_code = check_code.to_digit(DigitMode::AllowLeadingZero);
 
                 Self::EstablishingSecureChannel {
                     check_code,

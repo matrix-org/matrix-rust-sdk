@@ -404,6 +404,7 @@ mod test {
     use ruma::{owned_device_id, owned_user_id};
     use tokio::sync::oneshot;
     use tracing::debug;
+    use vodozemac::hpke::DigitMode;
 
     use super::*;
     use crate::{
@@ -454,7 +455,7 @@ mod test {
 
         // Let Alice know about the checkcode so she can verify the channel.
         check_code_tx
-            .send(bob.check_code().to_digit())
+            .send(bob.check_code().to_digit(DigitMode::AllowLeadingZero))
             .expect("Bob should be able to send the checkcode");
 
         match behaviour {
@@ -1000,7 +1001,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
@@ -1129,7 +1130,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
@@ -1369,7 +1370,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -1619,7 +1620,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     _ => {
@@ -1876,7 +1877,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
@@ -2266,7 +2267,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -2531,7 +2532,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
@@ -2805,7 +2806,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
@@ -3045,7 +3046,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(check_code.to_digit(DigitMode::AllowLeadingZero))
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }

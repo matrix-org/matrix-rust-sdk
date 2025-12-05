@@ -369,7 +369,7 @@ mod tests {
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
         let mut alice_session = alice.create_outbound_session_helper(
-            SessionConfig::default(),
+            SessionConfig::version_2(),
             sender_key,
             one_time_key,
             false,
