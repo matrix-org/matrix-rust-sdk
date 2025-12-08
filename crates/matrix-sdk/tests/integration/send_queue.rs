@@ -398,7 +398,8 @@ async fn test_nothing_sent_when_disabled() {
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id).expect(1).mount().await;
 
-    let response = room.send(RoomMessageEventContent::text_plain("Hello, World!")).await.unwrap();
+    let (response, _) =
+        room.send(RoomMessageEventContent::text_plain("Hello, World!")).await.unwrap();
     assert_eq!(response.event_id, event_id);
 }
 
