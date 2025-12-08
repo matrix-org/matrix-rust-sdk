@@ -1295,8 +1295,8 @@ mod tests {
             .await
             .unwrap();
 
-        let content = group_session.encrypt("m.dummy", &message_like_event_content!({})).await;
-        let event = wrap_encrypted_content(bob_machine.user_id(), content);
+        let result = group_session.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let event = wrap_encrypted_content(bob_machine.user_id(), result.content);
 
         // Alice wants to request the outbound group session from bob.
         assert!(
@@ -1385,8 +1385,8 @@ mod tests {
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
 
-        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
-        let event = wrap_encrypted_content(machine.user_id(), content);
+        let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let event = wrap_encrypted_content(machine.user_id(), result.content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         let (cancel, request) = machine.request_key(session.room_id(), &event).await.unwrap();
@@ -1413,8 +1413,8 @@ mod tests {
         machine.inner.store.save_device_data(&[alice_device]).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
-        let event = wrap_encrypted_content(machine.user_id(), content);
+        let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let event = wrap_encrypted_content(machine.user_id(), result.content);
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         machine.create_outgoing_key_request(session.room_id(), &event).await.unwrap();
@@ -1451,8 +1451,8 @@ mod tests {
         assert!(!machine.are_room_key_requests_enabled());
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
-        let event = wrap_encrypted_content(machine.user_id(), content);
+        let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let event = wrap_encrypted_content(machine.user_id(), result.content);
 
         // The outgoing to-device requests should be empty before and after
         // `create_outgoing_key_request`.
@@ -1476,8 +1476,8 @@ mod tests {
         machine.inner.store.save_device_data(devices).await.unwrap();
 
         let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
-        let content = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
-        let room_event = wrap_encrypted_content(machine.user_id(), content);
+        let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
+        let room_event = wrap_encrypted_content(machine.user_id(), result.content);
 
         machine.create_outgoing_key_request(session.room_id(), &room_event).await.unwrap();
 

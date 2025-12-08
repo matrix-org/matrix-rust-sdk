@@ -52,9 +52,10 @@ use ruma::{
         AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::{JsonObject, Raw},
-    DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
+use serde::Serialize;
 use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
 use tracing::{
@@ -113,6 +114,15 @@ use crate::{
     CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
     RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
+
+#[derive(Debug, Serialize)]
+/// The result of encrypting a room event.
+pub struct RawEncryptionResult {
+    /// The encrypted event content.
+    pub content: Raw<RoomEncryptedEventContent>,
+    /// Information about the encryption that was performed.
+    pub encryption_info: EncryptionInfo,
+}
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -1056,7 +1066,7 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         content: impl MessageLikeEventContent,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+    ) -> MegolmResult<RawEncryptionResult> {
         let event_type = content.event_type().to_string();
         let content = Raw::new(&content)?.cast_unchecked();
         self.encrypt_room_event_raw(room_id, &event_type, &content).await
@@ -1086,8 +1096,48 @@ impl OlmMachine {
         room_id: &RoomId,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
-        self.inner.group_session_manager.encrypt(room_id, event_type, content).await
+    ) -> MegolmResult<RawEncryptionResult> {
+        self.inner.group_session_manager.encrypt(room_id, event_type, content).await.map(|result| {
+            RawEncryptionResult {
+                content: result.content,
+                encryption_info: self
+                    .own_encryption_info(result.algorithm, result.session_id.to_string()),
+            }
+        })
+    }
+
+    fn own_encryption_info(
+        &self,
+        algorithm: EventEncryptionAlgorithm,
+        session_id: String,
+    ) -> EncryptionInfo {
+        let identity_keys = self.identity_keys();
+
+        let algorithm_info = match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key: identity_keys.curve25519.to_base64(),
+                sender_claimed_keys: BTreeMap::from([(
+                    DeviceKeyAlgorithm::Ed25519,
+                    identity_keys.ed25519.to_base64(),
+                )]),
+                session_id: Some(session_id),
+            },
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                    curve25519_public_key_base64: identity_keys.curve25519.to_base64(),
+                }
+            }
+            _ => unreachable!(
+                "Only MegolmV1AesSha2 and OlmV1Curve25519AesSha2 are supported on this level"
+            ),
+        };
+
+        EncryptionInfo {
+            sender: self.inner.user_id.clone(),
+            sender_device: Some(self.inner.device_id.clone()),
+            algorithm_info,
+            verification_state: VerificationState::Verified,
+        }
     }
 
     /// Encrypt a state event for the given room.

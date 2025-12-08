@@ -31,8 +31,9 @@ pub(crate) use group_sessions::{
 };
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession, KnownSenderData,
-    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, SenderData,
-    SenderDataType, SessionCreationError, SessionExportError, SessionKey, ShareInfo,
+    OutboundGroupSession, OutboundGroupSessionEncryptionResult, PickledInboundGroupSession,
+    PickledOutboundGroupSession, SenderData, SenderDataType, SessionCreationError,
+    SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
@@ -213,8 +214,7 @@ pub(crate) mod tests {
         assert_eq!(0, inbound.first_known_index());
         assert_eq!(outbound.session_id(), inbound.session_id());
 
-        let encrypted_content =
-            outbound.encrypt("m.room.message", &Raw::new(&content).unwrap().cast()).await;
+        let result = outbound.encrypt("m.room.message", &Raw::new(&content).unwrap().cast()).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -222,7 +222,7 @@ pub(crate) mod tests {
             "origin_server_ts": 0u64,
             "room_id": room_id,
             "type": "m.room.encrypted",
-            "content": encrypted_content,
+            "content": result.content,
         });
 
         let event = json_convert(&event).unwrap();
@@ -256,7 +256,7 @@ pub(crate) mod tests {
         let content = message_like_event_content!({
             "m.relates_to": relation_json,
         });
-        let encrypted = outbound.encrypt("m.dummy", &content).await;
+        let result = outbound.encrypt("m.dummy", &content).await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -264,7 +264,7 @@ pub(crate) mod tests {
             "origin_server_ts": 0u64,
             "room_id": room_id,
             "type": "m.room.encrypted",
-            "content": encrypted,
+            "content": result.content,
         });
         let event: EncryptedEvent = json_convert(&event).unwrap();
 
@@ -281,8 +281,8 @@ pub(crate) mod tests {
         assert_eq!(relation, Some(&relation_json), "The decrypted event should contain a relation");
 
         let content = message_like_event_content!({});
-        let encrypted = outbound.encrypt("m.dummy", &content).await;
-        let mut encrypted: Value = json_convert(&encrypted).unwrap();
+        let result = outbound.encrypt("m.dummy", &content).await;
+        let mut encrypted: Value = json_convert(&result.content).unwrap();
         encrypted.as_object_mut().unwrap().insert("m.relates_to".to_owned(), relation_json.clone());
 
         // Let's now test if we copy the correct relation if there is no

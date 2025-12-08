@@ -1439,7 +1439,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     let encrypted_event_content = serde_json::to_value(
         outbound_group_session
             .encrypt("m.room.message", &serde_json::from_value(event_body)?)
-            .await,
+            .await
+            .content,
     )?;
     mock_get_event(room_id, event_id, encrypted_event_content, &server).await;
 
