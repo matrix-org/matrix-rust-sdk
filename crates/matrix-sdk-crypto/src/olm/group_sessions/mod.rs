@@ -23,7 +23,8 @@ pub(crate) mod sender_data_finder;
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
-    EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
+    EncryptionSettings, OutboundGroupSession, OutboundGroupSessionEncryptionResult,
+    PickledOutboundGroupSession, ShareInfo,
 };
 pub use sender_data::{KnownSenderData, SenderData, SenderDataType};
 use thiserror::Error;

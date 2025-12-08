@@ -151,6 +151,19 @@ impl EncryptionSettings {
     }
 }
 
+/// The result of encrypting a message with an outbound group session.
+///
+/// Contains the encrypted content, the algorithm used, and the session ID.
+#[derive(Debug)]
+pub struct OutboundGroupSessionEncryptionResult {
+    /// The encrypted content of the message.
+    pub content: Raw<RoomEncryptedEventContent>,
+    /// The algorithm used to encrypt the message.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// The session ID used to encrypt the message.
+    pub session_id: Arc<str>,
+}
+
 /// Outbound group session.
 ///
 /// Outbound group sessions are used to exchange room messages between a group
@@ -485,7 +498,7 @@ impl OutboundGroupSession {
         &self,
         payload: &T,
         relates_to: Option<serde_json::Value>,
-    ) -> Raw<RoomEncryptedEventContent> {
+    ) -> OutboundGroupSessionEncryptionResult {
         let ciphertext = self
             .encrypt_helper(
                 serde_json::to_string(payload).expect("payload serialization never fails"),
@@ -509,7 +522,13 @@ impl OutboundGroupSession {
             ),
         };
         let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
-        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
+
+        OutboundGroupSessionEncryptionResult {
+            content: Raw::new(&content)
+                .expect("m.room.encrypted event content can always be serialized"),
+            algorithm: self.settings.algorithm.to_owned(),
+            session_id: self.session_id.clone(),
+        }
     }
 
     /// Encrypt a room message for the given room.
@@ -532,7 +551,7 @@ impl OutboundGroupSession {
         &self,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
-    ) -> Raw<RoomEncryptedEventContent> {
+    ) -> OutboundGroupSessionEncryptionResult {
         #[derive(Serialize)]
         struct Payload<'a> {
             #[serde(rename = "type")]
@@ -586,7 +605,7 @@ impl OutboundGroupSession {
         }
 
         let payload = Payload { event_type, state_key, content, room_id: &self.room_id };
-        self.encrypt_inner(&payload, None).await
+        self.encrypt_inner(&payload, None).await.content
     }
 
     fn elapsed(&self) -> bool {
