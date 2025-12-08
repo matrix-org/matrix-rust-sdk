@@ -21,6 +21,7 @@ use std::borrow::Borrow;
 use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
+use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
 #[cfg(doc)]
@@ -95,7 +96,7 @@ impl<'a> SendMessageLikeEvent<'a> {
 }
 
 impl<'a> IntoFuture for SendMessageLikeEvent<'a> {
-    type Output = Result<send_message_event::v3::Response>;
+    type Output = Result<(send_message_event::v3::Response, Option<EncryptionInfo>)>;
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
@@ -163,7 +164,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
 }
 
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
-    type Output = Result<send_message_event::v3::Response>;
+    type Output = Result<(send_message_event::v3::Response, Option<EncryptionInfo>)>;
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
@@ -187,6 +188,11 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             trace!("Sending plaintext event to room because we don't have encryption support.");
 
             #[cfg(feature = "e2e-encryption")]
+            let mut encryption_info: Option<EncryptionInfo> = None;
+            #[cfg(not(feature = "e2e-encryption"))]
+            let encryption_info: Option<EncryptionInfo> = None;
+
+            #[cfg(feature = "e2e-encryption")]
             if room.latest_encryption_state().await?.is_encrypted() {
                 Span::current().record("is_room_encrypted", true);
                 // Reactions are currently famously not encrypted, skip encrypting
@@ -207,6 +213,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     let result =
                         olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?;
                     content = result.content.cast();
+                    encryption_info = Some(result.encryption_info);
                     event_type = "m.room.encrypted";
                 }
             } else {
@@ -226,7 +233,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             Span::current().record("event_id", tracing::field::debug(&response.event_id));
             info!("Sent event in room");
 
-            Ok(response)
+            Ok((response, encryption_info))
         };
 
         Box::pin(fut.instrument(tracing_span))

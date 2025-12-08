@@ -2643,7 +2643,8 @@ impl Room {
         if let Some(txn_id) = txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
-        fut.await
+
+        fut.await.map(|(response, _)| response)
     }
 
     /// Creates the inner [`MessageType`] for an already-uploaded media file
@@ -3829,7 +3830,7 @@ impl Room {
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
-            Ok(self.send(content).await?)
+            Ok(self.send(content).await?.0)
         } else {
             Err(BeaconError::NotLive)
         }
