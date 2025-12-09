@@ -38,8 +38,9 @@ use matrix_sdk_ui::timeline::{
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
 use ruma::{
-    assign,
+    EventId, UInt, assign,
     events::{
+        AnyMessageLikeEventContent,
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -53,9 +54,7 @@ use ruma::{
             LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
             TextMessageEventContent,
         },
-        AnyMessageLikeEventContent,
     },
-    EventId, UInt,
 };
 use tokio::sync::Mutex;
 use tracing::{error, warn};
@@ -1375,7 +1374,7 @@ mod galleries {
     use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
     use matrix_sdk_ui::timeline::GalleryConfig;
     use mime::Mime;
-    use ruma::{assign, events::room::message::TextMessageEventContent, EventId};
+    use ruma::{EventId, assign, events::room::message::TextMessageEventContent};
     use tokio::sync::Mutex;
     use tracing::error;
 
@@ -1383,7 +1382,7 @@ mod galleries {
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
         runtime::get_runtime_handle,
-        timeline::{build_thumbnail_info, Timeline, UploadSource},
+        timeline::{Timeline, UploadSource, build_thumbnail_info},
     };
 
     #[derive(uniffi::Record)]

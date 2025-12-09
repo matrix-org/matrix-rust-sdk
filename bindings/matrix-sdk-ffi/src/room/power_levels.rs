@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use ruma::{
-    events::{room::power_levels::RoomPowerLevels as RumaPowerLevels, TimelineEventType},
     OwnedUserId, UserId,
+    events::{TimelineEventType, room::power_levels::RoomPowerLevels as RumaPowerLevels},
 };
 
 use crate::{

@@ -1,4 +1,4 @@
-use matrix_sdk_crypto::{types::CrossSigningKey, UserIdentity as SdkUserIdentity};
+use matrix_sdk_crypto::{UserIdentity as SdkUserIdentity, types::CrossSigningKey};
 
 use crate::CryptoStoreError;
 
