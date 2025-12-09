@@ -65,7 +65,30 @@ matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = "0.3.17"
 once_cell.workspace = true
-ruma = { workspace = true, features = ["html", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat", "unstable-msc4278"] }
+ruma = { workspace = true, features = [
+    "html",
+    "unstable-msc3488",
+    "compat-unset-avatar",
+    "unstable-msc3245-v1-compat",
+    "unstable-msc4278",
+    "unstable-msc3230",
+    # Audio event type
+    "unstable-msc3927",
+    # File event type
+    "unstable-msc3551",
+    # Image event type
+    "unstable-msc3552",
+    # Video event type
+    "unstable-msc3553",
+    # Voice event type
+    "unstable-msc3245",
+    # Emote event type
+    "unstable-msc3954",
+    # Image pack event type
+    "unstable-msc2545",
+    # Room language event type
+    "unstable-msc4334",
+] }
 serde.workspace = true
 serde_json.workspace = true
 sentry = { workspace = true, optional = true, default-features = false, features = [
