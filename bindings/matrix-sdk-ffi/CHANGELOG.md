@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
-  ([#xxxx](https://github.com/matrix-org/matrix-rust-sdk/pull/xxxx))
+  ([#5939](https://github.com/matrix-org/matrix-rust-sdk/pull/5939))
 
 ## [0.16.0] - 2025-12-04
 
