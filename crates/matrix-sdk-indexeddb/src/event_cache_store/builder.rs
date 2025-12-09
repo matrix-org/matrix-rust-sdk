@@ -56,6 +56,16 @@ impl IndexeddbEventCacheStoreBuilder {
         self
     }
 
+    /// Create a new [`IndexeddbEventCacheStoreBuilder`] where the database name
+    /// is constructed by joining the given prefix with
+    /// [`Self::DEFAULT_DATABASE_NAME`] and separated by `::`.
+    pub fn with_prefix(prefix: &str) -> Self {
+        Self {
+            database_name: format!("{}::{}", prefix, Self::DEFAULT_DATABASE_NAME),
+            store_cipher: None,
+        }
+    }
+
     /// Sets the store cipher to use when encrypting data before it is persisted
     /// to the IndexedDB database. By default, no store cipher is used -
     /// i.e., data is not encrypted before it is persisted.
