@@ -104,7 +104,8 @@ impl LatestEvents {
         event_cache: EventCache,
         send_queue: SendQueue,
     ) -> Self {
-        let (room_registration_sender, room_registration_receiver) = mpsc::channel(32);
+        let (room_registration_sender, room_registration_receiver) =
+            mpsc::channel(RegisteredRooms::ROOM_REGISTRATION_CHANNEL_CAPACITY);
         let (latest_event_queue_sender, latest_event_queue_receiver) = mpsc::unbounded_channel();
 
         let registered_rooms =
@@ -252,6 +253,8 @@ struct RegisteredRooms {
 }
 
 impl RegisteredRooms {
+    const ROOM_REGISTRATION_CHANNEL_CAPACITY: usize = 32;
+
     fn new(
         room_registration_sender: mpsc::Sender<RoomRegistration>,
         weak_client: WeakClient,
@@ -284,6 +287,7 @@ impl RegisteredRooms {
             // exist.
             Some(thread_id) => {
                 let mut rooms = self.rooms.write().await;
+                let mut registration = None;
 
                 // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
                 if rooms.contains_key(room_id).not() {
@@ -295,11 +299,7 @@ impl RegisteredRooms {
                     .await?
                     {
                         rooms.insert(room_id.to_owned(), room_latest_event);
-
-                        let _ = self
-                            .room_registration_sender
-                            .send(RoomRegistration::Add(room_id.to_owned()))
-                            .await;
+                        registration = Some(RoomRegistration::Add(room_id.to_owned()));
                     }
                 }
 
@@ -315,7 +315,16 @@ impl RegisteredRooms {
                     }
                 }
 
-                RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
+                // Downgrade the lock before sending the registration (if required) to
+                // release the write lock as early as possible.
+                let lock =
+                    RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok();
+
+                if let Some(registration) = registration.take() {
+                    let _ = self.room_registration_sender.send(registration).await;
+                }
+
+                lock
             }
 
             // Get the room latest event with the aim of fetching the latest event for a particular
@@ -327,6 +336,7 @@ impl RegisteredRooms {
                     value @ Some(_) => value,
                     None => {
                         let mut rooms = self.rooms.write().await;
+                        let mut registration = None;
 
                         if rooms.contains_key(room_id).not() {
                             // Insert the room if it's been successfully created.
@@ -337,15 +347,21 @@ impl RegisteredRooms {
                             .await?
                             {
                                 rooms.insert(room_id.to_owned(), room_latest_event);
-
-                                let _ = self
-                                    .room_registration_sender
-                                    .send(RoomRegistration::Add(room_id.to_owned()))
-                                    .await;
+                                registration = Some(RoomRegistration::Add(room_id.to_owned()));
                             }
                         }
 
-                        RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
+                        // Downgrade the lock before sending the registration (if required) to
+                        // release the write lock as early as possible.
+                        let lock =
+                            RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id))
+                                .ok();
+
+                        if let Some(registration) = registration.take() {
+                            let _ = self.room_registration_sender.send(registration).await;
+                        }
+
+                        lock
                     }
                 }
             }
@@ -450,10 +466,8 @@ enum LatestEventQueueUpdate {
 /// When an update is received and is considered relevant, a message is sent to
 /// the [`compute_latest_events_task`] to compute a new [`LatestEvent`].
 ///
-/// This task also listens to [`RoomRegistration`] (see
-/// [`LatestEventsState::room_registration_sender`] for the sender part). It
-/// keeps an internal list of registered rooms, which helps to filter out
-/// updates we aren't interested by.
+/// This task also listens to [`RoomRegistration`]. It keeps an internal list of
+/// registered rooms, which helps to filter out updates we aren't interested by.
 ///
 /// When an update is considered relevant, a message is sent over the
 /// `latest_event_queue_sender` channel. See [`compute_latest_events_task`].
