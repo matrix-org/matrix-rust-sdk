@@ -29,8 +29,8 @@ impl RoomPowerLevels {
         self.inner.clone().into()
     }
 
-    fn events(&self) -> HashMap<String, i64> {
-        self.inner.events.iter().map(|(key, value)| (key.to_string(), (*value).into())).collect()
+    fn events(&self) -> HashMap<crate::event::TimelineEventType, i64> {
+        self.inner.events.iter().map(|(key, value)| (key.clone().into(), (*value).into())).collect()
     }
 
     /// Gets a map with the `UserId` of users with power levels other than `0`
