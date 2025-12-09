@@ -15,7 +15,7 @@ use matrix_sdk_crypto::{
         SignatureVerification as RustSignatureCheckResult,
     },
     decrypt_room_key_export, encrypt_room_key_export,
-    olm::ExportedRoomKey,
+    olm::{ExportedRoomKey, SenderData},
     store::types::{BackupDecryptionKey, Changes},
     types::requests::ToDeviceRequest,
     CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine,
@@ -1023,7 +1023,7 @@ impl OlmMachine {
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys = Cursor::new(keys);
         let keys = decrypt_room_key_export(keys, &passphrase)?;
-        self.import_room_keys_helper(keys, None, progress_listener)
+        self.import_room_keys_helper(keys, None, None, progress_listener)
     }
 
     /// Import room keys from the given serialized unencrypted key export.
@@ -1051,7 +1051,7 @@ impl OlmMachine {
         let backup_version = self.runtime.block_on(self.inner.backup_machine().backup_version());
         let keys: Vec<Value> = serde_json::from_str(&keys)?;
         let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
-        self.import_room_keys_helper(keys, backup_version.as_deref(), progress_listener)
+        self.import_room_keys_helper(keys, backup_version.as_deref(), None, progress_listener)
     }
 
     /// Import room keys from the given serialized unencrypted key export.
@@ -1078,7 +1078,7 @@ impl OlmMachine {
     ) -> Result<KeysImportResult, KeyImportError> {
         let keys: Vec<Value> = serde_json::from_str(&keys)?;
         let keys = keys.into_iter().map(serde_json::from_value).filter_map(|k| k.ok()).collect();
-        self.import_room_keys_helper(keys, Some(&backup_version), progress_listener)
+        self.import_room_keys_helper(keys, Some(&backup_version), None, progress_listener)
     }
 
     /// Discard the currently active room key for the given room if there is
@@ -1572,6 +1572,7 @@ impl OlmMachine {
         &self,
         keys: Vec<ExportedRoomKey>,
         from_backup_version: Option<&str>,
+        sender_data: Option<&SenderData>,
         progress_listener: Box<dyn ProgressListener>,
     ) -> Result<KeysImportResult, KeyImportError> {
         let listener = |progress: usize, total: usize| {
@@ -1581,6 +1582,7 @@ impl OlmMachine {
         let result = self.runtime.block_on(self.inner.store().import_room_keys(
             keys,
             from_backup_version,
+            sender_data,
             listener,
         ))?;
 

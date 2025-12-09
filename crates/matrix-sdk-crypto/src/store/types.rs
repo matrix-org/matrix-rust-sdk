@@ -31,8 +31,8 @@ use super::{DehydrationError, GossipRequest};
 use crate::{
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        SenderData,
+        InboundGroupSession, KnownSenderData, OlmMessageHash, OutboundGroupSession,
+        PrivateCrossSigningIdentity, SenderData,
     },
     types::{
         EventEncryptionAlgorithm,
@@ -86,6 +86,8 @@ pub struct Changes {
     /// Historical room key history bundles that we have received and should
     /// store.
     pub received_room_key_bundles: Vec<StoredRoomKeyBundleData>,
+
+    pub sender_data: BTreeMap<OwnedRoomId, BTreeMap<String, KnownSenderData>>,
 }
 
 /// Information about an [MSC4268] room key bundle.
