@@ -6,7 +6,7 @@ use std::{
 };
 
 use once_cell::sync::OnceCell;
-use tracing::{callsite::DefaultCallsite, debug, error, field::FieldSet, Callsite};
+use tracing::{Callsite, callsite::DefaultCallsite, debug, error, field::FieldSet};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
 /// Log an event.

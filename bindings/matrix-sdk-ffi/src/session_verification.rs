@@ -2,13 +2,13 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
+    Account,
     encryption::{
+        Encryption,
         identities::UserIdentity,
         verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState},
-        Encryption,
     },
     ruma::events::key::verification::VerificationMethod,
-    Account,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;

@@ -15,22 +15,22 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::spaces::{
+    SpaceRoom as UISpaceRoom, SpaceRoomList as UISpaceRoomList, SpaceService as UISpaceService,
     leave::{LeaveSpaceHandle as UILeaveSpaceHandle, LeaveSpaceRoom as UILeaveSpaceRoom},
     room_list::SpaceRoomListPaginationState,
-    SpaceRoom as UISpaceRoom, SpaceRoomList as UISpaceRoomList, SpaceService as UISpaceService,
 };
 use ruma::RoomId;
 
 use crate::{
+    TaskHandle,
     client::JoinRule,
     error::ClientError,
     room::{Membership, RoomHero},
     room_preview::RoomType,
     runtime::get_runtime_handle,
-    TaskHandle,
 };
 
 /// The main entry point into the Spaces facilities.
