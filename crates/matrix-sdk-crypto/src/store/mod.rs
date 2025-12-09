@@ -73,8 +73,8 @@ use crate::{
     gossiping::GossippedSecret,
     identities::{user::UserIdentity, Device, DeviceData, UserDevices, UserIdentityData},
     olm::{
-        Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
-        Session, StaticAccountData,
+        Account, ExportedRoomKey, InboundGroupSession, KnownSenderData,
+        PrivateCrossSigningIdentity, SenderData, Session, StaticAccountData,
     },
     store::types::RoomKeyWithheldEntry,
     types::{
@@ -1495,6 +1495,7 @@ impl Store {
         &self,
         room_keys: Vec<T>,
         from_backup_version: Option<&str>,
+        sender_data: Option<&KnownSenderData>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult>
     where
@@ -1702,19 +1703,29 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        if matches!(
-            &sender_data,
+        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
+        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
+        // via user verification and cross-signing).
+        let known_sender_data = match sender_data {
             SenderData::UnknownDevice { .. }
-                | SenderData::VerificationViolation(_)
-                | SenderData::DeviceInfo { .. }
-        ) {
-            warn!(
+            | SenderData::VerificationViolation(_)
+            | SenderData::DeviceInfo { .. } => {
+                warn!(
                 "Not accepting a historic room key bundle due to insufficient trust in the sender"
             );
-            return Ok(());
-        }
+                return Ok(());
+            }
+            SenderData::SenderUnverified(known_sender_data)
+            | SenderData::SenderVerified(known_sender_data) => known_sender_data,
+        };
 
-        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_sessions(
+            bundle_info,
+            &bundle,
+            &known_sender_data,
+            progress_listener,
+        )
+        .await?;
         self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
 
         Ok(())
@@ -1724,6 +1735,7 @@ impl Store {
         &self,
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
+        known_sender_data: &KnownSenderData,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
         let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
