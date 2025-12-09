@@ -313,8 +313,6 @@ impl RegisteredRooms {
                     }
                 }
 
-                // Downgrade the lock before sending the registration (if required) to
-                // release the write lock as early as possible.
                 RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
             }
 
@@ -344,8 +342,6 @@ impl RegisteredRooms {
                             }
                         }
 
-                        // Downgrade the lock before sending the registration (if required) to
-                        // release the write lock as early as possible.
                         RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
                     }
                 }
