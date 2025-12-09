@@ -18,7 +18,7 @@ use oauth2::{
     EndUserVerificationUrl, StandardDeviceAuthorizationResponse, VerificationUriComplete,
 };
 use ruma::serde::StringEnum;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -50,12 +50,8 @@ pub enum QrAuthMessage {
         device_authorization_grant: AuthorizationGrant,
         /// The protocol the new device has picked.
         protocol: LoginProtocolType,
-        #[serde(
-            deserialize_with = "deserialize_curve_key",
-            serialize_with = "serialize_curve_key"
-        )]
         /// The device ID the new device will be using.
-        device_id: Curve25519PublicKey,
+        device_id: String,
     },
 
     /// Message declaring that the protocol in the previous `m.login.protocol`
@@ -100,7 +96,7 @@ impl QrAuthMessage {
         device_id: Curve25519PublicKey,
     ) -> QrAuthMessage {
         QrAuthMessage::LoginProtocol {
-            device_id,
+            device_id: device_id.to_base64(),
             device_authorization_grant,
             protocol: LoginProtocolType::DeviceAuthorizationGrant,
         }
@@ -164,26 +160,6 @@ pub enum LoginProtocolType {
     _Custom(PrivOwnedStr),
 }
 
-// Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix
-// likes to base64 encode all byte slices.
-//
-// This ensures that we serialize/deserialize in a Matrix-compatible way.
-pub(crate) fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let key: String = Deserialize::deserialize(de)?;
-
-    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
-}
-
-pub(crate) fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    s.serialize_str(&key.to_base64())
-}
-
 #[cfg(test)]
 mod test {
     use assert_matches2::assert_let;
@@ -221,14 +197,11 @@ mod test {
             },
             "device_id": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
         });
-        let curve_key =
-            Curve25519PublicKey::from_base64("wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4")
-                .unwrap();
 
         let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
         assert_let!(QrAuthMessage::LoginProtocol { protocol, device_id, .. } = &message);
         assert_eq!(protocol, &LoginProtocolType::DeviceAuthorizationGrant);
-        assert_eq!(device_id, &curve_key);
+        assert_eq!(device_id, "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4");
         let serialized = serde_json::to_value(&message).unwrap();
         assert_eq!(json, serialized);
     }
