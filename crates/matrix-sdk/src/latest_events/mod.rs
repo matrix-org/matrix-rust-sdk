@@ -103,8 +103,7 @@ impl LatestEvents {
         event_cache: EventCache,
         send_queue: SendQueue,
     ) -> Self {
-        let (room_registration_sender, room_registration_receiver) =
-            mpsc::channel(RegisteredRooms::ROOM_REGISTRATION_CHANNEL_CAPACITY);
+        let (room_registration_sender, room_registration_receiver) = mpsc::unbounded_channel();
         let (latest_event_queue_sender, latest_event_queue_receiver) = mpsc::unbounded_channel();
 
         let registered_rooms =
@@ -242,7 +241,7 @@ struct RegisteredRooms {
     ///
     /// The receiver part of the channel is in the
     /// [`listen_to_event_cache_and_send_queue_updates_task`].
-    room_registration_sender: mpsc::Sender<RoomRegistration>,
+    room_registration_sender: mpsc::UnboundedSender<RoomRegistration>,
 
     /// The (weak) client.
     weak_client: WeakClient,
@@ -252,10 +251,8 @@ struct RegisteredRooms {
 }
 
 impl RegisteredRooms {
-    const ROOM_REGISTRATION_CHANNEL_CAPACITY: usize = 128;
-
     fn new(
-        room_registration_sender: mpsc::Sender<RoomRegistration>,
+        room_registration_sender: mpsc::UnboundedSender<RoomRegistration>,
         weak_client: WeakClient,
         event_cache: &EventCache,
     ) -> Self {
@@ -286,7 +283,6 @@ impl RegisteredRooms {
             // exist.
             Some(thread_id) => {
                 let mut rooms = self.rooms.write().await;
-                let mut registration = None;
 
                 // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
                 if rooms.contains_key(room_id).not() {
@@ -298,7 +294,10 @@ impl RegisteredRooms {
                     .await?
                     {
                         rooms.insert(room_id.to_owned(), room_latest_event);
-                        registration = Some(RoomRegistration::Add(room_id.to_owned()));
+
+                        let _ = self
+                            .room_registration_sender
+                            .send(RoomRegistration::Add(room_id.to_owned()));
                     }
                 }
 
@@ -316,14 +315,7 @@ impl RegisteredRooms {
 
                 // Downgrade the lock before sending the registration (if required) to
                 // release the write lock as early as possible.
-                let lock =
-                    RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok();
-
-                if let Some(registration) = registration.take() {
-                    let _ = self.room_registration_sender.send(registration).await;
-                }
-
-                lock
+                RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
             }
 
             // Get the room latest event with the aim of fetching the latest event for a particular
@@ -335,7 +327,6 @@ impl RegisteredRooms {
                     value @ Some(_) => value,
                     None => {
                         let mut rooms = self.rooms.write().await;
-                        let mut registration = None;
 
                         if rooms.contains_key(room_id).not() {
                             // Insert the room if it's been successfully created.
@@ -346,21 +337,16 @@ impl RegisteredRooms {
                             .await?
                             {
                                 rooms.insert(room_id.to_owned(), room_latest_event);
-                                registration = Some(RoomRegistration::Add(room_id.to_owned()));
+
+                                let _ = self
+                                    .room_registration_sender
+                                    .send(RoomRegistration::Add(room_id.to_owned()));
                             }
                         }
 
                         // Downgrade the lock before sending the registration (if required) to
                         // release the write lock as early as possible.
-                        let lock =
-                            RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id))
-                                .ok();
-
-                        if let Some(registration) = registration.take() {
-                            let _ = self.room_registration_sender.send(registration).await;
-                        }
-
-                        lock
+                        RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
                     }
                 }
             }
@@ -402,8 +388,7 @@ impl RegisteredRooms {
             rooms.remove(room_id);
         }
 
-        let _ =
-            self.room_registration_sender.send(RoomRegistration::Remove(room_id.to_owned())).await;
+        let _ = self.room_registration_sender.send(RoomRegistration::Remove(room_id.to_owned()));
     }
 
     /// Forget a thread.
@@ -472,7 +457,7 @@ enum LatestEventQueueUpdate {
 /// `latest_event_queue_sender` channel. See [`compute_latest_events_task`].
 async fn listen_to_event_cache_and_send_queue_updates_task(
     registered_rooms: Arc<RegisteredRooms>,
-    mut room_registration_receiver: mpsc::Receiver<RoomRegistration>,
+    mut room_registration_receiver: mpsc::UnboundedReceiver<RoomRegistration>,
     event_cache: EventCache,
     send_queue: SendQueue,
     latest_event_queue_sender: mpsc::UnboundedSender<LatestEventQueueUpdate>,
@@ -512,7 +497,7 @@ async fn listen_to_event_cache_and_send_queue_updates_task(
 /// Having this function detached from its task is helpful for testing and for
 /// state isolation.
 async fn listen_to_event_cache_and_send_queue_updates(
-    room_registration_receiver: &mut mpsc::Receiver<RoomRegistration>,
+    room_registration_receiver: &mut mpsc::UnboundedReceiver<RoomRegistration>,
     event_cache_generic_updates_subscriber: &mut broadcast::Receiver<RoomEventCacheGenericUpdate>,
     send_queue_generic_updates_subscriber: &mut broadcast::Receiver<SendQueueUpdate>,
     listened_rooms: &mut HashSet<OwnedRoomId>,
@@ -823,7 +808,7 @@ mod tests {
         let room_id_0 = owned_room_id!("!r0");
         let room_id_1 = owned_room_id!("!r1");
 
-        let (room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (_room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (_send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -834,7 +819,7 @@ mod tests {
         // Send a _room update_ for the first time.
         {
             // It mimics `LatestEvents::for_room`.
-            room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).await.unwrap();
+            room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).unwrap();
 
             // Run the task.
             assert!(
@@ -856,7 +841,7 @@ mod tests {
 
         // Send a _room update_ for the second time. It's the same room.
         {
-            room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).await.unwrap();
+            room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).unwrap();
 
             // Run the task.
             assert!(
@@ -879,10 +864,7 @@ mod tests {
 
         // Send another _room update_. It's a different room.
         {
-            room_registration_sender
-                .send(RoomRegistration::Add(room_id_1.to_owned()))
-                .await
-                .unwrap();
+            room_registration_sender.send(RoomRegistration::Add(room_id_1.to_owned())).unwrap();
 
             // Run the task.
             assert!(
@@ -907,7 +889,7 @@ mod tests {
 
     #[async_test]
     async fn test_inputs_task_stops_when_room_registration_channel_is_closed() {
-        let (_room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (_room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (_room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (_send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -940,7 +922,7 @@ mod tests {
     async fn test_inputs_task_can_listen_to_room_event_cache() {
         let room_id = owned_room_id!("!r0");
 
-        let (room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (_send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -975,7 +957,7 @@ mod tests {
 
         // New event cache update, but this time, the `LatestEvents` is listening to it.
         {
-            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).await.unwrap();
+            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).unwrap();
             room_event_cache_generic_update_sender
                 .send(RoomEventCacheGenericUpdate { room_id: room_id.clone() })
                 .unwrap();
@@ -1008,7 +990,7 @@ mod tests {
     async fn test_inputs_task_can_listen_to_send_queue() {
         let room_id = owned_room_id!("!r0");
 
-        let (room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (_room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -1049,7 +1031,7 @@ mod tests {
 
         // New send queue update, but this time, the `LatestEvents` is listening to it.
         {
-            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).await.unwrap();
+            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).unwrap();
             send_queue_generic_update_sender
                 .send(SendQueueUpdate {
                     room_id: room_id.clone(),
@@ -1085,7 +1067,7 @@ mod tests {
 
     #[async_test]
     async fn test_inputs_task_stops_when_event_cache_channel_is_closed() {
-        let (_room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (_room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (_send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -1116,7 +1098,7 @@ mod tests {
 
     #[async_test]
     async fn test_inputs_task_stops_when_send_queue_channel_is_closed() {
-        let (_room_registration_sender, mut room_registration_receiver) = mpsc::channel(1);
+        let (_room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
         let (_room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
