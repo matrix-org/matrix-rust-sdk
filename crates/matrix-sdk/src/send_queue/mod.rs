@@ -753,47 +753,45 @@ impl RoomSendQueue {
                             // happened successfully. This feature is not considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
-                                let timeline_event = match encryption_info {
-                                    #[cfg(feature = "e2e-encryption")]
-                                    Some(encryption_info) => {
-                                        use matrix_sdk_base::deserialized_responses::DecryptedRoomEvent;
-
-                                        Some(TimelineEvent::from_decrypted(
-                                            DecryptedRoomEvent {
+                                let timeline_event = match Raw::from_json_string(
+                                    // Create a compact string: remove all useless spaces.
+                                    format!(
+                                        "{{\
+                                            \"event_id\":\"{event_id}\",\
+                                            \"origin_server_ts\":{ts},\
+                                            \"sender\":\"{sender}\",\
+                                            \"type\":\"{type}\",\
+                                            \"content\":{content}\
+                                        }}",
+                                        event_id = event_id,
+                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
+                                        sender = room.client().user_id().expect("Client must be logged-in"),
+                                        type = event_type,
+                                        content = event.into_json(),
+                                    ),
+                                ) {
+                                    Ok(event) => match encryption_info {
+                                        #[cfg(feature = "e2e-encryption")]
+                                        Some(encryption_info) => {
+                                            use matrix_sdk_base::deserialized_responses::DecryptedRoomEvent;
+                                            let decrypted_event = DecryptedRoomEvent {
                                                 event: event.cast_unchecked(),
                                                 encryption_info: Arc::new(encryption_info),
                                                 unsigned_encryption_info: None,
-                                            },
-                                            None,
-                                        ))
-                                    }
-                                    _ => {
-                                        match Raw::from_json_string(
-                                            // Create a compact string: remove all useless spaces.
-                                            format!(
-                                                "{{\
-                                                    \"event_id\":\"{event_id}\",\
-                                                    \"origin_server_ts\":{ts},\
-                                                    \"sender\":\"{sender}\",\
-                                                    \"type\":\"{type}\",\
-                                                    \"content\":{content}\
-                                                }}",
-                                                event_id = event_id,
-                                                ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                                sender = room.client().user_id().expect("Client must be logged-in"),
-                                                type = event_type,
-                                                content = event.into_json(),
-                                            ),
-                                        ) {
-                                            Ok(event) => Some(TimelineEvent::from_plaintext(event)),
-                                            Err(err) => {
-                                                error!(
-                                                    ?err,
-                                                    "Failed to build the (sync) event before the saving in the Event Cache"
-                                                );
-                                                None
-                                            }
+                                            };
+                                            Some(TimelineEvent::from_decrypted(
+                                                decrypted_event,
+                                                None,
+                                            ))
                                         }
+                                        _ => Some(TimelineEvent::from_plaintext(event)),
+                                    },
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "Failed to build the (sync) event before the saving in the Event Cache"
+                                        );
+                                        None
                                     }
                                 };
 
