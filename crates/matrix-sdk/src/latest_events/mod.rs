@@ -252,7 +252,7 @@ struct RegisteredRooms {
 }
 
 impl RegisteredRooms {
-    const ROOM_REGISTRATION_CHANNEL_CAPACITY: usize = 32;
+    const ROOM_REGISTRATION_CHANNEL_CAPACITY: usize = 128;
 
     fn new(
         room_registration_sender: mpsc::Sender<RoomRegistration>,
