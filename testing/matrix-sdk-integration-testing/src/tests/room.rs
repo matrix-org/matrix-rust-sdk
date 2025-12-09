@@ -82,9 +82,9 @@ async fn test_event_with_context() -> Result<()> {
         alice_room.send(RoomMessageEventContent::text_plain(i.to_string())).await?;
     }
 
-    let (send_event_response, _) =
+    let send_event_result =
         alice_room.send(RoomMessageEventContent::text_plain("hello there!")).await?;
-    let event_id = send_event_response.event_id;
+    let event_id = send_event_result.response.event_id;
 
     for i in 0..10 {
         alice_room.send(RoomMessageEventContent::text_plain((i + 10).to_string())).await?;

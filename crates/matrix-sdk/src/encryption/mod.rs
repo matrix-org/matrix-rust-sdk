@@ -617,7 +617,7 @@ impl Client {
             .send(*content)
             .with_transaction_id(txn_id)
             .await
-            .map(|(response, _)| response)
+            .map(|result| result.response)
     }
 
     pub(crate) async fn send_to_device(

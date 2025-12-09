@@ -48,6 +48,15 @@ use crate::{
     utils::IntoRawMessageLikeEventContent,
 };
 
+/// The result of the [`Room::send`] future
+#[derive(Debug)]
+pub struct SendMessageLikeEventResult {
+    /// The response
+    pub response: send_message_event::v3::Response,
+    /// The encryption info, if the event was encrypted
+    pub encryption_info: Option<EncryptionInfo>,
+}
+
 /// Future returned by [`Room::send`].
 #[allow(missing_debug_implementations)]
 pub struct SendMessageLikeEvent<'a> {
@@ -96,7 +105,7 @@ impl<'a> SendMessageLikeEvent<'a> {
 }
 
 impl<'a> IntoFuture for SendMessageLikeEvent<'a> {
-    type Output = Result<(send_message_event::v3::Response, Option<EncryptionInfo>)>;
+    type Output = Result<SendMessageLikeEventResult>;
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
@@ -164,7 +173,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
 }
 
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
-    type Output = Result<(send_message_event::v3::Response, Option<EncryptionInfo>)>;
+    type Output = Result<SendMessageLikeEventResult>;
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
@@ -233,7 +242,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             Span::current().record("event_id", tracing::field::debug(&response.event_id));
             info!("Sent event in room");
 
-            Ok((response, encryption_info))
+            Ok(SendMessageLikeEventResult { response, encryption_info })
         };
 
         Box::pin(fut.instrument(tracing_span))

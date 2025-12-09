@@ -110,7 +110,7 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
         .send(RoomMessageEventContent::text_plain("Hello Bob"))
         .await
         .expect("We should be able to send a message to the room")
-        .0
+        .response
         .event_id;
 
     let bundle_stream = bob
@@ -272,7 +272,7 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
         .send(RoomMessageEventContent::text_plain("Hello Bob"))
         .await
         .expect("We should be able to send a message to the room")
-        .0
+        .response
         .event_id;
 
     // Let us create some streams to get notified about a received bundle and a
@@ -453,7 +453,7 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to send a message to the room")
-            .0
+            .response
             .event_id;
 
         alice
@@ -609,7 +609,7 @@ async fn test_history_sharing_session_merging() -> Result<()> {
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to send a message to the room")
-            .0
+            .response
             .event_id;
 
         alice
