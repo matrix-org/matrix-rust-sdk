@@ -21,6 +21,12 @@ All notable changes to this project will be documented in this file.
   events relating to a specific event ID from the cache.
   [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
 
+### Bugfix
+
+- Allow granting of QR login to a new client whose device ID is not a base64
+  encoded Curve25519 public key.
+  ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
