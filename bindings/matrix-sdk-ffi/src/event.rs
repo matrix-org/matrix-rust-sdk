@@ -39,16 +39,16 @@ impl TimelineEvent {
         self.0.origin_server_ts().into()
     }
 
-    pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
-        let event_type = match &*self.0 {
+    pub fn content(&self) -> Result<TimelineEventContent, ClientError> {
+        let content = match &*self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {
-                TimelineEventType::MessageLike { content: event.clone().try_into()? }
+                TimelineEventContent::MessageLike { content: event.clone().try_into()? }
             }
             AnySyncTimelineEvent::State(event) => {
-                TimelineEventType::State { content: event.clone().try_into()? }
+                TimelineEventContent::State { content: event.clone().try_into()? }
             }
         };
-        Ok(event_type)
+        Ok(content)
     }
 
     /// Returns the thread root event id for the event, if it's part of a
@@ -74,14 +74,14 @@ impl From<AnyTimelineEvent> for TimelineEvent {
 
 #[derive(uniffi::Enum)]
 // A note about this `allow(clippy::large_enum_variant)`.
-// In order to reduce the size of `TimelineEventType`, we would need to
+// In order to reduce the size of `TimelineEventContent`, we would need to
 // put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
 // UniFFI. We would need to change the `uniffi::Record` of the subtypes into
 // `uniffi::Object`, which is a radical change. It would simplify the memory
 // usage, but it would slow down the performance around the FFI border. Thus,
 // let's consider this is a false-positive lint in this particular case.
 #[allow(clippy::large_enum_variant)]
-pub enum TimelineEventType {
+pub enum TimelineEventContent {
     MessageLike { content: MessageLikeEventContent },
     State { content: StateEventContent },
 }
