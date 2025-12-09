@@ -234,6 +234,7 @@ impl StaticAccountData {
             room_id,
             &outbound.session_key().await,
             own_sender_data,
+            None,
             algorithm,
             Some(visibility),
             shared_history,

@@ -187,6 +187,11 @@ pub struct InboundGroupSession {
     /// key.
     pub sender_data: SenderData,
 
+    /// If this session was shared-on-invite as part of an MSC4268 key bundle,
+    /// information about the user who forwarded us the session information.
+    /// This is distinct from [`InboundGroupSession::sender_data`].
+    pub forwarder_data: Option<SenderData>,
+
     /// The Room this GroupSession belongs to
     pub room_id: OwnedRoomId,
 
@@ -240,6 +245,10 @@ impl InboundGroupSession {
     /// * `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
     ///
+    /// * `forwarder_data` - If present, indicates this session was received via
+    ///   an MSC4268 room key bundle, and provides information about the
+    ///   forwarder of this bundle.
+    ///
     /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
     ///   be used when messages are being decrypted. The method will return an
     ///   [`SessionCreationError::Algorithm`] error if an algorithm we do not
@@ -263,6 +272,7 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: &SessionKey,
         sender_data: SenderData,
+        forwarder_data: Option<SenderData>,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
         shared_history: bool,
@@ -286,6 +296,7 @@ impl InboundGroupSession {
                 signing_keys: keys.into(),
             },
             sender_data,
+            forwarder_data,
             room_id: room_id.into(),
             imported: false,
             algorithm: encryption_algorithm.into(),
@@ -325,6 +336,7 @@ impl InboundGroupSession {
             room_id,
             session_key,
             SenderData::unknown(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
             *shared_history,
@@ -380,6 +392,7 @@ impl InboundGroupSession {
             sender_key: self.creator_info.curve25519_key,
             signing_key: (*self.creator_info.signing_keys).clone(),
             sender_data: self.sender_data.clone(),
+            forwarder_data: self.forwarder_data.clone(),
             room_id: self.room_id().to_owned(),
             imported: self.imported,
             backed_up: self.backed_up(),
@@ -459,6 +472,7 @@ impl InboundGroupSession {
             sender_key,
             signing_key,
             sender_data,
+            forwarder_data,
             room_id,
             imported,
             backed_up,
@@ -479,6 +493,7 @@ impl InboundGroupSession {
                 signing_keys: signing_key.into(),
             },
             sender_data,
+            forwarder_data,
             history_visibility: history_visibility.into(),
             first_known_index,
             room_id,
@@ -691,6 +706,9 @@ pub struct PickledInboundGroupSession {
     /// Information on the device/sender who sent us this session
     #[serde(default)]
     pub sender_data: SenderData,
+    /// Information on the device/sender who forwarded us this session
+    #[serde(default)]
+    pub forwarder_data: Option<SenderData>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
     /// Flag remembering if the session was directly sent to us by the sender
@@ -715,6 +733,67 @@ pub struct PickledInboundGroupSession {
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
+}
+
+impl HistoricRoomKey {
+    /// Converts a `HistoricRoomKey` into an `InboundGroupSession`.
+    ///
+    /// This method takes the current `HistoricRoomKey` instance and attempts to
+    /// create an `InboundGroupSession` from it. The `forwarder_data` parameter
+    /// provides information about the user or device that forwarded the session
+    /// information. This is distinct from the original sender of the session.
+    ///
+    /// # Arguments
+    ///
+    /// * `forwarder_data` - A reference to a `SenderData` object containing
+    ///   information about the forwarder of the session.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the newly created `InboundGroupSession` on
+    /// success, or a `SessionCreationError` if the conversion fails.
+    ///
+    /// # Errors
+    ///
+    /// This method will return a `SessionCreationError` if the session
+    /// configuration for the given algorithm cannot be determined.
+    pub fn try_into_inbound_group_session(
+        &self,
+        forwarder_data: &SenderData,
+    ) -> Result<InboundGroupSession, SessionCreationError> {
+        let HistoricRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+        } = self;
+
+        let config = OutboundGroupSession::session_config(algorithm)?;
+        let session = InnerSession::import(session_key, config);
+        let first_known_index = session.first_known_index();
+
+        Ok(InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id: session_id.to_owned().into(),
+            creator_info: SessionCreatorInfo {
+                curve25519_key: *sender_key,
+                signing_keys: sender_claimed_keys.to_owned().into(),
+            },
+            // TODO: How do we remember that this is a historic room key and events decrypted using
+            // this room key should always show some form of warning.
+            sender_data: SenderData::default(),
+            forwarder_data: Some(forwarder_data.clone()),
+            history_visibility: None.into(),
+            first_known_index,
+            room_id: room_id.to_owned(),
+            imported: true,
+            algorithm: algorithm.to_owned().into(),
+            backed_up: AtomicBool::from(false).into(),
+            shared_history: true,
+        })
+    }
 }
 
 impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
@@ -744,6 +823,7 @@ impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
             // TODO: How do we remember that this is a historic room key and events decrypted using
             // this room key should always show some form of warning.
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: room_id.to_owned(),
@@ -784,6 +864,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             // TODO: In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: room_id.to_owned(),
@@ -815,6 +896,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             // In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -842,6 +924,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             // In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -982,6 +1065,7 @@ mod tests {
             room_id!("!test:localhost"),
             &create_session_key(),
             SenderData::unknown(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(HistoryVisibility::Shared),
             false,

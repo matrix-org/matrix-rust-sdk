@@ -826,6 +826,7 @@ mod tests {
                 room_id,
                 &session_key,
                 SenderData::unknown(),
+                None,
                 EventEncryptionAlgorithm::MegolmV1AesSha2,
                 None,
                 false,

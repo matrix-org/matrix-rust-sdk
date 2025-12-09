@@ -1430,6 +1430,7 @@ macro_rules! cryptostore_integration_tests {
                     room_id!("!r:s.co"),
                     &session_key,
                     sender_data,
+                    None,
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     None,
                     false,
