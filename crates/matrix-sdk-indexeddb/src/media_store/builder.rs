@@ -44,6 +44,16 @@ impl IndexeddbMediaStoreBuilder {
     /// [`IndexeddbMediaStore`]
     pub const DEFAULT_DATABASE_NAME: &'static str = "media";
 
+    /// Create a new [`IndexeddbMediaStoreBuilder`] where the database name is
+    /// constructed by joining the given prefix with
+    /// [`Self::DEFAULT_DATABASE_NAME`] and separated by `::`.
+    pub fn with_prefix(prefix: &str) -> Self {
+        Self {
+            database_name: format!("{}::{}", prefix, Self::DEFAULT_DATABASE_NAME),
+            store_cipher: None,
+        }
+    }
+
     /// Sets the name of the IndexedDB database which will be opened. This
     /// defaults to [`Self::DEFAULT_DATABASE_NAME`].
     pub fn database_name(mut self, name: String) -> Self {
