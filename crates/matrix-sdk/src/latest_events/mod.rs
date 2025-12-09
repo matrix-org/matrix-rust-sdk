@@ -58,7 +58,6 @@ use std::{
 
 pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
-use futures_util::FutureExt;
 use latest_event::LatestEvent;
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
@@ -524,7 +523,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
     select! {
         biased;
 
-        update = room_registration_receiver.recv().fuse() => {
+        update = room_registration_receiver.recv() => {
             match update {
                 Some(RoomRegistration::Add(room_id)) => {
                     listened_rooms.insert(room_id);
@@ -540,7 +539,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
             }
         }
 
-        room_event_cache_generic_update = event_cache_generic_updates_subscriber.recv().fuse() => {
+        room_event_cache_generic_update = event_cache_generic_updates_subscriber.recv() => {
             if let Ok(RoomEventCacheGenericUpdate { room_id }) = room_event_cache_generic_update {
                 if listened_rooms.contains(&room_id) {
                     let _ = latest_event_queue_sender.send(LatestEventQueueUpdate::EventCache {
@@ -554,7 +553,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
             }
         }
 
-        send_queue_generic_update = send_queue_generic_updates_subscriber.recv().fuse() => {
+        send_queue_generic_update = send_queue_generic_updates_subscriber.recv() => {
             if let Ok(SendQueueUpdate { room_id, update }) = send_queue_generic_update {
                 if listened_rooms.contains(&room_id) {
                     let _ = latest_event_queue_sender.send(LatestEventQueueUpdate::SendQueue {
