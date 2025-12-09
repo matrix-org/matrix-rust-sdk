@@ -935,17 +935,21 @@ impl RoomSendQueue {
             QueuedRequestKind::Event { content } => {
                 let (event, event_type) = content.into_raw();
 
-                let (response, encryption_info) = room
+                let result = room
                     .send_raw(&event_type, &event)
                     .with_transaction_id(&request.transaction_id)
                     .with_request_config(RequestConfig::short_retry())
                     .await?;
 
-                trace!(txn_id = %request.transaction_id, event_id = %response.event_id, "event successfully sent");
+                trace!(txn_id = %request.transaction_id, event_id = %result.response.event_id, "event successfully sent");
 
                 Ok((
-                    Some(SentRequestKey::Event { event_id: response.event_id, event, event_type }),
-                    encryption_info,
+                    Some(SentRequestKey::Event {
+                        event_id: result.response.event_id,
+                        event,
+                        event_type,
+                    }),
+                    result.encryption_info,
                 ))
             }
 

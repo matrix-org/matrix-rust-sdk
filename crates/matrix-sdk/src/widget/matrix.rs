@@ -169,7 +169,7 @@ impl MatrixDriver {
 
         Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(
-                self.room.send_raw(&type_str, content).await?.0.event_id,
+                self.room.send_raw(&type_str, content).await?.response.event_id,
             ),
 
             (Some(key), None) => SendEventResponse::from_event_id(

@@ -409,7 +409,7 @@ async fn test_enabling_backups_retries_decryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
-        .0
+        .response
         .event_id;
 
     alice
@@ -620,7 +620,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
-        .0
+        .response
         .event_id;
 
     // We don't need Alice anymore.
@@ -727,7 +727,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         room.send(RoomMessageEventContent::text_plain(message))
             .await
             .expect("We should be able to send a message to our new room")
-            .0
+            .response
             .event_id
     }
 
@@ -945,7 +945,7 @@ async fn test_thread_focused_timeline() -> TestResult {
     };
 
     // Bob sends messages in a thread.
-    let (resp, _) = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?;
+    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?.response;
     let thread_root = resp.event_id;
 
     let thread_reply_event_content = bob_room
@@ -958,7 +958,7 @@ async fn test_thread_focused_timeline() -> TestResult {
         )
         .await?;
 
-    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.0.event_id;
+    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.response.event_id;
 
     // Alice creates a timeline focused on the in-thread event, so this will use
     // /context, and the thread root will be part of the response.
