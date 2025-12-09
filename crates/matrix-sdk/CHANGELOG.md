@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Sending `MessageLike` and `RawMessageLike` events through a `Room` now returns
+  the used `EncryptionInfo`, if any.
+  ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
 - [**breaking**]: The new Latest Event API replaces the old API. All the
   `new_` prefixes have been removed, thus `Room::new_latest_event` becomes
   and overwrites the `Room::latest_event` value. The new Latest Event values
