@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crypto_channel::*;
 use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
 use vodozemac::ecies::{
-    CheckCode, Ecies, EstablishedEcies, InboundCreationResult, InitialMessage, Message,
-    OutboundCreationResult,
+    CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult,
 };
 
 use super::{
@@ -26,6 +26,7 @@ use super::{
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel},
 };
 use crate::{config::RequestConfig, http_client::HttpClient};
+mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
 const LOGIN_OK_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_OK";
@@ -33,7 +34,7 @@ const LOGIN_OK_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_OK";
 pub(super) struct SecureChannel {
     channel: RendezvousChannel,
     qr_code_data: QrCodeData,
-    ecies: Ecies,
+    crypto_channel: CryptoChannel,
 }
 
 impl SecureChannel {
@@ -46,12 +47,12 @@ impl SecureChannel {
         let rendezvous_url = channel.rendezvous_url().to_owned();
         let mode_data = QrCodeModeData::Login;
 
-        let ecies = Ecies::new();
-        let public_key = ecies.public_key();
+        let crypto_channel = CryptoChannel::new_ecies();
+        let public_key = crypto_channel.public_key();
 
         let qr_code_data = QrCodeData { public_key, rendezvous_url, mode_data };
 
-        Ok(Self { channel, qr_code_data, ecies })
+        Ok(Self { channel, qr_code_data, crypto_channel })
     }
 
     /// Create a new secure channel to reciprocate an existing login with.
@@ -74,21 +75,26 @@ impl SecureChannel {
         trace!("Trying to connect the secure channel.");
 
         let message = self.channel.receive().await?;
-        let message = std::str::from_utf8(&message)?;
-        let message = InitialMessage::decode(message)?;
+        let result = self.crypto_channel.establish_inbound_channel(&message)?;
 
-        let InboundCreationResult { ecies, message } =
-            self.ecies.establish_inbound_channel(&message)?;
-        let message = std::str::from_utf8(&message)?;
+        let message = std::str::from_utf8(result.plaintext())?;
 
         trace!("Received the initial secure channel message");
 
         if message == LOGIN_INITIATE_MESSAGE {
-            let mut secure_channel = EstablishedSecureChannel { channel: self.channel, ecies };
+            let secure_channel = match result {
+                CryptoChannelCreationResult::Ecies(InboundCreationResult { ecies, .. }) => {
+                    let crypto_channel = EstablishedCryptoChannel::Ecies(ecies);
 
-            trace!("Sending the LOGIN OK message");
+                    let mut secure_channel =
+                        EstablishedSecureChannel { channel: self.channel, crypto_channel };
 
-            secure_channel.send(LOGIN_OK_MESSAGE).await?;
+                    trace!("Sending the LOGIN OK message");
+
+                    secure_channel.send(LOGIN_OK_MESSAGE).await?;
+                    secure_channel
+                }
+            };
 
             Ok(AlmostEstablishedSecureChannel { secure_channel })
         } else {
@@ -122,7 +128,7 @@ impl AlmostEstablishedSecureChannel {
 
 pub(super) struct EstablishedSecureChannel {
     channel: RendezvousChannel,
-    ecies: EstablishedEcies,
+    crypto_channel: EstablishedCryptoChannel,
 }
 
 impl EstablishedSecureChannel {
@@ -133,22 +139,30 @@ impl EstablishedSecureChannel {
         qr_code_data: &QrCodeData,
         expected_mode: QrCodeMode,
     ) -> Result<Self, Error> {
+        enum ChannelType {
+            Ecies(EstablishedEcies),
+        }
+
         if qr_code_data.mode() == expected_mode {
             Err(Error::InvalidIntent)
         } else {
             trace!("Attempting to create a new inbound secure channel from a QR code.");
 
             let client = HttpClient::new(client, RequestConfig::short_retry());
-            let ecies = Ecies::new();
 
             // Let's establish an outbound ECIES channel, the other side won't know that
             // it's talking to us, the device that scanned the QR code, until it
             // receives and successfully decrypts the initial message. We're here encrypting
             // the `LOGIN_INITIATE_MESSAGE`.
-            let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                qr_code_data.public_key,
-                LOGIN_INITIATE_MESSAGE.as_bytes(),
-            )?;
+            let (crypto_channel, encoded_message) = {
+                let ecies = Ecies::new();
+
+                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
+                    qr_code_data.public_key,
+                    LOGIN_INITIATE_MESSAGE.as_bytes(),
+                )?;
+                (ChannelType::Ecies(ecies), message.encode().as_bytes().to_vec())
+            };
 
             // The other side has crated a rendezvous channel, we're going to connect to it
             // and send this initial encrypted message through it. The initial message on
@@ -159,25 +173,31 @@ impl EstablishedSecureChannel {
 
             trace!(
                 "Received the initial message from the rendezvous channel, sending the LOGIN \
-                 INITIATE message"
+                     INITIATE message"
             );
 
             // Now we're sending the encrypted message through the rendezvous channel to the
             // other side.
-            let encoded_message = message.encode().as_bytes().to_vec();
             channel.send(encoded_message).await?;
 
             trace!("Waiting for the LOGIN OK message");
 
-            // We can create our EstablishedSecureChannel struct now and use the
-            // convenient helpers which transparently decrypt on receival.
-            let mut ret = Self { channel, ecies };
-            let response = ret.receive().await?;
+            let (response, channel) = match crypto_channel {
+                ChannelType::Ecies(ecies) => {
+                    // We can create our EstablishedSecureChannel struct now and use the
+                    // convenient helpers which transparently decrypt on receival.
+                    let crypto_channel = EstablishedCryptoChannel::Ecies(ecies);
+                    let mut channel = Self { channel, crypto_channel };
+
+                    let response = channel.receive().await?;
+                    (response, channel)
+                }
+            };
 
             trace!("Received the LOGIN OK message, maybe.");
 
             if response == LOGIN_OK_MESSAGE {
-                Ok(ret)
+                Ok(channel)
             } else {
                 Err(Error::SecureChannelMessage { expected: LOGIN_OK_MESSAGE, received: response })
             }
@@ -188,7 +208,7 @@ impl EstablishedSecureChannel {
     /// both sides of the channel are indeed communicating with each other and
     /// not with a 3rd party.
     pub(super) fn check_code(&self) -> &CheckCode {
-        self.ecies.check_code()
+        self.crypto_channel.check_code()
     }
 
     /// Send the given message over to the other side.
@@ -210,18 +230,14 @@ impl EstablishedSecureChannel {
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.ecies.encrypt(message.as_bytes());
-        let message = message.encode();
+        let message = self.crypto_channel.seal(message.as_bytes());
 
-        Ok(self.channel.send(message.as_bytes().to_vec()).await?)
+        Ok(self.channel.send(message).await?)
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
         let message = self.channel.receive().await?;
-        let ciphertext = std::str::from_utf8(&message)?;
-        let message = Message::decode(ciphertext)?;
-
-        let decrypted = self.ecies.decrypt(&message)?;
+        let decrypted = self.crypto_channel.open(&message)?;
 
         Ok(String::from_utf8(decrypted).map_err(|e| e.utf8_error())?)
     }
