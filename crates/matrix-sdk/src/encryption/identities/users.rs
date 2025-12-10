@@ -286,10 +286,10 @@ impl UserIdentity {
                     self.client.create_dm(i.user_id()).await?
                 };
 
-                let response = room.send(RoomMessageEventContent::new(content)).await?;
+                let result = room.send(RoomMessageEventContent::new(content)).await?;
 
                 let verification =
-                    i.request_verification(room.room_id(), &response.event_id, methods);
+                    i.request_verification(room.room_id(), &result.response.event_id, methods);
 
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }

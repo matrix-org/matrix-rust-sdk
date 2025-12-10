@@ -23,7 +23,7 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, StateChanges, deserialized_responses::TimelineEvent,
-    store::SerializableEventContent,
+    store::SerializableEventContent, timer,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
@@ -37,7 +37,7 @@ use ruma::{
         },
     },
 };
-use tracing::{error, instrument, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -516,9 +516,17 @@ impl LatestEventValueBuilder {
         own_user_id: Option<&UserId>,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
-        if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, previous_event| {
-                filter_timeline_event(event, previous_event, own_user_id, power_levels)
+        let _timer = timer!(
+            tracing::Level::INFO,
+            format!(
+                "`LatestEventValueBuilder::new_remote_with_power_levels` for {:?}",
+                room_event_cache.room_id()
+            )
+        );
+
+        let value = if let Ok(Some(event)) = room_event_cache
+            .rfind_map_event_in_memory_by(|event, previous_event_id| {
+                filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
                     .then(|| event.clone())
             })
             .await
@@ -526,7 +534,11 @@ impl LatestEventValueBuilder {
             LatestEventValue::Remote(event)
         } else {
             LatestEventValue::default()
-        }
+        };
+
+        info!(?value, "Computed a remote `LatestEventValue`");
+
+        value
     }
 
     /// Create a new [`LatestEventValue::LocalIsSending`] or
@@ -540,7 +552,12 @@ impl LatestEventValueBuilder {
     ) -> LatestEventValue {
         use crate::send_queue::{LocalEcho, LocalEchoContent};
 
-        match send_queue_update {
+        let _timer = timer!(
+            tracing::Level::INFO,
+            format!("`LatestEventValueBuilder::new_local` for {:?}", room_event_cache.room_id())
+        );
+
+        let value = match send_queue_update {
             // A new local event is being sent.
             //
             // Let's create the `LatestEventValue` and push it in the buffer of values.
@@ -722,7 +739,11 @@ impl LatestEventValueBuilder {
             //
             // Nothing to do here.
             RoomSendQueueUpdate::MediaUpload { .. } => LatestEventValue::None,
-        }
+        };
+
+        info!(?value, "Computed a local `LatestEventValue`");
+
+        value
     }
 
     /// Get the last [`LatestEventValue`] from the local latest event values if

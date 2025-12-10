@@ -107,7 +107,7 @@ async fn test_decryption_verification_state() {
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let encrypted_content = alice
+    let result = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -117,7 +117,7 @@ async fn test_decryption_verification_state() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
 
     let event = json_convert(&event).unwrap();
@@ -366,7 +366,7 @@ async fn test_verification_states_spoofed_sender(
 
     // Alice now sends a second message to Bob, using the same room key, but the HS
     // admin rewrites the 'sender' to Charlie.
-    let encrypted_content = alice
+    let result = alice
         .encrypt_room_event(
             room_id,
             AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::text_plain(
@@ -380,7 +380,7 @@ async fn test_verification_states_spoofed_sender(
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": "@charlie:example.org",  // Note! spoofed sender
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
     let event = json_convert(&event).unwrap();
 
@@ -668,7 +668,7 @@ async fn encrypt_message(
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let encrypted_content = sender
+    let result = sender
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -678,7 +678,7 @@ async fn encrypt_message(
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": sender.user_id(),
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
     let event = json_convert(&event).unwrap();
 

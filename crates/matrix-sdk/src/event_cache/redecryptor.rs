@@ -148,7 +148,11 @@ use tracing::{info, instrument, trace, warn};
 #[cfg(doc)]
 use super::RoomEventCache;
 use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{Room, event_cache::RoomEventCacheLinkedChunkUpdate, room::PushContext};
+use crate::{
+    Room,
+    event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::PushContext,
+};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
@@ -336,6 +340,11 @@ impl EventCache {
             diffs,
             origin: EventsOrigin::Cache,
         });
+
+        let _ = room_cache
+            .inner
+            .generic_update_sender
+            .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
 
         // We report that we resolved some UTDs, this is mainly for listeners that don't
         // care about the actual events, just about the fact that UTDs got
@@ -919,7 +928,7 @@ mod tests {
     use crate::{
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
-        event_cache::{DecryptionRetryRequest, RoomEventCacheUpdate},
+        event_cache::{DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate},
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -1227,13 +1236,14 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let (room_cache, _) = bob
-            .event_cache()
+        let event_cache = bob.event_cache();
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // We regenerate the Olm machine to check if the room key stream is recreated to
         // correctly.
@@ -1263,6 +1273,12 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
+
         // Now we send the room key to Bob.
         matrix_mock_server
             .mock_sync()
@@ -1286,6 +1302,12 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Set { index, value });
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 
     #[async_test]
@@ -1302,14 +1324,15 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let (room_cache, _) = bob
-            .event_cache()
+        let event_cache = bob.event_cache();
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1331,6 +1354,12 @@ mod tests {
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
 
         // Now we send the room key to Bob.
         matrix_mock_server
@@ -1358,8 +1387,14 @@ mod tests {
 
         let encryption_info = value.encryption_info().unwrap();
         assert_matches!(&encryption_info.verification_state, VerificationState::Unverified(_));
-        let session_id = encryption_info.session_id().unwrap().to_owned();
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
+
+        let session_id = encryption_info.session_id().unwrap().to_owned();
         let alice_user_id = alice.user_id().unwrap();
 
         // Alice now creates the identity.
@@ -1401,6 +1436,12 @@ mod tests {
             VerificationState::Unverified(_),
             "The event should now know about the identity but still be unverified"
         );
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 
     #[async_test]
@@ -1416,14 +1457,16 @@ mod tests {
         let (event, room_key) =
             prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
 
+        let event_cache = bob.event_cache();
+
         // Let's now see what Bob's event cache does.
-        let (room_cache, _) = bob
-            .event_cache()
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1464,6 +1507,11 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
@@ -1475,5 +1523,11 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Set { index, value });
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 }

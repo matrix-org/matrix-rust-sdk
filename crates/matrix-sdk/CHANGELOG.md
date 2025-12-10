@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Sending `MessageLike` and `RawMessageLike` events through a `Room` now returns
+  the used `EncryptionInfo`, if any.
+  ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
 - [**breaking**]: The new Latest Event API replaces the old API. All the
   `new_` prefixes have been removed, thus `Room::new_latest_event` becomes
   and overwrites the `Room::latest_event` value. The new Latest Event values
@@ -17,6 +20,15 @@ All notable changes to this project will be documented in this file.
   `LatestEvent` (replaced by `LatestEventValue`). See the documentation of
   `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- Expose a new method `RoomEventCache::find_event_relations` for loading
+  events relating to a specific event ID from the cache.
+  [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
+
+### Bugfix
+
+- Allow granting of QR login to a new client whose device ID is not a base64
+  encoded Curve25519 public key.
+  ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 
 ## [0.16.0] - 2025-12-04
 

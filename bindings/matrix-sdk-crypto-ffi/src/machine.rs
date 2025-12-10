@@ -802,12 +802,12 @@ impl OlmMachine {
         let room_id = RoomId::parse(room_id)?;
         let content = serde_json::from_str(&content)?;
 
-        let encrypted_content = self
+        let result = self
             .runtime
             .block_on(self.inner.encrypt_room_event_raw(&room_id, &event_type, &content))
             .expect("Encrypting an event produced an error");
 
-        Ok(serde_json::to_string(&encrypted_content)?)
+        Ok(serde_json::to_string(&result.content)?)
     }
 
     /// Encrypt the given event with the given type and content for the given

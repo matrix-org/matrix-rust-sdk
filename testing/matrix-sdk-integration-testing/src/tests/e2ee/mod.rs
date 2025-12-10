@@ -938,7 +938,8 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
 
     let response = room_first_client
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
-        .await?;
+        .await?
+        .response;
 
     let event_id = response.event_id;
 

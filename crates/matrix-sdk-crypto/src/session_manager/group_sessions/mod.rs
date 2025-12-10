@@ -45,18 +45,19 @@ pub(crate) use share_strategy::{
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument};
 
+#[cfg(feature = "experimental-encrypted-state-events")]
+use crate::types::events::room::encrypted::RoomEncryptedEventContent;
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{
-        InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
-        ShareInfo, ShareState,
+        InboundGroupSession, OutboundGroupSession, OutboundGroupSessionEncryptionResult,
+        SenderData, SenderDataFinder, Session, ShareInfo, ShareState,
     },
     store::{types::Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::{
         events::{
-            room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},
-            room_key_bundle::RoomKeyBundleContent,
+            room::encrypted::ToDeviceEncryptedEventContent, room_key_bundle::RoomKeyBundleContent,
             EventType,
         },
         requests::ToDeviceRequest,
@@ -211,19 +212,19 @@ impl GroupSessionManager {
         room_id: &RoomId,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+    ) -> MegolmResult<OutboundGroupSessionEncryptionResult> {
         let session =
             self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
 
-        let content = session.encrypt(event_type, content).await;
+        let result = session.encrypt(event_type, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);
         self.store.save_changes(changes).await?;
 
-        Ok(content)
+        Ok(result)
     }
 
     /// Encrypts a state event for the given room using its outbound group

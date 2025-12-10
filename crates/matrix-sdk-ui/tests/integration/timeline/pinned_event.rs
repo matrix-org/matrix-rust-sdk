@@ -8,7 +8,7 @@ use matrix_sdk::{
     config::SyncSettings,
     test_utils::{
         logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate},
     },
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
@@ -22,7 +22,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
     event_id,
     events::{
-        AnySyncTimelineEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent,
         room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
@@ -52,14 +52,25 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
     let room_id = room_id!("!test:localhost");
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
-        .event_id(event_id!("$1"))
+        .event_id(event_id)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event endpoint for a timeline event
+    // Mock /event endpoint for event $1.
     mock_events_endpoint(&server, room_id, vec![event_1]).await;
+
+    // Mock /relations for event $1.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
 
     // Load initial timeline items: a `m.room.pinned_events` with events $1 and $2
     // pinned
@@ -104,26 +115,182 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
 }
 
 #[async_test]
+async fn test_pinned_event_with_reaction() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!test:localhost");
+
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
+    let event_1 = f
+        .text_msg("in the end")
+        .event_id(event_id)
+        .server_ts(MilliSecondsSinceUnixEpoch::now())
+        .into_raw_sync();
+
+    let reaction = f.reaction(event_id, "👀").into_raw_timeline();
+
+    // Mock /event endpoint for event $1.
+    mock_events_endpoint(&server, room_id, vec![event_1]).await;
+
+    // Mock /relations for event $1.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(vec![reaction]))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    let room = PinnedEventsSync::new(room_id)
+        .with_pinned_event_ids(vec!["$1"])
+        .mock_and_sync(&client, &server)
+        .await
+        .expect("Room should be synced");
+    let timeline =
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+
+    assert!(
+        timeline.live_back_pagination_status().await.is_none(),
+        "there should be no live back-pagination status for a pinned events timeline"
+    );
+
+    // Load timeline items
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    // Verify that the timeline contains the pinned event and its reaction.
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
+    let reactions = items[1]
+        .as_event()
+        .unwrap()
+        .content()
+        .reactions()
+        .expect("pinned event should have reactions");
+    assert_eq!(reactions.len(), 1);
+    assert!(reactions.get("👀").is_some());
+    assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_pinned_event_with_paginated_reactions() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!test:localhost");
+
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
+    let event_1 = f
+        .text_msg("in the end")
+        .event_id(event_id)
+        .server_ts(MilliSecondsSinceUnixEpoch::now())
+        .into_raw_sync();
+
+    let reaction_1 = f.reaction(event_id, "👀").into_raw_timeline();
+    let reaction_2 = f.reaction(event_id, "🤔").into_raw_timeline();
+
+    // Mock /event endpoint for event $1.
+    mock_events_endpoint(&server, room_id, vec![event_1]).await;
+
+    // Mock /relations for event $1, split across two pages.
+    let token = "foo";
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(vec![reaction_1]).next_batch(token))
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .match_from(token)
+        .ok(RoomRelationsResponseTemplate::default().events(vec![reaction_2]))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    let room = PinnedEventsSync::new(room_id)
+        .with_pinned_event_ids(vec!["$1"])
+        .mock_and_sync(&client, &server)
+        .await
+        .expect("Room should be synced");
+    let timeline =
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+
+    assert!(
+        timeline.live_back_pagination_status().await.is_none(),
+        "there should be no live back-pagination status for a pinned events timeline"
+    );
+
+    // Load timeline items
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    // Verify that the timeline contains the pinned event and its reactions.
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
+    let reactions = items[1]
+        .as_event()
+        .unwrap()
+        .content()
+        .reactions()
+        .expect("pinned event should have reactions");
+    assert_eq!(reactions.len(), 2);
+    assert!(reactions.get("👀").is_some());
+    assert!(reactions.get("🤔").is_some());
+    assert_pending!(timeline_stream);
+}
+
+#[async_test]
 async fn test_new_pinned_event_ids_reload_the_timeline() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id_1 = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
-        .event_id(event_id!("$1"))
+        .event_id(event_id_1)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
+    let event_id_2 = event_id!("$2");
     let event_2 = f
         .text_msg("it doesn't even matter")
-        .event_id(event_id!("$2"))
+        .event_id(event_id_2)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
+    // Mock /event endpoint for events $1 and $2.
+    mock_events_endpoint(&server, room_id, vec![event_1.clone(), event_2.clone()]).await;
+
+    // Mock /relations endpoint for events $1 and $2.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id_1.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_relations()
+        .match_target_event(event_id_2.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
+
     // Load initial timeline items: 2 text messages and a `m.room.pinned_events`
     // with event $1 and $2 pinned
-    mock_events_endpoint(&server, room_id, vec![event_1.clone(), event_2.clone()]).await;
     let room = PinnedEventsSync::new(room_id)
         .with_timeline_events(vec![event_2.clone()])
         .with_pinned_event_ids(vec!["$1"])
@@ -225,14 +392,25 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     event_cache.subscribe().unwrap();
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
-        .event_id(event_id!("$1"))
+        .event_id(event_id)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for the pinned event.
     mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
+
+    // Mock /relations for the pinned event.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
 
     // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
     // pinned
@@ -427,6 +605,14 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
     // Mock encrypted pinned event for which we don't have keys (an UTD)
     let utd_event = create_utd(room_id, &sender_id, event_id);
     mock_events_endpoint(&server, room_id, vec![utd_event]).await;
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
 
     let timeline =
         TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
@@ -445,14 +631,25 @@ async fn test_edited_events_are_reflected_in_sync() {
     let room_id = room_id!("!test:localhost");
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
-        .event_id(event_id!("$1"))
+        .event_id(event_id)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events.
+    // Mock /event for the pinned event.
     mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
+
+    // Mock /relations for the pinned event.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
 
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
     // event $1.
@@ -517,14 +714,25 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let room_id = room_id!("!test:localhost");
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
         .event_id(event_id!("$1"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for the pinned timeline event.
     mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
+
+    // Mock /relations for pinned timeline event.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
 
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
     // event $1

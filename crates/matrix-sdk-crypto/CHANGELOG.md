@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
+  used when encrypting raw events.
+  ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

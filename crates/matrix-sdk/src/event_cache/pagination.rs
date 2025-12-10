@@ -316,6 +316,12 @@ impl RoomPagination {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
                 });
+
+                // Send a room event cache generic update.
+                let _ = self
+                    .inner
+                    .generic_update_sender
+                    .send(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() });
             }
 
             Ok(Some(outcome))

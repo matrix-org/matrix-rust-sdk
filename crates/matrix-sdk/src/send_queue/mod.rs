@@ -145,7 +145,7 @@ use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     RoomState, StoreError,
     cross_process_lock::CrossProcessLockError,
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::store::EventCacheStoreError,
     media::{MediaRequestParameters, store::MediaStoreError},
     store::{
@@ -716,7 +716,9 @@ impl RoomSendQueue {
 
             match Self::handle_request(&room, queued_request, cancel_upload_rx, http_progress).await
             {
-                Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
+                Ok((Some(parent_key), encryption_info)) => match queue
+                    .mark_as_sent(&txn_id, parent_key.clone())
+                    .await
                 {
                     Ok(()) => match parent_key {
                         SentRequestKey::Event { event_id, event, event_type } => {
@@ -751,69 +753,45 @@ impl RoomSendQueue {
                             // happened successfully. This feature is not considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
-                                let timeline_event = match event_type.as_str() {
-                                    #[cfg(feature = "e2e-encryption")]
-                                    "m.room.encrypted" => {
-                                        use ruma::events::{
-                                            OriginalSyncMessageLikeEvent,
-                                            room::encrypted::RoomEncryptedEventContent,
-                                        };
-
-                                        let push_context = room.push_context().await.ok().flatten();
-
-                                        // SAFETY: The event type is `m.room.encrypted`, so we hope
-                                        // it can
-                                        // be casted from an `AnyMessageLikeEventContent` to an
-                                        // `OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>`. It is
-                                        // wrong if and only if the event type doesn't match the
-                                        // event content.
-                                        let event: Raw<AnyMessageLikeEventContent> = event;
-                                        let event: Raw<
-                                            OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>,
-                                        > = event.cast_unchecked();
-
-                                        match room
-                                            .decrypt_event(&event, push_context.as_ref())
-                                            .await
-                                        {
-                                            Ok(timeline_event) => Some(timeline_event),
-                                            Err(err) => {
-                                                error!(
-                                                    ?err,
-                                                    "Failed to decrypt the event before the saving in the Event Cache"
-                                                );
-                                                None
-                                            }
+                                let timeline_event = match Raw::from_json_string(
+                                    // Create a compact string: remove all useless spaces.
+                                    format!(
+                                        "{{\
+                                            \"event_id\":\"{event_id}\",\
+                                            \"origin_server_ts\":{ts},\
+                                            \"sender\":\"{sender}\",\
+                                            \"type\":\"{type}\",\
+                                            \"content\":{content}\
+                                        }}",
+                                        event_id = event_id,
+                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
+                                        sender = room.client().user_id().expect("Client must be logged-in"),
+                                        type = event_type,
+                                        content = event.into_json(),
+                                    ),
+                                ) {
+                                    Ok(event) => match encryption_info {
+                                        #[cfg(feature = "e2e-encryption")]
+                                        Some(encryption_info) => {
+                                            use matrix_sdk_base::deserialized_responses::DecryptedRoomEvent;
+                                            let decrypted_event = DecryptedRoomEvent {
+                                                event: event.cast_unchecked(),
+                                                encryption_info: Arc::new(encryption_info),
+                                                unsigned_encryption_info: None,
+                                            };
+                                            Some(TimelineEvent::from_decrypted(
+                                                decrypted_event,
+                                                None,
+                                            ))
                                         }
-                                    }
-
-                                    event_type => {
-                                        match Raw::from_json_string(
-                                            // Create a compact string: remove all useless spaces.
-                                            format!(
-                                                "{{\
-                                                    \"event_id\":\"{event_id}\",\
-                                                    \"origin_server_ts\":{ts},\
-                                                    \"sender\":\"{sender}\",\
-                                                    \"type\":\"{type}\",\
-                                                    \"content\":{content}\
-                                                }}",
-                                                event_id = event_id,
-                                                ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                                sender = room.client().user_id().expect("Client must be logged-in"),
-                                                type = event_type,
-                                                content = event.into_json(),
-                                            ),
-                                        ) {
-                                            Ok(event) => Some(TimelineEvent::from_plaintext(event)),
-                                            Err(err) => {
-                                                error!(
-                                                    ?err,
-                                                    "Failed to build the (sync) event before the saving in the Event Cache"
-                                                );
-                                                None
-                                            }
-                                        }
+                                        _ => Some(TimelineEvent::from_plaintext(event)),
+                                    },
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "Failed to build the (sync) event before the saving in the Event Cache"
+                                        );
+                                        None
                                     }
                                 };
 
@@ -867,7 +845,7 @@ impl RoomSendQueue {
                     }
                 },
 
-                Ok(None) => {
+                Ok((None, _)) => {
                     debug!("Request has been aborted while running, continuing.");
                 }
 
@@ -950,20 +928,27 @@ impl RoomSendQueue {
         request: QueuedRequest,
         cancel_upload_rx: Option<oneshot::Receiver<()>>,
         progress: Option<SharedObservable<TransmissionProgress>>,
-    ) -> Result<Option<SentRequestKey>, crate::Error> {
+    ) -> Result<(Option<SentRequestKey>, Option<EncryptionInfo>), crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
                 let (event, event_type) = content.into_raw();
 
-                let res = room
+                let result = room
                     .send_raw(&event_type, &event)
                     .with_transaction_id(&request.transaction_id)
                     .with_request_config(RequestConfig::short_retry())
                     .await?;
 
-                trace!(txn_id = %request.transaction_id, event_id = %res.event_id, "event successfully sent");
+                trace!(txn_id = %request.transaction_id, event_id = %result.response.event_id, "event successfully sent");
 
-                Ok(Some(SentRequestKey::Event { event_id: res.event_id, event, event_type }))
+                Ok((
+                    Some(SentRequestKey::Event {
+                        event_id: result.response.event_id,
+                        event,
+                        event_type,
+                    }),
+                    result.encryption_info,
+                ))
             }
 
             QueuedRequestKind::MediaUpload {
@@ -1043,12 +1028,15 @@ impl RoomSendQueue {
                     };
                     trace!(%relates_to, mxc_uri = %uri, "media successfully uploaded");
 
-                    Ok(SentRequestKey::Media(SentMediaInfo {
-                        file: media_source,
-                        thumbnail: thumbnail_source,
-                        #[cfg(feature = "unstable-msc4274")]
-                        accumulated,
-                    }))
+                    Ok((
+                        Some(SentRequestKey::Media(SentMediaInfo {
+                            file: media_source,
+                            thumbnail: thumbnail_source,
+                            #[cfg(feature = "unstable-msc4274")]
+                            accumulated,
+                        })),
+                        None,
+                    ))
                 };
 
                 let wait_for_cancel = async move {
@@ -1063,11 +1051,11 @@ impl RoomSendQueue {
                     biased;
 
                     _ = wait_for_cancel => {
-                        Ok(None)
+                        Ok((None, None))
                     }
 
                     res = fut => {
-                        res.map(Some)
+                        res
                     }
                 }
             }

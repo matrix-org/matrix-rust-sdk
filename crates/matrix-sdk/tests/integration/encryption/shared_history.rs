@@ -85,6 +85,7 @@ async fn test_shared_history_out_of_order() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
         .await
         .expect("We should be able to send an initial message")
+        .response
         .event_id;
 
     matrix_mock_server

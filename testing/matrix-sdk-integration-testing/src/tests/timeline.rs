@@ -409,6 +409,7 @@ async fn test_enabling_backups_retries_decryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
+        .response
         .event_id;
 
     alice
@@ -619,6 +620,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
+        .response
         .event_id;
 
     // We don't need Alice anymore.
@@ -725,6 +727,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         room.send(RoomMessageEventContent::text_plain(message))
             .await
             .expect("We should be able to send a message to our new room")
+            .response
             .event_id
     }
 
@@ -942,7 +945,7 @@ async fn test_thread_focused_timeline() -> TestResult {
     };
 
     // Bob sends messages in a thread.
-    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?;
+    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?.response;
     let thread_root = resp.event_id;
 
     let thread_reply_event_content = bob_room
@@ -955,7 +958,7 @@ async fn test_thread_focused_timeline() -> TestResult {
         )
         .await?;
 
-    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.event_id;
+    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.response.event_id;
 
     // Alice creates a timeline focused on the in-thread event, so this will use
     // /context, and the thread root will be part of the response.
@@ -990,6 +993,85 @@ async fn test_thread_focused_timeline() -> TestResult {
 
     alice_sync.abort();
     bob_sync.abort();
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    debug!("Creating room…");
+    let initial_state = vec![
+        InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any(),
+    ];
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state,
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    // Let's sync now so we can be sure that we have the correct room state.
+    alice.sync_once(Default::default()).await?;
+
+    // The room should be encrypted.
+    assert!(room.latest_encryption_state().await?.is_encrypted());
+
+    // Create a timeline for this room, filtering out all non-message items.
+    let timeline = room.timeline().await.unwrap();
+    let (items, mut stream) = timeline
+        .subscribe_filter_map(|item| {
+            item.as_event()
+                .and_then(|item| item.content().as_message().is_some().then(|| item.clone()))
+        })
+        .await;
+    assert!(items.is_empty());
+
+    // Send message.
+    debug!("Sending initial message…");
+    timeline.send(RoomMessageEventContent::text_plain("It's a secret to everybody").into()).await?;
+
+    // Receiving the local echo for the message.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let local_echo = assert_matches!(vector_diff, Some(VectorDiff::PushBack { value }) => value);
+
+    // We're not sent yet.
+    assert!(local_echo.is_editable());
+    assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+    assert_eq!(local_echo.content().as_message().unwrap().body(), "It's a secret to everybody");
+
+    // Now we receive an update from the send queue that the event is in the sent
+    // state.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let sent_event =
+        assert_matches!(vector_diff, Some(VectorDiff::Set { index: 0, value }) => value);
+    assert_matches!(sent_event.send_state(), Some(EventSendState::Sent { .. }));
+
+    // Now the next update, since we're not syncing, should be the send queue
+    // inserting the event into the event cache.
+
+    // We first remove the old item.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    assert_matches!(vector_diff, Some(VectorDiff::Remove { index: 0 }));
+
+    // Now the new event with the encryption info arrives.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let sent_event = assert_matches!(vector_diff, Some(VectorDiff::PushFront {  value }) => value);
+
+    // The encryption info should be correctly populated.
+    let encryption_info =
+        sent_event.encryption_info().expect("The event should have encryption info available");
+
+    // Since we're the sender, we should be in the verified state.
+    assert_eq!(encryption_info.verification_state, VerificationState::Verified);
+    assert_pending!(stream);
 
     Ok(())
 }
