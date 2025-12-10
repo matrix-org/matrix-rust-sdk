@@ -22,14 +22,14 @@ use std::fmt::Debug;
 
 use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
-use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, megolm::ExportedSessionKey};
 
 use super::RoomKeyExport;
 use crate::{
     olm::ExportedRoomKey,
     types::{
-        deserialize_curve_key, events::room_key_withheld::RoomKeyWithheldContent,
-        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
+        EventEncryptionAlgorithm, SigningKeys, deserialize_curve_key,
+        events::room_key_withheld::RoomKeyWithheldContent, serialize_curve_key,
     },
 };
 #[cfg(doc)]
@@ -138,12 +138,12 @@ impl From<ExportedRoomKey> for HistoricRoomKey {
 #[cfg(test)]
 mod tests {
     use insta::assert_debug_snapshot;
-    use ruma::{owned_room_id, DeviceKeyAlgorithm};
+    use ruma::{DeviceKeyAlgorithm, owned_room_id};
     use vodozemac::{
-        megolm::ExportedSessionKey, Curve25519PublicKey, Curve25519SecretKey, Ed25519SecretKey,
+        Curve25519PublicKey, Curve25519SecretKey, Ed25519SecretKey, megolm::ExportedSessionKey,
     };
 
-    use crate::types::{room_history::HistoricRoomKey, EventEncryptionAlgorithm};
+    use crate::types::{EventEncryptionAlgorithm, room_history::HistoricRoomKey};
 
     #[test]
     fn test_historic_room_key_debug() {

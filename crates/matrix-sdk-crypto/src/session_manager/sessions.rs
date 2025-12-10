@@ -20,27 +20,27 @@ use std::{
 
 use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
+    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
 use tracing::{debug, error, info, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 
 use crate::{
+    DeviceData,
     error::OlmResult,
     gossiping::GossipMachine,
-    store::{types::Changes, Result as StoreResult, Store},
+    store::{Result as StoreResult, Store, types::Changes},
     types::{
+        EventEncryptionAlgorithm,
         events::EventType,
         requests::{OutgoingRequest, ToDeviceRequest},
-        EventEncryptionAlgorithm,
     },
-    DeviceData,
 };
 
 #[derive(Debug, Clone)]
@@ -593,8 +593,9 @@ mod tests {
     use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
+        DeviceId, OwnedUserId, UserId,
         api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
-        owned_server_name, user_id, DeviceId, OwnedUserId, UserId,
+        owned_server_name, user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -607,8 +608,8 @@ mod tests {
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{
-            types::{Changes, DeviceChanges, PendingChanges},
             CryptoStoreWrapper, MemoryStore, Store,
+            types::{Changes, DeviceChanges, PendingChanges},
         },
         verification::VerificationMachine,
     };
@@ -824,7 +825,7 @@ mod tests {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn test_session_unwedging() {
-        use ruma::{time::SystemTime, SecondsSinceUnixEpoch};
+        use ruma::{SecondsSinceUnixEpoch, time::SystemTime};
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();
@@ -1013,12 +1014,14 @@ mod tests {
         manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         // Alice isn't timed out anymore.
-        assert!(manager
-            .failed_devices
-            .read()
-            .get(alice)
-            .unwrap()
-            .failure_count(alice_account.device_id())
-            .is_none());
+        assert!(
+            manager
+                .failed_devices
+                .read()
+                .get(alice)
+                .unwrap()
+                .failure_count(alice_account.device_id())
+                .is_none()
+        );
     }
 }

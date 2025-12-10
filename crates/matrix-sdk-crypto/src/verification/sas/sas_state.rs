@@ -16,8 +16,12 @@ use std::{matches, sync::Arc, time::Duration};
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
+    DeviceId, OwnedTransactionId, TransactionId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
+            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
+            ShortAuthenticationString,
             accept::{
                 AcceptMethod, KeyVerificationAcceptEventContent, SasV1Content as AcceptV1Content,
                 SasV1ContentInit as AcceptV1ContentInit, ToDeviceKeyVerificationAcceptEventContent,
@@ -29,42 +33,38 @@ use ruma::{
                 KeyVerificationStartEventContent, SasV1Content, SasV1ContentInit, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
-            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
-            ShortAuthenticationString,
         },
         relation::Reference,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
     time::Instant,
-    DeviceId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use vodozemac::{
-    sas::{EstablishedSas, Mac, Sas},
     Curve25519PublicKey,
+    sas::{EstablishedSas, Mac, Sas},
 };
 
 use super::{
-    helpers::{
-        calculate_commitment, get_decimal, get_emoji, get_emoji_index, get_mac_content,
-        receive_mac_event, SasIds,
-    },
     OutgoingContent,
+    helpers::{
+        SasIds, calculate_commitment, get_decimal, get_emoji, get_emoji_index, get_mac_content,
+        receive_mac_event,
+    },
 };
 use crate::{
+    OwnUserIdentityData,
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::{
+        Cancelled, Emoji, FlowId,
         cache::RequestInfo,
         event_enums::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
             OwnedStartContent, StartContent,
         },
-        Cancelled, Emoji, FlowId,
     },
-    OwnUserIdentityData,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -158,11 +158,7 @@ impl SupportedMacMethod {
                 let calculated_mac = Base64::parse(calculated_mac)
                     .expect("We can always decode a Mac from vodozemac");
 
-                if calculated_mac != *mac {
-                    Err(CancelCode::KeyMismatch)
-                } else {
-                    Ok(())
-                }
+                if calculated_mac != *mac { Err(CancelCode::KeyMismatch) } else { Ok(()) }
             }
             SupportedMacMethod::HkdfHmacSha256V2 | SupportedMacMethod::Msc3783HkdfHmacSha256V2 => {
                 let mac = Mac::from_slice(mac.as_bytes());
@@ -1506,28 +1502,28 @@ impl SasState<Cancelled> {
 mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
+        DeviceId, TransactionId, UserId, device_id,
         events::key::verification::{
+            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
+            ShortAuthenticationString,
             accept::{AcceptMethod, ToDeviceKeyVerificationAcceptEventContent},
             start::{
                 SasV1Content, SasV1ContentInit, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
-            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
-            ShortAuthenticationString,
         },
         serde::Base64,
-        user_id, DeviceId, TransactionId, UserId,
+        user_id,
     };
     use serde_json::json;
 
     use super::{Accepted, Created, SasState, Started, SupportedMacMethod, WeAccepted};
     use crate::{
-        verification::{
-            event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
-            FlowId,
-        },
         AcceptedProtocols, Account, DeviceData,
+        verification::{
+            FlowId,
+            event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
+        },
     };
 
     fn alice_id() -> &'static UserId {

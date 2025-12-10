@@ -4,19 +4,19 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::cross_process_lock::CrossProcessLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio::sync::{Mutex, broadcast};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
 
 use super::{
-    caches::SessionStore, types::RoomKeyBundleInfo, DeviceChanges, IdentityChanges,
-    LockableCryptoStore,
+    DeviceChanges, IdentityChanges, LockableCryptoStore, caches::SessionStore,
+    types::RoomKeyBundleInfo,
 };
 use crate::{
+    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.

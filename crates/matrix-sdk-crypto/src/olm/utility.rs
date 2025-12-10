@@ -15,7 +15,7 @@
 use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde::Serialize;
 use serde_json::Value;
-use vodozemac::{olm::Account, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature};
+use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, olm::Account};
 
 use crate::{
     error::SignatureError,
@@ -200,7 +200,7 @@ impl SignedJsonObject for crate::types::MegolmV1AuthData {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id, user_id};
     use serde_json::json;
     use vodozemac::Ed25519PublicKey;
 

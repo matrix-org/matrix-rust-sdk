@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{events::secret::request::SecretName, OwnedTransactionId};
+use ruma::{OwnedTransactionId, events::secret::request::SecretName};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::Zeroize;
@@ -81,7 +81,7 @@ impl EventType for SecretSendContent {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::SecretSendEvent;
 

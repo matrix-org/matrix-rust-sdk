@@ -20,12 +20,14 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::{async_test, ruma_response_from_json};
 use ruma::{
-    events::AnyToDeviceEvent, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, RoomId,
-    TransactionId,
+    RoomId, TransactionId, events::AnyToDeviceEvent, room_id, serde::Raw,
+    to_device::DeviceIdOrAllDevices,
 };
-use serde_json::{json, value::to_raw_value, Value};
+use serde_json::{Value, json, value::to_raw_value};
 
 use crate::{
+    CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
+    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, TrustRequirement,
     machine::{
         test_helpers::{
             build_encrypted_to_device_content_without_sender_data, build_session_for_pair,
@@ -39,15 +41,13 @@ use crate::{
     session_manager::CollectStrategy,
     types::{
         events::{
-            room::encrypted::ToDeviceEncryptedEventContent, EventType as _, ToDeviceCustomEvent,
-            ToDeviceEvent,
+            EventType as _, ToDeviceCustomEvent, ToDeviceEvent,
+            room::encrypted::ToDeviceEncryptedEventContent,
         },
         requests::ToDeviceRequest,
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
-    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, TrustRequirement,
 };
 
 /// Happy path test: encrypt a to-device message, and check it is successfully
@@ -160,8 +160,8 @@ async fn test_encrypted_to_device_from_deleted_device() {
 /// the to-device message contain `sender_device_keys`), decryption will fail,
 /// with `EventError::MissingSigningKey`.
 #[async_test]
-async fn test_receive_custom_encrypted_to_device_with_no_sender_device_keys_fails_if_device_unknown(
-) {
+async fn test_receive_custom_encrypted_to_device_with_no_sender_device_keys_fails_if_device_unknown()
+ {
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
     let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
@@ -225,12 +225,13 @@ async fn test_excluding_insecure_means_custom_to_device_events_from_unverified_d
     // And the receiving device does not consider the sending device verified
     make_alice_unverified(&alice, &bob).await;
 
-    assert!(!bob
-        .get_device(alice.user_id(), alice.device_id(), None)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_verified());
+    assert!(
+        !bob.get_device(alice.user_id(), alice.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_verified()
+    );
 
     // When we send a custom event
     let custom_event_type = "m.new_device";
@@ -277,12 +278,13 @@ async fn test_excluding_insecure_does_not_prevent_key_events_being_processed() {
     // And the receiving device does not consider the sending device verified
     make_alice_unverified(&alice, &bob).await;
 
-    assert!(!bob
-        .get_device(alice.user_id(), alice.device_id(), None)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_verified());
+    assert!(
+        !bob.get_device(alice.user_id(), alice.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_verified()
+    );
 
     // When we send a room key event
     let key_event =

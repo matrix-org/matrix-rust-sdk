@@ -23,12 +23,12 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
     encryption::KeyUsage,
     serde::{JsonCastable, Raw},
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use vodozemac::{Ed25519PublicKey, KeyError};
 
 use super::{SelfSigningPubkey, UserSigningPubkey};
