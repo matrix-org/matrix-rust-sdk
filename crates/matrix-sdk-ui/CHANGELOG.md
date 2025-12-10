@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `SpaceService::space_room_for_id` to get a space given its id from the space graph if available.
 - [**breaking**]: The new Latest Event API replaces the old API. All the
   `new_` prefixes have been removed. The following methods are removed:
   `EventTimelineItem::from_latest_event`, and `Timeline::latest_event`. See the

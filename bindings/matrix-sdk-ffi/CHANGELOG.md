@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `SpaceService::space_room_for_id` to get a space given its id from the space graph if available.
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
   ([#5939](https://github.com/matrix-org/matrix-rust-sdk/pull/5939))
 - [**breaking**]: The new Latest Event API replaces the old API.
