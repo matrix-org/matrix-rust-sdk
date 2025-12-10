@@ -954,7 +954,7 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use insta::assert_json_snapshot;
+    use insta::{assert_json_snapshot, with_settings};
     use matrix_sdk_test::async_test;
     use ruma::{
         DeviceId, UserId, device_id, events::room::history_visibility::HistoryVisibility,
@@ -989,11 +989,17 @@ mod tests {
 
         let pickle = session.pickle().await;
 
-        assert_json_snapshot!(pickle, {
-            ".pickle.initial_ratchet.inner" => "[ratchet]",
-            ".pickle.signing_key" => "[signing_key]",
-            ".sender_key" => "[sender_key]",
-            ".signing_key.ed25519" => "[ed25519_key]",
+        with_settings!({prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "InboundGroupSession__test_pickle_snapshot__regression",
+                pickle,
+                {
+                    ".pickle.initial_ratchet.inner" => "[ratchet]",
+                    ".pickle.signing_key" => "[signing_key]",
+                    ".sender_key" => "[sender_key]",
+                    ".signing_key.ed25519" => "[ed25519_key]",
+                }
+            );
         });
     }
 
@@ -1112,6 +1118,7 @@ mod tests {
                         "legacy_session":false
                     }
                 },
+                "forwarder_data":null,
                 "room_id":"!test:localhost",
                 "imported":false,
                 "backed_up":false,

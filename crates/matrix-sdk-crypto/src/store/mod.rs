@@ -2369,6 +2369,17 @@ mod tests {
         assert_eq!(imported_sessions.len(), 1);
         assert_eq!(imported_sessions[0].room_id(), room_id);
 
+        // The session forwarder data should be set correctly.
+        assert_eq!(
+            imported_sessions[0]
+                .forwarder_data
+                .as_ref()
+                .expect("Session should contain forwarder data.")
+                .user_id()
+                .expect("Forwarder data should contain user ID."),
+            alice.user_id()
+        );
+
         assert_matches!(
             bob.store()
                 .get_withheld_info(room_id, sessions[1].session_id())
