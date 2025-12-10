@@ -939,7 +939,7 @@ mod tests {
         // Ensure internal state is populated.
         _ = space_service.joined_spaces().await;
 
-        let found = space_service.space_room_for_id(&space_id).await;
+        let found = space_service.space_room_for_id(space_id).await;
         assert!(found.is_some());
 
         let expected = SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0);
