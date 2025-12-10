@@ -234,7 +234,7 @@ pub(crate) mod tests {
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
-            panic!("Invalid event type")
+            panic!("Invalid event type");
         }
     }
 
