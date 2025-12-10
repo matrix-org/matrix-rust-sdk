@@ -375,7 +375,7 @@ impl CryptoStoreWrapper {
     fn filter_errors_out_of_stream<ItemType>(
         stream: BroadcastStream<ItemType>,
         stream_name: &str,
-    ) -> impl Stream<Item = ItemType>
+    ) -> impl Stream<Item = ItemType> + use<ItemType>
     where
         ItemType: 'static + Clone + Send,
     {
