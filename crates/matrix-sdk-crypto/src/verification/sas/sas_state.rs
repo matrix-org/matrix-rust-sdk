@@ -1788,7 +1788,7 @@ mod tests {
         let mut method = content.method_mut();
 
         match &mut method {
-            AcceptMethod::SasV1(ref mut c) => {
+            AcceptMethod::SasV1(c) => {
                 c.short_authentication_string = vec![];
             }
             _ => panic!("Unknown accept event content"),
@@ -1843,7 +1843,7 @@ mod tests {
         let method = start_content.method_mut();
 
         match method {
-            StartMethod::SasV1(ref mut c) => {
+            StartMethod::SasV1(c) => {
                 c.message_authentication_codes = vec![];
             }
             _ => panic!("Unknown SAS start method"),
