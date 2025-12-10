@@ -163,6 +163,8 @@ async fn test_edit_updates_encryption_info() {
     let mut encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
+        forwarder: None,
+        forwarder_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "123".to_owned(),
             sender_claimed_keys: BTreeMap::new(),
