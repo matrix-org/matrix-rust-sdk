@@ -108,6 +108,13 @@ impl SpaceService {
         Ok(parents.into_iter().map(Into::into).collect())
     }
 
+    /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
+    /// if it isn't known.
+    pub async fn space_room_with_id(&self, room_id: String) -> Option<SpaceRoom> {
+        let room_id = RoomId::parse(room_id.as_str()).ok()?;
+        self.inner.space_room_with_id(&room_id).await.map(Into::into)
+    }
+
     pub async fn add_child_to_space(
         &self,
         child_id: String,

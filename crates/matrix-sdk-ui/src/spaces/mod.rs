@@ -257,6 +257,20 @@ impl SpaceService {
             .collect()
     }
 
+    /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
+    /// if it isn't known.
+    pub async fn space_room_with_id(&self, room_id: &RoomId) -> Option<SpaceRoom> {
+        let graph = &self.space_state.lock().await.graph;
+
+        if graph.has_node(room_id)
+            && let Some(room) = self.client.get_room(room_id)
+        {
+            Some(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64))
+        } else {
+            None
+        }
+    }
+
     pub async fn add_child_to_space(
         &self,
         child_id: OwnedRoomId,
