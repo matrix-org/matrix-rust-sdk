@@ -1047,6 +1047,7 @@ mod tests {
                         "legacy_session":false
                     }
                 },
+                "forwarder_data":null,
                 "room_id":"!test:localhost",
                 "imported":false,
                 "backed_up":false,
