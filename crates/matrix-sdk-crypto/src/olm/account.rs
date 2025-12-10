@@ -1704,6 +1704,8 @@ impl Account {
         EncryptionInfo {
             sender: sender_id.to_owned(),
             sender_device: sender_device.as_ref().map(|d| d.device_id().to_owned()),
+            forwarder: None,
+            forwarder_device: None,
             algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
                 curve25519_public_key_base64: sender_key.to_base64(),
             },

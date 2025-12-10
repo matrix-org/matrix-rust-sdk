@@ -1136,6 +1136,8 @@ impl OlmMachine {
         EncryptionInfo {
             sender: self.inner.user_id.clone(),
             sender_device: Some(self.inner.device_id.clone()),
+            forwarder: None,
+            forwarder_device: None,
             algorithm_info,
             verification_state: VerificationState::Verified,
         }
@@ -2016,11 +2018,26 @@ impl OlmMachine {
         let (verification_state, device_id) =
             self.get_room_event_verification_state(session, sender).await?;
 
-        let sender = sender.to_owned();
-
         Ok(Arc::new(EncryptionInfo {
-            sender,
-            sender_device: device_id,
+            sender: sender.to_owned(),
+            sender_device: device_id.clone(),
+            forwarder: session.forwarder_data.as_ref().and_then(|data| data.user_id()),
+            forwarder_device: session.forwarder_data.as_ref().and_then(|data| match data {
+                SenderData::SenderUnverified(known_sender_data)
+                | SenderData::SenderVerified(known_sender_data) => {
+                    known_sender_data.device_id.clone()
+                }
+                _ => {
+                    // TODO: Should this return an error?
+                    warn!(
+                        sender_id = ?sender,
+                        device_id = ?device_id,
+                        session_id = session.session_id(),
+                        "Invalid sender verification state for forwarded session"
+                    );
+                    None
+                }
+            }),
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),
                 sender_claimed_keys: session

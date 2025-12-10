@@ -195,6 +195,12 @@ async fn test_shared_history_out_of_order() {
         .await
         .expect("Bob should be able to fetch the event Alice has sent");
 
+    let encryption_info = event.encryption_info().expect("Event did not have encryption info");
+
+    // Check Bob stored information about the key forwarder.
+    assert_eq!(encryption_info.forwarder, Some(alice_user_id.to_owned()));
+    assert_eq!(encryption_info.forwarder_device, Some(alice_device_id.to_owned()));
+
     assert_decrypted_message_eq!(
         event,
         "It's a secret to everybody",
