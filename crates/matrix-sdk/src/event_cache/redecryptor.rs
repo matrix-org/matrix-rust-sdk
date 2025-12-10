@@ -148,7 +148,11 @@ use tracing::{info, instrument, trace, warn};
 #[cfg(doc)]
 use super::RoomEventCache;
 use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{Room, event_cache::RoomEventCacheLinkedChunkUpdate, room::PushContext};
+use crate::{
+    Room,
+    event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::PushContext,
+};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
@@ -336,6 +340,11 @@ impl EventCache {
             diffs,
             origin: EventsOrigin::Cache,
         });
+
+        let _ = room_cache
+            .inner
+            .generic_update_sender
+            .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
 
         // We report that we resolved some UTDs, this is mainly for listeners that don't
         // care about the actual events, just about the fact that UTDs got
