@@ -17,8 +17,8 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{InboundGroupSession, SenderData};
 use crate::{
-    error::MismatchedIdentityKeysError, store::Store, types::events::olm_v1::DecryptedRoomKeyEvent,
     CryptoStoreError, Device, DeviceData, MegolmError, OlmError, SignatureError,
+    error::MismatchedIdentityKeysError, store::Store, types::events::olm_v1::DecryptedRoomKeyEvent,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -330,31 +330,31 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, OwnedUserId, RoomId, UserId};
+    use ruma::{DeviceId, OwnedUserId, RoomId, UserId, device_id, room_id, user_id};
     use tokio::sync::Mutex;
-    use vodozemac::{megolm::SessionKey, Curve25519PublicKey, Ed25519PublicKey};
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::SessionKey};
 
     use super::SenderDataFinder;
     use crate::{
+        Account, Device, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
         error::MismatchedIdentityKeysError,
         machine::test_helpers::{
             create_signed_device_of_unverified_user, create_unsigned_device,
             sign_user_identity_data,
         },
         olm::{
-            group_sessions::sender_data_finder::SessionDeviceKeysCheckError, InboundGroupSession,
-            KnownSenderData, PrivateCrossSigningIdentity, SenderData,
+            InboundGroupSession, KnownSenderData, PrivateCrossSigningIdentity, SenderData,
+            group_sessions::sender_data_finder::SessionDeviceKeysCheckError,
         },
-        store::{types::Changes, CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore, Store, types::Changes},
         types::{
+            EventEncryptionAlgorithm,
             events::{
                 olm_v1::DecryptedRoomKeyEvent,
                 room_key::{MegolmV1AesSha2Content, RoomKeyContent},
             },
-            EventEncryptionAlgorithm,
         },
         verification::VerificationMachine,
-        Account, Device, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
     };
 
     impl<'a> SenderDataFinder<'a> {

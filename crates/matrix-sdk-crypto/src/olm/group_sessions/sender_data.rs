@@ -15,13 +15,13 @@
 use std::{cmp::Ordering, fmt};
 
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use serde::{de, de::Visitor, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de, de::Visitor};
 use tracing::error;
 use vodozemac::Ed25519PublicKey;
 
 use crate::{
-    types::{serialize_ed25519_key, DeviceKeys},
     Device,
+    types::{DeviceKeys, serialize_ed25519_key},
 };
 
 /// Information about the sender of a megolm session where we know the
@@ -445,20 +445,20 @@ mod tests {
     use insta::assert_json_snapshot;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, owned_device_id, owned_user_id, user_id, DeviceKeyAlgorithm, DeviceKeyId,
+        DeviceKeyAlgorithm, DeviceKeyId, device_id, owned_device_id, owned_user_id, user_id,
     };
     use serde_json::json;
-    use vodozemac::{base64_decode, Curve25519PublicKey, Ed25519PublicKey};
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, base64_decode};
 
     use super::SenderData;
     use crate::{
+        Account,
         machine::test_helpers::{
             create_signed_device_of_unverified_user, create_signed_device_of_verified_user,
             create_unsigned_device,
         },
         olm::{KnownSenderData, PickledInboundGroupSession, PrivateCrossSigningIdentity},
         types::{DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures},
-        Account,
     };
 
     #[test]

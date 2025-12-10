@@ -24,7 +24,7 @@ use std::{
 use byteorder::{BigEndian, ReadBytesExt};
 use thiserror::Error;
 use url::Url;
-use vodozemac::{base64_decode, base64_encode, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
 /// The version of the QR code data, currently only one version is specified.
 const VERSION: u8 = 0x02;

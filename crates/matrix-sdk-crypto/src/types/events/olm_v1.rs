@@ -23,17 +23,17 @@ use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
 
 use super::{
+    EventType,
     dummy::DummyEventContent,
     forwarded_room_key::ForwardedRoomKeyContent,
     room_key::RoomKeyContent,
     room_key_request::{self, SupportedKeyInfo},
     secret_send::SecretSendContent,
-    EventType,
 };
 use crate::types::{
-    deserialize_ed25519_key,
+    DeviceKeys, deserialize_ed25519_key,
     events::{from_str, room_key_bundle::RoomKeyBundleContent},
-    serialize_ed25519_key, DeviceKeys,
+    serialize_ed25519_key,
 };
 
 /// An `m.dummy` event that was decrypted using the
@@ -344,15 +344,15 @@ mod tests {
 
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{device_id, owned_user_id, KeyId};
-    use serde_json::{json, Value};
+    use ruma::{KeyId, device_id, owned_user_id};
+    use serde_json::{Value, json};
     use similar_asserts::assert_eq;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature};
 
     use super::AnyDecryptedOlmEvent;
     use crate::types::{
-        events::olm_v1::DecryptedRoomKeyEvent, DeviceKey, DeviceKeys, EventEncryptionAlgorithm,
-        Signatures,
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures,
+        events::olm_v1::DecryptedRoomKeyEvent,
     };
 
     const ED25519_KEY: &str = "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk";

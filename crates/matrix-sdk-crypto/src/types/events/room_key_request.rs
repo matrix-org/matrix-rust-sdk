@@ -17,15 +17,15 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId,
-    OwnedTransactionId, RoomId,
+    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnyToDeviceEventContent,
+    serde::JsonCastable,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{serde_curve_key_option, EventEncryptionAlgorithm};
+use crate::types::{EventEncryptionAlgorithm, serde_curve_key_option};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyRequestEvent = ToDeviceEvent<RoomKeyRequestContent>;
@@ -292,7 +292,7 @@ impl TryFrom<RequestedKeyInfoHelper> for RequestedKeyInfo {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::{Action, RequestedKeyInfo, RoomKeyRequestEvent};
 

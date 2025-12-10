@@ -29,20 +29,20 @@ use std::{
 };
 
 use ruma::{
-    api::client::backup::RoomKeyBackup, serde::Raw, DeviceId, DeviceKeyAlgorithm, OwnedDeviceId,
-    OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId, api::client::backup::RoomKeyBackup, serde::Raw,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
+    CryptoStoreError, Device, RoomKeyImportResult, SignatureError,
     olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
     store::{
-        types::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts},
         Store,
+        types::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts},
     },
-    types::{requests::KeysBackupRequest, MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
-    CryptoStoreError, Device, RoomKeyImportResult, SignatureError,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures, requests::KeysBackupRequest},
 };
 
 mod keys;
@@ -641,18 +641,18 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
+    use ruma::{CanonicalJsonValue, DeviceId, RoomId, UserId, device_id, room_id, user_id};
     use serde_json::json;
 
     use super::BackupMachine;
     use crate::{
+        OlmError, OlmMachine,
         olm::BackedUpRoomKey,
         store::{
-            types::{BackupDecryptionKey, Changes},
             CryptoStore, MemoryStore,
+            types::{BackupDecryptionKey, Changes},
         },
         types::RoomKeyBackupInfo,
-        OlmError, OlmMachine,
     };
 
     fn room_key() -> BackedUpRoomKey {

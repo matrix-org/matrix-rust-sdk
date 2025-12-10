@@ -30,39 +30,39 @@ use matrix_sdk_common::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
     events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
 };
 use serde::Serialize;
+pub use share_strategy::CollectStrategy;
 #[cfg(feature = "experimental-send-custom-to-device")]
 pub(crate) use share_strategy::split_devices_for_share_strategy;
-pub use share_strategy::CollectStrategy;
 pub(crate) use share_strategy::{
-    withheld_code_for_device_for_share_strategy, CollectRecipientsResult,
+    CollectRecipientsResult, withheld_code_for_device_for_share_strategy,
 };
-use tracing::{debug, error, info, instrument, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "experimental-encrypted-state-events")]
 use crate::types::events::room::encrypted::RoomEncryptedEventContent;
 use crate::{
+    Device, DeviceData, EncryptionSettings, OlmError,
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
     olm::{
         InboundGroupSession, OutboundGroupSession, OutboundGroupSessionEncryptionResult,
         SenderData, SenderDataFinder, Session, ShareInfo, ShareState,
     },
-    store::{types::Changes, CryptoStoreWrapper, Result as StoreResult, Store},
+    store::{CryptoStoreWrapper, Result as StoreResult, Store, types::Changes},
     types::{
         events::{
-            room::encrypted::ToDeviceEncryptedEventContent, room_key_bundle::RoomKeyBundleContent,
-            EventType,
+            EventType, room::encrypted::ToDeviceEncryptedEventContent,
+            room_key_bundle::RoomKeyBundleContent,
         },
         requests::ToDeviceRequest,
     },
-    Device, DeviceData, EncryptionSettings, OlmError,
 };
 
 #[derive(Clone, Debug)]
@@ -1088,38 +1088,39 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
+        DeviceId, OneTimeKeyAlgorithm, OwnedMxcUri, TransactionId, UInt, UserId,
         api::client::{
             keys::{claim_keys, get_keys, upload_keys},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         device_id,
         events::room::{
-            history_visibility::HistoryVisibility, EncryptedFileInit, JsonWebKey, JsonWebKeyInit,
+            EncryptedFileInit, JsonWebKey, JsonWebKeyInit, history_visibility::HistoryVisibility,
         },
         owned_room_id, room_id,
         serde::Base64,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, OneTimeKeyAlgorithm, OwnedMxcUri, TransactionId, UInt, UserId,
+        user_id,
     };
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use crate::{
+        DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine, TrustRequirement,
         identities::DeviceData,
         machine::{
-            test_helpers::get_machine_pair_with_setup_sessions_test_helper, EncryptionSyncChanges,
+            EncryptionSyncChanges, test_helpers::get_machine_pair_with_setup_sessions_test_helper,
         },
         olm::{Account, SenderData},
-        session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
+        session_manager::{CollectStrategy, group_sessions::CollectRecipientsResult},
         types::{
+            DeviceKeys, EventEncryptionAlgorithm,
             events::{
                 room::encrypted::EncryptedToDeviceEvent,
                 room_key_bundle::RoomKeyBundleContent,
                 room_key_withheld::RoomKeyWithheldContent::{self, MegolmV1AesSha2},
             },
             requests::ToDeviceRequest,
-            DeviceKeys, EventEncryptionAlgorithm,
         },
-        DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine, TrustRequirement,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1468,9 +1469,11 @@ mod tests {
         assert!(!recipients[user_id].is_empty());
 
         // Make sure that our own device isn't part of the recipients.
-        assert!(!recipients[user_id]
-            .iter()
-            .any(|d| d.user_id() == user_id && d.device_id() == device_id));
+        assert!(
+            !recipients[user_id]
+                .iter()
+                .any(|d| d.user_id() == user_id && d.device_id() == device_id)
+        );
 
         let settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::OnlyTrustedDevices,
@@ -1500,9 +1503,11 @@ mod tests {
                 .await
                 .expect("We should be able to collect the session recipients");
 
-        assert!(recipients[user_id]
-            .iter()
-            .any(|d| d.user_id() == user_id && d.device_id() == device_id));
+        assert!(
+            recipients[user_id]
+                .iter()
+                .any(|d| d.user_id() == user_id && d.device_id() == device_id)
+        );
 
         let devices = machine.get_user_devices(user_id, None).await.unwrap();
         devices

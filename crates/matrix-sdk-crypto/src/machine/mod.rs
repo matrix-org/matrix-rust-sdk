@@ -24,6 +24,7 @@ use itertools::Itertools;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
+    BoxFuture,
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
         ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
@@ -31,11 +32,13 @@ use matrix_sdk_common::{
         UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
-    timer, BoxFuture,
+    timer,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
 use ruma::{
+    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::client::{
         dehydrated_device::DehydratedDeviceData,
         keys::{
@@ -48,31 +51,31 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventContent, secret::request::SecretName,
     },
     serde::{JsonObject, Raw},
-    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::Serialize;
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use tokio::sync::Mutex;
 use tracing::{
-    debug, error,
+    Span, debug, error,
     field::{debug, display},
-    info, instrument, trace, warn, Span,
+    info, instrument, trace, warn,
 };
-use vodozemac::{megolm::DecryptionError, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{Curve25519PublicKey, Ed25519Signature, megolm::DecryptionError};
 
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{user::UserIdentity, Device, IdentityManager, UserDevices},
+    identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -80,16 +83,18 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
+        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
+        Store, StoreTransaction,
         caches::StoreCache,
         types::{
             Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
             RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
         },
-        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
-        Store, StoreTransaction,
     },
     types::{
+        EventEncryptionAlgorithm, Signatures,
         events::{
+            ToDeviceEvent, ToDeviceEvents,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
@@ -101,18 +106,14 @@ use crate::{
             room_key_withheld::{
                 MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
             },
-            ToDeviceEvent, ToDeviceEvents,
         },
         requests::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
-    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 #[derive(Debug, Serialize)]

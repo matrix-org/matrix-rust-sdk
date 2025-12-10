@@ -1,14 +1,14 @@
 use std::collections::btree_map::Iter;
 
-use ruma::{encryption::KeyUsage, OwnedDeviceKeyId, UserId};
+use ruma::{OwnedDeviceKeyId, UserId, encryption::KeyUsage};
 use serde::{Deserialize, Serialize};
 use vodozemac::Ed25519PublicKey;
 
 use super::{CrossSigningKey, SigningKey};
 use crate::{
+    DeviceData, SignatureError,
     olm::VerifyJson,
     types::{DeviceKeys, SigningKeys},
-    DeviceData, SignatureError,
 };
 
 /// Wrapper for a cross signing key marking it as a self signing key.

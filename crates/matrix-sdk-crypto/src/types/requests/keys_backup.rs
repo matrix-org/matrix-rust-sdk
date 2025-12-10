@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{api::client::backup::RoomKeyBackup, OwnedRoomId};
+use ruma::{OwnedRoomId, api::client::backup::RoomKeyBackup};
 
 /// A request that will back up a batch of room keys to the server.
 #[derive(Clone, Debug)]
