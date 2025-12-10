@@ -32,7 +32,7 @@ use ruma::{
         relation::Replacement,
         room::{
             member::MembershipState,
-            message::{MessageType, Relation},
+            message::{MessageType, Relation, RoomMessageEventContent},
             power_levels::RoomPowerLevels,
         },
     },
@@ -135,15 +135,16 @@ impl LatestEvent {
         self.update(new_value).await;
     }
 
-    /// Update [`Self::current_value`] if and only if the `new_value` is not
-    /// [`LatestEventValue::None`].
+    /// Update [`Self::current_value`], and persist the `new_value` in the
+    /// store.
+    ///
+    /// If the `new_value` is [`LatestEventValue::None`], it is accepted: if the
+    /// previous latest event value has been redacted and no other candidate has
+    /// been found, we want to latest event value to be `None`, so that it is
+    /// erased correctly.
     async fn update(&mut self, new_value: LatestEventValue) {
-        if let LatestEventValue::None = new_value {
-            // Do not update to a `None` value.
-        } else {
-            self.current_value.set(new_value.clone()).await;
-            self.store(new_value).await;
-        }
+        self.current_value.set(new_value.clone()).await;
+        self.store(new_value).await;
     }
 
     /// Update the `RoomInfo` associated to this room to set the new
@@ -232,7 +233,7 @@ mod tests_latest_event {
     }
 
     #[async_test]
-    async fn test_update_ignores_none_value() {
+    async fn test_update_do_not_ignore_none_value() {
         let room_id = room_id!("!r0");
 
         let server = MatrixMockServer::new().await;
@@ -262,13 +263,10 @@ mod tests_latest_event {
             LatestEventValue::LocalIsSending(_)
         );
 
-        // Finally, set a new `None` value. It must be ignored.
+        // Finally, set a new `None` value. It must NOT be ignored.
         latest_event.update(LatestEventValue::None).await;
 
-        assert_matches!(
-            latest_event.current_value.get().await,
-            LatestEventValue::LocalIsSending(_)
-        );
+        assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
     }
 
     #[async_test]
@@ -952,7 +950,7 @@ impl LatestEventValuesForLocalEvents {
 
 fn filter_timeline_event(
     event: &TimelineEvent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
@@ -975,11 +973,11 @@ fn filter_timeline_event(
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
-                    previous_event_id,
+                    previous_event,
                 ),
 
                 // The event has been redacted.
-                None => true,
+                None => false,
             }
         }
 
@@ -991,34 +989,48 @@ fn filter_timeline_event(
 
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
 ) -> bool {
     match event {
-        AnyMessageLikeEventContent::RoomMessage(message) => {
+        // `m.room.message`
+        AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
+            msgtype,
+            relates_to,
+            ..
+        }) => {
             // Don't show incoming verification requests.
-            if let MessageType::VerificationRequest(_) = message.msgtype {
+            if let MessageType::VerificationRequest(_) = msgtype {
                 return false;
             }
 
             // Not all relations are accepted. Let's filter them.
-            match &message.relates_to {
+            match relates_to {
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
                     // If the edit relates to the immediate previous event, this is an acceptable
-                    // latest event, otherwise let's ignore it.
-                    Some(event_id) == previous_event_id.as_ref()
+                    // latest event candidate, otherwise let's ignore it.
+                    Some(event_id) == previous_event.and_then(|event| event.event_id())
                 }
 
                 _ => true,
             }
         }
 
+        // `org.matrix.msc3381.poll.start`
+        // `m.call.invite`
+        // `m.rtc.notification`
+        // `m.sticker`
         AnyMessageLikeEventContent::UnstablePollStart(_)
         | AnyMessageLikeEventContent::CallInvite(_)
         | AnyMessageLikeEventContent::RtcNotification(_)
         | AnyMessageLikeEventContent::Sticker(_) => true,
 
-        // Encrypted events are not suitable.
-        AnyMessageLikeEventContent::RoomEncrypted(_) => false,
+        // `m.room.redaction`
+        // `m.room.encrypted`
+        AnyMessageLikeEventContent::RoomRedaction(_)
+        | AnyMessageLikeEventContent::RoomEncrypted(_) => {
+            // These events are **explicitly** not suitable.
+            false
+        }
 
         // Everything else is considered not suitable.
         _ => false,
@@ -1120,21 +1132,6 @@ mod tests_latest_event_content {
     }
 
     #[test]
-    fn test_redacted() {
-        assert_latest_event_content!(
-            event | event_factory | {
-                event_factory
-                    .redacted(
-                        user_id!("@mnt_io:matrix.org"),
-                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
-                    )
-                    .into_event()
-            }
-            is a candidate
-        );
-    }
-
-    #[test]
     fn test_room_message_replacement() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id);
@@ -1152,43 +1149,50 @@ mod tests_latest_event_content {
         {
             let previous_event_id = None;
 
-            assert!(
-                filter_timeline_event(
-                    &event,
-                    previous_event_id,
-                    Some(user_id!("@mnt_io:matrix.org")),
-                    None
-                )
-                .not()
-            );
+            assert!(filter_timeline_event(&event, previous_event_id, Some(user_id), None).not());
         }
 
-        // With a previous event, but the one being replaced.
+        // With a previous event, but not the one being replaced.
         {
-            let previous_event_id = Some(event_id!("$ev1").to_owned());
+            let previous_event =
+                Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
 
             assert!(
-                filter_timeline_event(
-                    &event,
-                    previous_event_id,
-                    Some(user_id!("@mnt_io:matrix.org")),
-                    None
-                )
-                .not()
+                filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None).not()
             );
         }
 
         // With a previous event, and that's the one being replaced!
         {
-            let previous_event_id = Some(event_id!("$ev0").to_owned());
+            let previous_event =
+                Some(event_factory.text_msg("hello").event_id(event_id!("$ev0")).into_event());
 
-            assert!(filter_timeline_event(
-                &event,
-                previous_event_id,
-                Some(user_id!("@mnt_io:matrix.org")),
-                None
-            ));
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
         }
+    }
+
+    #[test]
+    fn test_redaction() {
+        assert_latest_event_content!(
+            event | event_factory | { event_factory.redaction(event_id!("$ev0")).into_event() }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_redacted() {
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .redacted(
+                        user_id!("@mnt_io:matrix.org"),
+                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
+                    )
+                    .event_id(event_id!("$ev0"))
+                    .into_event()
+            }
+            is not a candidate
+        );
     }
 
     #[test]

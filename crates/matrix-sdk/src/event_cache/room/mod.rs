@@ -334,7 +334,7 @@ impl RoomEventCache {
     /// chunk **only**. It doesn't look inside the storage.
     pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Result<Option<O>>
     where
-        P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+        P: FnMut(&Event, Option<&Event>) -> Option<O>,
     {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
     }
@@ -1170,9 +1170,9 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
+        pub fn rfind_map_event_in_memory_by<'i, O, P>(&'i self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+            P: FnMut(&'i Event, Option<&'i Event>) -> Option<O>,
         {
             self.state
                 .room_linked_chunk
@@ -1180,14 +1180,10 @@ mod private {
                 .peekable()
                 .batching(|iter| {
                     iter.next().map(|(_position, event)| {
-                        (
-                            event,
-                            iter.peek()
-                                .and_then(|(_next_position, next_event)| next_event.event_id()),
-                        )
+                        (event, iter.peek().map(|(_next_position, next_event)| *next_event))
                     })
                 })
-                .find_map(|(event, next_event_id)| predicate(event, next_event_id))
+                .find_map(|(event, next_event)| predicate(event, next_event))
         }
 
         #[cfg(test)]
@@ -3911,8 +3907,8 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event.and_then(|event| event.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {
@@ -3925,8 +3921,8 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event.and_then(|event| event.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {
