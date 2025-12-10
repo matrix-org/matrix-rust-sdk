@@ -106,30 +106,30 @@ impl SessionManager {
         sender: &UserId,
         curve_key: Curve25519PublicKey,
     ) -> OlmResult<()> {
-        if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
-            if let Some(session) = device.get_most_recent_session().await? {
-                info!(sender_key = ?curve_key, "Marking session to be unwedged");
+        if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await?
+            && let Some(session) = device.get_most_recent_session().await?
+        {
+            info!(sender_key = ?curve_key, "Marking session to be unwedged");
 
-                let creation_time = Duration::from_secs(session.creation_time.get().into());
-                let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
+            let creation_time = Duration::from_secs(session.creation_time.get().into());
+            let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
-                let should_unwedge = now
-                    .checked_sub(creation_time)
-                    .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
-                    .unwrap_or(true);
+            let should_unwedge = now
+                .checked_sub(creation_time)
+                .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
+                .unwrap_or(true);
 
-                if should_unwedge {
-                    self.users_for_key_claim
-                        .write()
-                        .entry(device.user_id().to_owned())
-                        .or_default()
-                        .insert(device.device_id().into());
-                    self.wedged_devices
-                        .write()
-                        .entry(device.user_id().to_owned())
-                        .or_default()
-                        .insert(device.device_id().into());
-                }
+            if should_unwedge {
+                self.users_for_key_claim
+                    .write()
+                    .entry(device.user_id().to_owned())
+                    .or_default()
+                    .insert(device.device_id().into());
+                self.wedged_devices
+                    .write()
+                    .entry(device.user_id().to_owned())
+                    .or_default()
+                    .insert(device.device_id().into());
             }
         }
 
@@ -148,29 +148,26 @@ impl SessionManager {
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id)) {
-            if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let (_, content) =
-                    device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
+        if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id))
+            && let Some(device) = self.store.get_device(user_id, device_id).await?
+        {
+            let (_, content) = device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
 
-                let event_type = content.event_type().to_owned();
+            let event_type = content.event_type().to_owned();
 
-                let request = ToDeviceRequest::new(
-                    device.user_id(),
-                    device.device_id().to_owned(),
-                    &event_type,
-                    content.cast(),
-                );
+            let request = ToDeviceRequest::new(
+                device.user_id(),
+                device.device_id().to_owned(),
+                &event_type,
+                content.cast(),
+            );
 
-                let request = OutgoingRequest {
-                    request_id: request.txn_id.clone(),
-                    request: Arc::new(request.into()),
-                };
+            let request = OutgoingRequest {
+                request_id: request.txn_id.clone(),
+                request: Arc::new(request.into()),
+            };
 
-                self.outgoing_to_device_requests
-                    .write()
-                    .insert(request.request_id.clone(), request);
-            }
+            self.outgoing_to_device_requests.write().insert(request.request_id.clone(), request);
         }
 
         Ok(())

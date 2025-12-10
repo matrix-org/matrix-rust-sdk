@@ -300,17 +300,16 @@ pub fn get_mac_content(
 
     mac.insert(key_id.to_string(), mac_method.calculate_mac(sas, &key, &format!("{info}{key_id}")));
 
-    if let Some(own_identity) = &ids.own_identity {
-        if own_identity.is_verified() {
-            if let Some(key) = own_identity.master_key().get_first_key() {
-                let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
+    if let Some(own_identity) = &ids.own_identity
+        && own_identity.is_verified()
+        && let Some(key) = own_identity.master_key().get_first_key()
+    {
+        let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
 
-                let calculated_mac =
-                    mac_method.calculate_mac(sas, &key.to_base64(), &format!("{info}{key_id}"));
+        let calculated_mac =
+            mac_method.calculate_mac(sas, &key.to_base64(), &format!("{info}{key_id}"));
 
-                mac.insert(key_id, calculated_mac);
-            }
-        }
+        mac.insert(key_id, calculated_mac);
     }
 
     let mut keys: Vec<_> = mac.keys().map(|s| s.as_str()).collect();

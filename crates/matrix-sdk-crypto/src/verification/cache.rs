@@ -259,13 +259,12 @@ impl VerificationCache {
 
         if let Some((user_id, flow_id)) =
             self.inner.flow_ids_waiting_for_response.read().get(request_id)
+            && let Some(verification) = self.get(user_id, flow_id.as_str())
         {
-            if let Some(verification) = self.get(user_id, flow_id.as_str()) {
-                match verification {
-                    Verification::SasV1(s) => s.mark_request_as_sent(request_id),
-                    #[cfg(feature = "qrcode")]
-                    Verification::QrV1(_) => (),
-                }
+            match verification {
+                Verification::SasV1(s) => s.mark_request_as_sent(request_id),
+                #[cfg(feature = "qrcode")]
+                Verification::QrV1(_) => (),
             }
         }
     }

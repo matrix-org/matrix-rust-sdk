@@ -793,12 +793,11 @@ impl VerificationRequest {
             ObservableWriteGuard::set(&mut guard, updated);
         }
 
-        if self.we_started() {
-            if let Some(request) =
+        if self.we_started()
+            && let Some(request) =
                 self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
-            {
-                self.verification_cache.add_verification_request(request.into());
-            }
+        {
+            self.verification_cache.add_verification_request(request.into());
         }
     }
 

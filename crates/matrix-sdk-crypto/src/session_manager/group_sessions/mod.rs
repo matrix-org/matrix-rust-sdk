@@ -1297,10 +1297,10 @@ mod tests {
                         let withheld: RoomKeyWithheldContent =
                             content.deserialize_as_unchecked::<RoomKeyWithheldContent>().unwrap();
 
-                        if let MegolmV1AesSha2(content) = withheld {
-                            if content.withheld_code() == code {
-                                count += 1;
-                            }
+                        if let MegolmV1AesSha2(content) = withheld
+                            && content.withheld_code() == code
+                        {
+                            count += 1;
                         }
                     })
                 }

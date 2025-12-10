@@ -573,26 +573,22 @@ impl Sas {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let content = {
-            let mut guard = self.inner.write();
+        let mut guard = self.inner.write();
 
-            if let Some(request) = &self.request_handle {
-                request.cancel_with_code(&code);
+        if let Some(request) = &self.request_handle {
+            request.cancel_with_code(&code);
+        }
+
+        let sas: InnerSas = (*guard).clone();
+        let (sas, content) = sas.cancel(true, code);
+        ObservableWriteGuard::set(&mut guard, sas);
+
+        content.map(|c| match c {
+            OutgoingContent::Room(room_id, content) => {
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
-
-            let sas: InnerSas = (*guard).clone();
-            let (sas, content) = sas.cancel(true, code);
-            ObservableWriteGuard::set(&mut guard, sas);
-
-            content.map(|c| match c {
-                OutgoingContent::Room(room_id, content) => {
-                    RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
-                }
-                OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
-            })
-        };
-
-        content
+            OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
+        })
     }
 
     pub(crate) fn cancel_if_timed_out(&self) -> Option<OutgoingVerificationRequest> {

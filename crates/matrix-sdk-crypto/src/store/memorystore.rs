@@ -551,14 +551,15 @@ impl CryptoStore for MemoryStore {
             .await?
             .into_iter()
             .filter_map(|(session, backed_up_to)| {
-                if let Some(ref existing_version) = backed_up_to {
-                    if existing_version.as_str() == backup_version {
-                        // This session is already backed up in the required backup
-                        return None;
-                    }
+                if let Some(ref existing_version) = backed_up_to
+                    && existing_version.as_str() == backup_version
+                {
+                    // This session is already backed up in the required backup
+                    None
+                } else {
+                    // It's not backed up, or it's backed up in a different backup
+                    Some(session)
                 }
-                // It's not backed up, or it's backed up in a different backup
-                Some(session)
             })
             .take(limit)
             .collect())

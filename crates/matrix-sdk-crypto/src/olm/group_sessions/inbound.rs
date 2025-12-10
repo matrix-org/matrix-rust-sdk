@@ -629,12 +629,10 @@ impl InboundGroupSession {
 
         if let Some(decrypted_content) =
             decrypted_object.get_mut("content").and_then(|c| c.as_object_mut())
+            && !decrypted_content.contains_key("m.relates_to")
+            && let Some(relation) = &event.content.relates_to
         {
-            if !decrypted_content.contains_key("m.relates_to") {
-                if let Some(relation) = &event.content.relates_to {
-                    decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
-                }
-            }
+            decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
         }
 
         Ok((decrypted_object, decrypted.message_index))

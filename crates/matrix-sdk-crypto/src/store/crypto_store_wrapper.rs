@@ -227,14 +227,12 @@ impl CryptoStoreWrapper {
                 .await?
                 .as_ref()
                 .and_then(|i| i.other())
+                && !other_identity.was_previously_verified()
+                && own_identity_after.is_identity_signed(other_identity)
             {
-                if !other_identity.was_previously_verified()
-                    && own_identity_after.is_identity_signed(other_identity)
-                {
-                    trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
-                    other_identity.mark_as_previously_verified();
-                    updated_identities.push(other_identity.clone().into());
-                }
+                trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
+                other_identity.mark_as_previously_verified();
+                updated_identities.push(other_identity.clone().into());
             }
         }
 
