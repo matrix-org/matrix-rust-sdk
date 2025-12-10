@@ -2820,7 +2820,7 @@ impl OlmMachine {
         let prev_generation =
             self.inner.store.get_custom_value(Self::CURRENT_GENERATION_STORE_KEY).await?;
 
-        let gen = match prev_generation {
+        let generation = match prev_generation {
             Some(val) => {
                 // There was a value in the store. We need to signal that we're a different
                 // process, so we don't just reuse the value but increment it.
@@ -2832,14 +2832,14 @@ impl OlmMachine {
             None => 0,
         };
 
-        tracing::debug!("Initialising crypto store generation at {}", gen);
+        tracing::debug!("Initialising crypto store generation at {generation}");
 
         self.inner
             .store
-            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, gen.to_le_bytes().to_vec())
+            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, generation.to_le_bytes().to_vec())
             .await?;
 
-        *gen_guard = Some(gen);
+        *gen_guard = Some(generation);
 
         Ok(())
     }
