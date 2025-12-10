@@ -98,7 +98,7 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore) {
+            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore + use<>) {
                 let store = get_store(name, None, true).await;
                 let account = get_account();
 
