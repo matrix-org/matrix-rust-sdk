@@ -27,6 +27,12 @@ All notable changes to this project will be documented in this file.
   to network mode after a cache miss.
   ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))
 
+### Bug Fixes
+
+- Fix the redecryption of events in timelines built using the
+  `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
+  ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
