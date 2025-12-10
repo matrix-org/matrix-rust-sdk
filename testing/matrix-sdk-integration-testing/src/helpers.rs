@@ -134,7 +134,10 @@ impl TestClientBuilder {
                 client_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
-        if let Some(proxy) = &self.http_proxy {
+        let environment_proxy = option_env!("MATRIX_SDK_PROXY");
+        let proxy = self.http_proxy.as_deref().or(environment_proxy);
+
+        if let Some(proxy) = proxy {
             client_builder = client_builder.proxy(proxy);
         }
 

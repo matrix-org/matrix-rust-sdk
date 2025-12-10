@@ -29,6 +29,17 @@ access the synapse server and `HOMESERVER_DOMAIN` to be set to the domain config
 that server. These variables are set to a default value that matches the default `docker-compose.yml`
 template; if you haven't touched it, you don't need to manually set those environment variables.
 
+The integration tests can be configured to use a HTTP proxy using the
+`MATRIX_SDK_PROXY` environment variable. This plays well with `mitmproxy`
+allowing you to inspect the requests tests make to the homeserver.
+
+For example, if you start `mitmproxy` in another terminal, you can see the list
+of HTTP requests the test will make by running:
+
+```bash
+$ MATRIX_SDK_PROXY=http://localhost:8080 cargo nextest run -p matrix-sdk-integration-testing my_test_name --retries=0
+```
+
 ## Maintenance
 
 ### Delete all instance data
