@@ -34,7 +34,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomId,
     api::Direction,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
@@ -182,6 +182,11 @@ impl RoomEventCache {
                 generic_update_sender,
             )),
         }
+    }
+
+    /// Get the room ID for this [`RoomEventCache`].
+    pub fn room_id(&self) -> &RoomId {
+        &self.inner.room_id
     }
 
     /// Read all current events.

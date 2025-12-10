@@ -86,16 +86,15 @@ impl TracingTimer {
 ///     let _timer = timer!(tracing::Level::TRACE, "do long computation");
 ///     // But it's optional; by default it's set to `DEBUG`.
 ///     let _debug_timer = timer!("do long computation but time it in DEBUG");
-///     // The macro doesn't support formatting / structured events (yet?), but you can use
-///     // `format!()` for that.
-///     let other_timer = timer!(format!("do long computation for parameter = {}", 123));
+///     // The macro doesn't support parameters, use `format!()`.
+///     let _other_timer = timer!(tracing::Level::TRACE, format!("do long computation with parameter = {}", 123));
 ///     do_long_computation(123);
 /// } // The log statements will happen here.
 /// # }
 /// ```
 #[macro_export]
 macro_rules! timer {
-    ($level:expr, $string:expr) => {{
+    ($level:expr, $string:expr $(,)? ) => {{
         static __CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite2! {
             name: tracing::__macro_support::concat!(
                 "event ",

@@ -60,6 +60,7 @@ pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
 use latest_event::LatestEvent;
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
+use matrix_sdk_base::timer;
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use room_latest_events::RoomLatestEvents;
 use ruma::{EventId, OwnedRoomId, RoomId};
@@ -324,6 +325,11 @@ impl RegisteredRooms {
                 {
                     value @ Some(_) => value,
                     None => {
+                        let _timer = timer!(
+                            tracing::Level::INFO,
+                            format!("Creating `RoomLatestEvents` for {room_id:?}"),
+                        );
+
                         let mut rooms = self.rooms.write().await;
 
                         if rooms.contains_key(room_id).not() {
