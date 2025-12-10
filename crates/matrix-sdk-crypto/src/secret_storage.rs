@@ -495,15 +495,13 @@ impl SecretStorageKey {
         bytes.zeroize();
 
         // The string is formatted into groups of four characters separated by spaces.
-        let ret = base_58
+        base_58
             .chars()
             .collect::<Vec<char>>()
             .chunks(DISPLAY_CHUNK_SIZE)
             .map(|c| c.iter().collect::<String>())
             .collect::<Vec<_>>()
-            .join(" ");
-
-        ret
+            .join(" ")
     }
 
     /// Encrypt a given secret string as a Secrets Storage secret with the

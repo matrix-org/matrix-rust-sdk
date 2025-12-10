@@ -388,14 +388,11 @@ fn update_recipients_for_user(
     // rotated for other reasons, we also need to check whether any
     // of the devices in the session got deleted or blacklisted in the
     // meantime. If so, we should also rotate the session.
-    if let Some(outbound) = outbound {
-        if !recipients.should_rotate {
-            recipients.should_rotate = is_session_overshared_for_user(
-                outbound,
-                user_id,
-                &recipient_devices.allowed_devices,
-            )
-        }
+    if let Some(outbound) = outbound
+        && !recipients.should_rotate
+    {
+        recipients.should_rotate =
+            is_session_overshared_for_user(outbound, user_id, &recipient_devices.allowed_devices)
     }
 
     recipients

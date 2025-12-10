@@ -593,7 +593,7 @@ impl Store {
     // take a `&StoreTransaction`, but callers didn't quite like that.
     pub(crate) async fn with_transaction<
         T,
-        Fut: futures_core::Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
+        Fut: Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
         F: FnOnce(StoreTransaction) -> Fut,
     >(
         &self,

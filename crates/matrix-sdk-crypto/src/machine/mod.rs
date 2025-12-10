@@ -1583,15 +1583,14 @@ impl OlmMachine {
                     ToDeviceUnableToDecryptReason::DecryptionFailure
                 };
 
-                if let OlmError::SessionWedged(sender, curve_key) = err {
-                    if let Err(e) =
+                if let OlmError::SessionWedged(sender, curve_key) = err
+                    && let Err(e) =
                         self.inner.session_manager.mark_device_as_wedged(&sender, curve_key).await
-                    {
-                        error!(
-                            error = ?e,
-                            "Couldn't mark device to be unwedged",
-                        );
-                    }
+                {
+                    error!(
+                        error = ?e,
+                        "Couldn't mark device to be unwedged",
+                    );
                 }
 
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt {

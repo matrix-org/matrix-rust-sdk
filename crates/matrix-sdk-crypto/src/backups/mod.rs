@@ -357,14 +357,10 @@ impl BackupMachine {
             let private_identity = self.store.private_identity();
             let identity = private_identity.lock().await;
 
-            if let Some(key_id) = identity.master_key_id().await {
-                if let Ok(signature) = identity.sign(&canonical_json).await {
-                    data.signatures.add_signature(
-                        self.store.user_id().to_owned(),
-                        key_id,
-                        signature,
-                    );
-                }
+            if let Some(key_id) = identity.master_key_id().await
+                && let Ok(signature) = identity.sign(&canonical_json).await
+            {
+                data.signatures.add_signature(self.store.user_id().to_owned(), key_id, signature);
             }
 
             let cache = self.store.cache().await?;

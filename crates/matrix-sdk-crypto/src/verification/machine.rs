@@ -254,16 +254,16 @@ impl VerificationMachine {
         requests.extend(self.verifications.garbage_collect());
 
         for request in requests {
-            if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into() {
-                if let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device {
-                    let event = ToDeviceEvent::new(self.own_user_id().to_owned(), content);
+            if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into()
+                && let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device
+            {
+                let event = ToDeviceEvent::new(self.own_user_id().to_owned(), content);
 
-                    events.push(
-                        Raw::new(&event)
-                            .expect("Failed to serialize m.key_verification.cancel event")
-                            .cast(),
-                    );
-                }
+                events.push(
+                    Raw::new(&event)
+                        .expect("Failed to serialize m.key_verification.cancel event")
+                        .cast(),
+                );
             }
 
             self.verifications.add_verification_request(request)

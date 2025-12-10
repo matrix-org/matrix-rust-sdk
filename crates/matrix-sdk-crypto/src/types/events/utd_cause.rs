@@ -162,18 +162,17 @@ impl UtdCause {
                 // Look in the unsigned area for a `membership` field.
                 if let Some(unsigned) =
                     raw_event.get_field::<UnsignedWithMembership>("unsigned").ok().flatten()
+                    && let Membership::Leave = unsigned.membership
                 {
-                    if let Membership::Leave = unsigned.membership {
-                        // We were not a member - this is the cause of the UTD
-                        return UtdCause::SentBeforeWeJoined;
-                    }
+                    // We were not a member - this is the cause of the UTD
+                    return UtdCause::SentBeforeWeJoined;
                 }
 
-                if let Ok(timeline_event) = raw_event.deserialize() {
-                    if timeline_event.origin_server_ts() < crypto_context_info.device_creation_ts {
-                        // This event was sent before this device existed, so it is "historical"
-                        return UtdCause::determine_historical(crypto_context_info);
-                    }
+                if let Ok(timeline_event) = raw_event.deserialize()
+                    && timeline_event.origin_server_ts() < crypto_context_info.device_creation_ts
+                {
+                    // This event was sent before this device existed, so it is "historical"
+                    return UtdCause::determine_historical(crypto_context_info);
                 }
 
                 UtdCause::Unknown
