@@ -20,17 +20,17 @@ use async_trait::async_trait;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     media::{
+        MediaRequestParameters, UniqueKey,
         store::{
             IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStore,
             MediaStoreInner,
         },
-        MediaRequestParameters, UniqueKey,
     },
     timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri};
-use rusqlite::{params_from_iter, OptionalExtension};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
+use rusqlite::{OptionalExtension, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -38,13 +38,13 @@ use tokio::{
 use tracing::{debug, instrument};
 
 use crate::{
+    OpenStoreError, Secret, SqliteStoreConfig,
     connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
-        repeat_vars, time_to_timestamp, EncryptableStore, SqliteAsyncConnExt,
-        SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+        EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars, time_to_timestamp,
     },
-    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -680,8 +680,8 @@ mod tests {
 
     use matrix_sdk_base::{
         media::{
-            store::{IgnoreMediaRetentionPolicy, MediaStore, MediaStoreError},
             MediaFormat, MediaRequestParameters, MediaThumbnailSettings,
+            store::{IgnoreMediaRetentionPolicy, MediaStore, MediaStoreError},
         },
         media_store_inner_integration_tests, media_store_integration_tests,
         media_store_integration_tests_time,
@@ -689,10 +689,10 @@ mod tests {
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
-    use crate::{utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -811,7 +811,7 @@ mod encrypted_tests {
         media_store_integration_tests, media_store_integration_tests_time,
     };
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
 
