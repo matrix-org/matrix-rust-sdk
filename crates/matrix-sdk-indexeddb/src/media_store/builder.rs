@@ -21,7 +21,7 @@ use crate::{
     media_store::{
         error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db, IndexeddbMediaStore,
     },
-    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
+    serializer::{indexed_type::IndexedTypeSerializer, safe_encode::types::SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbMediaStore`]

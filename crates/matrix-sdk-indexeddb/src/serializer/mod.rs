@@ -17,18 +17,15 @@ pub mod foreign;
 
 #[cfg(feature = "indexed-type-serializer")]
 pub mod indexed_type;
-#[cfg(all(
-    feature = "e2e-encryption",
-    any(feature = "event-cache-store", feature = "media-store")
-))]
+#[cfg(feature = "event-cache-store")]
 pub use indexed_type::{
     constants::{
         INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
-        INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_STRING,
+        INDEXED_KEY_UPPER_STRING,
     },
     range::IndexedKeyRange,
     traits::{
-        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
         IndexedPrefixKeyComponentBounds,
     },
     IndexedTypeSerializer,

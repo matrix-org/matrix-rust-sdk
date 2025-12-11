@@ -32,7 +32,11 @@ use wasm_bindgen::JsValue;
 
 use crate::{
     error::{AsyncErrorDeps, GenericError},
-    serializer::{Indexed, IndexedKey, IndexedKeyRange, IndexedTypeSerializer},
+    serializer::indexed_type::{
+        range::IndexedKeyRange,
+        traits::{Indexed, IndexedKey},
+        IndexedTypeSerializer,
+    },
 };
 
 #[derive(Debug, Error)]

@@ -53,7 +53,7 @@ use crate::{
         transaction::IndexeddbMediaStoreTransaction,
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
-    serializer::{Indexed, IndexedTypeSerializer},
+    serializer::indexed_type::{traits::Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
 };
 

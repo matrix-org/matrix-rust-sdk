@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use crate::serializer::SafeEncodeSerializer;
+use crate::serializer::safe_encode::types::SafeEncodeSerializer;
 
 /// A conversion trait for preparing high-level types into indexed types
 /// which are better suited for storage in IndexedDB.
