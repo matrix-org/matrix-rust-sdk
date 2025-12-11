@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 - Expose implementations of `EventCacheStore` and `MediaStore` and add a
   composite type for initializing all stores with a single function - i.e.,
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the
-  stores to be used indepedent of and in combination with the others.
+  stores to be used independent of and in combination with the others.
   ([#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946))
 
 ### Bug Fixes
