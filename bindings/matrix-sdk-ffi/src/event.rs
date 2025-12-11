@@ -300,7 +300,7 @@ where
     Ok(original_content)
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
 pub enum StateEventType {
     CallMember,
     PolicyRuleRoom,
@@ -355,7 +355,7 @@ impl From<StateEventType> for ruma::events::StateEventType {
     }
 }
 
-#[derive(Clone, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
 pub enum MessageLikeEventType {
     CallAnswer,
     CallCandidates,
