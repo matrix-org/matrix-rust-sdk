@@ -1686,6 +1686,8 @@ mod tests {
                         "encryption_info": {
                             "sender": "@sender:example.com",
                             "sender_device": null,
+                            "forwarder": null,
+                            "forwarder_device": null,
                             "algorithm_info": {
                                 "MegolmV1AesSha2": {
                                     "curve25519_key": "xxx",
