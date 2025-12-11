@@ -268,15 +268,14 @@ impl RegisteredRooms {
 
                 // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
                 if rooms.contains_key(room_id).not() {
-                    // Insert the room if it's been successfully created.
-                    if let Some(room_latest_event) = RoomLatestEvents::new(
-                        WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
-                        &self.event_cache,
-                    )
-                    .await?
-                    {
-                        rooms.insert(room_id.to_owned(), room_latest_event);
-                    }
+                    // Insert the room.
+                    rooms.insert(
+                        room_id.to_owned(),
+                        RoomLatestEvents::new(
+                            WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
+                            &self.event_cache,
+                        ),
+                    );
                 }
 
                 if let Some(room_latest_event) = rooms.get(room_id) {
@@ -285,9 +284,7 @@ impl RegisteredRooms {
                     // In `RoomLatestEvents`, the `LatestEvent` for this thread doesn't exist. Let's
                     // create and insert it.
                     if room_latest_event.has_thread(thread_id).not() {
-                        room_latest_event
-                            .create_and_insert_latest_event_for_thread(thread_id)
-                            .await;
+                        room_latest_event.create_and_insert_latest_event_for_thread(thread_id);
                     }
                 }
 
@@ -310,15 +307,14 @@ impl RegisteredRooms {
                         let mut rooms = self.rooms.write().await;
 
                         if rooms.contains_key(room_id).not() {
-                            // Insert the room if it's been successfully created.
-                            if let Some(room_latest_event) = RoomLatestEvents::new(
-                                WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
-                                &self.event_cache,
-                            )
-                            .await?
-                            {
-                                rooms.insert(room_id.to_owned(), room_latest_event);
-                            }
+                            // Insert the room.
+                            rooms.insert(
+                                room_id.to_owned(),
+                                RoomLatestEvents::new(
+                                    WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
+                                    &self.event_cache,
+                                ),
+                            );
                         }
 
                         RwLockWriteGuard::try_downgrade_map(rooms, |rooms| rooms.get(room_id)).ok()
@@ -388,6 +384,7 @@ impl RegisteredRooms {
 
 /// Represents the kind of updates the [`compute_latest_events_task`] will have
 /// to deal with.
+#[derive(Debug)]
 enum LatestEventQueueUpdate {
     /// An update from the [`EventCache`] happened.
     EventCache {
@@ -408,9 +405,6 @@ enum LatestEventQueueUpdate {
 /// The task responsible to listen to the [`EventCache`] and the [`SendQueue`].
 /// When an update is received and is considered relevant, a message is sent to
 /// the [`compute_latest_events_task`] to compute a new [`LatestEvent`].
-///
-/// This task also listens to [`RoomRegistration`]. It keeps an internal list of
-/// registered rooms, which helps to filter out updates we aren't interested by.
 ///
 /// When an update is considered relevant, a message is sent over the
 /// `latest_event_queue_sender` channel. See [`compute_latest_events_task`].
@@ -553,7 +547,7 @@ async fn compute_latest_events(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, ops::Not};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
@@ -563,15 +557,15 @@ mod tests {
     };
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        OwnedTransactionId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
         owned_room_id, room_id, user_id,
     };
-    use stream_assert::assert_pending;
-    use tokio::sync::RwLock;
+    use stream_assert::{assert_next_matches, assert_pending};
 
     use super::{
-        LatestEventValue, RemoteLatestEventValue, broadcast,
+        LatestEventValue, RemoteLatestEventValue, RoomEventCacheGenericUpdate, RoomLatestEvents,
+        RoomSendQueueUpdate, RwLock, SendQueueUpdate, WeakClient, WeakRoom, broadcast,
         listen_to_event_cache_and_send_queue_updates, mpsc,
     };
     use crate::test_utils::mocks::MatrixMockServer;
@@ -731,13 +725,18 @@ mod tests {
         }
     }
 
-    /*
     #[async_test]
     async fn test_inputs_task_can_listen_to_room_event_cache() {
         let room_id = owned_room_id!("!r0");
 
-        let mut registered_rooms = RwLock::new(HashMap::new());
-        let (room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+        let weak_room = WeakRoom::new(weak_client, room_id.clone());
+
+        let event_cache = client.event_cache();
+
+        let registered_rooms = RwLock::new(HashMap::new());
         let (room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (_send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
@@ -768,47 +767,47 @@ mod tests {
 
         // New event cache update, but this time, the `LatestEvents` is listening to it.
         {
-            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).unwrap();
+            registered_rooms
+                .write()
+                .await
+                .insert(room_id.clone(), RoomLatestEvents::new(weak_room, event_cache));
             room_event_cache_generic_update_sender
                 .send(RoomEventCacheGenericUpdate { room_id: room_id.clone() })
                 .unwrap();
 
-            // Run the task to handle the `RoomRegistration` and the
-            // `RoomEventCacheGenericUpdate`.
-            for _ in 0..2 {
-                assert!(
-                    listen_to_event_cache_and_send_queue_updates(
-                        &registered_rooms,
-                        &mut room_event_cache_generic_update_receiver,
-                        &mut send_queue_generic_update_receiver,
-                        &latest_event_queue_sender,
-                    )
-                    .await
-                    .is_continue()
-                );
-            }
-
-            assert_eq!(listened_rooms.len(), 1);
-            assert!(listened_rooms.contains(&room_id));
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &registered_rooms,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             // A latest event computation has been triggered!
             assert!(latest_event_queue_receiver.is_empty().not());
         }
     }
-    */
 
-    /*
     #[async_test]
     async fn test_inputs_task_can_listen_to_send_queue() {
         let room_id = owned_room_id!("!r0");
 
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+        let weak_room = WeakRoom::new(weak_client, room_id.clone());
+
+        let event_cache = client.event_cache();
+
         let registered_rooms = RwLock::new(HashMap::new());
-        let (room_registration_sender, mut room_registration_receiver) = mpsc::unbounded_channel();
+
         let (_room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
             broadcast::channel(1);
         let (send_queue_generic_update_sender, mut send_queue_generic_update_receiver) =
             broadcast::channel(1);
-        let mut listened_rooms = HashSet::new();
         let (latest_event_queue_sender, latest_event_queue_receiver) = mpsc::unbounded_channel();
 
         // New send queue update, but the `LatestEvents` isn't listening to it.
@@ -835,15 +834,16 @@ mod tests {
                 .is_continue()
             );
 
-            assert!(listened_rooms.is_empty());
-
             // No latest event computation has been triggered.
             assert!(latest_event_queue_receiver.is_empty());
         }
 
         // New send queue update, but this time, the `LatestEvents` is listening to it.
         {
-            room_registration_sender.send(RoomRegistration::Add(room_id.clone())).unwrap();
+            registered_rooms
+                .write()
+                .await
+                .insert(room_id.clone(), RoomLatestEvents::new(weak_room, event_cache));
             send_queue_generic_update_sender
                 .send(SendQueueUpdate {
                     room_id: room_id.clone(),
@@ -854,28 +854,21 @@ mod tests {
                 })
                 .unwrap();
 
-            // Run the task to handle the `RoomRegistration` and the `SendQueueUpdate`.
-            for _ in 0..2 {
-                assert!(
-                    listen_to_event_cache_and_send_queue_updates(
-                        &registered_rooms,
-                        &mut room_event_cache_generic_update_receiver,
-                        &mut send_queue_generic_update_receiver,
-                        &latest_event_queue_sender,
-                    )
-                    .await
-                    .is_continue()
-                );
-            }
-
-            assert_eq!(listened_rooms.len(), 1);
-            assert!(listened_rooms.contains(&room_id));
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &registered_rooms,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             // A latest event computation has been triggered!
             assert!(latest_event_queue_receiver.is_empty().not());
         }
     }
-    */
 
     #[async_test]
     async fn test_inputs_task_stops_when_event_cache_channel_is_closed() {
@@ -988,24 +981,6 @@ mod tests {
         let mut latest_event_stream =
             latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
 
-        // The initial latest event value is set to `event_id_1` because it's… the…
-        // latest event!
-        assert_matches!(
-            latest_event_stream.get().await,
-            LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. }) => {
-                assert_matches!(
-                    event.deserialize().unwrap(),
-                    AnySyncTimelineEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomMessage(
-                            SyncMessageLikeEvent::Original(message_content)
-                        )
-                    ) => {
-                        assert_eq!(message_content.content.body(), "world");
-                    }
-                );
-            }
-        );
-
         // The stream is pending: no new latest event for the moment.
         assert_pending!(latest_event_stream);
 
@@ -1021,9 +996,9 @@ mod tests {
         // The event cache has received its update from the sync. It has emitted a
         // generic update, which has been received by `LatestEvents` tasks, up to the
         // `compute_latest_events` which has updated the latest event value.
-        assert_matches!(
-            latest_event_stream.next().await,
-            Some(LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. })) => {
+        assert_next_matches!(
+            latest_event_stream,
+            LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. }) => {
                 assert_matches!(
                     event.deserialize().unwrap(),
                     AnySyncTimelineEvent::MessageLike(
@@ -1036,5 +1011,7 @@ mod tests {
                 );
             }
         );
+
+        assert_pending!(latest_event_stream);
     }
 }
