@@ -1481,7 +1481,7 @@ fn find_event_relations_transaction(
         Ok(related)
     };
 
-    let related = if let Some(filters) = filters {
+    if let Some(filters) = filters {
         let question_marks = repeat_vars(filters.len());
         let query = format!(
             "SELECT events.content, event_chunks.chunk_id, event_chunks.position
@@ -1533,9 +1533,7 @@ fn find_event_relations_transaction(
         let transaction = transaction.query_map(parameters, get_rows)?;
 
         collect_results(transaction)
-    };
-
-    related
+    }
 }
 
 /// Like `deadpool::managed::Object::with_transaction`, but starts the
