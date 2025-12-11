@@ -16,10 +16,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use ruma::{EventId, OwnedEventId};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tracing::error;
 
-use super::{LatestEvent, LatestEventsError};
+use super::LatestEvent;
 use crate::{
-    event_cache::{EventCache, EventCacheError, RoomEventCache},
+    event_cache::{EventCache, RoomEventCache},
     room::WeakRoom,
     send_queue::RoomSendQueueUpdate,
 };
@@ -33,40 +34,20 @@ pub(super) struct RoomLatestEvents {
 
 impl RoomLatestEvents {
     /// Create a new [`RoomLatestEvents`].
-    pub async fn new(
-        weak_room: WeakRoom,
-        event_cache: &EventCache,
-    ) -> Result<Option<Self>, LatestEventsError> {
-        let room_id = weak_room.room_id();
-        let room_event_cache = match event_cache.for_room(room_id).await {
-            // It's fine to drop the `EventCacheDropHandles` here as the caller
-            // (`LatestEventState`) owns a clone of the `EventCache`.
-            Ok((room_event_cache, _drop_handles)) => room_event_cache,
-            Err(EventCacheError::RoomNotFound { .. }) => return Ok(None),
-            Err(err) => return Err(LatestEventsError::EventCache(err)),
-        };
-
-        Ok(Some(Self {
+    pub fn new(weak_room: WeakRoom, event_cache: &EventCache) -> Self {
+        Self {
             state: Arc::new(RwLock::new(RoomLatestEventsState {
-                for_the_room: Self::create_latest_event_for_inner(
-                    &weak_room,
-                    None,
-                    &room_event_cache,
-                )
-                .await,
+                for_the_room: Self::create_latest_event(&weak_room, None),
                 per_thread: HashMap::new(),
                 weak_room,
-                room_event_cache,
+                event_cache: event_cache.clone(),
+                room_event_cache: None,
             })),
-        }))
+        }
     }
 
-    async fn create_latest_event_for_inner(
-        weak_room: &WeakRoom,
-        thread_id: Option<&EventId>,
-        room_event_cache: &RoomEventCache,
-    ) -> LatestEvent {
-        LatestEvent::new(weak_room, thread_id, room_event_cache).await
+    fn create_latest_event(weak_room: &WeakRoom, thread_id: Option<&EventId>) -> LatestEvent {
+        LatestEvent::new(weak_room, thread_id)
     }
 
     /// Lock this type with shared read access, and return an owned lock guard.
@@ -90,8 +71,11 @@ struct RoomLatestEventsState {
     /// The latest events for each thread.
     per_thread: HashMap<OwnedEventId, LatestEvent>,
 
-    /// The room event cache associated to this room.
-    room_event_cache: RoomEventCache,
+    /// The event cache.
+    event_cache: EventCache,
+
+    /// The room event cache (lazily-loaded).
+    room_event_cache: Option<RoomEventCache>,
 
     /// The (weak) room.
     ///
@@ -128,15 +112,6 @@ pub(super) struct RoomLatestEventsWriteGuard {
 }
 
 impl RoomLatestEventsWriteGuard {
-    async fn create_latest_event_for(&self, thread_id: Option<&EventId>) -> LatestEvent {
-        RoomLatestEvents::create_latest_event_for_inner(
-            &self.inner.weak_room,
-            thread_id,
-            &self.inner.room_event_cache,
-        )
-        .await
-    }
-
     /// Check whether this [`RoomLatestEvents`] has a latest event for a
     /// particular thread.
     pub fn has_thread(&self, thread_id: &EventId) -> bool {
@@ -145,8 +120,9 @@ impl RoomLatestEventsWriteGuard {
 
     /// Create the [`LatestEvent`] for thread `thread_id` and insert it in this
     /// [`RoomLatestEvents`].
-    pub async fn create_and_insert_latest_event_for_thread(&mut self, thread_id: &EventId) {
-        let latest_event = self.create_latest_event_for(Some(thread_id)).await;
+    pub fn create_and_insert_latest_event_for_thread(&mut self, thread_id: &EventId) {
+        let latest_event =
+            RoomLatestEvents::create_latest_event(&self.inner.weak_room, Some(thread_id));
 
         self.inner.per_thread.insert(thread_id.to_owned(), latest_event);
     }
@@ -164,21 +140,38 @@ impl RoomLatestEventsWriteGuard {
         //
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
-        let room = self.inner.weak_room.get();
-        let (own_user_id, power_levels) = match &room {
-            Some(room) => {
-                let power_levels = room.power_levels().await.ok();
+        let Some(room) = self.inner.weak_room.get() else {
+            // No room? Let's stop the update.
+            error!(room = ?self.inner.weak_room, "Room is unknown");
 
-                (Some(room.own_user_id()), power_levels)
-            }
-
-            None => (None, None),
+            return;
         };
+        let own_user_id = room.own_user_id();
+        let power_levels = room.power_levels().await.ok();
 
         let inner = &mut *self.inner;
         let for_the_room = &mut inner.for_the_room;
         let per_thread = &mut inner.per_thread;
-        let room_event_cache = &inner.room_event_cache;
+
+        // Lazy-load the `RoomEventCache`.
+        if inner.room_event_cache.is_none() {
+            match inner.event_cache.for_room(room.room_id()).await {
+                // It's fine to drop the `EventCacheDropHandles` here as the caller
+                // (`LatestEventState`) owns a clone of the `EventCache`.
+                Ok((room_event_cache, _drop_handles)) => {
+                    inner.room_event_cache.replace(room_event_cache);
+                }
+                Err(err) => {
+                    error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+
+                    return;
+                }
+            }
+        }
+
+        let Some(room_event_cache) = &inner.room_event_cache else {
+            unreachable!("`RoomEventCache` must be computed at this step");
+        };
 
         for_the_room
             .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
@@ -199,21 +192,36 @@ impl RoomLatestEventsWriteGuard {
         //
         // Get it once for all the updates of all the latest events for this room (be
         // the room and its threads).
-        let room = self.inner.weak_room.get();
-        let (own_user_id, power_levels) = match &room {
-            Some(room) => {
-                let power_levels = room.power_levels().await.ok();
-
-                (Some(room.own_user_id()), power_levels)
-            }
-
-            None => (None, None),
+        let Some(room) = self.inner.weak_room.get() else {
+            // No room? Let's stop the update.
+            return;
         };
+        let own_user_id = room.own_user_id();
+        let power_levels = room.power_levels().await.ok();
 
         let inner = &mut *self.inner;
         let for_the_room = &mut inner.for_the_room;
         let per_thread = &mut inner.per_thread;
-        let room_event_cache = &inner.room_event_cache;
+
+        // Lazy-load the `RoomEventCache`.
+        if inner.room_event_cache.is_none() {
+            match inner.event_cache.for_room(room.room_id()).await {
+                // It's fine to drop the `EventCacheDropHandles` here as the caller
+                // (`LatestEventState`) owns a clone of the `EventCache`.
+                Ok((room_event_cache, _drop_handles)) => {
+                    inner.room_event_cache.replace(room_event_cache);
+                }
+                Err(err) => {
+                    error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+
+                    return;
+                }
+            }
+        }
+
+        let Some(room_event_cache) = &inner.room_event_cache else {
+            unreachable!("`RoomEventCache` must be computed at this step");
+        };
 
         for_the_room
             .update_with_send_queue(
