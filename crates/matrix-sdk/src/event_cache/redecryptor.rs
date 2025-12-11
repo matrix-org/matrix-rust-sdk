@@ -23,7 +23,7 @@
 //!     - The event is a historic event and we need to first download the room
 //!       key from the backup.
 //!     - The event is a historic event in a previously unjoined room, we need
-//!       to receive historic room keys as defined in [MSC3061](https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255).
+//!       to receive historic room keys as defined in [MSC3061].
 //!
 //! R2D2 listens to the OlmMachine for received room keys and new
 //! m.room_key.withheld events.
@@ -109,6 +109,8 @@
 //!                    │              │  │              │
 //!                    └──────────────┘  └──────────────┘
 //! ```
+//!
+//! [MSC3061]: https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255
 
 use std::{collections::BTreeSet, pin::Pin, sync::Weak};
 
@@ -638,6 +640,22 @@ impl EventCache {
     }
 }
 
+#[inline(always)]
+fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
+    cache.upgrade().map(|inner| EventCache { inner })
+}
+
+fn report_lag(cache: &Weak<EventCacheInner>) -> Result<(), ()> {
+    let Some(cache) = upgrade_event_cache(cache) else {
+        return Err(());
+    };
+
+    let message = RedecryptorReport::Lagging;
+    let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+
+    Ok(())
+}
+
 /// Struct holding on to the redecryption task.
 ///
 /// This struct implements the bulk of the redecryption task. It listens to the
@@ -694,11 +712,6 @@ impl Redecryptor {
         })
     }
 
-    #[inline(always)]
-    fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
-        cache.upgrade().map(|inner| EventCache { inner })
-    }
-
     async fn redecryption_loop(
         cache: &Weak<EventCacheInner>,
         decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
@@ -720,7 +733,7 @@ impl Redecryptor {
                 // An explicit request, presumably from the timeline, has been received to decrypt
                 // events that were encrypted with a certain room key.
                 Some(request) = decryption_request_stream.next() => {
-                        let Some(cache) = Self::upgrade_event_cache(cache) else {
+                        let Some(cache) = upgrade_event_cache(cache) else {
                             break false;
                         };
 
@@ -750,7 +763,7 @@ impl Redecryptor {
                             // Alright, some room keys were received and persisted in our store,
                             // let's attempt to redecrypt events that were encrypted using these
                             // room keys.
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -779,12 +792,9 @@ impl Redecryptor {
                             // This would most likely be the timeline from the UI crate. The
                             // timeline might attempt to redecrypt all UTDs it is showing to the
                             // user.
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            if report_lag(cache).is_err() {
                                 break false;
-                            };
-
-                            let message = RedecryptorReport::Lagging;
-                            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+                            }
                         },
                         // The stream got closed, this could mean that our OlmMachine got
                         // regenerated, let's return true and try to recreate the stream.
@@ -796,7 +806,7 @@ impl Redecryptor {
                 withheld_info = withheld_stream.next() => {
                     match withheld_info {
                         Some(infos) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -822,7 +832,7 @@ impl Redecryptor {
                 Some(event_updates) = events_stream.next() => {
                     match event_updates {
                         Ok(updates) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -836,12 +846,9 @@ impl Redecryptor {
                             );
                         }
                         Err(_) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            if report_lag(cache).is_err() {
                                 break false;
-                            };
-
-                            let message = RedecryptorReport::Lagging;
-                            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+                            }
                         }
                     }
                 }
@@ -866,14 +873,11 @@ impl Redecryptor {
         {
             info!("Regenerating the re-decryption streams");
 
-            let Some(cache) = Self::upgrade_event_cache(&cache) else {
-                break;
-            };
-
             // Report that the stream got recreated so listeners can attempt to redecrypt
             // any UTDs they might be seeing.
-            let message = RedecryptorReport::Lagging;
-            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+            if report_lag(&cache).is_err() {
+                break;
+            }
         }
 
         info!("Shutting down the event cache redecryptor");
