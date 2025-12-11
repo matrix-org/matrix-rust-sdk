@@ -45,7 +45,7 @@ pub use self::event_cache_store::SqliteEventCacheStore;
 #[cfg(feature = "event-cache")]
 pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
-pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATABASE_NAME};
+pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};
 
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
@@ -263,7 +263,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::{Secret, SqliteStoreConfig, POOL_MINIMUM_SIZE};
+    use super::{POOL_MINIMUM_SIZE, Secret, SqliteStoreConfig};
 
     #[test]
     fn test_new() {

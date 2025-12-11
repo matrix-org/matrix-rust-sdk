@@ -23,16 +23,16 @@ use std::{
 use async_trait::async_trait;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
-use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
-use serde::{de::DeserializeOwned, Serialize};
+use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
+use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
 use zeroize::Zeroize;
 
 use crate::{
+    OpenStoreError, RuntimeConfig, Secret,
     connection::Connection as SqliteAsyncConn,
     error::{Error, Result},
-    OpenStoreError, RuntimeConfig, Secret,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
