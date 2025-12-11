@@ -259,7 +259,7 @@ impl SpaceService {
 
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
     /// if it isn't known.
-    pub async fn space_room_for_id(&self, room_id: &RoomId) -> Option<SpaceRoom> {
+    pub async fn get_space_room(&self, room_id: &RoomId) -> Option<SpaceRoom> {
         let graph = &self.space_state.lock().await.graph;
 
         if graph.has_node(room_id)
@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_space_room_for_id() {
+    async fn test_get_space_room_for_id() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -939,7 +939,7 @@ mod tests {
         // Ensure internal state is populated.
         _ = space_service.joined_spaces().await;
 
-        let found = space_service.space_room_for_id(space_id).await;
+        let found = space_service.get_space_room(space_id).await;
         assert!(found.is_some());
 
         let expected = SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0);
