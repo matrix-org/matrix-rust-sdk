@@ -124,15 +124,15 @@ macro_rules! impl_from {
 
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
-        if let rusqlite::Error::SqliteFailure(ffi_error, message) = &error {
-            if ffi_error.code == rusqlite::ErrorCode::DatabaseBusy {
-                // Report to sentry.
-                tracing::error!(
-                    sentry = true,
-                    sqlite_message = message,
-                    "observed database busy error"
-                );
-            }
+        if let rusqlite::Error::SqliteFailure(ffi_error, message) = &error
+            && ffi_error.code == rusqlite::ErrorCode::DatabaseBusy
+        {
+            // Report to sentry.
+            tracing::error!(
+                sentry = true,
+                sqlite_message = message,
+                "observed database busy error"
+            );
         }
         Error::Sqlite(error)
     }
