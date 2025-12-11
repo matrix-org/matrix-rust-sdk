@@ -964,18 +964,18 @@ impl fmt::Debug for TimelineEventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Self::PlainText { event } => f
-                .debug_struct("TimelineEventDecryptionResult::PlainText")
+                .debug_struct("TimelineEventKind::PlainText")
                 .field("event", &DebugRawEvent(event))
                 .finish(),
 
             Self::UnableToDecrypt { event, utd_info } => f
-                .debug_struct("TimelineEventDecryptionResult::UnableToDecrypt")
+                .debug_struct("TimelineEventKind::UnableToDecrypt")
                 .field("event", &DebugRawEvent(event))
                 .field("utd_info", &utd_info)
                 .finish(),
 
             Self::Decrypted(decrypted) => {
-                f.debug_tuple("TimelineEventDecryptionResult::Decrypted").field(decrypted).finish()
+                f.debug_tuple("TimelineEventKind::Decrypted").field(decrypted).finish()
             }
         }
     }
