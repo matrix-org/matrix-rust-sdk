@@ -1453,10 +1453,17 @@ impl Store {
         &self,
         exported_keys: Vec<ExportedRoomKey>,
         from_backup_version: Option<&str>,
+        sender_data: Option<&SenderData>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
         let exported_keys: Vec<&ExportedRoomKey> = exported_keys.iter().collect();
-        self.import_sessions_impl(exported_keys, from_backup_version, progress_listener).await
+        self.import_sessions_impl(
+            exported_keys,
+            from_backup_version,
+            sender_data,
+            progress_listener,
+        )
+        .await
     }
 
     /// Import the given room keys into our store.
@@ -1490,13 +1497,14 @@ impl Store {
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        self.import_room_keys(exported_keys, None, progress_listener).await
+        self.import_room_keys(exported_keys, None, None, progress_listener).await
     }
 
     async fn import_sessions_impl<T>(
         &self,
         room_keys: Vec<T>,
         from_backup_version: Option<&str>,
+        sender_data: Option<&SenderData>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult>
     where
@@ -1513,10 +1521,12 @@ impl Store {
                 Ok(session) => {
                     // Only import the session if we didn't have this session or
                     // if it's a better version of the same session.
-                    if let Some(merged) = self.merge_received_group_session(session).await? {
+                    if let Some(mut merged) = self.merge_received_group_session(session).await? {
                         if from_backup_version.is_some() {
                             merged.mark_as_backed_up();
                         }
+
+                        merged.forwarder_data = sender_data.cloned();
 
                         keys.entry(merged.room_id().to_owned())
                             .or_insert_with(BTreeMap::new)
@@ -1706,19 +1716,23 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        if matches!(
-            &sender_data,
+        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
+        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
+        // via user verification and cross-signing).
+        let sender_data = match sender_data {
             SenderData::UnknownDevice { .. }
-                | SenderData::VerificationViolation(_)
-                | SenderData::DeviceInfo { .. }
-        ) {
-            warn!(
-                "Not accepting a historic room key bundle due to insufficient trust in the sender"
-            );
-            return Ok(());
-        }
+            | SenderData::VerificationViolation(_)
+            | SenderData::DeviceInfo { .. } => {
+                warn!(
+                    "Not accepting a historic room key bundle due to insufficient trust in the sender"
+                );
+                return Ok(());
+            }
+            SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => sender_data,
+        };
 
-        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_sessions(bundle_info, &bundle, &sender_data, progress_listener)
+            .await?;
         self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
 
         Ok(())
@@ -1728,6 +1742,7 @@ impl Store {
         &self,
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
+        sender_data: &SenderData,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
         let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
@@ -1768,7 +1783,7 @@ impl Store {
                     );
                 }
 
-                self.import_sessions_impl(good, None, progress_listener).await?;
+                self.import_sessions_impl(good, None, Some(sender_data), progress_listener).await?;
             }
         }
 
@@ -1985,6 +2000,7 @@ mod tests {
                 BTreeMap::new(),
                 crate::types::Signatures::new(),
             )),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(ruma::events::room::history_visibility::HistoryVisibility::Shared),
             true,
@@ -2028,7 +2044,7 @@ mod tests {
         let exported_sessions = alice.store().export_room_keys(|_| true).await.unwrap();
 
         let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
-        bob.store().import_room_keys(exported_sessions, None, |_, _| {}).await.unwrap();
+        bob.store().import_room_keys(exported_sessions, None, None, |_, _| {}).await.unwrap();
 
         let room_keys = room_keys_received_stream
             .next()
@@ -2430,6 +2446,7 @@ mod tests {
             room_id,
             session_key,
             SenderData::unknown(),
+            None,
             #[cfg(not(feature = "experimental-algorithms"))]
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             #[cfg(feature = "experimental-algorithms")]

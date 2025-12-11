@@ -75,6 +75,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `sessions` - The sessions to be saved.
+    /// * `sender_data` - If the sessions were received as part of an MSC4268
+    ///   key bundle, the information about the user who sent us the bundle.
     /// * `backed_up_to_version` - If the keys should be marked as having been
     ///   backed up, the version of the backup.
     ///

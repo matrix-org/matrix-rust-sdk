@@ -626,7 +626,12 @@ impl BackupMachine {
         let backup_version = self.backup_version().await;
 
         self.store
-            .import_room_keys(decrypted_room_keys, backup_version.as_deref(), progress_listener)
+            .import_room_keys(
+                decrypted_room_keys,
+                backup_version.as_deref(),
+                None,
+                progress_listener,
+            )
             .await
     }
 }

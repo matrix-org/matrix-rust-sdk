@@ -590,7 +590,7 @@ impl Backups {
 
         let result = olm_machine
             .store()
-            .import_room_keys(decrypted_room_keys, Some(backup_version), |_, _| {})
+            .import_room_keys(decrypted_room_keys, Some(backup_version), None, |_, _| {})
             .await?;
 
         // Since we can't use the usual room keys stream from the `OlmMachine`
