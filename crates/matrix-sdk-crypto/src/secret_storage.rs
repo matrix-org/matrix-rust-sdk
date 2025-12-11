@@ -17,6 +17,12 @@
 //!
 //! [spec]: https://spec.matrix.org/v1.8/client-server-api/#storage
 
+// This is here because we have a zeroize(skip) further below, which incorrectly triggers a
+// unused_assignments warning due to the macro not using a variable.
+//
+// This will be fixed once we bump Zeroize.
+#![allow(unused_assignments)]
+
 use std::fmt;
 
 use hmac::Hmac;
