@@ -14,13 +14,14 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use async_once_cell::OnceCell;
 use ruma::{EventId, OwnedEventId};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::error;
 
 use super::LatestEvent;
 use crate::{
-    event_cache::{EventCache, RoomEventCache},
+    event_cache::{EventCache, EventCacheError, RoomEventCache},
     room::WeakRoom,
     send_queue::RoomSendQueueUpdate,
 };
@@ -41,7 +42,7 @@ impl RoomLatestEvents {
                 per_thread: HashMap::new(),
                 weak_room,
                 event_cache: event_cache.clone(),
-                room_event_cache: None,
+                room_event_cache: OnceCell::new(),
             })),
         }
     }
@@ -75,7 +76,7 @@ struct RoomLatestEventsState {
     event_cache: EventCache,
 
     /// The room event cache (lazily-loaded).
-    room_event_cache: Option<RoomEventCache>,
+    room_event_cache: OnceCell<RoomEventCache>,
 
     /// The (weak) room.
     ///
@@ -154,23 +155,23 @@ impl RoomLatestEventsWriteGuard {
         let per_thread = &mut inner.per_thread;
 
         // Lazy-load the `RoomEventCache`.
-        if inner.room_event_cache.is_none() {
-            match inner.event_cache.for_room(room.room_id()).await {
+        let room_event_cache = match inner
+            .room_event_cache
+            .get_or_try_init(async {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
-                Ok((room_event_cache, _drop_handles)) => {
-                    inner.room_event_cache.replace(room_event_cache);
-                }
-                Err(err) => {
-                    error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+                let (room_event_cache, _drop_handles) =
+                    inner.event_cache.for_room(room.room_id()).await?;
 
-                    return;
-                }
+                Ok::<RoomEventCache, EventCacheError>(room_event_cache)
+            })
+            .await
+        {
+            Ok(room_event_cache) => room_event_cache,
+            Err(err) => {
+                error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+                return;
             }
-        }
-
-        let Some(room_event_cache) = &inner.room_event_cache else {
-            unreachable!("`RoomEventCache` must be computed at this step");
         };
 
         for_the_room
@@ -204,23 +205,23 @@ impl RoomLatestEventsWriteGuard {
         let per_thread = &mut inner.per_thread;
 
         // Lazy-load the `RoomEventCache`.
-        if inner.room_event_cache.is_none() {
-            match inner.event_cache.for_room(room.room_id()).await {
+        let room_event_cache = match inner
+            .room_event_cache
+            .get_or_try_init(async {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
-                Ok((room_event_cache, _drop_handles)) => {
-                    inner.room_event_cache.replace(room_event_cache);
-                }
-                Err(err) => {
-                    error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+                let (room_event_cache, _drop_handles) =
+                    inner.event_cache.for_room(room.room_id()).await?;
 
-                    return;
-                }
+                Ok::<RoomEventCache, EventCacheError>(room_event_cache)
+            })
+            .await
+        {
+            Ok(room_event_cache) => room_event_cache,
+            Err(err) => {
+                error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
+                return;
             }
-        }
-
-        let Some(room_event_cache) = &inner.room_event_cache else {
-            unreachable!("`RoomEventCache` must be computed at this step");
         };
 
         for_the_room
