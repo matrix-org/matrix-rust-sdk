@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "safe-encode-traits")]
 pub mod traits;
 
-#[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "safe-encode-serializer")]
 pub mod types;
