@@ -33,7 +33,9 @@ use crate::{
         },
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
-    serializer::{IndexedKeyRange, IndexedPrefixKeyComponentBounds, IndexedTypeSerializer},
+    serializer::indexed_type::{
+        range::IndexedKeyRange, traits::IndexedPrefixKeyComponentBounds, IndexedTypeSerializer,
+    },
     transaction::{Transaction, TransactionError},
 };
 
