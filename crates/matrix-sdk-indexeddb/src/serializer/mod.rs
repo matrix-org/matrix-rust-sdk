@@ -14,23 +14,8 @@
 
 #[cfg(feature = "e2e-encryption")]
 pub mod foreign;
-
 #[cfg(feature = "indexed-type-serializer")]
 pub mod indexed_type;
-#[cfg(feature = "event-cache-store")]
-pub use indexed_type::{
-    constants::{
-        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
-        INDEXED_KEY_UPPER_STRING,
-    },
-    range::IndexedKeyRange,
-    traits::{
-        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds,
-    },
-    IndexedTypeSerializer,
-};
-
 #[cfg(any(feature = "safe-encode-traits", feature = "safe-encode-serializer"))]
 pub mod safe_encode;
 #[cfg(feature = "e2e-encryption")]

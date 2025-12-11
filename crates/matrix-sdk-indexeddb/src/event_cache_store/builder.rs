@@ -26,7 +26,7 @@ use crate::{
         error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
         IndexeddbEventCacheStore,
     },
-    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
+    serializer::{indexed_type::IndexedTypeSerializer, safe_encode::types::SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbEventCacheStore`]
