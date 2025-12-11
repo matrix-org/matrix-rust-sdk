@@ -41,7 +41,7 @@ use crate::{
         transaction::IndexeddbEventCacheStoreTransaction,
         types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
     },
-    serializer::{Indexed, IndexedTypeSerializer},
+    serializer::indexed_type::{traits::Indexed, IndexedTypeSerializer},
     transaction::TransactionError,
 };
 
