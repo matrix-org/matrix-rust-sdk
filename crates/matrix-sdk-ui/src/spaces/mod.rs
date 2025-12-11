@@ -257,6 +257,20 @@ impl SpaceService {
             .collect()
     }
 
+    /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
+    /// if it isn't known.
+    pub async fn get_space_room(&self, room_id: &RoomId) -> Option<SpaceRoom> {
+        let graph = &self.space_state.lock().await.graph;
+
+        if graph.has_node(room_id)
+            && let Some(room) = self.client.get_room(room_id)
+        {
+            Some(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64))
+        } else {
+            None
+        }
+    }
+
     pub async fn add_child_to_space(
         &self,
         child_id: OwnedRoomId,
@@ -892,6 +906,44 @@ mod tests {
             parents.iter().map(|space| space.room_id.to_owned()).collect::<Vec<_>>(),
             vec![parent_space_id_1, parent_space_id_2]
         );
+    }
+
+    #[async_test]
+    async fn test_get_space_room_for_id() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_id = room_id!("!single_space:example.org");
+
+        add_space_rooms(
+            vec![MockSpaceRoomParameters {
+                room_id: space_id,
+                order: None,
+                parents: vec![],
+                children: vec![],
+                power_level: None,
+            }],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone());
+
+        // Ensure internal state is populated.
+        _ = space_service.joined_spaces().await;
+
+        let found = space_service.get_space_room(space_id).await;
+        assert!(found.is_some());
+
+        let expected = SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0);
+        assert_eq!(found.unwrap(), expected);
     }
 
     #[async_test]
