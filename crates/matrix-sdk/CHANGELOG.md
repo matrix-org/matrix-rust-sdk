@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 - Expose a new method `RoomEventCache::find_event_relations` for loading
   events relating to a specific event ID from the cache.
   [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
+- Replace in-memory stores with IndexedDB implementations when initializing
+  `Client` with `BuilderStoreConfig::IndexedDb`.
+  [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
 
 ### Bugfix
 
