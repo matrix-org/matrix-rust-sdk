@@ -172,7 +172,9 @@ impl IndexeddbStores {
 
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
-#[deprecated(note = "this function only opens state and crypto stores, use `IndexeddbStores::open()` instead.")]
+#[deprecated(
+    note = "this function only opens state and crypto stores, use `IndexeddbStores::open()` instead."
+)]
 #[cfg(all(feature = "e2e-encryption", feature = "state-store"))]
 pub async fn open_stores_with_name(
     name: &str,
