@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+- [**breaking**] `ShieldStateCode` no longer includes
+  `SentInClear`. `VeificationState::to_shield_state_{lax,strict}` never
+  returned that code, ans so having it in the enum was somewhat misleading.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

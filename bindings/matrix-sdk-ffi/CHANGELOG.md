@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Remove redundant `ShieldState::None` variant. `ShieldState` is only ever used
+  within an `Option`, so there's not much point having a separate `None` variant.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.

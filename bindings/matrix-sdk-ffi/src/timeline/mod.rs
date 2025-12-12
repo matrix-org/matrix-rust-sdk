@@ -21,7 +21,6 @@ use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
 };
@@ -32,7 +31,8 @@ use matrix_sdk_common::{
 use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
     LatestEventValue as UiLatestEventValue, MediaUploadProgress as SdkMediaUploadProgress, Profile,
-    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
+    TimelineDetails, TimelineEventShieldState as SdkShieldState, TimelineEventShieldStateCode,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
@@ -981,26 +981,10 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 pub enum ShieldState {
     /// A red shield with a tooltip containing the associated message should be
     /// presented.
-    Red { code: ShieldStateCode, message: String },
+    Red { code: TimelineEventShieldStateCode, message: String },
     /// A grey shield with a tooltip containing the associated message should be
     /// presented.
-    Grey { code: ShieldStateCode, message: String },
-    /// No shield should be presented.
-    None,
-}
-
-impl From<SdkShieldState> for ShieldState {
-    fn from(value: SdkShieldState) -> Self {
-        match value {
-            SdkShieldState::Red { code, message } => {
-                Self::Red { code, message: message.to_owned() }
-            }
-            SdkShieldState::Grey { code, message } => {
-                Self::Grey { code, message: message.to_owned() }
-            }
-            SdkShieldState::None => Self::None,
-        }
-    }
+    Grey { code: TimelineEventShieldStateCode, message: String },
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -1277,7 +1261,15 @@ pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineIt
 impl LazyTimelineItemProvider {
     /// Returns the shields for this event timeline item.
     fn get_shields(&self, strict: bool) -> Option<ShieldState> {
-        self.0.get_shield(strict).map(Into::into)
+        match self.0.get_shield(strict) {
+            SdkShieldState::Red { code, message } => {
+                Some(ShieldState::Red { code, message: message.to_owned() })
+            }
+            SdkShieldState::Grey { code, message } => {
+                Some(ShieldState::Grey { code, message: message.to_owned() })
+            }
+            SdkShieldState::None => None,
+        }
     }
 
     /// Returns some debug information for this event timeline item.
