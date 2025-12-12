@@ -70,7 +70,7 @@ impl LatestEvent {
             Some(_thread_id) => LatestEventValue::default(),
             None => weak_room.get().map(|room| room.latest_event()).unwrap_or_default(),
         };
-        let is_none = matches!(latest_event_value, LatestEventValue::None);
+        let is_none = latest_event_value.is_none();
 
         With {
             result: Self {
@@ -115,12 +115,8 @@ impl LatestEvent {
             return;
         }
 
-        let new_value = LatestEventValueBuilder::new_remote_with_power_levels(
-            room_event_cache,
-            own_user_id,
-            power_levels,
-        )
-        .await;
+        let new_value =
+            LatestEventValueBuilder::new_remote(room_event_cache, own_user_id, power_levels).await;
 
         self.update(new_value).await;
     }
@@ -643,37 +639,14 @@ struct LatestEventValueBuilder;
 
 impl LatestEventValueBuilder {
     /// Create a new [`LatestEventValue::Remote`].
-    #[cfg(test)]
     async fn new_remote(
-        room_event_cache: &RoomEventCache,
-        weak_room: &WeakRoom,
-    ) -> LatestEventValue {
-        // Get the power levels of the user for the current room if the `WeakRoom` is
-        // still valid.
-        let Some(room) = weak_room.get() else {
-            // No room? Lets' return a default value.
-            return LatestEventValue::default();
-        };
-        let own_user_id = room.own_user_id();
-        let power_levels = room.power_levels().await.ok();
-
-        Self::new_remote_with_power_levels(room_event_cache, own_user_id, power_levels.as_ref())
-            .await
-    }
-
-    /// Create a new [`LatestEventValue::Remote`] based on existing power
-    /// levels.
-    async fn new_remote_with_power_levels(
         room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         let _timer = timer!(
             tracing::Level::INFO,
-            format!(
-                "`LatestEventValueBuilder::new_remote_with_power_levels` for {:?}",
-                room_event_cache.room_id()
-            )
+            format!("`LatestEventValueBuilder::new_remote` for {:?}", room_event_cache.room_id())
         );
 
         let value = if let Ok(Some(event)) = room_event_cache
@@ -913,7 +886,7 @@ impl LatestEventValueBuilder {
         if let Some(value) = buffer_of_values_for_local_events.last() {
             value.clone()
         } else {
-            Self::new_remote_with_power_levels(room_event_cache, own_user_id, power_levels).await
+            Self::new_remote(room_event_cache, own_user_id, power_levels).await
         }
     }
 }
@@ -1857,8 +1830,6 @@ mod tests_latest_event_value_builder {
     };
     use crate::{
         Client, Error,
-        client::WeakClient,
-        room::WeakRoom,
         send_queue::{AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
@@ -1956,13 +1927,12 @@ mod tests_latest_event_value_builder {
         event_cache.subscribe().unwrap();
 
         let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because `event_id_2` isn't a candidate,
             // and `event_id_0` hasn't been read yet (because events are read
             // backwards).
-            LatestEventValueBuilder::new_remote(&room_event_cache, &weak_room).await => with body = "world"
+            LatestEventValueBuilder::new_remote(&room_event_cache, user_id, None).await => with body = "world"
         );
     }
 
