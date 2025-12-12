@@ -14,7 +14,7 @@
 
 use std::{
     iter::once,
-    ops::{Deref, Not},
+    ops::{Deref, DerefMut, Not},
 };
 
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
@@ -62,17 +62,24 @@ pub(super) struct LatestEvent {
 }
 
 impl LatestEvent {
-    pub fn new(weak_room: &WeakRoom, thread_id: Option<&EventId>) -> Self {
+    pub fn new(
+        weak_room: &WeakRoom,
+        thread_id: Option<&EventId>,
+    ) -> With<Self, IsLatestEventValueNone> {
         let latest_event_value = match thread_id {
             Some(_thread_id) => LatestEventValue::default(),
             None => weak_room.get().map(|room| room.latest_event()).unwrap_or_default(),
         };
+        let is_none = matches!(latest_event_value, LatestEventValue::None);
 
-        Self {
-            weak_room: weak_room.clone(),
-            _thread_id: thread_id.map(ToOwned::to_owned),
-            buffer_of_values_for_local_events: LatestEventValuesForLocalEvents::new(),
-            current_value: SharedObservable::new_async(latest_event_value),
+        With {
+            result: Self {
+                weak_room: weak_room.clone(),
+                _thread_id: thread_id.map(ToOwned::to_owned),
+                buffer_of_values_for_local_events: LatestEventValuesForLocalEvents::new(),
+                current_value: SharedObservable::new_async(latest_event_value),
+            },
+            with: is_none,
         }
     }
 
@@ -183,6 +190,44 @@ impl LatestEvent {
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 }
+
+pub(super) struct With<T, W> {
+    result: T,
+    with: W,
+}
+
+impl<T, W> With<T, W> {
+    pub fn map<F, O>(this: With<T, W>, f: F) -> With<O, W>
+    where
+        F: FnOnce(T) -> O,
+    {
+        With { result: f(this.result), with: this.with }
+    }
+
+    pub fn inner(this: With<T, W>) -> T {
+        this.result
+    }
+
+    pub fn unzip(this: With<T, W>) -> (T, W) {
+        (this.result, this.with)
+    }
+}
+
+impl<T, W> Deref for With<T, W> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.result
+    }
+}
+
+impl<T, W> DerefMut for With<T, W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.result
+    }
+}
+
+pub(super) type IsLatestEventValueNone = bool;
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {

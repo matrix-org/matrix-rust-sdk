@@ -19,7 +19,10 @@ use ruma::{EventId, OwnedEventId};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::error;
 
-use super::LatestEvent;
+use super::{
+    LatestEvent,
+    latest_event::{IsLatestEventValueNone, With},
+};
 use crate::{
     event_cache::{EventCache, EventCacheError, RoomEventCache},
     room::WeakRoom,
@@ -35,19 +38,27 @@ pub(super) struct RoomLatestEvents {
 
 impl RoomLatestEvents {
     /// Create a new [`RoomLatestEvents`].
-    pub fn new(weak_room: WeakRoom, event_cache: &EventCache) -> Self {
-        Self {
+    pub fn new(
+        weak_room: WeakRoom,
+        event_cache: &EventCache,
+    ) -> With<Self, IsLatestEventValueNone> {
+        let latest_event_with = Self::create_latest_event(&weak_room, None);
+
+        With::map(latest_event_with, |for_the_room| Self {
             state: Arc::new(RwLock::new(RoomLatestEventsState {
-                for_the_room: Self::create_latest_event(&weak_room, None),
+                for_the_room,
                 per_thread: HashMap::new(),
                 weak_room,
                 event_cache: event_cache.clone(),
                 room_event_cache: OnceCell::new(),
             })),
-        }
+        })
     }
 
-    fn create_latest_event(weak_room: &WeakRoom, thread_id: Option<&EventId>) -> LatestEvent {
+    fn create_latest_event(
+        weak_room: &WeakRoom,
+        thread_id: Option<&EventId>,
+    ) -> With<LatestEvent, IsLatestEventValueNone> {
         LatestEvent::new(weak_room, thread_id)
     }
 
@@ -122,10 +133,10 @@ impl RoomLatestEventsWriteGuard {
     /// Create the [`LatestEvent`] for thread `thread_id` and insert it in this
     /// [`RoomLatestEvents`].
     pub fn create_and_insert_latest_event_for_thread(&mut self, thread_id: &EventId) {
-        let latest_event =
+        let latest_event_with =
             RoomLatestEvents::create_latest_event(&self.inner.weak_room, Some(thread_id));
 
-        self.inner.per_thread.insert(thread_id.to_owned(), latest_event);
+        self.inner.per_thread.insert(thread_id.to_owned(), With::inner(latest_event_with));
     }
 
     /// Forget the thread `thread_id`.
