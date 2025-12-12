@@ -309,30 +309,30 @@ impl EventTimelineItem {
         }
     }
 
-    /// Gets the [`ShieldState`] which can be used to decorate messages in the
-    /// recommended way.
-    pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
+    /// Gets the [`ShieldState`] which can be used to decorate
+    /// messages in the recommended way.
+    pub fn get_shield(&self, strict: bool) -> ShieldState {
         if !self.is_room_encrypted || self.is_local_echo() {
-            return None;
+            return ShieldState::None;
         }
 
         // An unable-to-decrypt message has no authenticity shield.
         if self.content().is_unable_to_decrypt() {
-            return None;
+            return ShieldState::None;
         }
 
         match self.encryption_info() {
             Some(info) => {
                 if strict {
-                    Some(info.verification_state.to_shield_state_strict())
+                    info.verification_state.to_shield_state_strict().into()
                 } else {
-                    Some(info.verification_state.to_shield_state_lax())
+                    info.verification_state.to_shield_state_lax().into()
                 }
             }
-            None => Some(ShieldState::Red {
+            None => ShieldState::Red {
                 code: ShieldStateCode::SentInClear,
                 message: SENT_IN_CLEAR,
-            }),
+            },
         }
     }
 
