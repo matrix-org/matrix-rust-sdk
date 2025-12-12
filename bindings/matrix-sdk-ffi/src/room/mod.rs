@@ -1243,7 +1243,8 @@ impl Room {
     /// Since this client-server API is paginated, the return type may include a
     /// token used to resuming back-pagination into the list of results, in
     /// [`ThreadRoots::prev_batch_token`]. This token can be passed to the next
-    /// call to this function, through the `from` field of [`ListThreadsOptions`].
+    /// call to this function, through the `from` field of
+    /// [`ListThreadsOptions`].
     pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots, ClientError> {
         let inner_opts = SdkListThreadsOptions {
             include_threads: match opts.include_threads {
@@ -1330,7 +1331,8 @@ pub enum IncludeThreads {
 
     /// `participated`
     ///
-    /// Only include thread roots for threads where [`current_user_participated`] is `true`.
+    /// Only include thread roots for threads where
+    /// [`current_user_participated`] is `true`.
     ///
     /// [`current_user_participated`]: https://spec.matrix.org/latest/client-server-api/#server-side-aggregation-of-mthread-relationships
     Participated,
