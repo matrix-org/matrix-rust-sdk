@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `CheckCodeSender::validate()` to allow `CheckCode` to be validated without sending.
+  ([#5957](https://github.com/matrix-org/matrix-rust-sdk/pull/5957))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
