@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 - Expose a new method `RoomEventCache::find_event_relations` for loading
   events relating to a specific event ID from the cache.
   [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
+- Replace in-memory stores with IndexedDB implementations when initializing
+  `Client` with `BuilderStoreConfig::IndexedDb`.
+  [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
 
 ### Bugfix
 
@@ -94,8 +97,8 @@ All notable changes to this project will be documented in this file.
   Client-Server API. This allows to drop the `HttpError::NotClientRequest` error in favor of a
   compile-time error.
   ([#5781](https://github.com/matrix-org/matrix-rust-sdk/pull/5781),
-   [#5789](https://github.com/matrix-org/matrix-rust-sdk/pull/5789),
-   [#5815](https://github.com/matrix-org/matrix-rust-sdk/pull/5815))
+  [#5789](https://github.com/matrix-org/matrix-rust-sdk/pull/5789),
+  [#5815](https://github.com/matrix-org/matrix-rust-sdk/pull/5815))
 - [**breaking**]: The `waveform` field was moved from `AttachmentInfo::Voice` to `BaseAudioInfo`,
   allowing to set it for any audio message. Its format also changed, and it is now a list of `f32`
   between 0 and 1.
@@ -143,6 +146,7 @@ All notable changes to this project will be documented in this file.
     }
   )
   ```
+
   ([#5560](https://github.com/matrix-org/matrix-rust-sdk/pull/5560))
 
 ### Bugfix
@@ -237,9 +241,9 @@ All notable changes to this project will be documented in this file.
   statically-known. Before, those events would never trigger an event handler.
   ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
 - All HTTP requests now have a default `read_timeout` of 60s, which means they'll disconnect if the connection stalls.
- `RequestConfig::timeout` is now optional and can be disabled on a per-request basis. This will be done for
- the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason.
- ([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
+  `RequestConfig::timeout` is now optional and can be disabled on a per-request basis. This will be done for
+  the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason.
+  ([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
 
 ## [0.13.0] - 2025-07-10
 
@@ -305,7 +309,7 @@ All notable changes to this project will be documented in this file.
 ### Bug fixes
 
 - `m.room.avatar` has been added as required state for sliding sync until [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
-causing deleted room avatars to not be flagged is fixed. ([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
+  causing deleted room avatars to not be flagged is fixed. ([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
 
 ## [0.12.0] - 2025-06-10
 
@@ -389,9 +393,9 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
 - [**breaking**]: The element call widget URL configuration struct
   (`VirtualElementCallWidgetOptions`) and URL generation have changed.
   - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
-  `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
+    `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
   - The widget URL will no longer automatically add `/room` to the base domain. For backward compatibility
-  the app itself would need to add `/room` to the `element_call_url`.
+    the app itself would need to add `/room` to the `element_call_url`.
   - And replaced:
     - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will
       include `analytics_id` & `posthog_user_id` for backward compatibility)
@@ -399,14 +403,14 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
       The widget URL query parameters will include `skip_lobby` if `intent` is
       `Intent.StartCall` for backward compatibility)
   - `VirtualElementCallWidgetOptions` now implements `Default`.
-  ([#4822](https://github.com/matrix-org/matrix-rust-sdk/pull/4822))
+    ([#4822](https://github.com/matrix-org/matrix-rust-sdk/pull/4822))
 - [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
-simpler methods:
+  simpler methods:
   - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
-  number of events have been received (and retry if the timeline has been reset in the background).
+    number of events have been received (and retry if the timeline has been reset in the background).
   - `RoomPagination::run_backwards_once()`, which will run a single back-pagination (and retry if
-  the timeline has been reset in the background).
-  ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
+    the timeline has been reset in the background).
+    ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
 - [**breaking**]: The `OAuth::account_management_url` method now caches the
   result of a call, subsequent calls to the method will not contact the server
   for a while, instead the cached URI will be returned. If caching of this URI
@@ -420,8 +424,8 @@ simpler methods:
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
 - Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
 - `Client::notification_client` will create a copy of the existing `Client`,
-  but now it'll make sure  it doesn't handle any verification events to
-  avoid an issue with these events being received and  processed twice if
+  but now it'll make sure it doesn't handle any verification events to
+  avoid an issue with these events being received and processed twice if
   `NotificationProcessSetup` was `SingleSetup`.
 - [**breaking**] `Room::is_encrypted` is replaced by
   `Room::latest_encryption_state` which returns a value of the new
@@ -440,6 +444,7 @@ simpler methods:
   ```rust
   room.latest_encryption_state().await?.is_encrypted()
   ```
+
 - `LocalServerBuilder`, behind the `local-server` feature, can be used to spawn
   a server when the end-user needs to be redirected to an address on localhost.
   It was used for `SsoLoginBuilder` and can now be used in other cases, like for
@@ -467,7 +472,6 @@ simpler methods:
   ([#4830](https://github.com/matrix-org/matrix-rust-sdk/pull/4830))
 
 ### Refactor
-
 
 - [**breaking**] Switched from the unmaintained backoff crate to the [backon](https://docs.rs/backon/1.5.0/backon/)
   crate. As part of this change, the `RequestConfig::retry_limit` method was
@@ -714,7 +718,7 @@ simpler methods:
 
 - [**breaking**]: The `RoomEventCacheUpdate::Clear` variant has been removed, as
   it is redundant with the `RoomEventCacheUpdate::UpdateTimelineEvents { diffs:
-  Vec<VectorDiff<_>>, .. }` where `VectorDiff` has its own `Clear` variant.
+Vec<VectorDiff<_>>, .. }` where `VectorDiff` has its own `Clear` variant.
   ([#4627](https://github.com/matrix-org/matrix-rust-sdk/pull/4627))
 
 - Improve the performance of `EventCache` (approximately 4.5 times faster).
@@ -797,24 +801,22 @@ simpler methods:
 
 - Improve documentation of `Client::observe_events`.
 
-
 ### Features
-
 
 - Add `create_room_alias` function.
 
 - `Client::cross_process_store_locks_holder_name` is used everywhere:
- - `StoreConfig::new()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `StoreConfig` no longer implements `Default`.
- - `BaseClient::new()` has been removed.
- - `BaseClient::clone_with_in_memory_state_store()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `BaseClient` no longer implements `Default`.
- - `EventCacheStoreLock::new()` no longer takes a `key` argument.
- - `BuilderStoreConfig` no longer has
-   `cross_process_store_locks_holder_name` field for `Sqlite` and
-   `IndexedDb`.
+- `StoreConfig::new()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `StoreConfig` no longer implements `Default`.
+- `BaseClient::new()` has been removed.
+- `BaseClient::clone_with_in_memory_state_store()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `BaseClient` no longer implements `Default`.
+- `EventCacheStoreLock::new()` no longer takes a `key` argument.
+- `BuilderStoreConfig` no longer has
+  `cross_process_store_locks_holder_name` field for `Sqlite` and
+  `IndexedDb`.
 
 - `EncryptionSyncService` and `Notification` are using `Client::cross_process_store_locks_holder_name`.
 
@@ -828,20 +830,20 @@ simpler methods:
   `Client::add_room_event_handler` but with a reactive programming pattern. Add
   `Client::observe_events` and `Client::observe_room_events`.
 
- ```rust
- // Get an observer.
- let observer =
-     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
+```rust
+// Get an observer.
+let observer =
+    client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
 
- // Subscribe to the observer.
- let mut subscriber = observer.subscribe();
+// Subscribe to the observer.
+let mut subscriber = observer.subscribe();
 
- // Use the subscriber as a `Stream`.
- let (message_event, (room, push_actions)) = subscriber.next().await.unwrap();
- ```
+// Use the subscriber as a `Stream`.
+let (message_event, (room, push_actions)) = subscriber.next().await.unwrap();
+```
 
- When calling `observe_events`, one has to specify the type of event (in the
- example, `SyncRoomMessageEvent`) and a context (in the example, `(Room,
+When calling `observe_events`, one has to specify the type of event (in the
+example, `SyncRoomMessageEvent`) and a context (in the example, `(Room,
  Vec<Action>)`, respectively for the room and the push actions).
 
 - Implement unwedging for media uploads.
@@ -879,8 +881,8 @@ simpler methods:
 - Implement proper redact handling in the widget driver. This allows the Rust
   SDK widget driver to support widgets that rely on redacting.
 
-
 ### Refactor
+
 - [**breaking**] Rename `DisplayName` to `RoomDisplayName`.
 
 - Improve `is_room_alias_format_valid` so it's more strict.

@@ -17,9 +17,8 @@ use crate::{
         serializer::indexed_types::{IndexedMediaContentId, IndexedMediaContentSize},
         types::UnixTime,
     },
-    serializer::{
-        indexed_type::constants::{INDEXED_KEY_LOWER_UUID, INDEXED_KEY_UPPER_UUID},
-        INDEXED_KEY_UPPER_DURATION_SECONDS,
+    serializer::indexed_type::constants::{
+        INDEXED_KEY_LOWER_UUID, INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_UUID,
     },
 };
 

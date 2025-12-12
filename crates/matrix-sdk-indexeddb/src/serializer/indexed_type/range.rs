@@ -13,7 +13,8 @@
 // limitations under the License
 
 use crate::serializer::{
-    Indexed, IndexedKey, IndexedKeyBounds, IndexedPrefixKeyBounds, SafeEncodeSerializer,
+    indexed_type::traits::{Indexed, IndexedKey, IndexedKeyBounds, IndexedPrefixKeyBounds},
+    safe_encode::types::SafeEncodeSerializer,
 };
 
 /// Representation of a range of keys of type `K`. This is loosely

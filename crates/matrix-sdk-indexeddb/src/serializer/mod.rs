@@ -14,29 +14,9 @@
 
 #[cfg(feature = "e2e-encryption")]
 pub mod foreign;
-
-#[cfg(all(
-    feature = "e2e-encryption",
-    any(feature = "event-cache-store", feature = "media-store")
-))]
+#[cfg(feature = "indexed-type-serializer")]
 pub mod indexed_type;
-#[cfg(all(
-    feature = "e2e-encryption",
-    any(feature = "event-cache-store", feature = "media-store")
-))]
-pub use indexed_type::{
-    constants::{
-        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
-        INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_STRING,
-    },
-    range::IndexedKeyRange,
-    traits::{
-        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds,
-    },
-    IndexedTypeSerializer,
-};
-
+#[cfg(any(feature = "safe-encode-traits", feature = "safe-encode-serializer"))]
 pub mod safe_encode;
 #[cfg(feature = "e2e-encryption")]
 pub use safe_encode::types::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError};

@@ -21,7 +21,7 @@ use crate::{
     media_store::{
         error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db, IndexeddbMediaStore,
     },
-    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
+    serializer::{indexed_type::IndexedTypeSerializer, safe_encode::types::SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbMediaStore`]
@@ -43,6 +43,16 @@ impl IndexeddbMediaStoreBuilder {
     /// The default name of the IndexedDB database used to back the
     /// [`IndexeddbMediaStore`]
     pub const DEFAULT_DATABASE_NAME: &'static str = "media";
+
+    /// Create a new [`IndexeddbMediaStoreBuilder`] where the database name is
+    /// constructed by joining the given prefix with
+    /// [`Self::DEFAULT_DATABASE_NAME`] and separated by `::`.
+    pub fn with_prefix(prefix: &str) -> Self {
+        Self {
+            database_name: format!("{}::{}", prefix, Self::DEFAULT_DATABASE_NAME),
+            store_cipher: None,
+        }
+    }
 
     /// Sets the name of the IndexedDB database which will be opened. This
     /// defaults to [`Self::DEFAULT_DATABASE_NAME`].

@@ -44,10 +44,17 @@ use crate::{
         types::{Chunk, Event, Gap, Lease, Position},
     },
     serializer::{
-        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
-        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
-        INDEXED_KEY_UPPER_STRING,
+        indexed_type::{
+            constants::{
+                INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
+                INDEXED_KEY_UPPER_STRING,
+            },
+            traits::{
+                Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+                IndexedPrefixKeyComponentBounds,
+            },
+        },
+        safe_encode::types::{MaybeEncrypted, SafeEncodeSerializer},
     },
 };
 
