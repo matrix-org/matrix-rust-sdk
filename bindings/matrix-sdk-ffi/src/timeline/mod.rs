@@ -21,7 +21,6 @@ use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
 };
@@ -32,7 +31,8 @@ use matrix_sdk_common::{
 use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
     LatestEventValue as UiLatestEventValue, MediaUploadProgress as SdkMediaUploadProgress, Profile,
-    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
+    TimelineDetails, TimelineEventShieldState as SdkShieldState, TimelineEventShieldStateCode,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
@@ -981,10 +981,10 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 pub enum ShieldState {
     /// A red shield with a tooltip containing the associated message should be
     /// presented.
-    Red { code: ShieldStateCode, message: String },
+    Red { code: TimelineEventShieldStateCode, message: String },
     /// A grey shield with a tooltip containing the associated message should be
     /// presented.
-    Grey { code: ShieldStateCode, message: String },
+    Grey { code: TimelineEventShieldStateCode, message: String },
 }
 
 #[derive(Clone, uniffi::Record)]
