@@ -329,11 +329,15 @@ pub enum GeneratedQrProgress {
 #[derive(Clone, Debug)]
 pub struct CheckCodeSender {
     inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,
+    expected_check_code: CheckCode,
 }
 
 impl CheckCodeSender {
-    pub(crate) fn new(tx: tokio::sync::oneshot::Sender<u8>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Some(tx))) }
+    pub(crate) fn new(
+        tx: tokio::sync::oneshot::Sender<u8>,
+        expected_check_code: CheckCode,
+    ) -> Self {
+        Self { inner: Arc::new(Mutex::new(Some(tx))), expected_check_code }
     }
 
     /// Send the checkcode.
@@ -348,6 +352,18 @@ impl CheckCodeSender {
             Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
             None => Err(CheckCodeSenderError::AlreadySent),
         }
+    }
+
+    /// Validate the [`CheckCode`] without sending it.
+    ///
+    /// This can be used to provide immediate feedback to the user.
+    ///
+    /// # Arguments
+    /// * `check_code` - The check code in digits representation.
+    ///
+    /// Returns `true` if the code is valid, `false` otherwise.
+    pub fn validate(&self, check_code: u8) -> bool {
+        self.expected_check_code.to_digit() == check_code
     }
 }
 

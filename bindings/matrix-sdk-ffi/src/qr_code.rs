@@ -633,4 +633,16 @@ impl CheckCodeSender {
     pub async fn send(&self, code: u8) -> Result<(), HumanQrLoginError> {
         self.inner.send(code).await.map_err(HumanQrLoginError::from)
     }
+
+    /// Validate the [`CheckCode`] without sending it.
+    ///
+    /// This can be used to provide immediate feedback to the user.
+    ///
+    /// # Arguments
+    /// * `check_code` - The check code in digits representation.
+    ///
+    /// Returns `true` if the code is valid, `false` otherwise.
+    pub fn validate(&self, check_code: u8) -> bool {
+        self.inner.validate(check_code)
+    }
 }

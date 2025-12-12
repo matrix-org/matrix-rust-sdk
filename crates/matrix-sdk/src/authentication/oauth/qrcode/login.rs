@@ -470,7 +470,7 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         trace!("Waiting for checkcode.");
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
-            CheckCodeSender::new(tx),
+            CheckCodeSender::new(tx, channel.check_code()),
         )));
 
         // Retrieve the entered checkcode and verify it to confirm that the channel is
