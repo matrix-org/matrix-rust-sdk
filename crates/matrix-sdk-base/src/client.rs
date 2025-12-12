@@ -221,14 +221,16 @@ impl BaseClient {
         cross_process_store_locks_holder_name: &str,
         handle_verification_events: bool,
     ) -> Result<Self> {
-        let config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
-            .state_store(MemoryStore::new());
-        let config = config.crypto_store(self.crypto_store.clone());
+        let in_memory_store_config =
+            StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
+                .state_store(MemoryStore::new())
+                .crypto_store(self.crypto_store.clone());
 
         let copy = Self {
-            state_store: BaseStateStore::new(config.state_store),
-            event_cache_store: config.event_cache_store,
-            media_store: config.media_store,
+            state_store: BaseStateStore::new(in_memory_store_config.state_store),
+            // The event and media stores both have cross process locking support.
+            event_cache_store: self.event_cache_store.clone(),
+            media_store: self.media_store.clone(),
             // We copy the crypto store as well as the `OlmMachine` for two reasons:
             // 1. The `self.crypto_store` is the same as the one used inside the `OlmMachine`.
             // 2. We need to ensure that the parent and child use the same data and caches inside
