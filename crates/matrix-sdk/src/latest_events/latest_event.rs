@@ -14,10 +14,10 @@
 
 use std::{
     iter::once,
-    ops::{Deref, Not},
+    ops::{Deref, DerefMut, Not},
 };
 
-use eyeball::{AsyncLock, SharedObservable, Subscriber};
+use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
@@ -62,24 +62,35 @@ pub(super) struct LatestEvent {
 }
 
 impl LatestEvent {
-    pub(super) async fn new(
+    pub fn new(
         weak_room: &WeakRoom,
         thread_id: Option<&EventId>,
-        room_event_cache: &RoomEventCache,
-    ) -> Self {
-        Self {
-            weak_room: weak_room.clone(),
-            _thread_id: thread_id.map(ToOwned::to_owned),
-            buffer_of_values_for_local_events: LatestEventValuesForLocalEvents::new(),
-            current_value: SharedObservable::new_async(
-                LatestEventValueBuilder::new_remote(room_event_cache, weak_room).await,
-            ),
+    ) -> With<Self, IsLatestEventValueNone> {
+        let latest_event_value = match thread_id {
+            Some(_thread_id) => LatestEventValue::default(),
+            None => weak_room.get().map(|room| room.latest_event()).unwrap_or_default(),
+        };
+        let is_none = latest_event_value.is_none();
+
+        With {
+            result: Self {
+                weak_room: weak_room.clone(),
+                _thread_id: thread_id.map(ToOwned::to_owned),
+                buffer_of_values_for_local_events: LatestEventValuesForLocalEvents::new(),
+                current_value: SharedObservable::new_async(latest_event_value),
+            },
+            with: is_none,
         }
     }
 
     /// Return a [`Subscriber`] to new values.
     pub async fn subscribe(&self) -> Subscriber<LatestEventValue, AsyncLock> {
         self.current_value.subscribe().await
+    }
+
+    #[cfg(test)]
+    pub async fn get(&self) -> LatestEventValue {
+        self.current_value.get().await
     }
 
     /// Update the inner latest event value, based on the event cache
@@ -94,7 +105,7 @@ impl LatestEvent {
     pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
-        own_user_id: Option<&UserId>,
+        own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) {
         if self.buffer_of_values_for_local_events.is_empty().not() {
@@ -104,12 +115,8 @@ impl LatestEvent {
             return;
         }
 
-        let new_value = LatestEventValueBuilder::new_remote_with_power_levels(
-            room_event_cache,
-            own_user_id,
-            power_levels,
-        )
-        .await;
+        let new_value =
+            LatestEventValueBuilder::new_remote(room_event_cache, own_user_id, power_levels).await;
 
         self.update(new_value).await;
     }
@@ -120,7 +127,7 @@ impl LatestEvent {
         &mut self,
         send_queue_update: &RoomSendQueueUpdate,
         room_event_cache: &RoomEventCache,
-        own_user_id: Option<&UserId>,
+        own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) {
         let new_value = LatestEventValueBuilder::new_local(
@@ -143,8 +150,24 @@ impl LatestEvent {
     /// been found, we want to latest event value to be `None`, so that it is
     /// erased correctly.
     async fn update(&mut self, new_value: LatestEventValue) {
-        self.current_value.set(new_value.clone()).await;
-        self.store(new_value).await;
+        // Ideally, we would set `new_value` if and only if it is different from the
+        // previous value. However, `LatestEventValue` cannot implement `PartialEq` at
+        // the time of writing (2025-12-12). So we are only updating if
+        // `LatestEventValue` is not `None` and if the previous value isn't `None`;
+        // basically, replacing `None` with `None` will not update the value.
+        {
+            let mut guard = self.current_value.write().await;
+            let previous_value = guard.deref();
+
+            if (previous_value.is_none() && new_value.is_none()).not() {
+                ObservableWriteGuard::set(&mut guard, new_value.clone());
+
+                // Release the write guard over the current value before hitting the store.
+                drop(guard);
+
+                self.store(new_value).await;
+            }
+        }
     }
 
     /// Update the `RoomInfo` associated to this room to set the new
@@ -180,8 +203,48 @@ impl LatestEvent {
     }
 }
 
+pub(super) struct With<T, W> {
+    result: T,
+    with: W,
+}
+
+impl<T, W> With<T, W> {
+    pub fn map<F, O>(this: With<T, W>, f: F) -> With<O, W>
+    where
+        F: FnOnce(T) -> O,
+    {
+        With { result: f(this.result), with: this.with }
+    }
+
+    pub fn inner(this: With<T, W>) -> T {
+        this.result
+    }
+
+    pub fn unzip(this: With<T, W>) -> (T, W) {
+        (this.result, this.with)
+    }
+}
+
+impl<T, W> Deref for With<T, W> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.result
+    }
+}
+
+impl<T, W> DerefMut for With<T, W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.result
+    }
+}
+
+pub(super) type IsLatestEventValueNone = bool;
+
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {
+    use std::ops::Not;
+
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomInfoNotableUpdateReasons, RoomState,
@@ -194,8 +257,11 @@ mod tests_latest_event {
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id, user_id,
     };
+    use stream_assert::{assert_next_matches, assert_pending};
 
-    use super::{LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent};
+    use super::{
+        LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent, With,
+    };
     use crate::{
         client::WeakClient,
         room::WeakRoom,
@@ -233,6 +299,47 @@ mod tests_latest_event {
     }
 
     #[async_test]
+    async fn test_new_loads_from_room_info() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        // Create the room.
+        let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        // First time `LatestEvent` is created: we get `None`.
+        {
+            let (latest_event, is_none) = With::unzip(LatestEvent::new(&weak_room, None));
+
+            // By default, it's `None`.
+            assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
+            assert!(is_none);
+        }
+
+        // Set the `RoomInfo`.
+        {
+            let mut room_info = room.clone_info();
+            room_info.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
+            room.set_room_info(room_info, Default::default());
+        }
+
+        // Second time. We get `LocalIsSending` from `RoomInfo`.
+        {
+            let (latest_event, is_none) = With::unzip(LatestEvent::new(&weak_room, None));
+
+            // By default, it's `None`.
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::LocalIsSending(_)
+            );
+            assert!(is_none.not());
+        }
+    }
+
+    #[async_test]
     async fn test_update_do_not_ignore_none_value() {
         let room_id = room_id!("!r0");
 
@@ -248,9 +355,7 @@ mod tests_latest_event {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
-
-        let mut latest_event = LatestEvent::new(&weak_room, None, &room_event_cache).await;
+        let mut latest_event = LatestEvent::new(&weak_room, None);
 
         // First off, check the default value is `None`!
         assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
@@ -267,6 +372,52 @@ mod tests_latest_event {
         latest_event.update(LatestEventValue::None).await;
 
         assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
+    }
+
+    #[async_test]
+    async fn test_update_ignore_none_if_previous_value_is_none() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        // Create the room.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+
+        assert_pending!(stream);
+
+        // Set a non-`None` value.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        // We get it.
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // Set a `None` value.
+        latest_event.update(LatestEventValue::None).await;
+        // We get it.
+        assert_next_matches!(stream, LatestEventValue::None);
+
+        // Set a `None` value, again!
+        latest_event.update(LatestEventValue::None).await;
+        // We get it? No!
+        assert_pending!(stream);
+
+        // Set a `None` value, again, and again!
+        latest_event.update(LatestEventValue::None).await;
+        // No means No!
+        assert_pending!(stream);
+
+        // Set a non-`None` value.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
+        // We get it. Oof.
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        assert_pending!(stream);
     }
 
     #[async_test]
@@ -314,11 +465,11 @@ mod tests_latest_event {
         let send_queue = client.send_queue();
         let room_send_queue = send_queue.for_room(room);
 
-        let mut latest_event = LatestEvent::new(&weak_room, None, &room_event_cache).await;
+        let mut latest_event = LatestEvent::new(&weak_room, None);
 
         // First, let's create a `LatestEventValue` from the event cache. It must work.
         {
-            latest_event.update_with_event_cache(&room_event_cache, None, None).await;
+            latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
             assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
         }
@@ -335,7 +486,7 @@ mod tests_latest_event {
                 content,
             });
 
-            latest_event.update_with_send_queue(&update, &room_event_cache, None, None).await;
+            latest_event.update_with_send_queue(&update, &room_event_cache, user_id, None).await;
 
             assert_matches!(
                 latest_event.current_value.get().await,
@@ -347,7 +498,7 @@ mod tests_latest_event {
         // Nothing must happen, it cannot overwrite the current
         // `LatestEventValue` because the local event isn't sent yet.
         {
-            latest_event.update_with_event_cache(&room_event_cache, None, None).await;
+            latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
             assert_matches!(
                 latest_event.current_value.get().await,
@@ -363,7 +514,7 @@ mod tests_latest_event {
                 event_id: event_id!("$ev1").to_owned(),
             };
 
-            latest_event.update_with_send_queue(&update, &room_event_cache, None, None).await;
+            latest_event.update_with_send_queue(&update, &room_event_cache, user_id, None).await;
 
             assert_matches!(
                 latest_event.current_value.get().await,
@@ -374,7 +525,7 @@ mod tests_latest_event {
         // Finally, let's create a `LatestEventValue` from the event cache. _Now_ it's
         // possible, because there is no more local events.
         {
-            latest_event.update_with_event_cache(&room_event_cache, None, None).await;
+            latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
             assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
         }
@@ -442,8 +593,8 @@ mod tests_latest_event {
 
             // Generate a new `LatestEventValue`.
             {
-                let mut latest_event = LatestEvent::new(&weak_room, None, &room_event_cache).await;
-                latest_event.update_with_event_cache(&room_event_cache, None, None).await;
+                let mut latest_event = LatestEvent::new(&weak_room, None);
+                latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
                 assert_matches!(
                     latest_event.current_value.get().await,
@@ -490,38 +641,12 @@ impl LatestEventValueBuilder {
     /// Create a new [`LatestEventValue::Remote`].
     async fn new_remote(
         room_event_cache: &RoomEventCache,
-        weak_room: &WeakRoom,
-    ) -> LatestEventValue {
-        // Get the power levels of the user for the current room if the `WeakRoom` is
-        // still valid.
-        let room = weak_room.get();
-        let (own_user_id, power_levels) = match &room {
-            Some(room) => {
-                let power_levels = room.power_levels().await.ok();
-
-                (Some(room.own_user_id()), power_levels)
-            }
-
-            None => (None, None),
-        };
-
-        Self::new_remote_with_power_levels(room_event_cache, own_user_id, power_levels.as_ref())
-            .await
-    }
-
-    /// Create a new [`LatestEventValue::Remote`] based on existing power
-    /// levels.
-    async fn new_remote_with_power_levels(
-        room_event_cache: &RoomEventCache,
-        own_user_id: Option<&UserId>,
+        own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         let _timer = timer!(
             tracing::Level::INFO,
-            format!(
-                "`LatestEventValueBuilder::new_remote_with_power_levels` for {:?}",
-                room_event_cache.room_id()
-            )
+            format!("`LatestEventValueBuilder::new_remote` for {:?}", room_event_cache.room_id())
         );
 
         let value = if let Ok(Some(event)) = room_event_cache
@@ -547,7 +672,7 @@ impl LatestEventValueBuilder {
         send_queue_update: &RoomSendQueueUpdate,
         buffer_of_values_for_local_events: &mut LatestEventValuesForLocalEvents,
         room_event_cache: &RoomEventCache,
-        own_user_id: Option<&UserId>,
+        own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         use crate::send_queue::{LocalEcho, LocalEchoContent};
@@ -755,13 +880,13 @@ impl LatestEventValueBuilder {
     async fn new_local_or_remote(
         buffer_of_values_for_local_events: &mut LatestEventValuesForLocalEvents,
         room_event_cache: &RoomEventCache,
-        own_user_id: Option<&UserId>,
+        own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         if let Some(value) = buffer_of_values_for_local_events.last() {
             value.clone()
         } else {
-            Self::new_remote_with_power_levels(room_event_cache, own_user_id, power_levels).await
+            Self::new_remote(room_event_cache, own_user_id, power_levels).await
         }
     }
 }
@@ -951,7 +1076,7 @@ impl LatestEventValuesForLocalEvents {
 fn filter_timeline_event(
     event: &TimelineEvent,
     previous_event: Option<&TimelineEvent>,
-    own_user_id: Option<&UserId>,
+    own_user_id: &UserId,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
@@ -1039,20 +1164,20 @@ fn filter_any_message_like_event_content(
 
 fn filter_any_sync_state_event(
     event: AnySyncStateEvent,
-    own_user_id: Option<&UserId>,
+    own_user_id: &UserId,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
     match event {
         AnySyncStateEvent::RoomMember(member) => {
             match member.membership() {
                 MembershipState::Knock => {
-                    let can_accept_or_decline_knocks = match (own_user_id, power_levels) {
-                        (Some(own_user_id), Some(room_power_levels)) => {
+                    let can_accept_or_decline_knocks = match power_levels {
+                        Some(room_power_levels) => {
                             room_power_levels.user_can_invite(own_user_id)
                                 || room_power_levels
                                     .user_can_kick_user(own_user_id, member.state_key())
                         }
-                        _ => false,
+                        None => false,
                     };
 
                     // The current user can act on the knock changes, so they should be
@@ -1071,9 +1196,7 @@ fn filter_any_sync_state_event(
                     match member {
                         // We can only decide whether the user is invited if the event isn't
                         // redacted.
-                        SyncStateEvent::Original(state) => {
-                            Some(state.state_key.deref()) == own_user_id
-                        }
+                        SyncStateEvent::Original(state) => state.state_key.deref() == own_user_id,
 
                         _ => false,
                     }
@@ -1119,7 +1242,7 @@ mod tests_latest_event_content {
                 $event_builder
             };
 
-            assert_eq!(filter_timeline_event(&event, None, Some(user_id!("@mnt_io:matrix.org")), None), $expect );
+            assert_eq!(filter_timeline_event(&event, None, user_id!("@mnt_io:matrix.org"), None), $expect );
         };
     }
 
@@ -1149,7 +1272,7 @@ mod tests_latest_event_content {
         {
             let previous_event_id = None;
 
-            assert!(filter_timeline_event(&event, previous_event_id, Some(user_id), None).not());
+            assert!(filter_timeline_event(&event, previous_event_id, user_id, None).not());
         }
 
         // With a previous event, but not the one being replaced.
@@ -1157,9 +1280,7 @@ mod tests_latest_event_content {
             let previous_event =
                 Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
 
-            assert!(
-                filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None).not()
-            );
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), user_id, None).not());
         }
 
         // With a previous event, and that's the one being replaced!
@@ -1167,7 +1288,7 @@ mod tests_latest_event_content {
             let previous_event =
                 Some(event_factory.text_msg("hello").event_id(event_id!("$ev0")).into_event());
 
-            assert!(filter_timeline_event(&event, previous_event.as_ref(), Some(user_id), None));
+            assert!(filter_timeline_event(&event, previous_event.as_ref(), user_id, None));
         }
     }
 
@@ -1339,7 +1460,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)).not(),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).not(),
                 "cannot accept, cannot decline",
             );
         }
@@ -1349,7 +1470,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)),
                 "can accept, cannot decline",
             );
         }
@@ -1359,7 +1480,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)),
                 "cannot accept, can decline",
             );
         }
@@ -1369,7 +1490,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)),
                 "can accept, can decline",
             );
         }
@@ -1385,7 +1506,7 @@ mod tests_latest_event_content {
             room_power_levels.kick = 0.into();
 
             assert!(
-                filter_timeline_event(&event, None, Some(user_id), Some(&room_power_levels)).not(),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).not(),
                 "cannot accept, can decline, at least same user levels",
             );
         }
@@ -1709,8 +1830,6 @@ mod tests_latest_event_value_builder {
     };
     use crate::{
         Client, Error,
-        client::WeakClient,
-        room::WeakRoom,
         send_queue::{AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
@@ -1808,13 +1927,12 @@ mod tests_latest_event_value_builder {
         event_cache.subscribe().unwrap();
 
         let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because `event_id_2` isn't a candidate,
             // and `event_id_0` hasn't been read yet (because events are read
             // backwards).
-            LatestEventValueBuilder::new_remote(&room_event_cache, &weak_room).await => with body = "world"
+            LatestEventValueBuilder::new_remote(&room_event_cache, user_id, None).await => with body = "world"
         );
     }
 
@@ -1858,7 +1976,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_new_local_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
 
@@ -1871,7 +1990,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
             );
         }
@@ -1885,7 +2004,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
         }
@@ -1895,7 +2014,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_new_local_event_when_previous_local_event_cannot_be_sent() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
 
@@ -1911,7 +2031,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
             );
 
@@ -1930,7 +2050,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's marked as “cannot be sent”.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "A"
             );
 
@@ -1949,7 +2069,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "B"
             );
         }
@@ -1961,7 +2081,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_cancelled_local_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
@@ -1982,7 +2103,7 @@ mod tests_latest_event_value_builder {
 
                 // The `LatestEventValue` matches the new local event.
                 assert_local_value_matches_room_message_with_body!(
-                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                     LatestEventValue::LocalIsSending => with body = body
                 );
             }
@@ -2000,7 +2121,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "C"
             );
 
@@ -2017,7 +2138,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it matches the previous (so the first)
             // local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
             );
 
@@ -2038,7 +2159,7 @@ mod tests_latest_event_value_builder {
                     &update,
                     &mut buffer,
                     &room_event_cache,
-                    None,
+                    user_id,
                     None
                 )
                 .await,
@@ -2051,7 +2172,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_sent_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
@@ -2069,7 +2191,7 @@ mod tests_latest_event_value_builder {
 
                 // The `LatestEventValue` matches the new local event.
                 assert_local_value_matches_room_message_with_body!(
-                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                     LatestEventValue::LocalIsSending => with body = body
                 );
             }
@@ -2088,7 +2210,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
 
@@ -2105,7 +2227,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` hasn't changed.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
 
@@ -2115,7 +2237,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_replaced_local_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
@@ -2133,7 +2256,7 @@ mod tests_latest_event_value_builder {
 
                 // The `LatestEventValue` matches the new local event.
                 assert_local_value_matches_room_message_with_body!(
-                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                     LatestEventValue::LocalIsSending => with body = body
                 );
             }
@@ -2159,7 +2282,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
 
@@ -2184,7 +2307,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but with its new content.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B."
             );
 
@@ -2194,7 +2317,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_replaced_local_event_by_a_non_suitable_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id = OwnedTransactionId::from("txnid0");
@@ -2210,7 +2334,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
             );
 
@@ -2241,7 +2365,7 @@ mod tests_latest_event_value_builder {
                     &update,
                     &mut buffer,
                     &room_event_cache,
-                    None,
+                    user_id,
                     None
                 )
                 .await,
@@ -2254,7 +2378,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_send_error() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
@@ -2272,7 +2397,7 @@ mod tests_latest_event_value_builder {
 
                 // The `LatestEventValue` matches the new local event.
                 assert_local_value_matches_room_message_with_body!(
-                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                     LatestEventValue::LocalIsSending => with body = body
                 );
             }
@@ -2292,7 +2417,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's marked as “cannot be sent”.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "B"
             );
 
@@ -2313,7 +2438,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's “is sending”.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
 
@@ -2324,7 +2449,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_retry_event() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
@@ -2342,7 +2468,7 @@ mod tests_latest_event_value_builder {
 
                 // The `LatestEventValue` matches the new local event.
                 assert_local_value_matches_room_message_with_body!(
-                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                     LatestEventValue::LocalIsSending => with body = body
                 );
             }
@@ -2362,7 +2488,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's marked as “cannot be sent”.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "B"
             );
 
@@ -2380,7 +2506,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's “is sending”.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
             );
 
@@ -2392,7 +2518,8 @@ mod tests_latest_event_value_builder {
 
     #[async_test]
     async fn test_local_media_upload() {
-        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id = OwnedTransactionId::from("txnid");
@@ -2408,7 +2535,7 @@ mod tests_latest_event_value_builder {
 
             // The `LatestEventValue` matches the new local event.
             assert_local_value_matches_room_message_with_body!(
-                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, None, None).await,
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
             );
 
@@ -2432,7 +2559,7 @@ mod tests_latest_event_value_builder {
                     &update,
                     &mut buffer,
                     &room_event_cache,
-                    None,
+                    user_id,
                     None
                 )
                 .await,
@@ -2504,7 +2631,7 @@ mod tests_latest_event_value_builder {
                 },
                 &mut buffer,
                 &room_event_cache,
-                None,
+                user_id,
                 None,
             )
             .await

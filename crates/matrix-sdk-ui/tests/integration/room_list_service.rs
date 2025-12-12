@@ -1876,7 +1876,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now, let's define a filter.
     dynamic_entries.set_filter(Box::new(new_filter_non_left()));
 
-    // Assert rooms are sorted by recency and by name!.
+    // Assert rooms are sorted by recency and by name!
     assert_entries_batch! {
         [stream]
         reset [
@@ -1925,7 +1925,7 @@ async fn test_room_sorting() -> Result<(), Error> {
                     "timeline": [{
                         "content": {
                               "body": "foo",
-                              "msgtype": "m.text"
+                              "msgtype": "m.text",
                           },
                           "event_id": "$ev7",
                           "origin_server_ts": 7,
@@ -2015,7 +2015,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r4     | 5       |      |
     // | 4     | !r3     | 4       |      |
 
-    // The Latest Events are updated.
+    // Rooms are individually updated.
     assert_entries_batch! {
         [stream]
         set [ 1 ] [ "!r0:bar.org" ];
@@ -2086,19 +2086,7 @@ async fn test_room_sorting() -> Result<(), Error> {
 
     assert_entries_batch! {
         [stream]
-        insert [ 3 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // The Latest Event is updated.
-    assert_entries_batch! {
-        [stream]
-        set [ 3 ] [ "!r6:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [stream]
-        set [ 3 ] [ "!r6:bar.org" ];
+        insert [ 1 ] [ "!r6:bar.org" ];
         end;
     };
 
@@ -2112,6 +2100,18 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r1     | 6       | Aaa  |
     // | 4     | !r4     | 5       |      |
     // | 5     | !r3     | 4       |      |
+
+    // Rooms are individually updated.
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r6:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r6:bar.org" ];
+        end;
+    };
 
     assert_entries_batch! {
         [stream]
@@ -2131,15 +2131,20 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
-    // The Latest Events are updated.
+    // Rooms are individually updated.
     assert_entries_batch! {
         [stream]
-        set [ 4 ] [ "!r6:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
     assert_entries_batch! {
         [stream]
         set [ 0 ] [ "!r3:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
 

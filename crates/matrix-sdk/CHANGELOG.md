@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Latest Event is lazier: a `RoomLatestEvents` can be registered even if its
+  associated `RoomEventCache` isn't created yet.
+  ([#5947](https://github.com/matrix-org/matrix-rust-sdk/pull/5947))
 - Allow granting of QR login to a new client whose device ID is not a base64
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
