@@ -602,7 +602,7 @@ mod tests {
         },
         owned_room_id, room_id, user_id,
     };
-    use stream_assert::{assert_next_matches, assert_pending};
+    use stream_assert::assert_pending;
     use tokio::task::yield_now;
 
     use super::{
@@ -1017,9 +1017,9 @@ mod tests {
         // The event cache has received its update from the sync. It has emitted a
         // generic update, which has been received by `LatestEvents` tasks, up to the
         // `compute_latest_events` which has updated the latest event value.
-        assert_next_matches!(
-            latest_event_stream,
-            LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. }) => {
+        assert_matches!(
+            latest_event_stream.next().await,
+            Some(LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. })) => {
                 assert_matches!(
                     event.deserialize().unwrap(),
                     AnySyncTimelineEvent::MessageLike(
