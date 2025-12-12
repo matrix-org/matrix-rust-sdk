@@ -15,8 +15,7 @@ use super::{
 use crate::{
     CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
-    store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    store::{self, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -289,6 +288,8 @@ impl CryptoStoreWrapper {
     /// # Arguments
     ///
     /// * `sessions` - The sessions to be saved.
+    /// * `sender_data` - If the sessions were received as part of an MSC4268
+    ///   key bundle, the information about the user who sent us the bundle.
     /// * `backed_up_to_version` - If the keys should be marked as having been
     ///   backed up, the version of the backup.
     ///

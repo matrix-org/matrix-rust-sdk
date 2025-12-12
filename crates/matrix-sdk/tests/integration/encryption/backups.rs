@@ -1459,7 +1459,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         let olm_machine = machine_guard.as_ref().unwrap();
         olm_machine
             .store()
-            .import_room_keys(vec![inbound_group_session.export().await], None, |_, _| ())
+            .import_room_keys(vec![inbound_group_session.export().await], None, None, |_, _| ())
             .await
             .expect("should be able to import room key");
     }
@@ -1540,6 +1540,7 @@ async fn inbound_session_from_outbound_session(
         room_id,
         &outbound_group_session.session_key().await,
         SenderData::unknown(),
+        None,
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
         false,

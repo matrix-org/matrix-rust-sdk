@@ -2067,6 +2067,7 @@ mod unit_tests {
             )
             .unwrap(),
             sender_data,
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
             false,
