@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
   ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
 - [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>, ...>`.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
+- Implement `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
+  ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ### Performance
 
