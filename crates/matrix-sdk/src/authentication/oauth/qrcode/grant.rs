@@ -756,14 +756,12 @@ mod test {
                             .expect("The checkcode should only be forwarded once")
                             .await
                             .expect("Alice should receive the checkcode");
-                        assert_eq!(
+                        assert!(
                             checkcode_sender.validate(checkcode),
-                            true,
                             "The checkcode should validate"
                         );
-                        assert_eq!(
-                            checkcode_sender.validate((checkcode + 1) % 100),
-                            false,
+                        assert!(
+                            !checkcode_sender.validate((checkcode + 1) % 100),
                             "An incorrect checkcode should not validate"
                         );
                         checkcode_sender
