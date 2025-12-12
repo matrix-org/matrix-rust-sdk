@@ -1238,6 +1238,12 @@ impl Room {
             .map(|sub| ThreadSubscription { automatic: sub.automatic }))
     }
 
+    /// Retrieve a list of all the threads for the current room.
+    ///
+    /// Since this client-server API is paginated, the return type may include a
+    /// token used to resuming back-pagination into the list of results, in
+    /// [`ThreadRoots::prev_batch_token`]. This token can be passed to the next
+    /// call to this function, through the `from` field of [`ListThreadsOptions`].
     pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots, ClientError> {
         let inner_opts = SdkListThreadsOptions {
             include_threads: match opts.include_threads {
@@ -1245,13 +1251,23 @@ impl Room {
                 IncludeThreads::Participated => SdkIncludeThreads::Participated,
             },
             from: opts.from,
-            limit: opts.limit.and_then(|n| ruma::UInt::new(n)),
+            limit: opts.limit.and_then(ruma::UInt::new),
         };
 
         let roots = self.inner.list_threads(inner_opts).await?;
 
         Ok(ThreadRoots {
-            chunk: roots.chunk.into_iter().map(|x| x.into()).collect(),
+            chunk: roots
+                .chunk
+                .into_iter()
+                .filter_map(|timeline_event| {
+                    timeline_event
+                        .raw()
+                        .deserialize()
+                        .ok()
+                        .map(|any_timeline_event| TimelineEvent(Box::new(any_timeline_event)))
+                })
+                .collect(),
             prev_batch_token: roots.prev_batch_token,
         })
     }
@@ -1302,7 +1318,7 @@ pub struct ListThreadsOptions {
     pub limit: Option<u64>,
 }
 
-// /// Which threads to include in the response.
+/// Which threads to include in the response.
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum IncludeThreads {
     /// `all`
