@@ -755,7 +755,6 @@ impl From<ShieldStateCode> for TimelineEventShieldStateCode {
             ShieldStateCode::UnknownDevice => UnknownDevice,
             ShieldStateCode::UnsignedDevice => UnsignedDevice,
             ShieldStateCode::UnverifiedIdentity => UnverifiedIdentity,
-            ShieldStateCode::SentInClear => SentInClear,
             ShieldStateCode::VerificationViolation => VerificationViolation,
             ShieldStateCode::MismatchedSender => MismatchedSender,
         }

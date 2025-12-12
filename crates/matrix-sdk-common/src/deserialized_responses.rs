@@ -282,8 +282,6 @@ pub enum ShieldStateCode {
     UnsignedDevice,
     /// The sender hasn't been verified by the Client's user.
     UnverifiedIdentity,
-    /// An unencrypted event in an encrypted room.
-    SentInClear,
     /// The sender was previously verified but changed their identity.
     #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
@@ -1983,7 +1981,6 @@ mod tests {
             assert_json_snapshot!(ShieldStateCode::UnknownDevice);
             assert_json_snapshot!(ShieldStateCode::UnsignedDevice);
             assert_json_snapshot!(ShieldStateCode::UnverifiedIdentity);
-            assert_json_snapshot!(ShieldStateCode::SentInClear);
             assert_json_snapshot!(ShieldStateCode::VerificationViolation);
         });
     }
