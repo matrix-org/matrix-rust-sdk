@@ -56,6 +56,13 @@ impl LatestEventValue {
             Self::None | Self::Remote(_) => false,
         }
     }
+
+    /// Check whether the [`LatestEventValue`] is not set, i.e. [`None`].
+    ///
+    /// [`None`]: LatestEventValue::None
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
 }
 
 /// Represents the value for [`LatestEventValue::Remote`].
