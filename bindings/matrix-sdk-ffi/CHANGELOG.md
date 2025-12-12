@@ -8,14 +8,16 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::list_threads` to list all the threads in a room.
+  ([#5953](https://github.com/matrix-org/matrix-rust-sdk/pull/5953))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
-[#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
+  ([#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944))
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
   ([#5939](https://github.com/matrix-org/matrix-rust-sdk/pull/5939))
 - [**breaking**]: The new Latest Event API replaces the old API.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
-  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+  ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
 
 ## [0.16.0] - 2025-12-04
 
