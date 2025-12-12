@@ -1262,13 +1262,13 @@ impl LazyTimelineItemProvider {
     /// Returns the shields for this event timeline item.
     fn get_shields(&self, strict: bool) -> Option<ShieldState> {
         match self.0.get_shield(strict) {
-            Some(SdkShieldState::Red { code, message }) => {
+            SdkShieldState::Red { code, message } => {
                 Some(ShieldState::Red { code, message: message.to_owned() })
             }
-            Some(SdkShieldState::Grey { code, message }) => {
+            SdkShieldState::Grey { code, message } => {
                 Some(ShieldState::Grey { code, message: message.to_owned() })
             }
-            None | Some(SdkShieldState::None) => None,
+            SdkShieldState::None => None,
         }
     }
 

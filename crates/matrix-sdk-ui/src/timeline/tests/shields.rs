@@ -31,7 +31,7 @@ async fn test_no_shield_in_unencrypted_room() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
-    assert!(shield.is_none());
+    assert_eq!(shield, ShieldState::None);
 }
 
 #[async_test]
@@ -46,7 +46,7 @@ async fn test_sent_in_clear_shield() {
     let shield = item.as_event().unwrap().get_shield(false);
     assert_eq!(
         shield,
-        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
+        ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." }
     );
 }
 
@@ -75,7 +75,7 @@ async fn test_local_sent_in_clear_shield() {
     // available).
     assert!(event_item.is_local_echo());
     let shield = event_item.get_shield(false);
-    assert_eq!(shield, None);
+    assert_eq!(shield, ShieldState::None);
 
     {
         // The date divider comes in late.
@@ -96,7 +96,7 @@ async fn test_local_sent_in_clear_shield() {
     // Then the local echo still should not have a shield.
     assert!(event_item.is_local_echo());
     let shield = event_item.get_shield(false);
-    assert_eq!(shield, None);
+    assert_eq!(shield, ShieldState::None);
 
     // When the remote echo comes in.
     timeline
@@ -118,7 +118,7 @@ async fn test_local_sent_in_clear_shield() {
     let shield = event_item.get_shield(false);
     assert_eq!(
         shield,
-        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
+        ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." }
     );
 
     // Date divider is adjusted.
@@ -168,5 +168,5 @@ async fn test_utd_shield() {
     // Then the message is displayed with no shield
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
-    assert!(shield.is_none());
+    assert_eq!(shield, ShieldState::None);
 }
