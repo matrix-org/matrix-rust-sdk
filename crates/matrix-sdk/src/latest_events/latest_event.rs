@@ -526,7 +526,7 @@ mod tests_latest_event {
 
             assert_matches!(
                 latest_event.current_value.get().await,
-                LatestEventValue::LocalIsSending(_)
+                LatestEventValue::LocalHasBeenSent(_)
             );
         }
 
@@ -710,13 +710,14 @@ impl LatestEventValueBuilder {
                                 // If a local previous `LatestEventValue` exists and has been marked
                                 // as “cannot be sent”, it means the new `LatestEventValue` must
                                 // also be marked as “cannot be sent”.
-                                let value = if let Some(LatestEventValue::LocalCannotBeSent(_)) =
-                                    buffer_of_values_for_local_events.last()
-                                {
-                                    LatestEventValue::LocalCannotBeSent(local_value)
-                                } else {
-                                    LatestEventValue::LocalIsSending(local_value)
-                                };
+                                let value =
+                                    if let Some((_, LatestEventValue::LocalCannotBeSent(_))) =
+                                        buffer_of_values_for_local_events.last()
+                                    {
+                                        LatestEventValue::LocalCannotBeSent(local_value)
+                                    } else {
+                                        LatestEventValue::LocalIsSending(local_value)
+                                    };
 
                                 buffer_of_values_for_local_events
                                     .push(transaction_id.to_owned(), value.clone());
@@ -768,31 +769,34 @@ impl LatestEventValueBuilder {
             // values. Finally, return the last `LatestEventValue` or calculate a new
             // one.
             RoomSendQueueUpdate::SentEvent { transaction_id, .. } => {
-                let position =
-                    buffer_of_values_for_local_events.mark_is_sending_after(transaction_id);
+                if let Some(position) =
+                    buffer_of_values_for_local_events.mark_is_sending_after(transaction_id)
+                {
+                    let (_, value) = buffer_of_values_for_local_events.remove(position);
 
-                // First, compute the new value. Then we remove the sent local event from the
-                // buffer.
-                //
-                // Why in this order? Because even if the Send Queue inserts the sent event in
-                // the Event Cache, the Send Queue sends its updates (this update) before the
-                // insertion in the Event Cache. Thus, the Event Cache isn't yet aware of the
-                // newly sent event yet at this time of execution. Computing the
-                // `LatestEventValue` from the local ones ensure no hide-and-seek game with the
-                // event before it lands in the Event Cache.
-                let value = Self::new_local_or_remote(
+                    // The sent event is the last of the buffer. Let's compute a proper “detached”
+                    // one if and only if the sent one was the last local one: not from the buffer,
+                    // not from the Event Cache!.
+                    if buffer_of_values_for_local_events.last().is_none() {
+                        match value {
+                            LatestEventValue::LocalIsSending(local_value)
+                            | LatestEventValue::LocalCannotBeSent(local_value)
+                            // Technically impossible, but it's not harmful to handle this that way.
+                            | LatestEventValue::LocalHasBeenSent(local_value ) => {
+                                return LatestEventValue::LocalHasBeenSent(local_value);
+                            }
+                            LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
+                        }
+                    }
+                }
+
+                Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
                     room_event_cache,
                     own_user_id,
                     power_levels,
                 )
-                .await;
-
-                if let Some(position) = position {
-                    buffer_of_values_for_local_events.remove(position);
-                }
-
-                value
+                .await
             }
 
             // A local event has been replaced by another one.
@@ -891,7 +895,7 @@ impl LatestEventValueBuilder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
-        if let Some(value) = buffer_of_values_for_local_events.last() {
+        if let Some((_, value)) = buffer_of_values_for_local_events.last() {
             value.clone()
         } else {
             Self::new_remote(room_event_cache, own_user_id, power_levels).await
@@ -955,8 +959,8 @@ impl LatestEventValuesForLocalEvents {
     }
 
     /// Get the last [`LatestEventValue`].
-    fn last(&self) -> Option<&LatestEventValue> {
-        self.buffer.last().map(|(_, value)| value)
+    fn last(&self) -> Option<&(OwnedTransactionId, LatestEventValue)> {
+        self.buffer.last()
     }
 
     /// Find the position of the [`LatestEventValue`] matching `transaction_id`.
@@ -973,13 +977,7 @@ impl LatestEventValuesForLocalEvents {
     /// Panics if `value` is not of kind [`LatestEventValue::LocalIsSending`] or
     /// [`LatestEventValue::LocalCannotBeSent`].
     fn push(&mut self, transaction_id: OwnedTransactionId, value: LatestEventValue) {
-        assert!(
-            matches!(
-                value,
-                LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_)
-            ),
-            "`value` must be either `LocalIsSending` or `LocalCannotBeSent`"
-        );
+        assert!(value.is_local(), "`value` must be a local `LatestEventValue`");
 
         self.buffer.push((transaction_id, value));
     }
@@ -1621,12 +1619,18 @@ mod tests_latest_event_values_for_local_events {
 
         assert!(buffer.last().is_none());
 
+        let transaction_id = OwnedTransactionId::from("txnid");
         buffer.push(
-            OwnedTransactionId::from("txnid"),
+            transaction_id.clone(),
             LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
 
-        assert_matches!(buffer.last(), Some(LatestEventValue::LocalIsSending(_)));
+        assert_matches!(
+            buffer.last(),
+            Some((expected_transaction_id, LatestEventValue::LocalIsSending(_))) => {
+                assert_eq!(expected_transaction_id, &transaction_id);
+            }
+        );
     }
 
     #[test]
@@ -1679,16 +1683,51 @@ mod tests_latest_event_values_for_local_events {
             OwnedTransactionId::from("txnid1"),
             LatestEventValue::LocalCannotBeSent(local_room_message("raclette")),
         );
+        buffer.push(
+            OwnedTransactionId::from("txnid1"),
+            LatestEventValue::LocalHasBeenSent(local_room_message("raclette")),
+        );
 
         // no panic.
     }
 
     #[test]
-    fn test_replace_content() {
+    #[should_panic]
+    fn test_replace_content_on_remote() {
         let mut buffer = LatestEventValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid0"),
+            OwnedTransactionId::from("txnid"),
+            LatestEventValue::Remote(remote_room_message("gruyère")),
+        );
+
+        let LocalLatestEventValue { content: new_content, .. } = local_room_message("comté");
+
+        buffer.replace_content(0, new_content);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_replace_content_on_local_has_been_sent() {
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+
+        buffer.push(
+            OwnedTransactionId::from("txnid"),
+            LatestEventValue::LocalHasBeenSent(local_room_message("gruyère")),
+        );
+
+        let LocalLatestEventValue { content: new_content, .. } = local_room_message("comté");
+
+        buffer.replace_content(0, new_content);
+    }
+
+    #[test]
+    fn test_replace_content_on_local_is_sending() {
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+
+        let transaction_id = OwnedTransactionId::from("txnid0");
+        buffer.push(
+            transaction_id.clone(),
             LatestEventValue::LocalIsSending(local_room_message("gruyère")),
         );
 
@@ -1698,7 +1737,36 @@ mod tests_latest_event_values_for_local_events {
 
         assert_matches!(
             buffer.last(),
-            Some(LatestEventValue::LocalIsSending(local_event)) => {
+            Some((expected_transaction_id, LatestEventValue::LocalIsSending(local_event))) => {
+                assert_eq!(expected_transaction_id, &transaction_id);
+                assert_matches!(
+                    local_event.content.deserialize().unwrap(),
+                    AnyMessageLikeEventContent::RoomMessage(content) => {
+                        assert_eq!(content.body(), "comté");
+                    }
+                );
+            }
+        );
+    }
+
+    #[test]
+    fn test_replace_content_on_local_cannot_be_sent() {
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+
+        let transaction_id = OwnedTransactionId::from("txnid0");
+        buffer.push(
+            transaction_id.clone(),
+            LatestEventValue::LocalCannotBeSent(local_room_message("gruyère")),
+        );
+
+        let LocalLatestEventValue { content: new_content, .. } = local_room_message("comté");
+
+        buffer.replace_content(0, new_content);
+
+        assert_matches!(
+            buffer.last(),
+            Some((expected_transaction_id, LatestEventValue::LocalCannotBeSent(local_event))) => {
+                assert_eq!(expected_transaction_id, &transaction_id);
                 assert_matches!(
                     local_event.content.deserialize().unwrap(),
                     AnyMessageLikeEventContent::RoomMessage(content) => {
@@ -2226,7 +2294,8 @@ mod tests_latest_event_value_builder {
         }
 
         // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
-        // hasn't changed, this is still this event.
+        // hasn't changed, this is still this event, but the status has changed to
+        // `LocalHasBeenSent`.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_1,
@@ -2236,7 +2305,7 @@ mod tests_latest_event_value_builder {
             // The `LatestEventValue` hasn't changed.
             assert_local_value_matches_room_message_with_body!(
                 LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
-                LatestEventValue::LocalIsSending => with body = "B"
+                LatestEventValue::LocalHasBeenSent => with body = "B"
             );
 
             assert!(buffer.buffer.is_empty());
@@ -2632,7 +2701,8 @@ mod tests_latest_event_value_builder {
         // We get a `Remote` because there is no `Local*` values!
         assert_remote_value_matches_room_message_with_body!(
             LatestEventValueBuilder::new_local(
-                // An update that won't be create a new `LatestEventValue`.
+                // An update that won't create a new `LatestEventValue`: it maps
+                // to zero existing local value.
                 &RoomSendQueueUpdate::SentEvent {
                     transaction_id: OwnedTransactionId::from("txnid"),
                     event_id: event_id_1.to_owned(),
@@ -2643,7 +2713,7 @@ mod tests_latest_event_value_builder {
                 None,
             )
             .await
-             => with body = "hello"
+            => with body = "hello"
         );
     }
 }
