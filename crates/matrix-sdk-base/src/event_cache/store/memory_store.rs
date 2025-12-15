@@ -271,5 +271,6 @@ mod tests {
     }
 
     event_cache_store_integration_tests!();
+    #[cfg(not(target_family = "wasm"))]
     event_cache_store_integration_tests_time!();
 }
