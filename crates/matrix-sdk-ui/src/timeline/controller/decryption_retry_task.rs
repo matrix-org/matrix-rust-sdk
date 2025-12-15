@@ -101,6 +101,10 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
                 // redecryptor to attempt redecryption of our timeline items.
                 timeline_controller.retry_event_decryption(None).await;
             }
+            Ok(RedecryptorReport::BackupAvailable) => {
+                // Do nothing for now, this is handled by the
+                // `backup_states_task()`.
+            }
         }
     }
 }

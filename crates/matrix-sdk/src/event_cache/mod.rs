@@ -280,7 +280,7 @@ impl EventCache {
                     .take()
                     .expect("We should have initialized the channel an subscribing should happen only once");
 
-                redecryptor::Redecryptor::new(Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
+                redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
 
