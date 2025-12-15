@@ -14,17 +14,14 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use futures_core::Stream;
 use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
-    Room,
-    encryption::backups::BackupState,
     event_cache::RedecryptorReport,
     executor::{JoinHandle, spawn},
 };
-use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
+use tokio_stream::StreamExt as _;
 
 use crate::timeline::{TimelineController, TimelineItem};
 
@@ -33,14 +30,12 @@ use crate::timeline::{TimelineController, TimelineItem};
 #[derive(Debug)]
 pub(in crate::timeline) struct CryptoDropHandles {
     redecryption_report_join_handle: JoinHandle<()>,
-    room_key_backup_enabled_join_handle: JoinHandle<()>,
     encryption_changes_handle: JoinHandle<()>,
 }
 
 impl Drop for CryptoDropHandles {
     fn drop(&mut self) {
         self.redecryption_report_join_handle.abort();
-        self.room_key_backup_enabled_join_handle.abort();
         self.encryption_changes_handle.abort();
     }
 }
@@ -96,49 +91,12 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
                     }
                 }
             }
-            Ok(RedecryptorReport::Lagging) | Err(_) => {
-                // The room key stream lagged or the OlmMachine got regenerated. Let's tell the
-                // redecryptor to attempt redecryption of our timeline items.
+            Ok(RedecryptorReport::Lagging | RedecryptorReport::BackupAvailable) | Err(_) => {
+                // The room key stream lagged, the OlmMachine got regenerated or we got access
+                // to a backup. Let's tell the redecryptor to attempt
+                // redecryption of our timeline items.
                 timeline_controller.retry_event_decryption(None).await;
             }
-            Ok(RedecryptorReport::BackupAvailable) => {
-                // Do nothing for now, this is handled by the
-                // `backup_states_task()`.
-            }
-        }
-    }
-}
-
-/// The task that handles the [`BackupState`] updates.
-async fn backup_states_task<S>(backup_states_stream: S, timeline_controller: TimelineController)
-where
-    S: Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
-{
-    pin_mut!(backup_states_stream);
-
-    while let Some(update) = backup_states_stream.next().await {
-        match update {
-            // If the backup got enabled, or we lagged and thus missed that the backup
-            // might be enabled, retry to decrypt all the events. Please note, depending
-            // on the backup download strategy, this might do two things under the
-            // assumption that the backup contains the relevant room keys:
-            //
-            // 1. It will decrypt the events, if `BackupDownloadStrategy` has been set to `OneShot`.
-            // 2. It will fail to decrypt the event, but try to download the room key to decrypt it
-            //    if the `BackupDownloadStrategy` has been set to `AfterDecryptionFailure`.
-            Ok(BackupState::Enabled) | Err(_) => {
-                timeline_controller.retry_event_decryption(None).await;
-            }
-            // The other states aren't interesting since they are either still enabling
-            // the backup or have the backup in the disabled state.
-            Ok(
-                BackupState::Unknown
-                | BackupState::Creating
-                | BackupState::Resuming
-                | BackupState::Disabling
-                | BackupState::Downloading
-                | BackupState::Enabling,
-            ) => (),
         }
     }
 }
@@ -146,19 +104,12 @@ where
 /// Spawn all the crypto-related tasks that are used to handle re-decryption of
 /// messages.
 pub(in crate::timeline) async fn spawn_crypto_tasks(
-    room: Room,
     controller: TimelineController,
 ) -> CryptoDropHandles {
-    let client = room.client();
-
-    let room_key_backup_enabled_join_handle =
-        spawn(backup_states_task(client.encryption().backups().state_stream(), controller.clone()));
-
     let redecryption_report_join_handle = spawn(redecryption_report_task(controller.clone()));
 
     CryptoDropHandles {
         redecryption_report_join_handle,
-        room_key_backup_enabled_join_handle,
         encryption_changes_handle: spawn(async move {
             controller.handle_encryption_state_changes().await
         }),
