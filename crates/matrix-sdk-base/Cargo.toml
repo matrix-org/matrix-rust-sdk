@@ -50,9 +50,6 @@ test-send-sync = [
     "matrix-sdk-crypto?/test-send-sync",
 ]
 
-# "message-ids" feature doesn't do anything and is deprecated.
-message-ids = []
-
 # helpers for testing features build upon this
 testing = [
     "dep:assert_matches",
