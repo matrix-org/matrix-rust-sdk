@@ -19,6 +19,10 @@ pub enum LatestEventValue {
     /// The latest event represents a local event that is sending.
     LocalIsSending(LocalLatestEventValue),
 
+    /// The latest event represents a local event that has been sent
+    /// successfully. It should come quickly as a [`Self::Remote`].
+    LocalHasBeenSent(LocalLatestEventValue),
+
     /// The latest event represents a local event that cannot be sent, either
     /// because a previous local event, or this local event cannot be sent.
     LocalCannotBeSent(LocalLatestEventValue),
@@ -28,19 +32,21 @@ impl LatestEventValue {
     /// Get the timestamp of the [`LatestEventValue`].
     ///
     /// If it's [`None`], it returns `None`. If it's [`Remote`], it returns the
-    /// [`TimelineEvent::timestamp`]. If it's [`LocalIsSending`] or
-    /// [`LocalCannotBeSent`], it returns the
+    /// [`TimelineEvent::timestamp`]. If it's [`LocalIsSending`],
+    /// [`LocalHasBeenSent`] or [`LocalCannotBeSent`], it returns the
     /// [`LocalLatestEventValue::timestamp`] value.
     ///
     /// [`None`]: LatestEventValue::None
     /// [`Remote`]: LatestEventValue::Remote
     /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalHasBeenSent`]: LatestEventValue::LocalHasBeenSent
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             Self::None => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
+            | Self::LocalHasBeenSent(LocalLatestEventValue { timestamp, .. })
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
         }
     }
@@ -52,7 +58,9 @@ impl LatestEventValue {
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
     pub fn is_local(&self) -> bool {
         match self {
-            Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
+            Self::LocalIsSending(_) | Self::LocalHasBeenSent(_) | Self::LocalCannotBeSent(_) => {
+                true
+            }
             Self::None | Self::Remote(_) => false,
         }
     }
@@ -122,6 +130,19 @@ mod tests_latest_event_value {
     #[test]
     fn test_timestamp_with_local_is_sending() {
         let value = LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
+        });
+
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
+    }
+
+    #[test]
+    fn test_timestamp_with_local_has_been_sent() {
+        let value = LatestEventValue::LocalHasBeenSent(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
             content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
                 RoomMessageEventContent::text_plain("raclette"),
