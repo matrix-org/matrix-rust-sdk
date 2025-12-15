@@ -792,6 +792,8 @@ impl Redecryptor {
                             // This would most likely be the timeline from the UI crate. The
                             // timeline might attempt to redecrypt all UTDs it is showing to the
                             // user.
+                            warn!("The room key stream lagged, reporting the lag to our listeners");
+
                             if report_lag(cache).is_err() {
                                 break false;
                             }
