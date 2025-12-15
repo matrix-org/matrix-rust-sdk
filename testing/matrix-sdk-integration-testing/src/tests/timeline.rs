@@ -483,11 +483,17 @@ async fn test_enabling_backups_retries_decryption() {
     pin_mut!(room_key_stream);
 
     // Wait for the room key to arrive before continuing.
-    if let Some(update) = room_key_stream.next().await {
-        let _update = update.expect(
+    let wait_for_room_key = async {
+        if let Some(update) = room_key_stream.next().await {
+            let _update = update.expect(
             "We should not miss the update since we're only broadcasting a small amount of updates",
         );
-    }
+        }
+    };
+
+    timeout(Duration::from_secs(5), wait_for_room_key)
+        .await
+        .expect("We should have downloaded the room key from the backup");
 
     // Alright, we should now receive an update that the event had been decrypted.
     let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
