@@ -52,7 +52,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -107,7 +107,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -161,7 +161,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-macos }}"

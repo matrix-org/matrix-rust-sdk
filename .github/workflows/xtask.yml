@@ -53,7 +53,7 @@ jobs:
           echo "cachekey-${{ matrix.cachekey-id }}=xtask-${{ matrix.cachekey-id }}-${{ hashFiles('Cargo.toml', 'xtask/**') }}" >> $GITHUB_OUTPUT
 
       - name: Check xtask cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: xtask-cache
         with:
           path: target/debug/xtask
