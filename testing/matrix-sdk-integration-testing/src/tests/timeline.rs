@@ -1213,7 +1213,7 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     // Still a UTD.
     assert!(
         item.content().is_unable_to_decrypt(),
-        "The pinned event should be an UTD as we didn't recover yet"
+        "The pinned event should be a UTD as we didn't recover yet"
     );
     assert_eq!(pinned_timeline.items().await.len(), 2);
 
@@ -1228,7 +1228,7 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     assert_let!(VectorDiff::Set { index: 0, value } = next_item);
     let content = value.content();
 
-    // And we're not an UTD anymore.
+    // And we're not a UTD anymore.
     assert!(!content.is_unable_to_decrypt());
     let message = content.as_message().expect("The pinned event should be a message");
     assert_eq!(message.body(), "It's a secret to everybody");
