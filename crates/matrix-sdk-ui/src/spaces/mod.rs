@@ -170,7 +170,7 @@ impl SpaceService {
                             }
 
                             let (spaces, graph) = Self::build_space_state(&client).await;
-                            Self::update_joined_spaces_if_needed(
+                            Self::update_space_state_if_needed(
                                 Vector::from(spaces),
                                 graph,
                                 &space_state,
@@ -186,7 +186,7 @@ impl SpaceService {
 
             // Make sure to also update the currently joined spaces for the initial values.
             let (spaces, graph) = Self::build_space_state(&self.client).await;
-            Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state)
+            Self::update_space_state_if_needed(Vector::from(spaces), graph, &self.space_state)
                 .await;
         }
     }
@@ -205,12 +205,8 @@ impl SpaceService {
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
         let (spaces, graph) = Self::build_space_state(&self.client).await;
 
-        Self::update_joined_spaces_if_needed(
-            Vector::from(spaces.clone()),
-            graph,
-            &self.space_state,
-        )
-        .await;
+        Self::update_space_state_if_needed(Vector::from(spaces.clone()), graph, &self.space_state)
+            .await;
 
         spaces
     }
@@ -374,7 +370,7 @@ impl SpaceService {
         Ok(handle)
     }
 
-    async fn update_joined_spaces_if_needed(
+    async fn update_space_state_if_needed(
         new_spaces: Vector<SpaceRoom>,
         new_graph: SpaceGraph,
         space_state: &Arc<AsyncMutex<SpaceState>>,
