@@ -203,12 +203,18 @@ impl LatestEvent {
     }
 }
 
+/// Semantic type similar to a tuple where the left part is the main result and
+/// the right part is an “attached” value.
 pub(super) struct With<T, W> {
+    /// The main value.
     result: T,
+
+    /// The “attached” value.
     with: W,
 }
 
 impl<T, W> With<T, W> {
+    /// Map the main result without changing the “attached” value.
     pub fn map<F, O>(this: With<T, W>, f: F) -> With<O, W>
     where
         F: FnOnce(T) -> O,
@@ -216,10 +222,12 @@ impl<T, W> With<T, W> {
         With { result: f(this.result), with: this.with }
     }
 
+    /// Get the main result.
     pub fn inner(this: With<T, W>) -> T {
         this.result
     }
 
+    /// Get a tuple.
     pub fn unzip(this: With<T, W>) -> (T, W) {
         (this.result, this.with)
     }
