@@ -169,7 +169,7 @@ impl SpaceService {
                                 continue;
                             }
 
-                            let (spaces, graph) = Self::joined_spaces_for(&client).await;
+                            let (spaces, graph) = Self::build_space_state(&client).await;
                             Self::update_joined_spaces_if_needed(
                                 Vector::from(spaces),
                                 graph,
@@ -185,7 +185,7 @@ impl SpaceService {
             })));
 
             // Make sure to also update the currently joined spaces for the initial values.
-            let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
+            let (spaces, graph) = Self::build_space_state(&self.client).await;
             Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state)
                 .await;
         }
@@ -203,7 +203,7 @@ impl SpaceService {
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
-        let (spaces, graph) = Self::joined_spaces_for(&self.client).await;
+        let (spaces, graph) = Self::build_space_state(&self.client).await;
 
         Self::update_joined_spaces_if_needed(
             Vector::from(spaces.clone()),
@@ -389,7 +389,7 @@ impl SpaceService {
         space_state.graph = new_graph;
     }
 
-    async fn joined_spaces_for(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
+    async fn build_space_state(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
         let joined_spaces = client.joined_space_rooms();
 
         // Build a graph to hold the parent-child relations
