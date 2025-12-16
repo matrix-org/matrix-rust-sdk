@@ -193,7 +193,7 @@ mod tests {
 
         server.mock_room_leave().ok(room_id!("!does_not_matter:a:b")).mount().await;
 
-        assert!(!space_service.joined_spaces().await.is_empty());
+        assert!(!space_service.top_level_joined_spaces().await.is_empty());
 
         let handle = space_service.leave_space(parent_space_id).await.unwrap();
 
@@ -210,6 +210,6 @@ mod tests {
 
         handle.leave(|room| room_ids.contains(&room.space_room.room_id)).await.unwrap();
 
-        assert!(space_service.joined_spaces().await.is_empty());
+        assert!(space_service.top_level_joined_spaces().await.is_empty());
     }
 }
