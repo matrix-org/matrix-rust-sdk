@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- [**breaking**] `LatestEventValue::Local { is_sending: bool }` is replaced
+  by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,
+  `HasBeenSent` and `CannotBeSent`.
+  ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968/))
+
 ### Features
 
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
