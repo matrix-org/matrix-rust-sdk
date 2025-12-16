@@ -23,6 +23,16 @@ All notable changes to this project will be documented in this file.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+  
+### Refactor
+
+- [**breaking**] The `SpaceService` will no longer auto-subscribe to required
+  client events when invoking the `subscribe_to_joined_spaces` method and the
+  `setup` method should be used instead.
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
+- [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
+  `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
 
 ## [0.16.0] - 2025-12-04
 
