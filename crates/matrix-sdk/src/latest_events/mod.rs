@@ -624,7 +624,6 @@ mod tests {
     }
 
     #[async_test]
-
     async fn test_latest_events_are_lazy() {
         let room_id_0 = room_id!("!r0");
         let room_id_1 = room_id!("!r1");
