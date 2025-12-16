@@ -83,6 +83,7 @@ impl LatestEventValue {
     ) -> Self {
         match value {
             BaseLatestEventValue::None => Self::None,
+            BaseLatestEventValue::Utd(_) => Self::None,
             BaseLatestEventValue::Remote(timeline_event) => {
                 let raw_any_sync_timeline_event = timeline_event.into_raw();
                 let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
