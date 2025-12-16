@@ -18,7 +18,7 @@ use ruma::{
     DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        MessageLikeEventType,
+        MessageLikeEventType, room::encrypted::EncryptedEventScheme,
     },
     push::Action,
     serde::{
@@ -713,14 +713,21 @@ impl TimelineEvent {
 
             Ok(Some(MessageLikeEventType::RoomEncrypted)) => {
                 // The bundled latest thread event is encrypted, but we didn't have any
-                // information about it in the unsigned map. Provide some dummy
-                // UTD info, since we can't really do much better.
+                // information about it in the unsigned map. Try to fetch the information from
+                // the content instead.
+                let session_id = if let Some(content) =
+                    latest_event.get_field::<EncryptedEventScheme>("content").ok().flatten()
+                {
+                    match content {
+                        EncryptedEventScheme::MegolmV1AesSha2(content) => Some(content.session_id),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
                 Some(Box::new(TimelineEvent::from_utd_with_max_timestamp(
                     latest_event.cast(),
-                    UnableToDecryptInfo {
-                        session_id: None,
-                        reason: UnableToDecryptReason::Unknown,
-                    },
+                    UnableToDecryptInfo { session_id, reason: UnableToDecryptReason::Unknown },
                     max_timestamp,
                 )))
             }
@@ -1457,7 +1464,9 @@ mod tests {
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, device_id, event_id,
-        events::room::message::RoomMessageEventContent, serde::Raw, user_id,
+        events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
+        serde::Raw,
+        user_id,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -2095,5 +2104,44 @@ mod tests {
                 serde_json::to_value(&room_event).unwrap(),
             }
         });
+    }
+
+    #[test]
+    fn test_from_bundled_latest_event_keeps_session_id() {
+        let session_id = "hgLyeSqXfb8vc5AjQLsg6TSHVu0HJ7HZ4B6jgMvxkrs";
+        let serialized = json!({
+            "content": {
+              "algorithm": "m.megolm.v1.aes-sha2",
+              "ciphertext": "AwgAEoABzL1JYhqhjW9jXrlT3M6H8mJ4qffYtOQOnPuAPNxsuG20oiD/Fnpv6jnQGhU6YbV9pNM+1mRnTvxW3CbWOPjLKqCWTJTc7Q0vDEVtYePg38ncXNcwMmfhgnNAoW9S7vNs8C003x3yUl6NeZ8bH+ci870BZL+kWM/lMl10tn6U7snNmSjnE3ckvRdO+11/R4//5VzFQpZdf4j036lNSls/WIiI67Fk9iFpinz9xdRVWJFVdrAiPFwb8L5xRZ8aX+e2JDMlc1eW8gk",
+              "device_id": "SKCGPNUWAU",
+              "sender_key": "Gim/c7uQdSXyrrUbmUOrBT6sMC0gO7QSLmOK6B7NOm0",
+              "session_id": session_id,
+            },
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": 2189,
+            "room_id": "!someroom:example.com",
+            "sender": "@carl:example.com",
+            "type": "m.room.encrypted"
+        });
+        let json = serialized.to_string();
+        let value = Raw::<AnySyncTimelineEvent>::from_json_string(json).unwrap();
+
+        let kind = TimelineEventKind::UnableToDecrypt {
+            event: value.clone(),
+            utd_info: UnableToDecryptInfo {
+                session_id: None,
+                reason: UnableToDecryptReason::Unknown,
+            },
+        };
+        let result = TimelineEvent::from_bundled_latest_event(
+            &kind,
+            Some(value.cast_unchecked()),
+            MilliSecondsSinceUnixEpoch::now(),
+        )
+        .expect("Could not get bundled latest event");
+
+        assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = result.kind);
+        assert!(utd_info.session_id.is_some());
+        assert_eq!(utd_info.session_id.unwrap(), session_id);
     }
 }
