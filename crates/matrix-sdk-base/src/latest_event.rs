@@ -16,6 +16,9 @@ pub enum LatestEventValue {
     /// The latest event represents a remote event.
     Remote(RemoteLatestEventValue),
 
+    /// The latest event represents an unable to decrypt remote event.
+    Utd(RemoteLatestEventValue),
+
     /// The latest event represents a local event that is sending.
     LocalIsSending(LocalLatestEventValue),
 
@@ -40,6 +43,7 @@ impl LatestEventValue {
         match self {
             Self::None => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
+            Self::Utd(remote_latest_event_value) => remote_latest_event_value.timestamp(),
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
         }
@@ -53,7 +57,7 @@ impl LatestEventValue {
     pub fn is_local(&self) -> bool {
         match self {
             Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
-            Self::None | Self::Remote(_) => false,
+            Self::None | Self::Remote(_) | Self::Utd(_) => false,
         }
     }
 
