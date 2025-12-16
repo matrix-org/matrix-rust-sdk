@@ -33,7 +33,7 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
     ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
+        MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             InitialStateEvent,
@@ -47,7 +47,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_test::TestResult;
+use matrix_sdk_test::{TestError, TestResult};
 use matrix_sdk_ui::{
     Timeline,
     notification_client::NotificationClient,
@@ -1083,6 +1083,41 @@ async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     Ok(())
 }
 
+async fn prepare_room_with_pinned_events(
+    alice: &Client,
+    recovery_passphrase: &str,
+) -> Result<(OwnedRoomId, OwnedEventId), TestError> {
+    let sync_service = SyncService::builder(alice.clone()).build().await?;
+    sync_service.start().await;
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice.encryption().recovery().enable().with_passphrase(recovery_passphrase).await?;
+
+    debug!("Creating room…");
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state: vec![],
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    room.enable_encryption().await?;
+
+    // Send an event to the encrypted room and pin it.
+    let room_id = room.room_id().to_owned();
+    let result =
+        room.send(RoomMessageEventContent::text_plain("It's a secret to everybody")).await?;
+    let event_id = result.response.event_id;
+
+    let timeline = room.timeline().await?;
+    timeline.pin_event(&event_id).await?;
+
+    sync_service.stop().await;
+
+    Ok((room_id, event_id))
+}
+
 /// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
 /// replaced in the timeline with the decrypted variant.
 ///
@@ -1110,33 +1145,7 @@ async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
         .await?;
     let user_id = alice.user_id().expect("We should have a user ID by now");
 
-    let sync_service = SyncService::builder(alice.clone()).build().await?;
-    sync_service.start().await;
-
-    alice.encryption().wait_for_e2ee_initialization_tasks().await;
-    alice.encryption().recovery().enable().with_passphrase(RECOVERY_PASSPHRASE).await?;
-
-    debug!("Creating room…");
-    let room = alice
-        .create_room(assign!(CreateRoomRequest::new(), {
-            is_direct: true,
-            initial_state: vec![],
-            preset: Some(RoomPreset::PrivateChat)
-        }))
-        .await?;
-
-    room.enable_encryption().await?;
-
-    // Send an event to the encrypted room and pin it.
-    let room_id = room.room_id().to_owned();
-    let result =
-        room.send(RoomMessageEventContent::text_plain("It's a secret to everybody")).await?;
-    let event_id = result.response.event_id;
-
-    let timeline = room.timeline().await?;
-    timeline.pin_event(&event_id).await?;
-
-    sync_service.stop().await;
+    let (room_id, event_id) = prepare_room_with_pinned_events(&alice, RECOVERY_PASSPHRASE).await?;
 
     // Now `another_alice` comes into play.
     let another_alice = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
@@ -1206,7 +1215,7 @@ async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
         item.content().is_unable_to_decrypt(),
         "The pinned event should be an UTD as we didn't recover yet"
     );
-    assert_eq!(timeline.items().await.len(), 4);
+    assert_eq!(pinned_timeline.items().await.len(), 2);
 
     // Let's now recover.
     another_alice.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
@@ -1226,8 +1235,11 @@ async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
 
     // And we check that we don't have any more items in the timeline, the UTD item
     // was indeed replaced.
-    let items = timeline.items().await;
-    assert_eq!(items.len(), 4);
+    let items = pinned_timeline.items().await;
+    assert_eq!(items.len(), 2);
+
+    Ok(())
+}
 
     Ok(())
 }
