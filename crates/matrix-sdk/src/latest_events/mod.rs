@@ -51,28 +51,35 @@ mod latest_event;
 mod room_latest_events;
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     ops::{ControlFlow, DerefMut, Not},
     sync::Arc,
 };
 
 pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
+use futures_util::pin_mut;
 use latest_event::{LatestEvent, With};
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
 use matrix_sdk_base::timer;
-use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
+use matrix_sdk_common::{
+    deserialized_responses::TimelineEventKind,
+    executor::{AbortOnDrop, JoinHandleExt as _, spawn},
+};
 use room_latest_events::RoomLatestEvents;
 use ruma::{EventId, OwnedRoomId, RoomId};
 use tokio::{
     select,
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
 };
-use tracing::{error, warn};
+use tokio_stream::StreamExt;
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     client::WeakClient,
-    event_cache::{EventCache, RoomEventCacheGenericUpdate},
+    event_cache::{
+        DecryptionRetryRequest, EventCache, RedecryptorReport, RoomEventCacheGenericUpdate,
+    },
     room::WeakRoom,
     send_queue::{RoomSendQueueUpdate, SendQueue, SendQueueUpdate},
 };
@@ -95,6 +102,8 @@ struct LatestEventsState {
 
     /// The task handle of the [`compute_latest_events_task`].
     _computation_task_handle: AbortOnDrop<()>,
+
+    _pending_utds_task_handle: AbortOnDrop<()>,
 }
 
 impl LatestEvents {
@@ -112,7 +121,7 @@ impl LatestEvents {
         // The task listening to the event cache and the send queue updates.
         let listen_task_handle = spawn(listen_to_event_cache_and_send_queue_updates_task(
             registered_rooms.clone(),
-            event_cache,
+            event_cache.clone(),
             send_queue,
             latest_event_queue_sender,
         ))
@@ -125,11 +134,15 @@ impl LatestEvents {
         ))
         .abort_on_drop();
 
+        let pending_utds_task_handle =
+            spawn(handle_utds_task(registered_rooms.clone(), event_cache)).abort_on_drop();
+
         Self {
             state: Arc::new(LatestEventsState {
                 registered_rooms,
                 _listen_task_handle: listen_task_handle,
                 _computation_task_handle: computation_task_handle,
+                _pending_utds_task_handle: pending_utds_task_handle,
             }),
         }
     }
@@ -578,6 +591,100 @@ async fn compute_latest_events(
                     continue;
                 }
             }
+        }
+    }
+}
+
+async fn handle_utds_task(registered_rooms: Arc<RegisteredRooms>, event_cache: EventCache) {
+    let reports_stream = event_cache.subscribe_to_decryption_reports();
+    pin_mut!(reports_stream);
+
+    while let Some(report) = reports_stream.next().await {
+        match report {
+            // Either the redecryptor lagged and has some keys that weren't applied or key backup is
+            // now available, and we need to re-decrypt pending UTDs.
+            Ok(RedecryptorReport::Lagging | RedecryptorReport::BackupAvailable) => {
+                debug!(
+                    "The redecryptor was lagging, so some events may not have been decrypted. Retrying them."
+                );
+
+                let is_backup_download_enabled =
+                    if let Some(client) = registered_rooms.weak_client.get() {
+                        client.encryption().backups().are_enabled().await
+                    } else {
+                        false
+                    };
+
+                if !is_backup_download_enabled {
+                    warn!("Key backup is not enabled, there is no point in trying to re-decrypt.");
+                    continue;
+                }
+
+                let mut pending_utd_rooms = HashMap::new();
+                for (room_id, room_latest_events) in registered_rooms.rooms.read().await.iter() {
+                    if let LatestEventValue::Utd(utd) =
+                        room_latest_events.read().await.for_room().subscribe().await.get().await
+                    {
+                        trace!("Found pending UTD in {:?}: {:?}", room_id, utd);
+                        pending_utd_rooms.insert(room_id.clone(), utd);
+                    }
+                }
+
+                if pending_utd_rooms.is_empty() {
+                    debug!("No pending UTDs found for latest events");
+                    continue;
+                }
+
+                for (room_id, event) in pending_utd_rooms {
+                    let mut session_infos = BTreeSet::new();
+                    let mut refresh_session_infos = BTreeSet::new();
+                    let event_id = event.event_id().clone();
+                    match event.kind {
+                        TimelineEventKind::UnableToDecrypt { utd_info, .. } => {
+                            if let Some(session_info) = utd_info.session_id {
+                                debug!(
+                                    "Retrying re-decryption of event {:?} in room {}",
+                                    event_id, room_id
+                                );
+                                session_infos.insert(session_info);
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
+                    }
+
+                    let Ok((room_event_cache, _handle)) = event_cache.for_room(&room_id).await
+                    else {
+                        continue;
+                    };
+
+                    let Ok(events) = room_event_cache.events().await else { continue };
+
+                    for event in events {
+                        match event.kind {
+                            TimelineEventKind::UnableToDecrypt { .. } => continue,
+                            _ => {
+                                if let Some(session_id) = event.kind.session_id() {
+                                    refresh_session_infos.insert(session_id.to_owned());
+                                }
+                            }
+                        }
+                    }
+
+                    let request = DecryptionRetryRequest {
+                        room_id: room_id.clone(),
+                        utd_session_ids: session_infos,
+                        refresh_info_session_ids: refresh_session_infos,
+                    };
+                    trace!("Sending re-decryption request for {}: {:?}", room_id, request);
+                    event_cache.request_decryption(request);
+                }
+            }
+            Err(error) => {
+                error!(?error, "Handle pending UTD task in latest_events failed");
+            }
+            _ => (),
         }
     }
 }
