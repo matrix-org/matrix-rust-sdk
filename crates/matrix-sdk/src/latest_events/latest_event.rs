@@ -118,6 +118,8 @@ impl LatestEvent {
         let new_value =
             LatestEventValueBuilder::new_remote(room_event_cache, own_user_id, power_levels).await;
 
+        info!(value = ?new_value, "Computed a remote `LatestEventValue`");
+
         self.update(new_value).await;
     }
 
@@ -139,7 +141,11 @@ impl LatestEvent {
         )
         .await;
 
-        self.update(new_value).await;
+        info!(value = ?new_value, "Computed a local `LatestEventValue`");
+
+        if let Some(new_value) = new_value {
+            self.update(new_value).await;
+        }
     }
 
     /// Update [`Self::current_value`], and persist the `new_value` in the
@@ -657,7 +663,7 @@ impl LatestEventValueBuilder {
             format!("`LatestEventValueBuilder::new_remote` for {:?}", room_event_cache.room_id())
         );
 
-        let value = if let Ok(Some(event)) = room_event_cache
+        if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event, previous_event_id| {
                 filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
                     .then(|| event.clone())
@@ -667,11 +673,7 @@ impl LatestEventValueBuilder {
             LatestEventValue::Remote(event)
         } else {
             LatestEventValue::default()
-        };
-
-        info!(?value, "Computed a remote `LatestEventValue`");
-
-        value
+        }
     }
 
     /// Create a new [`LatestEventValue::LocalIsSending`] or
@@ -682,7 +684,7 @@ impl LatestEventValueBuilder {
         room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
-    ) -> LatestEventValue {
+    ) -> Option<LatestEventValue> {
         use crate::send_queue::{LocalEcho, LocalEchoContent};
 
         let _timer = timer!(
@@ -690,7 +692,7 @@ impl LatestEventValueBuilder {
             format!("`LatestEventValueBuilder::new_local` for {:?}", room_event_cache.room_id())
         );
 
-        let value = match send_queue_update {
+        Some(match send_queue_update {
             // A new local event is being sent.
             //
             // Let's create the `LatestEventValue` and push it in the buffer of values.
@@ -724,7 +726,7 @@ impl LatestEventValueBuilder {
 
                                 value
                             } else {
-                                LatestEventValue::None
+                                return None;
                             }
                         }
 
@@ -734,12 +736,12 @@ impl LatestEventValueBuilder {
                                 "Failed to deserialize an event from `RoomSendQueueUpdate::NewLocalEvent`"
                             );
 
-                            LatestEventValue::None
+                            return None;
                         }
                     }
                 }
 
-                LocalEchoContent::React { .. } => LatestEventValue::None,
+                LocalEchoContent::React { .. } => return None,
             },
 
             // A local event has been cancelled before being sent.
@@ -783,7 +785,7 @@ impl LatestEventValueBuilder {
                             | LatestEventValue::LocalCannotBeSent(local_value)
                             // Technically impossible, but it's not harmful to handle this that way.
                             | LatestEventValue::LocalHasBeenSent(local_value ) => {
-                                return LatestEventValue::LocalHasBeenSent(local_value);
+                                return Some(LatestEventValue::LocalHasBeenSent(local_value));
                             }
                             LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         }
@@ -826,7 +828,7 @@ impl LatestEventValueBuilder {
                                 "Failed to deserialize an event from `RoomSendQueueUpdate::ReplacedLocalEvent`"
                             );
 
-                            return LatestEventValue::None;
+                            return None;
                         }
                     }
                 }
@@ -875,12 +877,8 @@ impl LatestEventValueBuilder {
             // A media upload has made progress.
             //
             // Nothing to do here.
-            RoomSendQueueUpdate::MediaUpload { .. } => LatestEventValue::None,
-        };
-
-        info!(?value, "Computed a local `LatestEventValue`");
-
-        value
+            RoomSendQueueUpdate::MediaUpload { .. } => return None,
+        })
     }
 
     /// Get the last [`LatestEventValue`] from the local latest event values if
@@ -1887,7 +1885,7 @@ mod tests_latest_event_value_builder {
         RoomState,
         deserialized_responses::TimelineEventKind,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        store::SerializableEventContent,
+        store::{ChildTransactionId, SerializableEventContent},
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -1906,7 +1904,10 @@ mod tests_latest_event_value_builder {
     };
     use crate::{
         Client, Error,
-        send_queue::{AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle},
+        send_queue::{
+            AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle,
+            SendReactionHandle,
+        },
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -1934,7 +1935,7 @@ mod tests_latest_event_value_builder {
         ( $latest_event_value:expr, $pattern:path => with body = $body:expr ) => {
             assert_matches!(
                 $latest_event_value,
-                $pattern (local_event) => {
+                Some( $pattern (local_event)) => {
                     assert_matches!(
                         local_event.content.deserialize().unwrap(),
                         AnyMessageLikeEventContent::RoomMessage(message_content) => {
@@ -2051,7 +2052,7 @@ mod tests_latest_event_value_builder {
     }
 
     #[async_test]
-    async fn test_local_new_local_event() {
+    async fn test_local_new_local_event_with_content_of_kind_event() {
         let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
         let user_id = client.user_id().unwrap();
 
@@ -2089,7 +2090,8 @@ mod tests_latest_event_value_builder {
     }
 
     #[async_test]
-    async fn test_local_new_local_event_when_previous_local_event_cannot_be_sent() {
+    async fn test_local_new_local_event_with_content_of_kind_event_when_previous_local_event_cannot_be_sent()
+     {
         let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
         let user_id = client.user_id().unwrap();
 
@@ -2153,6 +2155,64 @@ mod tests_latest_event_value_builder {
         assert_eq!(buffer.buffer.len(), 2);
         assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
         assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
+    }
+
+    #[async_test]
+    async fn test_local_new_local_event_with_content_of_kind_react() {
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
+
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+
+        // Receiving one `NewLocalEvent` with content of kind event.
+        let transaction_id_0 = {
+            let transaction_id = OwnedTransactionId::from("txnid0");
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            // The `LatestEventValue` matches the new local event.
+            assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "A"
+            );
+
+            transaction_id
+        };
+
+        // Receiving one `NewLocalEvent` with content of kind react! This time, it is
+        // ignored.
+        {
+            let transaction_id = OwnedTransactionId::from("txnid1");
+            let content = LocalEchoContent::React {
+                key: "<< 1".to_owned(),
+                send_handle: SendReactionHandle::new(
+                    room_send_queue.clone(),
+                    ChildTransactionId::new(),
+                ),
+                applies_to: transaction_id_0,
+            };
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
+
+            // The `LatestEventValue` matches the previous local event.
+            assert_matches!(
+                LatestEventValueBuilder::new_local(
+                    &update,
+                    &mut buffer,
+                    &room_event_cache,
+                    user_id,
+                    None
+                )
+                .await,
+                None
+            );
+        }
+
+        assert_eq!(buffer.buffer.len(), 1);
     }
 
     #[async_test]
@@ -2239,7 +2299,7 @@ mod tests_latest_event_value_builder {
                     None
                 )
                 .await,
-                LatestEventValue::None
+                Some(LatestEventValue::None)
             );
 
             assert!(buffer.buffer.is_empty());
@@ -2446,7 +2506,7 @@ mod tests_latest_event_value_builder {
                     None
                 )
                 .await,
-                LatestEventValue::None
+                Some(LatestEventValue::None)
             );
 
             assert_eq!(buffer.buffer.len(), 0);
@@ -2640,7 +2700,7 @@ mod tests_latest_event_value_builder {
                     None
                 )
                 .await,
-                LatestEventValue::None
+                None
             );
 
             assert_eq!(buffer.buffer.len(), 1);
@@ -2713,6 +2773,7 @@ mod tests_latest_event_value_builder {
                 None,
             )
             .await
+            .unwrap()
             => with body = "hello"
         );
     }

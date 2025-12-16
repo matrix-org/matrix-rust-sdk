@@ -2772,6 +2772,12 @@ pub struct SendReactionHandle {
 }
 
 impl SendReactionHandle {
+    /// Creates a new [`SendReactionHandle`].
+    #[cfg(test)]
+    pub(crate) fn new(room: RoomSendQueue, transaction_id: ChildTransactionId) -> Self {
+        Self { room, transaction_id }
+    }
+
     /// Abort the sending of the reaction.
     ///
     /// Will return true if the reaction could be aborted, false if it's been
