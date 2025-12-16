@@ -1086,6 +1086,7 @@ async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
 async fn prepare_room_with_pinned_events(
     alice: &Client,
     recovery_passphrase: &str,
+    number_of_normal_events: usize,
 ) -> Result<(OwnedRoomId, OwnedEventId), TestError> {
     let sync_service = SyncService::builder(alice.clone()).build().await?;
     sync_service.start().await;
@@ -1113,22 +1114,20 @@ async fn prepare_room_with_pinned_events(
     let timeline = room.timeline().await?;
     timeline.pin_event(&event_id).await?;
 
+    // Now send a bunch of normal events, this ensures that our pinned event isn't
+    // in the main timeline when we restore things.
+    for i in 0..number_of_normal_events {
+        room.send(RoomMessageEventContent::text_plain(format!("Normal event {i}"))).await?;
+    }
+
     sync_service.stop().await;
 
     Ok((room_id, event_id))
 }
 
-/// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
-/// replaced in the timeline with the decrypted variant.
-///
-/// We do this by first creating the pinned events on one Client, called
-/// `alice`. Then another client object is created, called `another_alice`.
-/// `another_alice` initially doesn't have access to the room history.
-///
-/// Only once `another_alice` recovers things and gets access to the backup can
-/// she download the room key to decrypt the pinned event.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
+    event_count: usize,
+) -> TestResult {
     const RECOVERY_PASSPHRASE: &str = "I am error";
 
     let encryption_settings = EncryptionSettings {
@@ -1145,7 +1144,8 @@ async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
         .await?;
     let user_id = alice.user_id().expect("We should have a user ID by now");
 
-    let (room_id, event_id) = prepare_room_with_pinned_events(&alice, RECOVERY_PASSPHRASE).await?;
+    let (room_id, event_id) =
+        prepare_room_with_pinned_events(&alice, RECOVERY_PASSPHRASE, event_count).await?;
 
     // Now `another_alice` comes into play.
     let another_alice = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
@@ -1241,5 +1241,29 @@ async fn test_pinned_events_are_decrypted_after_recovering() -> TestResult {
     Ok(())
 }
 
-    Ok(())
+/// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
+/// replaced in the timeline with the decrypted variant.
+///
+/// We do this by first creating the pinned events on one Client, called
+/// `alice`. Then another client object is created, called `another_alice`.
+/// `another_alice` initially doesn't have access to the room history.
+///
+/// Only once `another_alice` recovers things and gets access to the backup can
+/// she download the room key to decrypt the pinned event.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_in_timeline() -> TestResult {
+    test_pinned_events_are_decrypted_after_recovering_with_event_count(0).await
+}
+
+/// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
+/// replaced in the timeline with the decrypted variant even if the pinened UTD
+/// event isn't part of the main timeline and thus wasn't put into the event
+/// cache by the main timeline backpaginating.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+// FIXME: This test is ignored because R2D2 can't decrypt this pinned event as it's never put into
+// the event cache.
+#[ignore]
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_timeline() -> TestResult
+{
+    test_pinned_events_are_decrypted_after_recovering_with_event_count(30).await
 }
