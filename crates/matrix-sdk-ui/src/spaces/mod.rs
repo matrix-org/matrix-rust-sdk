@@ -114,7 +114,7 @@ struct SpaceState {
 /// // And subscribe to changes on them
 /// // `initial_values` is equal to `top_level_joined_spaces` if nothing changed meanwhile
 /// let (initial_values, stream) =
-///     space_service.subscribe_to_joined_spaces().await;
+///     space_service.subscribe_to_top_level_joined_spaces().await;
 ///
 /// while let Some(diffs) = stream.next().await {
 ///     println!("Received joined spaces updates: {diffs:?}");
@@ -193,7 +193,7 @@ impl SpaceService {
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
     /// joined or left, the stream will yield diffs that reflect the changes.
-    pub async fn subscribe_to_joined_spaces(
+    pub async fn subscribe_to_top_level_joined_spaces(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
         self.space_state
@@ -636,7 +636,7 @@ mod tests {
         space_service.setup().await;
 
         let (initial_values, joined_spaces_subscriber) =
-            space_service.subscribe_to_joined_spaces().await;
+            space_service.subscribe_to_top_level_joined_spaces().await;
         pin_mut!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
 

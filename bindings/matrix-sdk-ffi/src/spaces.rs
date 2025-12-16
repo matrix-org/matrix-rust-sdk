@@ -66,11 +66,11 @@ impl SpaceService {
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
     /// joined or left, the stream will yield diffs that reflect the changes.
-    pub async fn subscribe_to_joined_spaces(
+    pub async fn subscribe_to_top_level_joined_spaces(
         &self,
         listener: Box<dyn SpaceServiceJoinedSpacesListener>,
     ) -> Arc<TaskHandle> {
-        let (initial_values, mut stream) = self.inner.subscribe_to_joined_spaces().await;
+        let (initial_values, mut stream) = self.inner.subscribe_to_top_level_joined_spaces().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
