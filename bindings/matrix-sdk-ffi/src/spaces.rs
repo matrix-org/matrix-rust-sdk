@@ -60,8 +60,8 @@ impl SpaceService {
     /// Returns a list of all the top-level joined spaces. It will eagerly
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
-    pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
-        self.inner.joined_spaces().await.into_iter().map(Into::into).collect()
+    pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
+        self.inner.top_level_joined_spaces().await.into_iter().map(Into::into).collect()
     }
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
@@ -86,8 +86,8 @@ impl SpaceService {
     /// Returns a flattened list containing all the spaces where the user has
     /// permission to send `m.space.child` state events.
     ///
-    /// Note: Unlike [`Self::joined_spaces()`], this method does not recompute
-    /// the space graph, nor does it notify subscribers about changes.
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph, nor does it notify subscribers about changes.
     pub async fn editable_spaces(&self) -> Vec<SpaceRoom> {
         self.inner.editable_spaces().await.into_iter().map(Into::into).collect()
     }

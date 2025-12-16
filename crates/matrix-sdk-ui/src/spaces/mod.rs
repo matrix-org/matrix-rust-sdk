@@ -109,10 +109,10 @@ struct SpaceState {
 /// space_service.setup().await;
 ///
 /// // Get a list of all the joined spaces
-/// let joined_spaces = space_service.joined_spaces().await;
+/// let joined_spaces = space_service.top_level_joined_spaces().await;
 ///
 /// // And subscribe to changes on them
-/// // `initial_values` is equal to `joined_spaces` if nothing changed meanwhile
+/// // `initial_values` is equal to `top_level_joined_spaces` if nothing changed meanwhile
 /// let (initial_values, stream) =
 ///     space_service.subscribe_to_joined_spaces().await;
 ///
@@ -202,20 +202,24 @@ impl SpaceService {
     /// Returns a list of all the top-level joined spaces. It will eagerly
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
-    pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
-        let (spaces, graph) = Self::build_space_state(&self.client).await;
+    pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
+        let (top_level_joined_spaces, graph) = Self::build_space_state(&self.client).await;
 
-        Self::update_space_state_if_needed(Vector::from(spaces.clone()), graph, &self.space_state)
-            .await;
+        Self::update_space_state_if_needed(
+            Vector::from(top_level_joined_spaces.clone()),
+            graph,
+            &self.space_state,
+        )
+        .await;
 
-        spaces
+        top_level_joined_spaces
     }
 
     /// Returns a flattened list containing all the spaces where the user has
     /// permission to send `m.space.child` state events.
     ///
-    /// Note: Unlike [`Self::joined_spaces()`], this method does not recompute
-    /// graph, nor does it notify subscribers about changes.
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute graph, nor does it notify subscribers about changes.
     pub async fn editable_spaces(&self) -> Vec<SpaceRoom> {
         let Some(user_id) = self.client.user_id() else {
             return vec![];
@@ -548,7 +552,7 @@ mod tests {
         // Only the parent space is returned
         assert_eq!(
             space_service
-                .joined_spaces()
+                .top_level_joined_spaces()
                 .await
                 .iter()
                 .map(|s| s.room_id.to_owned())
@@ -559,7 +563,7 @@ mod tests {
         // and it has 2 children
         assert_eq!(
             space_service
-                .joined_spaces()
+                .top_level_joined_spaces()
                 .await
                 .iter()
                 .map(|s| s.children_count)
@@ -637,7 +641,7 @@ mod tests {
         );
 
         assert_eq!(
-            space_service.joined_spaces().await,
+            space_service.top_level_joined_spaces().await,
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
 
@@ -665,7 +669,7 @@ mod tests {
 
         // And expect the list to update
         assert_eq!(
-            space_service.joined_spaces().await,
+            space_service.top_level_joined_spaces().await,
             vec![
                 SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
                 SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
@@ -715,7 +719,7 @@ mod tests {
         // and the subscriber doesn't yield any updates
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
-            space_service.joined_spaces().await,
+            space_service.top_level_joined_spaces().await,
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
     }
@@ -770,7 +774,7 @@ mod tests {
         // Space with an `order` field set should come first in lexicographic
         // order and rest sorted by room ID.
         assert_eq!(
-            space_service.joined_spaces().await,
+            space_service.top_level_joined_spaces().await,
             vec![
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0),
                 SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0),
@@ -834,8 +838,6 @@ mod tests {
         .await;
 
         let space_service = SpaceService::new(client.clone());
-
-        // Wait for the space hierarchy to register.
         space_service.setup().await;
 
         // When retrieving all editable joined spaces.
