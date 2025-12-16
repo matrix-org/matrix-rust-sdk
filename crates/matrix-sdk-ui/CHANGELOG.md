@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,
   `HasBeenSent` and `CannotBeSent`.
   ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968/))
+- Fix the redecryption of events in timelines built using the
+  `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
+  ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
 
 ### Features
 
@@ -25,14 +28,7 @@ All notable changes to this project will be documented in this file.
   ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
 - `Room::load_event_with_relations` now also calls `/relations` to fetch related events when falling back
   to network mode after a cache miss.
-  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))
-
-### Bug Fixes
-
-- Fix the redecryption of events in timelines built using the
-  `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
-  ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
-  
+  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))  
   
 ### Refactor
 
