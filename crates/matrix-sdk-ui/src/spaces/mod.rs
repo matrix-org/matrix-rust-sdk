@@ -106,6 +106,7 @@ struct SpaceState {
 /// # async {
 /// # let client: Client = todo!();
 /// let space_service = SpaceService::new(client.clone());
+/// space_service.setup().await;
 ///
 /// // Get a list of all the joined spaces
 /// let joined_spaces = space_service.joined_spaces().await;
@@ -149,11 +150,8 @@ impl SpaceService {
         }
     }
 
-    /// Subscribes to updates on the joined spaces list. If space rooms are
-    /// joined or left, the stream will yield diffs that reflect the changes.
-    pub async fn subscribe_to_joined_spaces(
-        &self,
-    ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
+    /// Sets up the `SpaceService` by subscribing to necessary client events.
+    pub async fn setup(&self) {
         let mut room_update_handle = self.room_update_handle.lock().await;
 
         if room_update_handle.is_none() {
@@ -191,7 +189,13 @@ impl SpaceService {
             Self::update_joined_spaces_if_needed(Vector::from(spaces), graph, &self.space_state)
                 .await;
         }
+    }
 
+    /// Subscribes to updates on the joined spaces list. If space rooms are
+    /// joined or left, the stream will yield diffs that reflect the changes.
+    pub async fn subscribe_to_joined_spaces(
+        &self,
+    ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
         self.space_state.lock().await.joined_rooms.subscribe().into_values_and_batched_stream()
     }
 
@@ -624,6 +628,7 @@ mod tests {
         // pending
 
         let space_service = SpaceService::new(client.clone());
+        space_service.setup().await;
 
         let (initial_values, joined_spaces_subscriber) =
             space_service.subscribe_to_joined_spaces().await;
@@ -835,7 +840,7 @@ mod tests {
         let space_service = SpaceService::new(client.clone());
 
         // Wait for the space hierarchy to register.
-        _ = space_service.joined_spaces().await;
+        space_service.setup().await;
 
         // When retrieving all editable joined spaces.
         let editable_spaces = space_service.editable_spaces().await;
@@ -894,9 +899,7 @@ mod tests {
         .await;
 
         let space_service = SpaceService::new(client.clone());
-
-        // Wait for the space hierarchy to register.
-        _ = space_service.joined_spaces().await;
+        _ = space_service.setup().await;
 
         // When retrieving the joined parents of the child space
         let parents = space_service.joined_parents_of_child(child_space_id).await;
@@ -937,7 +940,7 @@ mod tests {
         let space_service = SpaceService::new(client.clone());
 
         // Ensure internal state is populated.
-        _ = space_service.joined_spaces().await;
+        _ = space_service.setup().await;
 
         let found = space_service.get_space_room(space_id).await;
         assert!(found.is_some());
