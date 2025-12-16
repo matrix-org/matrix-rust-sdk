@@ -112,7 +112,11 @@
 //!
 //! [MSC3061]: https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255
 
-use std::{collections::BTreeSet, pin::Pin, sync::Weak};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    pin::Pin,
+    sync::Weak,
+};
 
 use as_variant::as_variant;
 use futures_core::Stream;
@@ -274,6 +278,26 @@ impl EventCache {
         };
 
         Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
+    }
+
+    /// Retrieve a set of events that we weren't able to decrypt from the memory
+    /// of the event cache.
+    async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
+        let mut utds = BTreeMap::new();
+
+        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = room_cache
+                .events()
+                .await
+                .into_iter()
+                .flatten()
+                .filter_map(filter_timeline_event_to_utd)
+                .collect();
+
+            utds.insert(room_id.to_owned(), room_utds);
+        }
+
+        utds
     }
 
     async fn get_decrypted_events(
@@ -454,6 +478,16 @@ impl EventCache {
         self.retry_decryption_for_events(room_id, events).await
     }
 
+    async fn retry_decryption_for_in_memory_events(&self) {
+        let utds = self.get_utds_from_memory().await;
+
+        for (room_id, utds) in utds.into_iter() {
+            if let Err(e) = self.retry_decryption_for_events(&room_id, utds).await {
+                warn!(%room_id, "Failed to redecrypt in-memory events {e:?}");
+            }
+        }
+    }
+
     /// Attempt to redecrypt a chunk of UTDs.
     #[instrument(skip_all, fields(room_id, session_id))]
     async fn retry_decryption_for_events(
@@ -567,6 +601,20 @@ impl EventCache {
         self.update_encryption_info_for_events(&room, events).await
     }
 
+    /// Retry to decrypt and update the encryption info of all the events
+    /// contained in the memory part of the event cache.
+    ///
+    /// This list of events will map one-to-one to the events components
+    /// subscribed to the event cache are have received and are keeping cached.
+    ///
+    /// If components subscribed to the event cache are doing additional
+    /// caching, they'll need to listen to [RedecryptorReport]s and
+    /// explicitly request redecryption attempts using
+    /// [EventCache::request_decryption].
+    async fn retry_in_memory_events(&self) {
+        self.retry_decryption_for_in_memory_events().await;
+    }
+
     /// Explicitly request the redecryption of a set of events.
     ///
     /// The redecryption logic in the event cache might sometimes miss that a
@@ -676,11 +724,15 @@ fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
     cache.upgrade().map(|inner| EventCache { inner })
 }
 
-fn send_report(cache: &Weak<EventCacheInner>, report: RedecryptorReport) -> Result<(), ()> {
+async fn send_report_and_retry_memory_events(
+    cache: &Weak<EventCacheInner>,
+    report: RedecryptorReport,
+) -> Result<(), ()> {
     let Some(cache) = upgrade_event_cache(cache) else {
         return Err(());
     };
 
+    cache.retry_in_memory_events().await;
     let _ = cache.inner.redecryption_channels.utd_reporter.send(report);
 
     Ok(())
@@ -830,7 +882,7 @@ impl Redecryptor {
                             // user.
                             warn!("The room key stream lagged, reporting the lag to our listeners");
 
-                            if send_report(cache, RedecryptorReport::Lagging).is_err() {
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
                                 break false;
                             }
                         },
@@ -884,7 +936,7 @@ impl Redecryptor {
                             );
                         }
                         Err(_) => {
-                            if send_report(cache, RedecryptorReport::Lagging).is_err() {
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
                                 break false;
                             }
                         }
@@ -904,15 +956,18 @@ impl Redecryptor {
                                     // listening to R2D2 reports.
                                 }
                                 BackupState::Enabled => {
-                                    if send_report(cache, RedecryptorReport::BackupAvailable).is_err() {
+                                    // Alright, the backup got enabled, we might or might not have
+                                    // downloaded the room keys from the backup. In case they get
+                                    // downloaded on-demand, let's try to decrypt all the events we
+                                    // have cached in-memory.
+                                    if send_report_and_retry_memory_events(cache, RedecryptorReport::BackupAvailable).await.is_err() {
                                         break false;
                                     }
-
                                 }
                             }
                         }
                         Err(_) => {
-                            if send_report(cache, RedecryptorReport::Lagging).is_err() {
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
                                 break false;
                             }
                         }
@@ -946,9 +1001,12 @@ impl Redecryptor {
         {
             info!("Regenerating the re-decryption streams");
 
-            // Report that the stream got recreated so listeners can attempt to redecrypt
-            // any UTDs they might be seeing.
-            if send_report(&cache, RedecryptorReport::Lagging).is_err() {
+            // Report that the stream got recreated so listeners know about it, at the same
+            // time retry to decrypt anything we have cached in memory.
+            if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging)
+                .await
+                .is_err()
+            {
                 break;
             }
         }
