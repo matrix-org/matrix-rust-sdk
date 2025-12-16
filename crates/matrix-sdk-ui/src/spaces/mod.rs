@@ -86,7 +86,7 @@ pub enum Error {
 
 struct SpaceState {
     graph: SpaceGraph,
-    joined_rooms: ObservableVector<SpaceRoom>,
+    top_level_joined_spaces: ObservableVector<SpaceRoom>,
 }
 
 /// The main entry point into the Spaces facilities.
@@ -144,7 +144,7 @@ impl SpaceService {
             client,
             space_state: Arc::new(AsyncMutex::new(SpaceState {
                 graph: SpaceGraph::new(),
-                joined_rooms: ObservableVector::new(),
+                top_level_joined_spaces: ObservableVector::new(),
             })),
             room_update_handle: AsyncMutex::new(None),
         }
@@ -196,7 +196,12 @@ impl SpaceService {
     pub async fn subscribe_to_joined_spaces(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
-        self.space_state.lock().await.joined_rooms.subscribe().into_values_and_batched_stream()
+        self.space_state
+            .lock()
+            .await
+            .top_level_joined_spaces
+            .subscribe()
+            .into_values_and_batched_stream()
     }
 
     /// Returns a list of all the top-level joined spaces. It will eagerly
@@ -381,9 +386,9 @@ impl SpaceService {
     ) {
         let mut space_state = space_state.lock().await;
 
-        if new_spaces != space_state.joined_rooms.clone() {
-            space_state.joined_rooms.clear();
-            space_state.joined_rooms.append(new_spaces);
+        if new_spaces != space_state.top_level_joined_spaces.clone() {
+            space_state.top_level_joined_spaces.clear();
+            space_state.top_level_joined_spaces.append(new_spaces);
         }
 
         space_state.graph = new_graph;
