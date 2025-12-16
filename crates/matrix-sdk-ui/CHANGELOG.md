@@ -6,15 +6,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- [**breaking**] `LatestEventValue::Local { is_sending: bool }` is replaced
+  by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,
+  `HasBeenSent` and `CannotBeSent`.
+  ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968/))
+
 ### Features
 
-- Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
-[#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
+- Add `SpaceService::get_space_room` to get a space
+  given its id from the space graph if available.
+  ([#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944))
 - [**breaking**]: The new Latest Event API replaces the old API. All the
   `new_` prefixes have been removed. The following methods are removed:
   `EventTimelineItem::from_latest_event`, and `Timeline::latest_event`. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
-  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+  ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
 - `Room::load_event_with_relations` now also calls `/relations` to fetch related events when falling back
   to network mode after a cache miss.
   ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))
