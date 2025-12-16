@@ -65,6 +65,18 @@ impl LatestEventValue {
         }
     }
 
+    /// Check whether the [`LatestEventValue`] represents an unsent event, i.e.
+    /// is [`LocalIsSending`] nor [`LocalCannotBeSent`].
+    ///
+    /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    pub fn is_unsent(&self) -> bool {
+        match self {
+            Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
+            Self::LocalHasBeenSent(_) | Self::Remote(_) | Self::None => false,
+        }
+    }
+
     /// Check whether the [`LatestEventValue`] is not set, i.e. [`None`].
     ///
     /// [`None`]: LatestEventValue::None

@@ -16,14 +16,15 @@ use std::cmp::Ordering;
 
 use super::{RoomListItem, Sorter};
 
-fn cmp<F>(are_latest_events_locals: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
+fn cmp<F>(are_latest_events_unsent: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
     F: Fn(&RoomListItem, &RoomListItem) -> (bool, bool),
 {
-    // We want local latest event to come first. When there is a remote latest event
-    // or no latest event, we don't want to sort them.
+    // We want latest events representing unsent events to come firsts. When
+    // there is a remote latest event or no latest event, we don't want to sort
+    // them.
     // NOTE: This is the same as a.cmp(b).reverse() for booleans.
-    match are_latest_events_locals(left, right) {
+    match are_latest_events_unsent(left, right) {
         // `false` and `false`, i.e.:
         // - `None` == `None`.
         // - `None` == `Remote`.
@@ -48,22 +49,15 @@ where
 }
 
 /// Create a new sorter that will sort two [`RoomListItem`] by their latest
-/// events' state: latest events representing a local event
-/// ([`LatestEventValue::LocalIsSending`] or
-/// [`LatestEventValue::LocalCannotBeSent`]) come first, and latest event
-/// representing a remote event ([`LatestEventValue::Remote`]) come last.
-///
-/// [`LatestEventValue::LocalIsSending`]: matrix_sdk_base::latest_event::LatestEventValue::LocalIsSending
-/// [`LatestEventValue::LocalCannotBeSent`]: matrix_sdk_base::latest_event::LatestEventValue::LocalCannotBeSent
-/// [`LatestEventValue::Remote`]: matrix_sdk_base::latest_event::LatestEventValue::Remote
+/// events' state: latest events representing unsent events come firsts.
 pub fn new_sorter() -> impl Sorter {
     let latest_events = |left: &RoomListItem, right: &RoomListItem| {
-        // Be careful. This method is called **a lot** in the context of a sorter. Using
-        // `Room::latest_event` would be dramatic as it returns a clone of the
-        // `LatestEventValue`. It's better to use the more specific method
-        // `Room::latest_event_is_local`, where the value is cached in this module's
-        // `Room` type.
-        (left.cached_latest_event_is_local, right.cached_latest_event_is_local)
+        // Be careful. This method is called **a lot** in the context of a
+        // sorter. Using `Room::latest_event` would be dramatic as it returns a
+        // clone of the `LatestEventValue`. It's better to use the more specific
+        // method `Room::latest_event_is_unsent`, where the value is cached
+        // in `RoomListItem`.
+        (left.cached_latest_event_is_unsent, right.cached_latest_event_is_unsent)
     };
 
     move |left, right| -> Ordering { cmp(latest_events, left, right) }
@@ -119,6 +113,16 @@ mod tests {
         })
     }
 
+    fn local_has_been_sent() -> LatestEventValue {
+        LatestEventValue::LocalHasBeenSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
+        })
+    }
+
     fn local_cannot_be_sent() -> LatestEventValue {
         LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
@@ -127,6 +131,10 @@ mod tests {
             ))
             .unwrap(),
         })
+    }
+
+    fn pair(left: LatestEventValue, right: LatestEventValue) -> (bool, bool) {
+        (left.is_unsent(), right.is_unsent())
     }
 
     #[async_test]
@@ -138,34 +146,22 @@ mod tests {
 
         // `None` and `None`.
         {
-            assert_eq!(
-                cmp(|_, _| (none().is_local(), none().is_local()), &room_a, &room_b),
-                Ordering::Equal
-            );
+            assert_eq!(cmp(|_, _| pair(none(), none()), &room_a, &room_b), Ordering::Equal);
         }
 
         // `None` and `Remote`.
         {
-            assert_eq!(
-                cmp(|_, _| (none().is_local(), remote().is_local()), &room_a, &room_b),
-                Ordering::Equal
-            );
+            assert_eq!(cmp(|_, _| pair(none(), remote()), &room_a, &room_b), Ordering::Equal);
         }
 
         // `Remote` and `None`.
         {
-            assert_eq!(
-                cmp(|_, _| (remote().is_local(), none().is_local()), &room_a, &room_b),
-                Ordering::Equal
-            );
+            assert_eq!(cmp(|_, _| pair(remote(), none()), &room_a, &room_b), Ordering::Equal);
         }
 
         // `Remote` and `None`.
         {
-            assert_eq!(
-                cmp(|_, _| (remote().is_local(), remote().is_local()), &room_a, &room_b),
-                Ordering::Equal
-            );
+            assert_eq!(cmp(|_, _| pair(remote(), remote()), &room_a, &room_b), Ordering::Equal);
         }
     }
 
@@ -179,15 +175,15 @@ mod tests {
         // `None` and `Local*`.
         {
             assert_eq!(
-                cmp(|_, _| (none().is_local(), local_is_sending().is_local()), &room_a, &room_b),
+                cmp(|_, _| pair(none(), local_is_sending()), &room_a, &room_b),
                 Ordering::Greater
             );
             assert_eq!(
-                cmp(
-                    |_, _| (none().is_local(), local_cannot_be_sent().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(none(), local_has_been_sent()), &room_a, &room_b),
+                Ordering::Equal
+            );
+            assert_eq!(
+                cmp(|_, _| pair(none(), local_cannot_be_sent()), &room_a, &room_b),
                 Ordering::Greater
             );
         }
@@ -195,15 +191,15 @@ mod tests {
         // `Remote` and `Local*`.
         {
             assert_eq!(
-                cmp(|_, _| (remote().is_local(), local_is_sending().is_local()), &room_a, &room_b),
+                cmp(|_, _| pair(remote(), local_is_sending()), &room_a, &room_b),
                 Ordering::Greater
             );
             assert_eq!(
-                cmp(
-                    |_, _| (remote().is_local(), local_cannot_be_sent().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(remote(), local_has_been_sent()), &room_a, &room_b),
+                Ordering::Equal
+            );
+            assert_eq!(
+                cmp(|_, _| pair(remote(), local_cannot_be_sent()), &room_a, &room_b),
                 Ordering::Greater
             );
         }
@@ -219,15 +215,15 @@ mod tests {
         // `Local*` and `None`.
         {
             assert_eq!(
-                cmp(|_, _| (local_is_sending().is_local(), none().is_local()), &room_a, &room_b),
+                cmp(|_, _| pair(local_is_sending(), none()), &room_a, &room_b),
                 Ordering::Less
             );
             assert_eq!(
-                cmp(
-                    |_, _| (local_cannot_be_sent().is_local(), none().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_has_been_sent(), none()), &room_a, &room_b),
+                Ordering::Equal
+            );
+            assert_eq!(
+                cmp(|_, _| pair(local_cannot_be_sent(), none()), &room_a, &room_b),
                 Ordering::Less
             );
         }
@@ -235,15 +231,15 @@ mod tests {
         // `Local*` and `Remote`.
         {
             assert_eq!(
-                cmp(|_, _| (local_is_sending().is_local(), remote().is_local()), &room_a, &room_b),
+                cmp(|_, _| pair(local_is_sending(), remote()), &room_a, &room_b),
                 Ordering::Less
             );
             assert_eq!(
-                cmp(
-                    |_, _| (local_cannot_be_sent().is_local(), remote().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_has_been_sent(), remote()), &room_a, &room_b),
+                Ordering::Equal
+            );
+            assert_eq!(
+                cmp(|_, _| pair(local_cannot_be_sent(), remote()), &room_a, &room_b),
                 Ordering::Less
             );
         }
@@ -259,35 +255,41 @@ mod tests {
         // `Local*` and `Local*`.
         {
             assert_eq!(
-                cmp(
-                    |_, _| (local_is_sending().is_local(), local_is_sending().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_is_sending(), local_is_sending()), &room_a, &room_b),
                 Ordering::Equal
             );
             assert_eq!(
-                cmp(
-                    |_, _| (local_is_sending().is_local(), local_cannot_be_sent().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_is_sending(), local_has_been_sent()), &room_a, &room_b),
+                Ordering::Less
+            );
+            assert_eq!(
+                cmp(|_, _| pair(local_is_sending(), local_cannot_be_sent()), &room_a, &room_b),
+                Ordering::Equal
+            );
+
+            assert_eq!(
+                cmp(|_, _| pair(local_has_been_sent(), local_is_sending()), &room_a, &room_b),
+                Ordering::Greater
+            );
+            assert_eq!(
+                cmp(|_, _| pair(local_has_been_sent(), local_has_been_sent()), &room_a, &room_b),
                 Ordering::Equal
             );
             assert_eq!(
-                cmp(
-                    |_, _| (local_cannot_be_sent().is_local(), local_is_sending().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_has_been_sent(), local_cannot_be_sent()), &room_a, &room_b),
+                Ordering::Greater
+            );
+
+            assert_eq!(
+                cmp(|_, _| pair(local_cannot_be_sent(), local_is_sending()), &room_a, &room_b),
                 Ordering::Equal
             );
             assert_eq!(
-                cmp(
-                    |_, _| (local_cannot_be_sent().is_local(), local_cannot_be_sent().is_local()),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_, _| pair(local_cannot_be_sent(), local_has_been_sent()), &room_a, &room_b),
+                Ordering::Less
+            );
+            assert_eq!(
+                cmp(|_, _| pair(local_cannot_be_sent(), local_cannot_be_sent()), &room_a, &room_b),
                 Ordering::Equal
             );
         }
