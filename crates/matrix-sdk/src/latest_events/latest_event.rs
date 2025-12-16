@@ -25,6 +25,7 @@ use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, StateChanges, deserialized_responses::TimelineEvent,
     store::SerializableEventContent, timer,
 };
+use matrix_sdk_common::deserialized_responses::TimelineEventKind;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
@@ -664,7 +665,10 @@ impl LatestEventValueBuilder {
             })
             .await
         {
-            LatestEventValue::Remote(event)
+            match event.kind {
+                TimelineEventKind::UnableToDecrypt { .. } => LatestEventValue::Utd(event),
+                _ => LatestEventValue::Remote(event),
+            }
         } else {
             LatestEventValue::default()
         };
@@ -1159,10 +1163,14 @@ fn filter_any_message_like_event_content(
 
         // `m.room.redaction`
         // `m.room.encrypted`
-        AnyMessageLikeEventContent::RoomRedaction(_)
-        | AnyMessageLikeEventContent::RoomEncrypted(_) => {
+        AnyMessageLikeEventContent::RoomRedaction(_) => {
             // These events are **explicitly** not suitable.
             false
+        }
+
+        AnyMessageLikeEventContent::RoomEncrypted(_) => {
+            // We want to collect UTDs
+            true
         }
 
         // Everything else is considered not suitable.
