@@ -251,7 +251,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     && let Some(event) = self.items.get(timeline_item_index)
                     && event
                         .as_event()
-                        .map(|e| e.content().is_unable_to_decrypt())
+                        .map(|e| {
+                            e.content().is_unable_to_decrypt() && e.event_id() == Some(&event_id)
+                        })
                         .unwrap_or_default()
                 {
                     // Except when this is an UTD transitioning into a decrypted event.
