@@ -52,11 +52,6 @@ impl SpaceService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceService {
-    /// Sets up the `SpaceService` by subscribing to necessary client events.
-    pub async fn setup(&self) {
-        self.inner.setup().await;
-    }
-
     /// Returns a list of all the top-level joined spaces. It will eagerly
     /// compute the latest version and also notify subscribers if there were
     /// any changes.

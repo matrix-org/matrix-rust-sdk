@@ -116,7 +116,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new().sender(user_id);
 
         server.mock_room_state_encryption().plain().mount().await;
