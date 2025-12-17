@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
+  the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Add `RoomCreationParameters::is_space` parameter to be able to create spaces. ([#6010](https://github.com/matrix-org/matrix-rust-sdk/pull/6010/))
 - [**breaking**] `LazyTimelineItemProvider::get_shields` no longer returns an
   an `Option`: the `ShieldState` type contains a `None` variant, so the
