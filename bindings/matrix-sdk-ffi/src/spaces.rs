@@ -20,7 +20,8 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::spaces::{
     leave::{LeaveSpaceHandle as UILeaveSpaceHandle, LeaveSpaceRoom as UILeaveSpaceRoom},
     room_list::SpaceRoomListPaginationState,
-    SpaceRoom as UISpaceRoom, SpaceRoomList as UISpaceRoomList, SpaceService as UISpaceService,
+    SpaceFilter as UISpaceFilter, SpaceRoom as UISpaceRoom, SpaceRoomList as UISpaceRoomList,
+    SpaceService as UISpaceService,
 };
 use ruma::RoomId;
 
@@ -68,6 +69,35 @@ impl SpaceService {
         let (initial_values, mut stream) = self.inner.subscribe_to_top_level_joined_spaces().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
+            values: initial_values.into_iter().map(Into::into).collect(),
+        }]);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(Into::into).collect());
+            }
+        })))
+    }
+
+    /// Space filters provide access to a custom subset of the space graph that
+    /// can be used in tandem with the [`crate::RoomListService`] to narrow
+    /// down the presented rooms.
+    ///
+    /// They are limited to the first 2 levels of the graph, with the first
+    /// level only containing direct descendants while the second holds the rest
+    /// of them recursively.
+    pub async fn space_filters(&self) -> Vec<SpaceFilter> {
+        self.inner.space_filters().await.into_iter().map(|s| s.into()).collect()
+    }
+
+    /// Subscribe to changes or updates to the space filters.
+    pub async fn subscribe_to_space_filters(
+        &self,
+        listener: Box<dyn SpaceServiceSpaceFiltersListener>,
+    ) -> Arc<TaskHandle> {
+        let (initial_values, mut stream) = self.inner.subscribe_to_space_filters().await;
+
+        listener.on_update(vec![SpaceFilterUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
         }]);
 
@@ -283,6 +313,11 @@ pub trait SpaceServiceJoinedSpacesListener: SendOutsideWasm + SyncOutsideWasm + 
     fn on_update(&self, room_updates: Vec<SpaceListUpdate>);
 }
 
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SpaceServiceSpaceFiltersListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, filter_updates: Vec<SpaceFilterUpdate>);
+}
+
 /// Structure representing a room in a space and aggregated information
 /// relevant to the UI layer.
 #[derive(uniffi::Record)]
@@ -390,6 +425,47 @@ impl From<VectorDiff<UISpaceRoom>> for SpaceListUpdate {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum SpaceFilterUpdate {
+    Append { values: Vec<SpaceFilter> },
+    Clear,
+    PushFront { value: SpaceFilter },
+    PushBack { value: SpaceFilter },
+    PopFront,
+    PopBack,
+    Insert { index: u32, value: SpaceFilter },
+    Set { index: u32, value: SpaceFilter },
+    Remove { index: u32 },
+    Truncate { length: u32 },
+    Reset { values: Vec<SpaceFilter> },
+}
+
+impl From<VectorDiff<UISpaceFilter>> for SpaceFilterUpdate {
+    fn from(diff: VectorDiff<UISpaceFilter>) -> Self {
+        match diff {
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(|v| v.into()).collect() }
+            }
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::PushFront { value } => Self::PushFront { value: value.into() },
+            VectorDiff::PushBack { value } => Self::PushBack { value: value.into() },
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Set { index, value } => {
+                Self::Set { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::Truncate { length } => Self::Truncate { length: length as u32 },
+            VectorDiff::Reset { values } => {
+                Self::Reset { values: values.into_iter().map(|v| v.into()).collect() }
+            }
+        }
+    }
+}
+
 /// The `LeaveSpaceHandle` processes rooms to be left in the order they were
 /// provided by the [`SpaceService`] and annotates them with extra data to
 /// inform the leave process e.g. if the current user is the last room admin.
@@ -446,6 +522,29 @@ impl From<UILeaveSpaceRoom> for LeaveSpaceRoom {
             space_room: room.space_room.into(),
             is_last_admin: room.is_last_admin,
             joined_members_count: room.joined_members_count,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct SpaceFilter {
+    /// The underlying [`SpaceRoom`]
+    space_room: SpaceRoom,
+    /// The level of the space filter in the tree/hierarchy.
+    /// At this point in time the filters are limited to the first 2 levels.
+    level: u8,
+    /// The room identifiers of the descendants of this space.
+    /// For top level spaces (level 0) these will be direct descendants while
+    /// for first level spaces they will be all other descendants, recursively.
+    descendants: Vec<String>,
+}
+
+impl From<UISpaceFilter> for SpaceFilter {
+    fn from(filter: UISpaceFilter) -> Self {
+        SpaceFilter {
+            space_room: filter.space_room.into(),
+            level: filter.level,
+            descendants: filter.descendants.into_iter().map(|id| id.to_string()).collect(),
         }
     }
 }

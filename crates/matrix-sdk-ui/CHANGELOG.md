@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
+  the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Utilize the cache and include common relations when focusing a timeline on an event without
   requestion context.
   ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
