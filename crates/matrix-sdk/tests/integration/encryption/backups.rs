@@ -1540,6 +1540,7 @@ async fn inbound_session_from_outbound_session(
         room_id,
         &outbound_group_session.session_key().await,
         SenderData::unknown(),
+        None,
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
         false,

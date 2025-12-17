@@ -524,6 +524,7 @@ mod tests {
             &room_id,
             session_key,
             SenderData::unknown(),
+            None,
             encryption_algorithm,
             history_visibility,
             false,
@@ -683,6 +684,7 @@ mod tests {
             )
             .unwrap(),
             SenderData::legacy(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
             false,
@@ -703,6 +705,7 @@ mod tests {
             )
             .unwrap(),
             SenderData::legacy(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
             false,

@@ -187,6 +187,13 @@ pub struct InboundGroupSession {
     /// key.
     pub sender_data: SenderData,
 
+    /// If this session was shared-on-invite as part of an [MSC4268] key bundle,
+    /// information about the user who forwarded us the session information.
+    /// This is distinct from [`InboundGroupSession::sender_data`].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub forwarder_data: Option<SenderData>,
+
     /// The Room this GroupSession belongs to
     pub room_id: OwnedRoomId,
 
@@ -240,6 +247,10 @@ impl InboundGroupSession {
     /// * `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
     ///
+    /// * `forwarder_data` - If present, indicates this session was received via
+    ///   an [MSC4268] room key bundle, and provides information about the
+    ///   forwarder of this bundle.
+    ///
     /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
     ///   be used when messages are being decrypted. The method will return an
     ///   [`SessionCreationError::Algorithm`] error if an algorithm we do not
@@ -256,6 +267,7 @@ impl InboundGroupSession {
     ///   history visibility of the room.
     ///
     /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         sender_key: Curve25519PublicKey,
@@ -263,6 +275,7 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: &SessionKey,
         sender_data: SenderData,
+        forwarder_data: Option<SenderData>,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
         shared_history: bool,
@@ -286,6 +299,7 @@ impl InboundGroupSession {
                 signing_keys: keys.into(),
             },
             sender_data,
+            forwarder_data,
             room_id: room_id.into(),
             imported: false,
             algorithm: encryption_algorithm.into(),
@@ -325,6 +339,7 @@ impl InboundGroupSession {
             room_id,
             session_key,
             SenderData::unknown(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
             *shared_history,
@@ -380,6 +395,7 @@ impl InboundGroupSession {
             sender_key: self.creator_info.curve25519_key,
             signing_key: (*self.creator_info.signing_keys).clone(),
             sender_data: self.sender_data.clone(),
+            forwarder_data: self.forwarder_data.clone(),
             room_id: self.room_id().to_owned(),
             imported: self.imported,
             backed_up: self.backed_up(),
@@ -459,6 +475,7 @@ impl InboundGroupSession {
             sender_key,
             signing_key,
             sender_data,
+            forwarder_data,
             room_id,
             imported,
             backed_up,
@@ -479,6 +496,7 @@ impl InboundGroupSession {
                 signing_keys: signing_key.into(),
             },
             sender_data,
+            forwarder_data,
             history_visibility: history_visibility.into(),
             first_known_index,
             room_id,
@@ -691,6 +709,9 @@ pub struct PickledInboundGroupSession {
     /// Information on the device/sender who sent us this session
     #[serde(default)]
     pub sender_data: SenderData,
+    /// Information on the device/sender who forwarded us this session
+    #[serde(default)]
+    pub forwarder_data: Option<SenderData>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
     /// Flag remembering if the session was directly sent to us by the sender
@@ -717,10 +738,33 @@ fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
 }
 
-impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
-    type Error = SessionCreationError;
-
-    fn try_from(key: &HistoricRoomKey) -> Result<Self, Self::Error> {
+impl HistoricRoomKey {
+    /// Converts a `HistoricRoomKey` into an `InboundGroupSession`.
+    ///
+    /// This method takes the current `HistoricRoomKey` instance and attempts to
+    /// create an `InboundGroupSession` from it. The `forwarder_data` parameter
+    /// provides information about the user or device that forwarded the session
+    /// information. This is normally distinct from the original sender of the
+    /// session.
+    ///
+    /// # Arguments
+    ///
+    /// * `forwarder_data` - A reference to a `SenderData` object containing
+    ///   information about the forwarder of the session.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the newly created `InboundGroupSession` on
+    /// success, or a `SessionCreationError` if the conversion fails.
+    ///
+    /// # Errors
+    ///
+    /// This method will return a `SessionCreationError` if the session
+    /// configuration for the given algorithm cannot be determined.
+    pub fn try_into_inbound_group_session(
+        &self,
+        forwarder_data: &SenderData,
+    ) -> Result<InboundGroupSession, SessionCreationError> {
         let HistoricRoomKey {
             algorithm,
             room_id,
@@ -728,7 +772,7 @@ impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
             session_id,
             session_key,
             sender_claimed_keys,
-        } = key;
+        } = self;
 
         let config = OutboundGroupSession::session_config(algorithm)?;
         let session = InnerSession::import(session_key, config);
@@ -744,6 +788,7 @@ impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
             // TODO: How do we remember that this is a historic room key and events decrypted using
             // this room key should always show some form of warning.
             sender_data: SenderData::default(),
+            forwarder_data: Some(forwarder_data.clone()),
             history_visibility: None.into(),
             first_known_index,
             room_id: room_id.to_owned(),
@@ -784,6 +829,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             // TODO: In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: room_id.to_owned(),
@@ -815,6 +861,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             // In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -842,6 +889,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             // In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
+            forwarder_data: None,
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -871,7 +919,7 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use insta::assert_json_snapshot;
+    use insta::{assert_json_snapshot, with_settings};
     use matrix_sdk_test::async_test;
     use ruma::{
         DeviceId, UserId, device_id, events::room::history_visibility::HistoryVisibility,
@@ -906,11 +954,17 @@ mod tests {
 
         let pickle = session.pickle().await;
 
-        assert_json_snapshot!(pickle, {
-            ".pickle.initial_ratchet.inner" => "[ratchet]",
-            ".pickle.signing_key" => "[signing_key]",
-            ".sender_key" => "[sender_key]",
-            ".signing_key.ed25519" => "[ed25519_key]",
+        with_settings!({prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "InboundGroupSession__test_pickle_snapshot__regression",
+                pickle,
+                {
+                    ".pickle.initial_ratchet.inner" => "[ratchet]",
+                    ".pickle.signing_key" => "[signing_key]",
+                    ".sender_key" => "[sender_key]",
+                    ".signing_key.ed25519" => "[ed25519_key]",
+                }
+            );
         });
     }
 
@@ -982,6 +1036,7 @@ mod tests {
             room_id!("!test:localhost"),
             &create_session_key(),
             SenderData::unknown(),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(HistoryVisibility::Shared),
             false,
@@ -1028,6 +1083,7 @@ mod tests {
                         "legacy_session":false
                     }
                 },
+                "forwarder_data":null,
                 "room_id":"!test:localhost",
                 "imported":false,
                 "backed_up":false,

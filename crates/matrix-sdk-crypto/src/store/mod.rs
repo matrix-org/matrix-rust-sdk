@@ -1455,7 +1455,19 @@ impl Store {
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        let exported_keys: Vec<&ExportedRoomKey> = exported_keys.iter().collect();
+        let exported_keys = exported_keys.iter().filter_map(|key| {
+            key.try_into()
+                .map_err(|e| {
+                    warn!(
+                        sender_key = key.sender_key().to_base64(),
+                        room_id = ?key.room_id(),
+                        session_id = key.session_id(),
+                        error = ?e,
+                        "Couldn't import a room key from a file export."
+                    );
+                })
+                .ok()
+        });
         self.import_sessions_impl(exported_keys, from_backup_version, progress_listener).await
     }
 
@@ -1493,57 +1505,44 @@ impl Store {
         self.import_room_keys(exported_keys, None, progress_listener).await
     }
 
-    async fn import_sessions_impl<T>(
+    async fn import_sessions_impl(
         &self,
-        room_keys: Vec<T>,
+        sessions: impl Iterator<Item = InboundGroupSession>,
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
-    ) -> Result<RoomKeyImportResult>
-    where
-        T: TryInto<InboundGroupSession> + RoomKeyExport + Copy,
-        T::Error: Debug,
-    {
-        let mut sessions = Vec::new();
+    ) -> Result<RoomKeyImportResult> {
+        let sessions: Vec<_> = sessions.collect();
+        let mut imported_sessions = Vec::new();
 
-        let total_count = room_keys.len();
+        let total_count = sessions.len();
         let mut keys = BTreeMap::new();
 
-        for (i, key) in room_keys.into_iter().enumerate() {
-            match key.try_into() {
-                Ok(session) => {
-                    // Only import the session if we didn't have this session or
-                    // if it's a better version of the same session.
-                    if let Some(merged) = self.merge_received_group_session(session).await? {
-                        if from_backup_version.is_some() {
-                            merged.mark_as_backed_up();
-                        }
-
-                        keys.entry(merged.room_id().to_owned())
-                            .or_insert_with(BTreeMap::new)
-                            .entry(merged.sender_key().to_base64())
-                            .or_insert_with(BTreeSet::new)
-                            .insert(merged.session_id().to_owned());
-
-                        sessions.push(merged);
-                    }
+        for (i, session) in sessions.into_iter().enumerate() {
+            // Only import the session if we didn't have this session or
+            // if it's a better version of the same session.
+            if let Some(merged) = self.merge_received_group_session(session).await? {
+                if from_backup_version.is_some() {
+                    merged.mark_as_backed_up();
                 }
-                Err(e) => {
-                    warn!(
-                        sender_key = key.sender_key().to_base64(),
-                        room_id = ?key.room_id(),
-                        session_id = key.session_id(),
-                        error = ?e,
-                        "Couldn't import a room key from a file export."
-                    );
-                }
+
+                keys.entry(merged.room_id().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .entry(merged.sender_key().to_base64())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(merged.session_id().to_owned());
+
+                imported_sessions.push(merged);
             }
 
             progress_listener(i, total_count);
         }
 
-        let imported_count = sessions.len();
+        let imported_count = imported_sessions.len();
 
-        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
+        self.inner
+            .store
+            .save_inbound_group_sessions(imported_sessions, from_backup_version)
+            .await?;
 
         info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
@@ -1706,6 +1705,9 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
+        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
+        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
+        // via user verification and cross-signing).
         if matches!(
             &sender_data,
             SenderData::UnknownDevice { .. }
@@ -1718,7 +1720,8 @@ impl Store {
             return Ok(());
         }
 
-        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_sessions(bundle_info, &bundle, &sender_data, progress_listener)
+            .await?;
         self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
 
         Ok(())
@@ -1728,6 +1731,7 @@ impl Store {
         &self,
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
+        forwarder_data: &SenderData,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
         let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
@@ -1768,7 +1772,21 @@ impl Store {
                     );
                 }
 
-                self.import_sessions_impl(good, None, progress_listener).await?;
+                let keys = good.iter().filter_map(|key| {
+                    key.try_into_inbound_group_session(forwarder_data)
+                        .map_err(|e| {
+                            warn!(
+                                sender_key = ?key.sender_key().to_base64(),
+                                room_id = ?key.room_id(),
+                                session_id = key.session_id(),
+                                error = ?e,
+                                "Couldn't import a room key from a key bundle."
+                            );
+                        })
+                        .ok()
+                });
+
+                self.import_sessions_impl(keys, None, progress_listener).await?;
             }
         }
 
@@ -1985,6 +2003,7 @@ mod tests {
                 BTreeMap::new(),
                 crate::types::Signatures::new(),
             )),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(ruma::events::room::history_visibility::HistoryVisibility::Shared),
             true,
@@ -2343,6 +2362,17 @@ mod tests {
         assert_eq!(imported_sessions.len(), 1);
         assert_eq!(imported_sessions[0].room_id(), room_id);
 
+        // The session forwarder data should be set correctly.
+        assert_eq!(
+            imported_sessions[0]
+                .forwarder_data
+                .as_ref()
+                .expect("Session should contain forwarder data.")
+                .user_id()
+                .expect("Forwarder data should contain user ID."),
+            alice.user_id()
+        );
+
         assert_matches!(
             bob.store()
                 .get_withheld_info(room_id, sessions[1].session_id())
@@ -2430,6 +2460,7 @@ mod tests {
             room_id,
             session_key,
             SenderData::unknown(),
+            None,
             #[cfg(not(feature = "experimental-algorithms"))]
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             #[cfg(feature = "experimental-algorithms")]

@@ -506,6 +506,7 @@ fn collect_sessions(
                 })
                 .collect::<anyhow::Result<_>>()?,
             sender_data: SenderData::legacy(),
+            forwarder_data: None,
             room_id: RoomId::parse(session.room_id)?,
             imported: session.imported,
             backed_up: session.backed_up,
