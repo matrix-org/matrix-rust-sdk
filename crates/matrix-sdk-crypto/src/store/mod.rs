@@ -1455,22 +1455,19 @@ impl Store {
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        let exported_keys: Vec<_> = exported_keys
-            .iter()
-            .filter_map(|key| {
-                key.try_into()
-                    .map_err(|e| {
-                        warn!(
-                            sender_key = key.sender_key().to_base64(),
-                            room_id = ?key.room_id(),
-                            session_id = key.session_id(),
-                            error = ?e,
-                            "Couldn't import a room key from a file export."
-                        );
-                    })
-                    .ok()
-            })
-            .collect();
+        let exported_keys = exported_keys.iter().filter_map(|key| {
+            key.try_into()
+                .map_err(|e| {
+                    warn!(
+                        sender_key = key.sender_key().to_base64(),
+                        room_id = ?key.room_id(),
+                        session_id = key.session_id(),
+                        error = ?e,
+                        "Couldn't import a room key from a file export."
+                    );
+                })
+                .ok()
+        });
         self.import_sessions_impl(exported_keys, from_backup_version, progress_listener).await
     }
 
@@ -1510,10 +1507,11 @@ impl Store {
 
     async fn import_sessions_impl(
         &self,
-        sessions: Vec<InboundGroupSession>,
+        sessions: impl Iterator<Item = InboundGroupSession>,
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
+        let sessions: Vec<_> = sessions.collect();
         let mut imported_sessions = Vec::new();
 
         let total_count = sessions.len();
@@ -1774,22 +1772,19 @@ impl Store {
                     );
                 }
 
-                let keys = good
-                    .iter()
-                    .filter_map(|key| {
-                        key.try_into_inbound_group_session(forwarder_data)
-                            .map_err(|e| {
-                                warn!(
-                                    sender_key = ?key.sender_key().to_base64(),
-                                    room_id = ?key.room_id(),
-                                    session_id = key.session_id(),
-                                    error = ?e,
-                                    "Couldn't import a room key from a key bundle."
-                                );
-                            })
-                            .ok()
-                    })
-                    .collect();
+                let keys = good.iter().filter_map(|key| {
+                    key.try_into_inbound_group_session(forwarder_data)
+                        .map_err(|e| {
+                            warn!(
+                                sender_key = ?key.sender_key().to_base64(),
+                                room_id = ?key.room_id(),
+                                session_id = key.session_id(),
+                                error = ?e,
+                                "Couldn't import a room key from a key bundle."
+                            );
+                        })
+                        .ok()
+                });
 
                 self.import_sessions_impl(keys, None, progress_listener).await?;
             }
