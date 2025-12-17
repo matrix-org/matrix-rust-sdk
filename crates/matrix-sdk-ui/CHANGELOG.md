@@ -33,8 +33,8 @@ All notable changes to this project will be documented in this file.
 ### Refactor
 
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
-  client events when invoking the `subscribe_to_joined_spaces` method and the
-  `setup` method should be used instead.
+  client events when invoking the `subscribe_to_joined_spaces` but instead do it
+  through its, now async, constructor.
   ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
 - [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
   `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`

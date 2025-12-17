@@ -61,7 +61,7 @@ pub enum SpaceRoomListPaginationState {
 ///
 /// # async {
 /// # let client: Client = todo!();
-/// let space_service = SpaceService::new(client.clone());
+/// let space_service = SpaceService::new(client.clone()).await;
 ///
 /// // Get a list of all the rooms in a particular space
 /// let room_list = space_service
@@ -414,7 +414,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -523,7 +523,7 @@ mod tests {
     async fn test_room_state_updates() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         let parent_space_id = room_id!("!parent_space:example.org");
         let child_room_id_1 = room_id!("!1:example.org");
@@ -578,7 +578,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -646,7 +646,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -686,7 +686,7 @@ mod tests {
     async fn test_via_retrieval() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         server.mock_room_state_encryption().plain().mount().await;
 

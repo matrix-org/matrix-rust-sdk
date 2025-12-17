@@ -105,8 +105,7 @@ struct SpaceState {
 ///
 /// # async {
 /// # let client: Client = todo!();
-/// let space_service = SpaceService::new(client.clone());
-/// space_service.setup().await;
+/// let space_service = SpaceService::new(client.clone()).await;
 ///
 /// // Get a list of all the joined spaces
 /// let joined_spaces = space_service.top_level_joined_spaces().await;
@@ -134,32 +133,23 @@ pub struct SpaceService {
 
     space_state: Arc<AsyncMutex<SpaceState>>,
 
-    room_update_handle: AsyncMutex<Option<AbortOnDrop<()>>>,
+    _room_update_handle: AsyncMutex<AbortOnDrop<()>>,
 }
 
 impl SpaceService {
     /// Creates a new `SpaceService` instance.
-    pub fn new(client: Client) -> Self {
-        Self {
-            client,
-            space_state: Arc::new(AsyncMutex::new(SpaceState {
-                graph: SpaceGraph::new(),
-                top_level_joined_spaces: ObservableVector::new(),
-            })),
-            room_update_handle: AsyncMutex::new(None),
-        }
-    }
+    pub async fn new(client: Client) -> Self {
+        let space_state = Arc::new(AsyncMutex::new(SpaceState {
+            graph: SpaceGraph::new(),
+            top_level_joined_spaces: ObservableVector::new(),
+        }));
 
-    /// Sets up the `SpaceService` by subscribing to necessary client events.
-    pub async fn setup(&self) {
-        let mut room_update_handle = self.room_update_handle.lock().await;
+        let room_update_handle = spawn({
+            let client = client.clone();
+            let space_state = Arc::clone(&space_state);
+            let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        if room_update_handle.is_none() {
-            let client = self.client.clone();
-            let space_state = Arc::clone(&self.space_state);
-            let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
-
-            *room_update_handle = Some(AbortOnDrop::new(spawn(async move {
+            async move {
                 pin_mut!(all_room_updates_receiver);
 
                 loop {
@@ -182,12 +172,17 @@ impl SpaceService {
                         }
                     }
                 }
-            })));
+            }
+        });
 
-            // Make sure to also update the currently joined spaces for the initial values.
-            let (spaces, graph) = Self::build_space_state(&self.client).await;
-            Self::update_space_state_if_needed(Vector::from(spaces), graph, &self.space_state)
-                .await;
+        // Make sure to also update the currently joined spaces for the initial values.
+        let (spaces, graph) = Self::build_space_state(&client).await;
+        Self::update_space_state_if_needed(Vector::from(spaces), graph, &space_state).await;
+
+        Self {
+            client,
+            space_state,
+            _room_update_handle: AsyncMutex::new(AbortOnDrop::new(room_update_handle)),
         }
     }
 
@@ -512,7 +507,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -632,8 +627,7 @@ mod tests {
         // Build the `SpaceService` and expect the room to show up with no updates
         // pending
 
-        let space_service = SpaceService::new(client.clone());
-        space_service.setup().await;
+        let space_service = SpaceService::new(client.clone()).await;
 
         let (initial_values, joined_spaces_subscriber) =
             space_service.subscribe_to_top_level_joined_spaces().await;
@@ -774,7 +768,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // Space with an `order` field set should come first in lexicographic
         // order and rest sorted by room ID.
@@ -842,8 +836,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
-        space_service.setup().await;
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When retrieving all editable joined spaces.
         let editable_spaces = space_service.editable_spaces().await;
@@ -901,8 +894,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
-        _ = space_service.setup().await;
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When retrieving the joined parents of the child space
         let parents = space_service.joined_parents_of_child(child_space_id).await;
@@ -940,10 +932,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
-
-        // Ensure internal state is populated.
-        _ = space_service.setup().await;
+        let space_service = SpaceService::new(client.clone()).await;
 
         let found = space_service.get_space_room(space_id).await;
         assert!(found.is_some());
@@ -994,7 +983,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When adding the child to the space.
         let result =
@@ -1044,7 +1033,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When adding the child to the space.
         let result =
@@ -1097,7 +1086,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When adding the child to the space.
         let result =
@@ -1151,7 +1140,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When removing the child from the space.
         let result =
@@ -1202,7 +1191,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When removing the child from the space.
         let result =
@@ -1254,7 +1243,7 @@ mod tests {
         )
         .await;
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         // When removing the child from the space.
         let result =
