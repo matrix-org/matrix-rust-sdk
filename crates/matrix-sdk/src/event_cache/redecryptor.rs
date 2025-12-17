@@ -155,7 +155,7 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
 use crate::{
-    Client, Room,
+    Client, Result, Room,
     encryption::backups::BackupState,
     event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
     room::PushContext,
@@ -316,6 +316,26 @@ impl EventCache {
         };
 
         Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
+    }
+
+    async fn get_decrypted_events_from_memory(
+        &self,
+    ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
+        let mut decrypted_events = BTreeMap::new();
+
+        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = room_cache
+                .events()
+                .await
+                .into_iter()
+                .flatten()
+                .filter_map(filter_timeline_event_to_decrypted)
+                .collect();
+
+            decrypted_events.insert(room_id.to_owned(), room_utds);
+        }
+
+        decrypted_events
     }
 
     /// Handle a chunk of events that we were previously unable to decrypt but
@@ -601,6 +621,23 @@ impl EventCache {
         self.update_encryption_info_for_events(&room, events).await
     }
 
+    async fn retry_update_encryption_info_for_in_memory_events(&self) {
+        let decrypted_events = self.get_decrypted_events_from_memory().await;
+
+        for (room_id, events) in decrypted_events.into_iter() {
+            let Some(room) = self.inner.client().ok().and_then(|c| c.get_room(&room_id)) else {
+                continue;
+            };
+
+            if let Err(e) = self.update_encryption_info_for_events(&room, events).await {
+                warn!(
+                    %room_id,
+                    "Failed to replace the encryption info for in-memory events {e:?}"
+                );
+            }
+        }
+    }
+
     /// Retry to decrypt and update the encryption info of all the events
     /// contained in the memory part of the event cache.
     ///
@@ -613,6 +650,7 @@ impl EventCache {
     /// [EventCache::request_decryption].
     async fn retry_in_memory_events(&self) {
         self.retry_decryption_for_in_memory_events().await;
+        self.retry_update_encryption_info_for_in_memory_events().await;
     }
 
     /// Explicitly request the redecryption of a set of events.
