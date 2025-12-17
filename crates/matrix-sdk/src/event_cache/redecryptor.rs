@@ -498,6 +498,40 @@ impl EventCache {
         Ok(())
     }
 
+    /// Attempt to update the encryption info for the given list of events.
+    async fn update_encryption_info_for_events(
+        &self,
+        room: &Room,
+        events: Vec<EventIdAndEvent>,
+    ) -> Result<(), EventCacheError> {
+        // Let's attempt to update their encryption info.
+        let mut updated_events = Vec::with_capacity(events.len());
+
+        for (event_id, mut event) in events {
+            if let Some(session_id) = event.encryption_info.session_id() {
+                let new_encryption_info =
+                    room.get_encryption_info(session_id, &event.encryption_info.sender).await;
+
+                // Only create a replacement if the encryption info actually changed.
+                if let Some(new_encryption_info) = new_encryption_info
+                    && event.encryption_info != new_encryption_info
+                {
+                    event.encryption_info = new_encryption_info;
+                    updated_events.push((event_id, event, None));
+                }
+            }
+        }
+
+        let event_ids: BTreeSet<_> =
+            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
+
+        if !event_ids.is_empty() {
+            trace!(?event_ids, "Replacing the encryption info of some events");
+        }
+
+        self.on_resolved_utds(room.room_id(), updated_events).await
+    }
+
     #[instrument(skip_all, fields(room_id, session_id))]
     async fn update_encryption_info(
         &self,
@@ -523,31 +557,7 @@ impl EventCache {
         }
 
         // Let's attempt to update their encryption info.
-        let mut updated_events = Vec::with_capacity(events.len());
-
-        for (event_id, mut event) in events {
-            let new_encryption_info =
-                room.get_encryption_info(session_id, &event.encryption_info.sender).await;
-
-            // Only create a replacement if the encryption info actually changed.
-            if let Some(new_encryption_info) = new_encryption_info
-                && event.encryption_info != new_encryption_info
-            {
-                event.encryption_info = new_encryption_info;
-                updated_events.push((event_id, event, None));
-            }
-        }
-
-        let event_ids: BTreeSet<_> =
-            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
-
-        if !event_ids.is_empty() {
-            trace!(?event_ids, "Replacing the encryption info of some events");
-        }
-
-        self.on_resolved_utds(room_id, updated_events).await?;
-
-        Ok(())
+        self.update_encryption_info_for_events(&room, events).await
     }
 
     /// Explicitly request the redecryption of a set of events.
