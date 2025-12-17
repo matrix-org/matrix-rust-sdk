@@ -34,7 +34,8 @@ use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
-    Client, Error as SDKError, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop,
+    Client, Error as SDKError, Room, deserialized_responses::SyncOrStrippedState,
+    executor::AbortOnDrop,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -48,7 +49,7 @@ use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, warn};
 
-use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle};
+use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle, room::SpaceRoomChildState};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
 
 pub mod graph;
@@ -87,6 +88,7 @@ pub enum Error {
 struct SpaceState {
     graph: SpaceGraph,
     top_level_joined_spaces: ObservableVector<SpaceRoom>,
+    space_filters: ObservableVector<SpaceFilter>,
 }
 
 /// The main entry point into the Spaces facilities.
@@ -142,6 +144,7 @@ impl SpaceService {
         let space_state = Arc::new(AsyncMutex::new(SpaceState {
             graph: SpaceGraph::new(),
             top_level_joined_spaces: ObservableVector::new(),
+            space_filters: ObservableVector::new(),
         }));
 
         let room_update_handle = spawn({
@@ -159,9 +162,10 @@ impl SpaceService {
                                 continue;
                             }
 
-                            let (spaces, graph) = Self::build_space_state(&client).await;
+                            let (spaces, filters, graph) = Self::build_space_state(&client).await;
                             Self::update_space_state_if_needed(
                                 Vector::from(spaces),
+                                Vector::from(filters),
                                 graph,
                                 &space_state,
                             )
@@ -176,8 +180,14 @@ impl SpaceService {
         });
 
         // Make sure to also update the currently joined spaces for the initial values.
-        let (spaces, graph) = Self::build_space_state(&client).await;
-        Self::update_space_state_if_needed(Vector::from(spaces), graph, &space_state).await;
+        let (spaces, filters, graph) = Self::build_space_state(&client).await;
+        Self::update_space_state_if_needed(
+            Vector::from(spaces),
+            Vector::from(filters),
+            graph,
+            &space_state,
+        )
+        .await;
 
         Self {
             client,
@@ -203,16 +213,82 @@ impl SpaceService {
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
     pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
-        let (top_level_joined_spaces, graph) = Self::build_space_state(&self.client).await;
+        let (top_level_joined_spaces, filters, graph) = Self::build_space_state(&self.client).await;
 
         Self::update_space_state_if_needed(
             Vector::from(top_level_joined_spaces.clone()),
+            Vector::from(filters),
             graph,
             &self.space_state,
         )
         .await;
 
         top_level_joined_spaces
+    }
+
+    /// Space filters provide access to a custom subset of the space graph that
+    /// can be used in tandem with the [`crate::RoomListService`] to narrow
+    /// down the presented rooms. A [`crate::room_list_service::RoomList`]'s
+    /// [`crate::room_list_service::RoomListDynamicEntriesController`] can take
+    /// a filter, which in this case can be a
+    /// [`crate::room_list_service::filters::new_filter_identifiers`]
+    /// pointing to the space descendants retrieved from the filters.
+    ///
+    /// They are limited to the first 2 levels of the graph, with the first
+    /// level only containing direct descendants while the second holds the rest
+    /// of them recursively.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::Client;
+    /// use matrix_sdk_ui::{
+    ///     room_list_service::{RoomListService, filters},
+    ///     spaces::SpaceService,
+    /// };
+    /// use ruma::owned_room_id;
+    ///
+    /// # async {
+    /// # let client: Client = todo!();
+    /// let space_service = SpaceService::new(client.clone()).await;
+    /// let room_list_service = RoomListService::new(client.clone()).await?;
+    ///
+    /// // Get the list of filters derived from the space hierarchy.
+    /// let space_filters = space_service.space_filters().await;
+    /// // Pick a filter/space
+    /// let space_filter = space_filters.first().unwrap();
+    ///
+    /// // Create a room list stream and a controller that accepts filters.
+    /// let all_rooms = room_list_service.all_rooms().await?;
+    /// let (_, controller) = all_rooms.entries_with_dynamic_adapters(25);
+    ///
+    /// // Apply an identifiers filter built from the space filter descendants.
+    /// controller.set_filter(Box::new(filters::new_filter_identifiers(
+    ///     space_filter.descendants.clone(),
+    /// )));
+    ///
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn space_filters(&self) -> Vec<SpaceFilter> {
+        let (top_level_joined_spaces, filters, graph) = Self::build_space_state(&self.client).await;
+
+        Self::update_space_state_if_needed(
+            Vector::from(top_level_joined_spaces),
+            Vector::from(filters.clone()),
+            graph,
+            &self.space_state,
+        )
+        .await;
+
+        filters
+    }
+
+    /// Subscribe to changes or updates to the space filters.
+    pub async fn subscribe_to_space_filters(
+        &self,
+    ) -> (Vector<SpaceFilter>, VectorSubscriberBatchedStream<SpaceFilter>) {
+        self.space_state.lock().await.space_filters.subscribe().into_values_and_batched_stream()
     }
 
     /// Returns a flattened list containing all the spaces where the user has
@@ -383,6 +459,7 @@ impl SpaceService {
 
     async fn update_space_state_if_needed(
         new_spaces: Vector<SpaceRoom>,
+        new_filters: Vector<SpaceFilter>,
         new_graph: SpaceGraph,
         space_state: &Arc<AsyncMutex<SpaceState>>,
     ) {
@@ -393,14 +470,22 @@ impl SpaceService {
             space_state.top_level_joined_spaces.append(new_spaces);
         }
 
+        if new_filters != space_state.space_filters.clone() {
+            space_state.space_filters.clear();
+            space_state.space_filters.append(new_filters);
+        }
+
         space_state.graph = new_graph;
     }
 
-    async fn build_space_state(client: &Client) -> (Vec<SpaceRoom>, SpaceGraph) {
+    async fn build_space_state(client: &Client) -> (Vec<SpaceRoom>, Vec<SpaceFilter>, SpaceGraph) {
         let joined_spaces = client.joined_space_rooms();
 
         // Build a graph to hold the parent-child relations
         let mut graph = SpaceGraph::new();
+
+        // And also store `m.space.child` ordering info for later use
+        let mut space_child_states = HashMap::<OwnedRoomId, SpaceRoomChildState>::new();
 
         // Iterate over all joined spaces and populate the graph with edges based
         // on `m.space.parent` and `m.space.child` state events.
@@ -428,6 +513,14 @@ impl SpaceService {
                 children.into_iter()
                 .filter_map(|child_event| match child_event.deserialize() {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
+                        space_child_states.insert(
+                            e.state_key.to_owned(),
+                            SpaceRoomChildState {
+                                order: e.content.order.clone(),
+                                origin_server_ts: e.origin_server_ts,
+                            },
+                        );
+
                         Some(e.state_key)
                     }
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
@@ -451,13 +544,13 @@ impl SpaceService {
         // Proceed with filtering to the top level spaces, sorting them by their
         // (optional) order field (as defined in MSC3230) and then mapping them
         // to `SpaceRoom`s.
-        let top_level_spaces = joined_spaces
+        let top_level_space_rooms = joined_spaces
             .iter()
             .filter(|room| root_nodes.contains(&room.room_id()))
             .collect::<Vec<_>>();
 
         let mut top_level_space_order = HashMap::new();
-        for space in &top_level_spaces {
+        for space in &top_level_space_rooms {
             if let Ok(Some(raw_event)) =
                 space.account_data_static::<events::space_order::SpaceOrderEventContent>().await
                 && let Ok(event) = raw_event.deserialize()
@@ -466,8 +559,8 @@ impl SpaceService {
             }
         }
 
-        let top_level_spaces = top_level_spaces
-            .iter()
+        let top_level_space_rooms = top_level_space_rooms
+            .into_iter()
             .sorted_by(|a, b| {
                 // MSC3230: lexicographically by `order` and then by room ID
                 match (
@@ -482,13 +575,92 @@ impl SpaceService {
                     (None, None) => a.room_id().cmp(b.room_id()),
                 }
             })
+            .collect::<Vec<_>>();
+
+        let top_level_spaces = top_level_space_rooms
+            .iter()
             .map(|room| {
                 SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64)
             })
             .collect();
 
-        (top_level_spaces, graph)
+        let space_filters =
+            Self::build_space_filters(client, &graph, top_level_space_rooms, space_child_states);
+
+        (top_level_spaces, space_filters, graph)
     }
+
+    /// Build the 2 levels required for space filters.
+    /// As per product requirements, the first level space filters only include
+    /// direct descendants while second level ones contain *all* descendants.
+    ///
+    /// The sorting mechanism is different between first level spaces/filters
+    /// and second level ones so while the former are already sorted at this
+    /// point the latter need to be manually taken care of here though the use
+    /// of the collected `m.space.child` state event details.
+    fn build_space_filters(
+        client: &Client,
+        graph: &SpaceGraph,
+        top_level_space_rooms: Vec<&Room>,
+        space_child_states: HashMap<OwnedRoomId, SpaceRoomChildState>,
+    ) -> Vec<SpaceFilter> {
+        let mut filters = Vec::new();
+        for top_level_space in top_level_space_rooms {
+            let children = graph
+                .children_of(top_level_space.room_id())
+                .into_iter()
+                .map(|id| id.to_owned())
+                .collect::<Vec<_>>();
+
+            filters.push(SpaceFilter {
+                space_room: SpaceRoom::new_from_known(top_level_space, children.len() as u64),
+                level: 0,
+                descendants: children.clone(),
+            });
+
+            filters.append(
+                &mut children
+                    .iter()
+                    .filter_map(|id| client.get_room(id))
+                    .filter(|room| room.is_space())
+                    .map(|room| {
+                        SpaceRoom::new_from_known(
+                            &room,
+                            graph.children_of(room.room_id()).len() as u64,
+                        )
+                    })
+                    .sorted_by(|a, b| {
+                        let a_state = space_child_states.get(&a.room_id).cloned();
+                        let b_state = space_child_states.get(&b.room_id).cloned();
+
+                        SpaceRoom::compare_rooms(a, b, a_state, b_state)
+                    })
+                    .map(|space_room| {
+                        let descendants = graph.flattened_bottom_up_subtree(&space_room.room_id);
+
+                        SpaceFilter { space_room, level: 1, descendants }
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        filters
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpaceFilter {
+    /// The underlying [`SpaceRoom`]
+    pub space_room: SpaceRoom,
+
+    /// The level of the space filter in the tree/hierarchy.
+    /// At this point in time the filters are limited to the first 2 levels.
+    pub level: u8,
+
+    /// The room identifiers of the descendants of this space.
+    /// For top level spaces (level 0) these will be direct descendants while
+    /// for first level spaces they will be all other descendants, recursively.
+    pub descendants: Vec<OwnedRoomId>,
 }
 
 #[cfg(test)]
@@ -728,6 +900,91 @@ mod tests {
             space_service.top_level_joined_spaces().await,
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
+    }
+
+    #[async_test]
+    async fn test_space_filters() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!1:a.b"),
+                    order: None,
+                    parents: vec![],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!1.2:a.b"),
+                    order: None,
+                    parents: vec![room_id!("!1:a.b")],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!1.2.3:a.b"),
+                    order: None,
+                    parents: vec![room_id!("!1.2:a.b")],
+                    children: vec![],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: room_id!("!1.2.3.4:a.b"),
+                    order: None,
+                    parents: vec![room_id!("!1.2.3:a.b")],
+                    children: vec![],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &EventFactory::new(),
+            client.user_id().unwrap(),
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        let filters = space_service.space_filters().await;
+        assert_eq!(filters.len(), 2);
+        assert_eq!(filters[0].space_room.room_id, room_id!("!1:a.b"));
+        assert_eq!(filters[0].level, 0);
+        assert_eq!(filters[0].descendants.len(), 1); //
+        assert_eq!(filters[1].space_room.room_id, room_id!("!1.2:a.b"));
+        assert_eq!(filters[1].level, 1);
+        assert_eq!(filters[1].descendants.len(), 3);
+
+        let (initial_values, space_filters_subscriber) =
+            space_service.subscribe_to_space_filters().await;
+        pin_mut!(space_filters_subscriber);
+        assert_pending!(space_filters_subscriber);
+
+        assert_eq!(initial_values, filters.into());
+
+        add_space_rooms(
+            vec![MockSpaceRoomParameters {
+                room_id: room_id!("!1.2.3.4.5:a.b"),
+                order: None,
+                parents: vec![room_id!("!1.2.3.4:a.b")],
+                children: vec![],
+                power_level: None,
+            }],
+            &client,
+            &server,
+            &EventFactory::new(),
+            client.user_id().unwrap(),
+        )
+        .await;
+
+        space_filters_subscriber.next().await;
+
+        let filters = space_service.space_filters().await;
+        assert_eq!(filters[0].descendants.len(), 1);
+        assert_eq!(filters[1].descendants.len(), 4);
     }
 
     #[async_test]

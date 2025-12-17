@@ -23,6 +23,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
+  the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
   events defaults, per-event overrides, notifications), so clients can compute the required power level
   for actions and compare with previous values. ([#5931](https://github.com/matrix-org/matrix-rust-sdk/pull/5931))
