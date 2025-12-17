@@ -217,7 +217,7 @@ impl RedecryptorChannels {
     }
 }
 
-/// A function that  can be used to filter and map [`TimelineEvent`]s into a
+/// A function which can be used to filter and map [`TimelineEvent`]s into a
 /// tuple of event ID and raw [`AnySyncTimelineEvent`].
 ///
 /// The tuple can be used to attempt to redecrypt events.
@@ -229,6 +229,22 @@ fn filter_timeline_event_to_utd(
     // Only pick out events that are UTDs, get just the Raw event as this is what
     // the OlmMachine needs.
     let event = as_variant!(event.kind, TimelineEventKind::UnableToDecrypt { event, .. } => event);
+    // Zip the event ID and event together so we don't have to pick out the event ID
+    // again. We need the event ID to replace the event in the cache.
+    event_id.zip(event)
+}
+
+/// A function which can be used to filter an map [`TimelineEvent`]s into a
+/// tuple of event ID and [`DecryptedRoomEvent`].
+///
+/// The tuple can be used to attempt to update the encryption info of the
+/// decrypted event.
+fn filter_timeline_event_to_decrypted(
+    event: TimelineEvent,
+) -> Option<(OwnedEventId, DecryptedRoomEvent)> {
+    let event_id = event.event_id();
+
+    let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
     // Zip the event ID and event together so we don't have to pick out the event ID
     // again. We need the event ID to replace the event in the cache.
     event_id.zip(event)
@@ -265,15 +281,6 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
-        let filter = |event: TimelineEvent| {
-            let event_id = event.event_id();
-
-            let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
-            // Zip the event ID and event together so we don't have to pick out the event ID
-            // again. We need the event ID to replace the event in the cache.
-            event_id.zip(event)
-        };
-
         let events = match self.inner.store.lock().await? {
             // If the lock is clean, no problem.
             // If the lock is dirty, it doesn't really matter as we are hitting the store
@@ -284,7 +291,7 @@ impl EventCache {
             }
         };
 
-        Ok(events.into_iter().filter_map(filter).collect())
+        Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
     }
 
     /// Handle a chunk of events that we were previously unable to decrypt but
