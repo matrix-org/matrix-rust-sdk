@@ -187,9 +187,11 @@ pub struct InboundGroupSession {
     /// key.
     pub sender_data: SenderData,
 
-    /// If this session was shared-on-invite as part of an MSC4268 key bundle,
+    /// If this session was shared-on-invite as part of an [MSC4268] key bundle,
     /// information about the user who forwarded us the session information.
     /// This is distinct from [`InboundGroupSession::sender_data`].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     pub forwarder_data: Option<SenderData>,
 
     /// The Room this GroupSession belongs to
@@ -246,7 +248,7 @@ impl InboundGroupSession {
     ///   that established this session.
     ///
     /// * `forwarder_data` - If present, indicates this session was received via
-    ///   an MSC4268 room key bundle, and provides information about the
+    ///   an [MSC4268] room key bundle, and provides information about the
     ///   forwarder of this bundle.
     ///
     /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
@@ -265,6 +267,7 @@ impl InboundGroupSession {
     ///   history visibility of the room.
     ///
     /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         sender_key: Curve25519PublicKey,
@@ -741,7 +744,8 @@ impl HistoricRoomKey {
     /// This method takes the current `HistoricRoomKey` instance and attempts to
     /// create an `InboundGroupSession` from it. The `forwarder_data` parameter
     /// provides information about the user or device that forwarded the session
-    /// information. This is distinct from the original sender of the session.
+    /// information. This is normally distinct from the original sender of the
+    /// session.
     ///
     /// # Arguments
     ///

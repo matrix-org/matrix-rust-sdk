@@ -1445,8 +1445,6 @@ impl Store {
     /// * `from_backup_version` - If the keys came from key backup, the key
     ///   backup version. This will cause the keys to be marked as already
     ///   backed up, and therefore not requiring another backup.
-    /// * `forwarder_data` - If the sessions were received as part of an MSC4268
-    ///   key bundle, the information about the user who sent us the bundle.
     /// * `progress_listener` - Callback which will be called after each key is
     ///   processed. Called with arguments `(processed, total)` where
     ///   `processed` is the number of keys processed so far, and `total` is the
