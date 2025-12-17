@@ -3,30 +3,30 @@
 use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
-    ruma::{
-        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
-        RoomId,
-    },
     Room as SdkRoom,
+    ruma::{
+        RoomId,
+        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+    },
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     room_list_service::filters::{
-        new_filter_all, new_filter_any, new_filter_category, new_filter_deduplicate_versions,
-        new_filter_favourite, new_filter_fuzzy_match_room_name, new_filter_invite,
-        new_filter_joined, new_filter_low_priority, new_filter_non_left, new_filter_none,
-        new_filter_normalized_match_room_name, new_filter_not, new_filter_space, new_filter_unread,
-        BoxedFilterFn, RoomCategory,
+        BoxedFilterFn, RoomCategory, new_filter_all, new_filter_any, new_filter_category,
+        new_filter_deduplicate_versions, new_filter_favourite, new_filter_fuzzy_match_room_name,
+        new_filter_invite, new_filter_joined, new_filter_low_priority, new_filter_non_left,
+        new_filter_none, new_filter_normalized_match_room_name, new_filter_not, new_filter_space,
+        new_filter_unread,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
 
 use crate::{
+    TaskHandle,
     room::{Membership, Room},
     runtime::get_runtime_handle,
-    TaskHandle,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]

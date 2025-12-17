@@ -1,44 +1,43 @@
 use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
-    encryption::LocalTrust,
-    room::{
-        edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
-        TryFromReportedContentScoreError,
-    },
-    send_queue::RoomSendQueueUpdate as SdkRoomSendQueueUpdate,
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
+    encryption::LocalTrust,
+    room::{
+        Room as SdkRoom, RoomMemberRole, TryFromReportedContentScoreError, edit::EditedContent,
+        power_levels::RoomPowerLevelChanges,
+    },
+    send_queue::RoomSendQueueUpdate as SdkRoomSendQueueUpdate,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
-    timeline::{default_event_filter, RoomExt, TimelineBuilder},
+    timeline::{RoomExt, TimelineBuilder, default_event_filter},
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
 use ruma::{
-    assign,
+    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
+    ServerName, UserId, assign,
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
         receipt::ReceiptThread,
         room::{
-            avatar::ImageInfo as RumaAvatarImageInfo,
+            MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
-            MediaSource as RumaMediaSource,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
-    ServerName, UserId,
 };
 use tracing::{error, warn};
 
 use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
 use crate::{
+    TaskHandle,
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
@@ -52,11 +51,10 @@ use crate::{
     },
     runtime::get_runtime_handle,
     timeline::{
-        configuration::{TimelineConfiguration, TimelineFilter},
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
+        configuration::{TimelineConfiguration, TimelineFilter},
     },
-    utils::{u64_to_uint, AsyncRuntimeDropped},
-    TaskHandle,
+    utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
 mod power_levels;

@@ -8,7 +8,7 @@ use crate::{
     error::ClientError,
     notification_settings::RoomNotificationMode,
     room::{
-        power_levels::RoomPowerLevels, Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom,
+        Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom, power_levels::RoomPowerLevels,
     },
     room_member::RoomMember,
 };

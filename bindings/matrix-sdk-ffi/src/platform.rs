@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 #[cfg(feature = "sentry")]
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{Arc, atomic::AtomicBool};
 
 #[cfg(feature = "sentry")]
 use tracing::warn;
@@ -9,18 +9,17 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Level;
 use tracing_core::Subscriber;
 use tracing_subscriber::{
+    EnvFilter, Layer, Registry,
     field::RecordFields,
     fmt::{
-        self,
+        self, FormatEvent, FormatFields, FormattedFields,
         format::{DefaultFields, Writer},
         time::FormatTime,
-        FormatEvent, FormatFields, FormattedFields,
     },
     layer::{Layered, SubscriberExt as _},
     registry::LookupSpan,
     reload::{self, Handle},
     util::SubscriberInitExt as _,
-    EnvFilter, Layer, Registry,
 };
 
 #[cfg(feature = "sentry")]
@@ -462,7 +461,10 @@ impl TracingConfiguration {
     #[cfg_attr(not(feature = "sentry"), allow(unused_mut))]
     fn build(mut self) -> LoggingCtx {
         // Show full backtraces, if we run into panics.
-        std::env::set_var("RUST_BACKTRACE", "1");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
 
         // Log panics.
         log_panics::init();
@@ -481,11 +483,7 @@ impl TracingConfiguration {
                         sentry::ClientOptions {
                             traces_sampler: Some(Arc::new(|ctx| {
                                 // Make sure bridge spans are always uploaded
-                                if ctx.name() == BRIDGE_SPAN_NAME {
-                                    1.0
-                                } else {
-                                    0.0
-                                }
+                                if ctx.name() == BRIDGE_SPAN_NAME { 1.0 } else { 0.0 }
                             })),
                             attach_stacktrace: true,
                             release: Some(env!("VERGEN_GIT_SHA").into()),
