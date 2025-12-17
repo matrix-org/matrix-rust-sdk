@@ -1268,7 +1268,7 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_tim
     test_pinned_events_are_decrypted_after_recovering_with_event_count(30).await
 }
 
-/// Test that UTDs in a timeline focused on a singled event, once decrypted by
+/// Test that UTDs in a timeline focused on a single event, once decrypted by
 /// R2D2 (the redecryptor), get replaced in the timeline with the decrypted
 /// variant even if the focused UTD event isn't part of the main timeline and
 /// thus wasn't put into the event cache by the main timeline backpaginating.
@@ -1314,9 +1314,9 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
-    // `m.room.pinned_events` stat event.
+    // `m.room.pinned_events` state event.
     //
-    // Additionally if we subscribe to the room after we already synced, we'll won't
+    // Additionally if we subscribe to the room after we already synced, we won't
     // receive the event, likely due to a Synapse bug.
     sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
     sync_service.start().await;
@@ -1331,7 +1331,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     let event = room.event(&event_id, Default::default()).await?;
     assert!(event.kind.is_utd());
 
-    // Alright, let's now get to the timeline with a Event focus.
+    // Alright, let's now go to the timeline with an Event focus.
     let permalink_timeline = room
         .timeline_builder()
         .with_focus(TimelineFocus::Event {
@@ -1376,7 +1376,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
 
     // And we're not a UTD anymore.
     assert!(!content.is_unable_to_decrypt());
-    let message = content.as_message().expect("The focsued event should be a message");
+    let message = content.as_message().expect("The focused event should be a message");
     assert_eq!(message.body(), "It's a secret to everybody");
 
     // And we check that we don't have any more items in the timeline, the UTD item
