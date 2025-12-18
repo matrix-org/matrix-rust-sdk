@@ -34,6 +34,7 @@ use ruma::{
             member::MembershipState,
             message::{MessageType, Relation, RoomMessageEventContent},
             power_levels::RoomPowerLevels,
+            redaction::RoomRedactionEventContent,
         },
     },
 };
@@ -669,11 +670,17 @@ impl LatestEventValueBuilder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
-        let mut current_value_must_be_erased = true;
+        let mut current_value_must_be_erased = false;
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event, previous_event| {
-                match filter_timeline_event(event, previous_event, own_user_id, power_levels) {
+                match filter_timeline_event(
+                    event,
+                    previous_event,
+                    current_value_event_id.as_ref(),
+                    own_user_id,
+                    power_levels,
+                ) {
                     // Let's continue, event is not suitable.
                     ControlFlow::Continue(FilterContinue {
                         current_value_must_be_erased: erased,
@@ -718,7 +725,13 @@ impl LatestEventValueBuilder {
                 LocalEchoContent::Event { serialized_event: serialized_event_content, .. } => {
                     Some(match serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content, None).is_break() {
+                            if filter_any_message_like_event_content(
+                                content,
+                                None,
+                                current_value_event_id.as_ref(),
+                            )
+                            .is_break()
+                            {
                                 let local_value = LocalLatestEventValue {
                                     timestamp: MilliSecondsSinceUnixEpoch::now(),
                                     content: serialized_event_content.clone(),
@@ -764,9 +777,18 @@ impl LatestEventValueBuilder {
             // Remove the calculated `LatestEventValue` from the buffer of values, and return the
             // last `LatestEventValue` or calculate a new one.
             RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
-                if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
+                let or = if let Some(position) =
+                    buffer_of_values_for_local_events.position(transaction_id)
+                {
                     buffer_of_values_for_local_events.remove(position);
-                }
+
+                    // We have cancelled a local value. If there is no more local values, and if
+                    // there is no candidate for the Event Cache, we must generate some value, here
+                    // `LatestEventValue::None`, to erase any existing value.
+                    Some(LatestEventValue::None)
+                } else {
+                    None
+                };
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -776,6 +798,7 @@ impl LatestEventValueBuilder {
                     power_levels,
                 )
                 .await
+                .or(or)
             }
 
             // A local event has successfully been sent!
@@ -829,7 +852,13 @@ impl LatestEventValueBuilder {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
                     match new_serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content, None).is_break() {
+                            if filter_any_message_like_event_content(
+                                content,
+                                None,
+                                current_value_event_id.as_ref(),
+                            )
+                            .is_break()
+                            {
                                 buffer_of_values_for_local_events.replace_content(
                                     position,
                                     new_serialized_event_content.clone(),
@@ -1106,12 +1135,6 @@ struct FilterContinue {
     current_value_must_be_erased: bool,
 }
 
-impl FilterContinue {
-    fn new() -> Self {
-        Self { current_value_must_be_erased: true }
-    }
-}
-
 /// Build the [`ControlFlow::Break`] for the filters.
 fn filter_break() -> ControlFlow<(), FilterContinue> {
     ControlFlow::Break(())
@@ -1119,12 +1142,28 @@ fn filter_break() -> ControlFlow<(), FilterContinue> {
 
 /// Build the [`ControlFlow::Continue`] for the filters.
 fn filter_continue() -> ControlFlow<(), FilterContinue> {
-    ControlFlow::Continue(FilterContinue::new())
+    ControlFlow::Continue(FilterContinue { current_value_must_be_erased: false })
 }
 
+/// Build the [`ControlFlow::Continue`] with erasing, for the filters.
+fn filter_continue_with_erasing() -> ControlFlow<(), FilterContinue> {
+    ControlFlow::Continue(FilterContinue { current_value_must_be_erased: true })
+}
+
+/// Filter a [`TimelineEvent`].
+///
+/// Be careful:
+///
+/// - `event` is the current event in the collection of events that is scanned.
+/// - `previous_event` is the event sitting next to `event` in this collection,
+///   it's the event that comes before `event` (`previous_event` is older than
+///   `event`).
+/// - `current_value_event_id` is the event ID of the current
+///   [`LatestEventValue`].
 fn filter_timeline_event(
     event: &TimelineEvent,
     previous_event: Option<&TimelineEvent>,
+    current_value_event_id: Option<&OwnedEventId>,
     own_user_id: &UserId,
     power_levels: Option<&RoomPowerLevels>,
 ) -> ControlFlow<(), FilterContinue> {
@@ -1148,6 +1187,7 @@ fn filter_timeline_event(
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
                     previous_event,
+                    current_value_event_id,
                 ),
 
                 // The event has been redacted.
@@ -1164,6 +1204,7 @@ fn filter_timeline_event(
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
     previous_event: Option<&TimelineEvent>,
+    current_value_event_id: Option<&OwnedEventId>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
         // `m.room.message`
@@ -1203,10 +1244,23 @@ fn filter_any_message_like_event_content(
         | AnyMessageLikeEventContent::Sticker(_) => filter_break(),
 
         // `m.room.redaction`
+        AnyMessageLikeEventContent::RoomRedaction(RoomRedactionEventContent {
+            redacts, ..
+        }) => {
+            // A redaction is not suitable.
+            //
+            // However, this redaction targets the current `LatestEventValue`! It means the
+            // current value must be erased.
+            if redacts.as_ref() == current_value_event_id {
+                filter_continue_with_erasing()
+            } else {
+                filter_continue()
+            }
+        }
+
         // `m.room.encrypted`
-        AnyMessageLikeEventContent::RoomRedaction(_)
-        | AnyMessageLikeEventContent::RoomEncrypted(_) => {
-            // These events are **explicitly** not suitable.
+        AnyMessageLikeEventContent::RoomEncrypted(_) => {
+            // **explicitly** not suitable.
             filter_continue()
         }
 
@@ -1275,7 +1329,9 @@ fn filter_any_sync_state_event(
 
 #[cfg(test)]
 mod tests_latest_event_content {
+    use std::ops::Not;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
         event_id,
@@ -1283,20 +1339,20 @@ mod tests_latest_event_content {
         owned_user_id, user_id,
     };
 
-    use super::filter_timeline_event;
+    use super::{ControlFlow, FilterContinue, filter_timeline_event};
 
     macro_rules! assert_latest_event_content {
         ( event | $event_factory:ident | $event_builder:block
           is a candidate ) => {
-            assert_latest_event_content!(@_ | $event_factory | $event_builder, true);
+            assert_latest_event_content!(@_ | $event_factory | $event_builder, ControlFlow::Break(_));
         };
 
         ( event | $event_factory:ident | $event_builder:block
           is not a candidate ) => {
-            assert_latest_event_content!(@_ | $event_factory | $event_builder, false);
+            assert_latest_event_content!(@_ | $event_factory | $event_builder, ControlFlow::Continue(_));
         };
 
-        ( @_ | $event_factory:ident | $event_builder:block, $expect:literal ) => {
+        ( @_ | $event_factory:ident | $event_builder:block, $expect:pat) => {
             let user_id = user_id!("@mnt_io:matrix.org");
             let event_factory = EventFactory::new().sender(user_id);
             let event = {
@@ -1304,7 +1360,10 @@ mod tests_latest_event_content {
                 $event_builder
             };
 
-            assert_eq!(filter_timeline_event(&event, None, user_id!("@mnt_io:matrix.org"), None).is_break(), $expect );
+            assert_matches!(
+                filter_timeline_event(&event, None, None, user_id!("@mnt_io:matrix.org"), None),
+                $expect
+            );
         };
     }
 
@@ -1334,7 +1393,9 @@ mod tests_latest_event_content {
         {
             let previous_event = None;
 
-            assert!(filter_timeline_event(&event, previous_event, user_id, None).is_continue());
+            assert!(
+                filter_timeline_event(&event, previous_event, None, user_id, None).is_continue()
+            );
         }
 
         // With a previous event, but not the one being replaced.
@@ -1343,7 +1404,8 @@ mod tests_latest_event_content {
                 Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
 
             assert!(
-                filter_timeline_event(&event, previous_event.as_ref(), user_id, None).is_continue()
+                filter_timeline_event(&event, previous_event.as_ref(), None, user_id, None)
+                    .is_continue()
             );
         }
 
@@ -1353,17 +1415,57 @@ mod tests_latest_event_content {
                 Some(event_factory.text_msg("hello").event_id(event_id!("$ev0")).into_event());
 
             assert!(
-                filter_timeline_event(&event, previous_event.as_ref(), user_id, None).is_break()
+                filter_timeline_event(&event, previous_event.as_ref(), None, user_id, None)
+                    .is_break()
             );
         }
     }
 
     #[test]
     fn test_redaction() {
-        assert_latest_event_content!(
-            event | event_factory | { event_factory.redaction(event_id!("$ev0")).into_event() }
-            is not a candidate
-        );
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id);
+        let event_id = event_id!("$ev0");
+        let event = event_factory.redaction(event_id).into_event();
+
+        // `current_value_event_id` is `None`, it cannot be used to decide whether the
+        // current value must be erased.
+        {
+            let current_value_event_id = None;
+
+            assert_matches!(
+                filter_timeline_event(&event, None, current_value_event_id, user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                    assert!(current_value_must_be_erased.not());
+                }
+            );
+        }
+
+        // `current_value_event_id` is `Some(_)`, but the redaction event doesn't target
+        // this event ID.
+        {
+            let current_value_event_id = Some(event_id!("$ev1").to_owned());
+
+            assert_matches!(
+                filter_timeline_event(&event, None, current_value_event_id.as_ref(), user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                    assert!(current_value_must_be_erased.not());
+                }
+            );
+        }
+
+        // `current_value_event_id` is `Some(_)`, and the redaction event does target
+        // this event ID: great, the current value must be erased!
+        {
+            let current_value_event_id = Some(event_id.to_owned());
+
+            assert_matches!(
+                filter_timeline_event(&event, None, current_value_event_id.as_ref(), user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                    assert!(current_value_must_be_erased);
+                }
+            );
+        }
     }
 
     #[test]
@@ -1526,7 +1628,7 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, user_id, Some(&room_power_levels))
+                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
                     .is_continue(),
                 "cannot accept, cannot decline",
             );
@@ -1537,7 +1639,8 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
+                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
+                    .is_break(),
                 "can accept, cannot decline",
             );
         }
@@ -1547,7 +1650,8 @@ mod tests_latest_event_content {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
+                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
+                    .is_break(),
                 "cannot accept, can decline",
             );
         }
@@ -1557,7 +1661,8 @@ mod tests_latest_event_content {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
+                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
+                    .is_break(),
                 "can accept, can decline",
             );
         }
@@ -1573,7 +1678,7 @@ mod tests_latest_event_content {
             room_power_levels.kick = 0.into();
 
             assert!(
-                filter_timeline_event(&event, None, user_id, Some(&room_power_levels))
+                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
                     .is_continue(),
                 "cannot accept, can decline, at least same user levels",
             );
