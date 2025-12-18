@@ -2760,6 +2760,11 @@ impl SendHandle {
             Ok(None)
         }
     }
+
+    /// Returns the [`TransactionId`] associated with this [`SendHandle`].
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
 }
 
 /// A handle to execute actions on the sending of a reaction.
@@ -2871,9 +2876,12 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches2::{assert_let, assert_matches};
-    use matrix_sdk_base::store::{
-        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
-        SerializableEventContent,
+    use matrix_sdk_base::{
+        RoomState,
+        store::{
+            ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
+            SerializableEventContent,
+        },
     };
     use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
@@ -2882,8 +2890,11 @@ mod tests {
         room_id,
     };
 
-    use super::canonicalize_dependent_requests;
-    use crate::{client::WeakClient, test_utils::logged_in_client};
+    use super::{SendHandle, canonicalize_dependent_requests};
+    use crate::{
+        client::WeakClient,
+        test_utils::{logged_in_client, mocks::MatrixMockServer},
+    };
 
     #[test]
     fn test_canonicalize_dependent_events_created_at() {
@@ -3149,5 +3160,23 @@ mod tests {
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].own_transaction_id, edit_id);
         assert_eq!(res[1].own_transaction_id, react_id);
+    }
+
+    #[async_test]
+    async fn test_transaction_id_fn_returns_the_inner_transaction_id() {
+        let room_id = room_id!("!r0").to_owned();
+        let transaction_id = TransactionId::new();
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+        let room = client.get_room(&room_id).unwrap();
+
+        let handle = SendHandle::new(
+            room.send_queue(),
+            transaction_id.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+        );
+        assert_eq!(handle.transaction_id(), transaction_id);
     }
 }

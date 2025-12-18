@@ -800,6 +800,12 @@ impl SendHandle {
         }
         Ok(())
     }
+
+    /// Return the transaction id associated with the [`SendHandle`].
+    pub async fn transaction_id(self: Arc<Self>) -> Option<String> {
+        let locked = self.inner.lock().await;
+        locked.as_ref().map(|handle| handle.transaction_id().to_string())
+    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
