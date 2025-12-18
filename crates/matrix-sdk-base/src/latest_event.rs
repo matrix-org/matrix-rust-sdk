@@ -25,7 +25,7 @@ pub enum LatestEventValue {
         /// ID of the sent event.
         event_id: OwnedEventId,
 
-        /// Value, as for other [`Self::Local*`] variants.
+        /// Value, as for other `Self::Local*` variants.
         value: LocalLatestEventValue,
     },
 
@@ -88,6 +88,16 @@ impl LatestEventValue {
     /// [`None`]: LatestEventValue::None
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
+    }
+
+    /// Get the event ID (if it exists) of the event representing the
+    /// [`LatestEventValue`].
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        match self {
+            Self::Remote(event) => event.event_id(),
+            Self::LocalHasBeenSent { event_id, .. } => Some(event_id.clone()),
+            Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) | Self::None => None,
+        }
     }
 }
 
@@ -186,5 +196,76 @@ mod tests_latest_event_value {
         });
 
         assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
+    }
+
+    #[test]
+    fn test_event_id_with_none() {
+        let value = LatestEventValue::None;
+
+        assert!(value.event_id().is_none());
+    }
+
+    #[test]
+    fn test_event_id_with_remote() {
+        let event_id = owned_event_id!("$ev0");
+        let value = LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain("raclette"),
+                    "type": "m.room.message",
+                    "event_id": event_id,
+                    "room_id": "!r0",
+                    "origin_server_ts": 42,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ));
+
+        assert_eq!(value.event_id(), Some(event_id));
+    }
+
+    #[test]
+    fn test_event_id_with_local_is_sending() {
+        let value = LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
+        });
+
+        assert!(value.event_id().is_none());
+    }
+
+    #[test]
+    fn test_event_id_with_local_has_been_sent() {
+        let event_id = owned_event_id!("$ev0");
+        let value = LatestEventValue::LocalHasBeenSent {
+            event_id: event_id.clone(),
+            value: LocalLatestEventValue {
+                timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+                content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+            },
+        };
+
+        assert_eq!(value.event_id(), Some(event_id));
+    }
+
+    #[test]
+    fn test_event_id_with_local_cannot_be_sent() {
+        let value = LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("raclette"),
+            ))
+            .unwrap(),
+        });
+
+        assert!(value.event_id().is_none());
     }
 }
