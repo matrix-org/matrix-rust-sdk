@@ -74,7 +74,7 @@ mod tests {
     use ruma::{
         MilliSecondsSinceUnixEpoch,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
+        owned_event_id, room_id,
         serde::Raw,
         uint,
     };
@@ -114,13 +114,16 @@ mod tests {
     }
 
     fn local_has_been_sent() -> LatestEventValue {
-        LatestEventValue::LocalHasBeenSent(LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain("raclette"),
-            ))
-            .unwrap(),
-        })
+        LatestEventValue::LocalHasBeenSent {
+            event_id: owned_event_id!("$ev0"),
+            value: LocalLatestEventValue {
+                timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+                content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+            },
+        }
     }
 
     fn local_cannot_be_sent() -> LatestEventValue {

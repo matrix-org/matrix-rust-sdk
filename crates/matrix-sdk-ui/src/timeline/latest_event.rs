@@ -161,7 +161,7 @@ impl LatestEventValue {
                 }
             }
             BaseLatestEventValue::LocalIsSending(ref local_value)
-            | BaseLatestEventValue::LocalHasBeenSent(ref local_value)
+            | BaseLatestEventValue::LocalHasBeenSent { value: ref local_value, .. }
             | BaseLatestEventValue::LocalCannotBeSent(ref local_value) => {
                 let LocalLatestEventValue { timestamp, content: serialized_content } = local_value;
 
@@ -187,7 +187,7 @@ impl LatestEventValue {
                             BaseLatestEventValue::LocalIsSending(_) => {
                                 LatestEventValueLocalState::IsSending
                             }
-                            BaseLatestEventValue::LocalHasBeenSent(_) => {
+                            BaseLatestEventValue::LocalHasBeenSent { .. } => {
                                 LatestEventValueLocalState::HasBeenSent
                             }
                             BaseLatestEventValue::LocalCannotBeSent(_) => {
@@ -313,13 +313,16 @@ mod tests {
         let client = server.client_builder().build().await;
         let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
 
-        let base_value = BaseLatestEventValue::LocalHasBeenSent(LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain("raclette"),
-            ))
-            .unwrap(),
-        });
+        let base_value = BaseLatestEventValue::LocalHasBeenSent {
+            event_id: event_id!("$ev0").to_owned(),
+            value: LocalLatestEventValue {
+                timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+                content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+            },
+        };
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
