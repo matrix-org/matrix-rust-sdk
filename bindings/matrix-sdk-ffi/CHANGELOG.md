@@ -23,9 +23,16 @@ All notable changes to this project will be documented in this file.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
+  levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
   
 ### Refactor
 
+- [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the 
+  actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the 
+  event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- [**breaking**] The function `TimelineEvent::event_type` is now `TimelineEvent::content`. 
+  ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
   client events when invoking the `subscribe_to_joined_spaces` but instead do it
   through its, now async, constructor.
