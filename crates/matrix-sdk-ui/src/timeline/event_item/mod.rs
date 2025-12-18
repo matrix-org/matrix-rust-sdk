@@ -24,7 +24,7 @@ use matrix_sdk::{
     deserialized_responses::{EncryptionInfo, ShieldState},
     send_queue::{SendHandle, SendReactionHandle},
 };
-use matrix_sdk_base::deserialized_responses::{SENT_IN_CLEAR, ShieldStateCode};
+use matrix_sdk_base::deserialized_responses::ShieldStateCode;
 use once_cell::sync::Lazy;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
@@ -309,16 +309,16 @@ impl EventTimelineItem {
         }
     }
 
-    /// Gets the [`ShieldState`] which can be used to decorate
+    /// Gets the [`TimelineEventShieldState`] which can be used to decorate
     /// messages in the recommended way.
-    pub fn get_shield(&self, strict: bool) -> ShieldState {
+    pub fn get_shield(&self, strict: bool) -> TimelineEventShieldState {
         if !self.is_room_encrypted || self.is_local_echo() {
-            return ShieldState::None;
+            return TimelineEventShieldState::None;
         }
 
         // An unable-to-decrypt message has no authenticity shield.
         if self.content().is_unable_to_decrypt() {
-            return ShieldState::None;
+            return TimelineEventShieldState::None;
         }
 
         match self.encryption_info() {
@@ -329,10 +329,9 @@ impl EventTimelineItem {
                     info.verification_state.to_shield_state_lax().into()
                 }
             }
-            None => ShieldState::Red {
-                code: ShieldStateCode::SentInClear,
-                message: SENT_IN_CLEAR,
-            },
+            None => {
+                TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
+            }
         }
     }
 
@@ -691,5 +690,74 @@ impl ReactionsByKeyBySender {
             return Some(info);
         }
         None
+    }
+}
+
+/// Extends [`ShieldState`] to allow for a `SentInClear` code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimelineEventShieldState {
+    /// A red shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Red {
+        /// A machine-readable representation.
+        code: TimelineEventShieldStateCode,
+    },
+    /// A grey shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Grey {
+        /// A machine-readable representation.
+        code: TimelineEventShieldStateCode,
+    },
+    /// No shield should be presented.
+    None,
+}
+
+impl From<ShieldState> for TimelineEventShieldState {
+    fn from(value: ShieldState) -> Self {
+        match value {
+            ShieldState::Red { code, message: _ } => {
+                TimelineEventShieldState::Red { code: code.into() }
+            }
+            ShieldState::Grey { code, message: _ } => {
+                TimelineEventShieldState::Grey { code: code.into() }
+            }
+            ShieldState::None => TimelineEventShieldState::None,
+        }
+    }
+}
+
+/// Extends [`ShieldStateCode`] to allow for a `SentInClear` code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum TimelineEventShieldStateCode {
+    /// Not enough information available to check the authenticity.
+    AuthenticityNotGuaranteed,
+    /// The sending device isn't yet known by the Client.
+    UnknownDevice,
+    /// The sending device hasn't been verified by the sender.
+    UnsignedDevice,
+    /// The sender hasn't been verified by the Client's user.
+    UnverifiedIdentity,
+    /// The sender was previously verified but changed their identity.
+    VerificationViolation,
+    /// The `sender` field on the event does not match the owner of the device
+    /// that established the Megolm session.
+    MismatchedSender,
+    /// An unencrypted event in an encrypted room.
+    SentInClear,
+}
+
+impl From<ShieldStateCode> for TimelineEventShieldStateCode {
+    fn from(value: ShieldStateCode) -> Self {
+        use TimelineEventShieldStateCode::*;
+        match value {
+            ShieldStateCode::AuthenticityNotGuaranteed => AuthenticityNotGuaranteed,
+            ShieldStateCode::UnknownDevice => UnknownDevice,
+            ShieldStateCode::UnsignedDevice => UnsignedDevice,
+            ShieldStateCode::UnverifiedIdentity => UnverifiedIdentity,
+            ShieldStateCode::SentInClear => SentInClear,
+            ShieldStateCode::VerificationViolation => VerificationViolation,
+            ShieldStateCode::MismatchedSender => MismatchedSender,
+        }
     }
 }

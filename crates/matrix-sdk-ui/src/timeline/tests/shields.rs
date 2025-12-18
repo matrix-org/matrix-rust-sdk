@@ -1,6 +1,5 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
 use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -17,7 +16,7 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{
-    EventSendState,
+    EventSendState, TimelineEventShieldState, TimelineEventShieldStateCode,
     tests::{TestTimeline, TestTimelineBuilder},
 };
 
@@ -31,7 +30,7 @@ async fn test_no_shield_in_unencrypted_room() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
-    assert_eq!(shield, ShieldState::None);
+    assert_eq!(shield, TimelineEventShieldState::None);
 }
 
 #[async_test]
@@ -46,7 +45,7 @@ async fn test_sent_in_clear_shield() {
     let shield = item.as_event().unwrap().get_shield(false);
     assert_eq!(
         shield,
-        ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." }
+        TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
     );
 }
 
@@ -75,7 +74,7 @@ async fn test_local_sent_in_clear_shield() {
     // available).
     assert!(event_item.is_local_echo());
     let shield = event_item.get_shield(false);
-    assert_eq!(shield, ShieldState::None);
+    assert_eq!(shield, TimelineEventShieldState::None);
 
     {
         // The date divider comes in late.
@@ -96,7 +95,7 @@ async fn test_local_sent_in_clear_shield() {
     // Then the local echo still should not have a shield.
     assert!(event_item.is_local_echo());
     let shield = event_item.get_shield(false);
-    assert_eq!(shield, ShieldState::None);
+    assert_eq!(shield, TimelineEventShieldState::None);
 
     // When the remote echo comes in.
     timeline
@@ -118,7 +117,7 @@ async fn test_local_sent_in_clear_shield() {
     let shield = event_item.get_shield(false);
     assert_eq!(
         shield,
-        ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." }
+        TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
     );
 
     // Date divider is adjusted.
@@ -168,5 +167,5 @@ async fn test_utd_shield() {
     // Then the message is displayed with no shield
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
-    assert_eq!(shield, ShieldState::None);
+    assert_eq!(shield, TimelineEventShieldState::None);
 }

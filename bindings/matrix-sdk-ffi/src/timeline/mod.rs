@@ -21,7 +21,6 @@ use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
 };
@@ -33,6 +32,7 @@ use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
     LatestEventValue as UiLatestEventValue, LatestEventValueLocalState,
     MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
+    TimelineEventShieldState as SdkShieldState, TimelineEventShieldStateCode,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -993,8 +993,8 @@ pub enum ShieldState {
 impl From<SdkShieldState> for ShieldState {
     fn from(value: SdkShieldState) -> Self {
         match value {
-            SdkShieldState::Red { code, message: _ } => Self::Red { code },
-            SdkShieldState::Grey { code, message: _ } => Self::Grey { code },
+            SdkShieldState::Red { code } => Self::Red { code },
+            SdkShieldState::Grey { code } => Self::Grey { code },
             SdkShieldState::None => Self::None,
         }
     }

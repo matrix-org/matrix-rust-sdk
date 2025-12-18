@@ -46,7 +46,6 @@ const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 const MISMATCHED_SENDER: &str = "\
     The sender of the event does not match the owner of the device \
     that created the Megolm session.";
-pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
 /// device.

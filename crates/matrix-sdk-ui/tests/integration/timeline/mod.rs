@@ -22,7 +22,6 @@ use matrix_sdk::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
-use matrix_sdk_common::deserialized_responses::ShieldState;
 use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, async_test,
     event_factory::EventFactory,
@@ -31,8 +30,8 @@ use matrix_sdk_ui::{
     Timeline,
     timeline::{
         AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
-        RedactError, RoomExt, TimelineBuilder, TimelineEventItemId, TimelineFocus,
-        TimelineItemContent, VirtualTimelineItem, default_event_filter,
+        RedactError, RoomExt, TimelineBuilder, TimelineEventItemId, TimelineEventShieldState,
+        TimelineFocus, TimelineItemContent, VirtualTimelineItem, default_event_filter,
     },
 };
 use ruma::{
@@ -758,7 +757,7 @@ async fn test_timeline_without_encryption_info() {
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields.
-    assert_eq!(items[1].as_event().unwrap().get_shield(false), ShieldState::None);
+    assert_eq!(items[1].as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 }
 
 #[async_test]
@@ -788,7 +787,7 @@ async fn test_timeline_without_encryption_can_update() {
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields
-    assert_eq!(items[1].as_event().unwrap().get_shield(false), ShieldState::None);
+    assert_eq!(items[1].as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     let encryption_event_content = RoomEncryptionEventContent::with_recommended_defaults();
     server
@@ -806,17 +805,17 @@ async fn test_timeline_without_encryption_can_update() {
     // Previous timeline event now has a shield.
     assert_let!(VectorDiff::Set { index, value } = &timeline_updates[0]);
     assert_eq!(*index, 1);
-    assert_ne!(value.as_event().unwrap().get_shield(false), ShieldState::None);
+    assert_ne!(value.as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     // Room encryption event is received.
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
     assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
-    assert_ne!(value.as_event().unwrap().get_shield(false), ShieldState::None);
+    assert_ne!(value.as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     // New message event is received and has a shield.
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-    assert_ne!(value.as_event().unwrap().get_shield(false), ShieldState::None);
+    assert_ne!(value.as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     assert_pending!(stream);
 }
