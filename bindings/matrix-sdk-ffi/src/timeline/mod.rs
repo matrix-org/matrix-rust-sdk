@@ -980,12 +980,12 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 /// authenticity properties.
 #[derive(uniffi::Enum, Clone)]
 pub enum ShieldState {
-    /// A red shield with a tooltip containing the associated message should be
-    /// presented.
-    Red { code: ShieldStateCode, message: String },
-    /// A grey shield with a tooltip containing the associated message should be
-    /// presented.
-    Grey { code: ShieldStateCode, message: String },
+    /// A red shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Red { code: TimelineEventShieldStateCode },
+    /// A grey shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Grey { code: TimelineEventShieldStateCode },
     /// No shield should be presented.
     None,
 }
@@ -993,12 +993,8 @@ pub enum ShieldState {
 impl From<SdkShieldState> for ShieldState {
     fn from(value: SdkShieldState) -> Self {
         match value {
-            SdkShieldState::Red { code, message } => {
-                Self::Red { code, message: message.to_owned() }
-            }
-            SdkShieldState::Grey { code, message } => {
-                Self::Grey { code, message: message.to_owned() }
-            }
+            SdkShieldState::Red { code, message: _ } => Self::Red { code },
+            SdkShieldState::Grey { code, message: _ } => Self::Grey { code },
             SdkShieldState::None => Self::None,
         }
     }

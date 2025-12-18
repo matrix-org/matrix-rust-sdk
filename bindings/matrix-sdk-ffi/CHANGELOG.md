@@ -15,6 +15,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `LazyTimelineItemProvider::get_shields` no longer returns an
+  an `Option`: the `ShieldState` type contains a `None` variant, so the
+  `Option` was redundant. The `message` field has also been removed: since there
+  was no way to localise the returned string, applications should not be using it.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
