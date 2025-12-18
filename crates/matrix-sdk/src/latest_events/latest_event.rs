@@ -532,7 +532,7 @@ mod tests_latest_event {
 
             assert_matches!(
                 latest_event.current_value.get().await,
-                LatestEventValue::LocalHasBeenSent(_)
+                LatestEventValue::LocalHasBeenSent { .. }
             );
         }
 
@@ -760,7 +760,7 @@ impl LatestEventValueBuilder {
             // “is sending”. Then, remove the calculated `LatestEventValue` from the buffer of
             // values. Finally, return the last `LatestEventValue` or calculate a new
             // one.
-            RoomSendQueueUpdate::SentEvent { transaction_id, .. } => {
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
                 if let Some(position) =
                     buffer_of_values_for_local_events.mark_is_sending_after(transaction_id)
                 {
@@ -774,8 +774,8 @@ impl LatestEventValueBuilder {
                             LatestEventValue::LocalIsSending(local_value)
                             | LatestEventValue::LocalCannotBeSent(local_value)
                             // Technically impossible, but it's not harmful to handle this that way.
-                            | LatestEventValue::LocalHasBeenSent(local_value ) => {
-                                return Some(LatestEventValue::LocalHasBeenSent(local_value));
+                            | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
+                                return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value });
                             }
                             LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         }
@@ -1566,6 +1566,7 @@ mod tests_latest_event_values_for_local_events {
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        owned_event_id,
         serde::Raw,
     };
     use serde_json::json;
@@ -1673,7 +1674,10 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(
             OwnedTransactionId::from("txnid1"),
-            LatestEventValue::LocalHasBeenSent(local_room_message("raclette")),
+            LatestEventValue::LocalHasBeenSent {
+                event_id: owned_event_id!("$ev0"),
+                value: local_room_message("raclette"),
+            },
         );
 
         // no panic.
@@ -1701,7 +1705,10 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid"),
-            LatestEventValue::LocalHasBeenSent(local_room_message("gruyère")),
+            LatestEventValue::LocalHasBeenSent {
+                event_id: owned_event_id!("$ev0"),
+                value: local_room_message("gruyère"),
+            },
         );
 
         let LocalLatestEventValue { content: new_content, .. } = local_room_message("comté");
@@ -1930,6 +1937,28 @@ mod tests_latest_event_value_builder {
                         local_event.content.deserialize().unwrap(),
                         AnyMessageLikeEventContent::RoomMessage(message_content) => {
                             assert_eq!(message_content.body(), $body);
+                        }
+                    );
+                }
+            );
+        };
+
+        ( $latest_event_value:expr, $pattern:path {
+            $local_value:ident with body = $body:expr
+            $( , $field:ident => $more:block )*
+        } ) => {
+            assert_matches!(
+                $latest_event_value,
+                Some( $pattern { $local_value, $( $field, )* .. }) => {
+                    assert_matches!(
+                        $local_value .content.deserialize().unwrap(),
+                        AnyMessageLikeEventContent::RoomMessage(message_content) => {
+                            assert_eq!(message_content.body(), $body);
+
+                            $({
+                                let $field = $field;
+                                $more
+                            })*
                         }
                     );
                 }
@@ -2347,15 +2376,21 @@ mod tests_latest_event_value_builder {
         // hasn't changed, this is still this event, but the status has changed to
         // `LocalHasBeenSent`.
         {
+            let expected_event_id = event_id!("$ev1").to_owned();
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_1,
-                event_id: event_id!("$ev1").to_owned(),
+                event_id: expected_event_id.clone(),
             };
 
             // The `LatestEventValue` hasn't changed.
             assert_local_value_matches_room_message_with_body!(
                 LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, user_id, None).await,
-                LatestEventValue::LocalHasBeenSent => with body = "B"
+                LatestEventValue::LocalHasBeenSent {
+                    value with body = "B",
+                    event_id => {
+                        assert_eq!(event_id, expected_event_id);
+                    }
+                }
             );
 
             assert!(buffer.buffer.is_empty());
