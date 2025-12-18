@@ -1277,8 +1277,8 @@ pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineIt
 #[matrix_sdk_ffi_macros::export]
 impl LazyTimelineItemProvider {
     /// Returns the shields for this event timeline item.
-    fn get_shields(&self, strict: bool) -> Option<ShieldState> {
-        Some(self.0.get_shield(strict).into())
+    fn get_shields(&self, strict: bool) -> ShieldState {
+        self.0.get_shield(strict).into()
     }
 
     /// Returns some debug information for this event timeline item.
