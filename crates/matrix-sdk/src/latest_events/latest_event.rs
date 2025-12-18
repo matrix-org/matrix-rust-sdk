@@ -23,7 +23,7 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, StateChanges, deserialized_responses::TimelineEvent,
-    store::SerializableEventContent, timer,
+    store::SerializableEventContent,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
@@ -658,11 +658,6 @@ impl LatestEventValueBuilder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
-        let _timer = timer!(
-            tracing::Level::INFO,
-            format!("`LatestEventValueBuilder::new_remote` for {:?}", room_event_cache.room_id())
-        );
-
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event, previous_event_id| {
                 filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
@@ -686,11 +681,6 @@ impl LatestEventValueBuilder {
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
         use crate::send_queue::{LocalEcho, LocalEchoContent};
-
-        let _timer = timer!(
-            tracing::Level::INFO,
-            format!("`LatestEventValueBuilder::new_local` for {:?}", room_event_cache.room_id())
-        );
 
         Some(match send_queue_update {
             // A new local event is being sent.
