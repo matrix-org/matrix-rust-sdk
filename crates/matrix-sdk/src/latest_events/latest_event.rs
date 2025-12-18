@@ -659,8 +659,8 @@ impl LatestEventValueBuilder {
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
+            .rfind_map_event_in_memory_by(|event, previous_event| {
+                filter_timeline_event(event, previous_event, own_user_id, power_levels)
                     .then(|| event.clone())
             })
             .await
@@ -1264,9 +1264,9 @@ mod tests_latest_event_content {
         // is part of another chunk that is not loaded in memory yet. In this case,
         // let's not consider the event as a `LatestEventValue` candidate.
         {
-            let previous_event_id = None;
+            let previous_event = None;
 
-            assert!(filter_timeline_event(&event, previous_event_id, user_id, None).not());
+            assert!(filter_timeline_event(&event, previous_event, user_id, None).not());
         }
 
         // With a previous event, but not the one being replaced.
