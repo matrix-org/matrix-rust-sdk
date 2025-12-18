@@ -698,7 +698,7 @@ impl LatestEventValueBuilder {
         {
             Some(LatestEventValue::Remote(event))
         } else {
-            current_value_must_be_erased.then(|| LatestEventValue::default())
+            current_value_must_be_erased.then(LatestEventValue::default)
         }
     }
 
