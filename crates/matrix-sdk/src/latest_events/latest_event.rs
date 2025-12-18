@@ -2065,14 +2065,17 @@ mod tests_latest_event_value_builder {
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId, event_id,
+        EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             SyncMessageLikeEvent, reaction::ReactionEventContent, relation::Annotation,
             room::message::RoomMessageEventContent,
         },
-        room_id, user_id,
+        room_id,
+        serde::Raw,
+        user_id,
     };
+    use serde_json::json;
 
     use super::{
         LatestEventValue, LatestEventValueBuilder, LatestEventValuesForLocalEvents,
@@ -2107,7 +2110,7 @@ mod tests_latest_event_value_builder {
 
                     latest_event_value.unwrap()
                 }
-            );
+            )
         }};
     }
 
@@ -2155,6 +2158,22 @@ mod tests_latest_event_value_builder {
                 }
             )
         }};
+    }
+
+    fn remote_room_message(event_id: &EventId, body: &str) -> RemoteLatestEventValue {
+        RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain(body),
+                    "type": "m.room.message",
+                    "event_id": event_id,
+                    "origin_server_ts": 42,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
     }
 
     #[async_test]
@@ -2220,6 +2239,289 @@ mod tests_latest_event_value_builder {
             // and `event_id_0` hasn't been read yet (because events are read
             // backwards).
             LatestEventValueBuilder::new_remote(&room_event_cache, None, user_id, None).await => with body = "world"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_without_a_candidate() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Check initial state.
+        let current_value = {
+            let value = room.latest_event();
+
+            assert_matches!(value, LatestEventValue::None);
+
+            value
+        };
+
+        // Compute a new remote value: not able to find a relevant candidate.
+        //
+        // No candidate is found, so it's just `None` here.
+        assert_matches!(
+            LatestEventValueBuilder::new_remote(
+                &room_event_cache,
+                current_value.event_id(),
+                user_id,
+                None,
+            )
+            .await,
+            None
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_with_a_candidate() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert a suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![
+                            event_factory.text_msg("hello").event_id(event_id!("$ev0")).into(),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Check initial state.
+        let current_value = {
+            let value = room.latest_event();
+
+            assert_matches!(value, LatestEventValue::None);
+
+            value
+        };
+
+        // Compute a new remote value: will be able to find a relevant
+        // candidate.
+        //
+        // A candidate is found, so it's a `Some(LatestEventValue::Remote)`
+        // that is returned! Let's check the event.
+        assert_remote_value_matches_room_message_with_body!(
+            LatestEventValueBuilder::new_remote(&room_event_cache, current_value.event_id(), user_id, None).await => with body = "hello"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_without_a_candidate_but_with_an_existing_latest_event_value() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert a non-suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_factory.room_topic("new room topic").into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Initial state.
+        let current_value =
+            LatestEventValue::Remote(remote_room_message(event_id!("$ev0"), "hello"));
+
+        // Compute a new remote value: with no candidate.
+        //
+        // No candidate is found, so it's just a `None` here.
+        assert_matches!(
+            LatestEventValueBuilder::new_remote(
+                &room_event_cache,
+                current_value.event_id(),
+                user_id,
+                None
+            )
+            .await,
+            None
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_without_a_candidate_but_with_an_erasable_existing_latest_event_value() {
+        let room_id = room_id!("!r0");
+        let event_id = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert a non-suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_factory.redaction(event_id).into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Initial state.
+        let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
+
+        // Compute a new remote value: with no candidate, but it's a `m.room.redaction`
+        // that erases `current_value`!
+        //
+        // No candidate is found, so it SHOULD BE a `None`, but since we found a
+        // `m.room.redaction` targeting our `current_value`, it MUST BE a
+        // `Some(LatestEventValue::None)` to erase it.
+        assert_matches!(
+            LatestEventValueBuilder::new_remote(
+                &room_event_cache,
+                current_value.event_id(),
+                user_id,
+                None
+            )
+            .await,
+            Some(LatestEventValue::None)
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_with_a_candidate_and_an_erasable_existing_latest_event_value() {
+        let room_id = room_id!("!r0");
+        let event_id = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert a non-suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![
+                            event_factory.redaction(event_id).into(),
+                            event_factory.text_msg("world").into(),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Initial state.
+        let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
+
+        // Compute a new remote value: with a candidate, and a `m.room.redaction`
+        // that erases `current_value`!
+        //
+        // A candidate is found, so it MUST BE a
+        // `Some(LatestEventValue::Remote(_))`, whatever the `current_value`
+        // is.
+        assert_remote_value_matches_room_message_with_body!(
+            LatestEventValueBuilder::new_remote(&room_event_cache, current_value.event_id(), user_id, None).await => with body = "world"
         );
     }
 
@@ -2749,7 +3051,7 @@ mod tests_latest_event_value_builder {
                     None
                 )
                 .await,
-                Some(LatestEventValue::None)
+                None
             );
 
             assert_eq!(buffer.buffer.len(), 0);
