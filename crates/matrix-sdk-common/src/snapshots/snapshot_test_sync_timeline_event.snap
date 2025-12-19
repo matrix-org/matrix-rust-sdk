@@ -17,7 +17,6 @@ expression: "serde_json::to_value(&room_event).unwrap()"
           }
         },
         "forwarder": null,
-        "forwarder_device": null,
         "sender": "@sender:example.com",
         "sender_device": "ABCDEFGHIJ",
         "verification_state": "Verified"

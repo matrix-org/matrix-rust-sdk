@@ -6,7 +6,6 @@ expression: deserialized
   "sender": "@alice:localhost",
   "sender_device": "ABCDEFGH",
   "forwarder": null,
-  "forwarder_device": null,
   "algorithm_info": {
     "MegolmV1AesSha2": {
       "curve25519_key": "curvecurvecurve",
