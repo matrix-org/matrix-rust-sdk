@@ -296,6 +296,7 @@ mod tests {
             encryption_info: Some(Arc::new(EncryptionInfo {
                 sender: owned_user_id!("@u:s.co"),
                 sender_device: None,
+                forwarder: None,
                 algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                     curve25519_key: "".to_owned(),
                     sender_claimed_keys: BTreeMap::new(),

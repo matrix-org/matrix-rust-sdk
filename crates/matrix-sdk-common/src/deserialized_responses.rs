@@ -319,6 +319,16 @@ pub enum AlgorithmInfo {
     },
 }
 
+/// Struct containing information on the forwarder of the keys used to decrypt
+/// an event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ForwarderInfo {
+    /// The user ID of the forwarder.
+    pub user_id: OwnedUserId,
+    /// The device ID of the forwarder.
+    pub device_id: OwnedDeviceId,
+}
+
 /// Struct containing information on how an event was decrypted.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct EncryptionInfo {
@@ -328,6 +338,11 @@ pub struct EncryptionInfo {
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is `Verified` as well.
     pub sender_device: Option<OwnedDeviceId>,
+    /// If the keys for this message were shared-on-invite as part of an
+    /// [MSC4268] key bundle, information about the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub forwarder: Option<ForwarderInfo>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
@@ -361,14 +376,21 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
         struct Helper {
             pub sender: OwnedUserId,
             pub sender_device: Option<OwnedDeviceId>,
+            pub forwarder: Option<ForwarderInfo>,
             pub algorithm_info: AlgorithmInfo,
             pub verification_state: VerificationState,
             #[serde(rename = "session_id")]
             pub old_session_id: Option<String>,
         }
 
-        let Helper { sender, sender_device, algorithm_info, verification_state, old_session_id } =
-            Helper::deserialize(deserializer)?;
+        let Helper {
+            sender,
+            sender_device,
+            forwarder,
+            algorithm_info,
+            verification_state,
+            old_session_id,
+        } = Helper::deserialize(deserializer)?;
 
         let algorithm_info = match algorithm_info {
             AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id } => {
@@ -382,7 +404,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
             other => other,
         };
 
-        Ok(EncryptionInfo { sender, sender_device, algorithm_info, verification_state })
+        Ok(EncryptionInfo { sender, sender_device, forwarder, algorithm_info, verification_state })
     }
 }
 
@@ -1617,6 +1639,7 @@ mod tests {
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: None,
+                    forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),
                         sender_claimed_keys: Default::default(),
@@ -1657,6 +1680,7 @@ mod tests {
                         "encryption_info": {
                             "sender": "@sender:example.com",
                             "sender_device": null,
+                            "forwarder": null,
                             "algorithm_info": {
                                 "MegolmV1AesSha2": {
                                     "curve25519_key": "xxx",
@@ -2041,6 +2065,7 @@ mod tests {
         let info = EncryptionInfo {
             sender: user_id!("@alice:localhost").to_owned(),
             sender_device: Some(device_id!("ABCDEFGH").to_owned()),
+            forwarder: None,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: "curvecurvecurve".into(),
                 sender_claimed_keys: Default::default(),
@@ -2062,6 +2087,7 @@ mod tests {
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
+                    forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),
                         sender_claimed_keys: BTreeMap::from([

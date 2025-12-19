@@ -26,7 +26,7 @@ use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
     BoxFuture,
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ForwarderInfo,
         ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
         UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
         UnsignedEventLocation, VerificationLevel, VerificationState,
@@ -1136,6 +1136,7 @@ impl OlmMachine {
         EncryptionInfo {
             sender: self.inner.user_id.clone(),
             sender_device: Some(self.inner.device_id.clone()),
+            forwarder: None,
             algorithm_info,
             verification_state: VerificationState::Verified,
         }
@@ -2016,11 +2017,18 @@ impl OlmMachine {
         let (verification_state, device_id) =
             self.get_room_event_verification_state(session, sender).await?;
 
-        let sender = sender.to_owned();
-
         Ok(Arc::new(EncryptionInfo {
-            sender,
+            sender: sender.to_owned(),
             sender_device: device_id,
+            forwarder: session.forwarder_data.as_ref().and_then(|data| {
+                // Per the comment on `KnownSenderData::device_id`, we should never encounter a
+                // `None` value here, but must still deal with an `Optional` for backwards
+                // compatibility. The approach below allows us to avoid unwrapping.
+                data.device_id().map(|device_id| ForwarderInfo {
+                    device_id: device_id.to_owned(),
+                    user_id: data.user_id().to_owned(),
+                })
+            }),
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),
                 sender_claimed_keys: session
