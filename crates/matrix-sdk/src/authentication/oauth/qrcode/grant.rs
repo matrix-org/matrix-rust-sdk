@@ -346,7 +346,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             // -- MSC4108 Secure channel setup step 6
             let (tx, rx) = tokio::sync::oneshot::channel();
             self.state.set(GrantLoginProgress::EstablishingSecureChannel(
-                GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx)),
+                GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx, channel.check_code())),
             ));
             let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
 
@@ -756,6 +756,8 @@ mod test {
                             .expect("The checkcode should only be forwarded once")
                             .await
                             .expect("Alice should receive the checkcode");
+                        assert!(checkcode_sender.validate(checkcode));
+                        assert!(!checkcode_sender.validate((checkcode + 1) % 100));
                         checkcode_sender
                             .send(checkcode)
                             .await

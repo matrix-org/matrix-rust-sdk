@@ -124,6 +124,10 @@ impl AlmostEstablishedSecureChannel {
             Err(Error::InvalidCheckCode)
         }
     }
+
+    pub fn check_code(&self) -> CheckCode {
+        self.secure_channel.check_code().clone()
+    }
 }
 
 pub(super) struct EstablishedSecureChannel {
