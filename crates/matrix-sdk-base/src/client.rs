@@ -213,10 +213,18 @@ impl BaseClient {
         }
     }
 
-    /// Clones the current base client to use the same crypto store but a
-    /// different, in-memory store config, and resets transient state.
+    /// Derives the current states but for a notification client.
+    ///
+    /// The stores will be as follow:
+    ///
+    /// - state store will be in-memory only,
+    /// - event cache store will be cloned (it's behind a cross-process lock),
+    /// - media store will be cloned (it's behind a cross-process lock),
+    /// - crypto store will be cloned (custom mechanism for the moment).
+    ///
+    /// The transient state will be reset.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn clone_with_in_memory_state_store(
+    pub async fn derive_states_for_notification_client(
         &self,
         cross_process_store_locks_holder_name: &str,
         handle_verification_events: bool,
