@@ -319,7 +319,8 @@ pub enum AlgorithmInfo {
     },
 }
 
-/// Represents information about a forwarder in the context of encryption.
+/// Struct containing information on the forwarder of the keys used to decrypt
+/// an event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ForwarderInfo {
     /// The user ID of the forwarder.
