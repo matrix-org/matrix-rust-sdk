@@ -26,7 +26,7 @@ use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
     BoxFuture,
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ForwarderInfo,
         ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
         UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
         UnsignedEventLocation, VerificationLevel, VerificationState,
@@ -1137,7 +1137,6 @@ impl OlmMachine {
             sender: self.inner.user_id.clone(),
             sender_device: Some(self.inner.device_id.clone()),
             forwarder: None,
-            forwarder_device: None,
             algorithm_info,
             verification_state: VerificationState::Verified,
         }
@@ -2020,23 +2019,15 @@ impl OlmMachine {
 
         Ok(Arc::new(EncryptionInfo {
             sender: sender.to_owned(),
-            sender_device: device_id.clone(),
-            forwarder: session.forwarder_data.as_ref().and_then(|data| data.user_id()),
-            forwarder_device: session.forwarder_data.as_ref().and_then(|data| match data {
-                SenderData::SenderUnverified(known_sender_data)
-                | SenderData::SenderVerified(known_sender_data) => {
-                    known_sender_data.device_id.clone()
-                }
-                _ => {
-                    // TODO: Should this return an error?
-                    warn!(
-                        sender_id = ?sender,
-                        device_id = ?device_id,
-                        session_id = session.session_id(),
-                        "Invalid sender verification state for forwarded session"
-                    );
-                    None
-                }
+            sender_device: device_id,
+            forwarder: session.forwarder_data.as_ref().and_then(|data| {
+                // Per the comment on `KnownSenderData::device_id`, we should never encounter a
+                // `None` value here, but must still deal with an `Optional` for backwards
+                // compatibility. The approach below allows us to avoid unwrapping.
+                data.device_id().map(|device_id| ForwarderInfo {
+                    device_id: device_id.to_owned(),
+                    user_id: data.user_id().to_owned(),
+                })
             }),
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),

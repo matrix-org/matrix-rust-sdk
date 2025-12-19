@@ -80,7 +80,6 @@ pub fn make_test_event_with_event_id(
         sender: (*ALICE).into(),
         sender_device: None,
         forwarder: None,
-        forwarder_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "1337".to_owned(),
             sender_claimed_keys: Default::default(),
