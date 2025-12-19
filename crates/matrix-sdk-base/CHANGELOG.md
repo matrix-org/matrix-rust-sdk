@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
   a local event that has been sent successfully.
   ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968))
 
+### Features
+
+- The `LatestEventValue::LocalHasBeenSent` variant gains a new `event_id:
+  OwnedEventId` field.
+  ([#5977](https://github.com/matrix-org/matrix-rust-sdk/pull/5977))
+
 ### Refactor
 
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
