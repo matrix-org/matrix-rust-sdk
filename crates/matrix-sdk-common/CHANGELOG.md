@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] `ShieldStateCode` no longer includes
+  `SentInClear`. `VeificationState::to_shield_state_{lax,strict}` never
+  returned that code, ans so having it in the enum was somewhat misleading.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
+
 ### Bug Fixes
 
 - Fix `TimelineEvent::from_bundled_latest_event` sometimes removing the `session_id` of UTDs. This broken event could later be saved to the event cache and become an unresolvable UTD. ([#5970](https://github.com/matrix-org/matrix-rust-sdk/pull/5970)).
