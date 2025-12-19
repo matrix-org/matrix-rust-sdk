@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::olm::{KnownSenderData, SenderData};
 
 /// Represents information about the user who forwarded a megolm session under
-/// [MSC4268]. This is similar to [SenderData], but it is limited to variants
+/// [MSC4268]. This is similar to [`SenderData`], but it is limited to variants
 /// where a cross-signing key has been received from the forwarder, as specified
 /// in the MSC.
 ///
@@ -106,9 +106,9 @@ mod tests {
         });
     }
 
-    // A previous version of this implementation used [SenderData] instead of
-    // [ForwarderData]. To ensure we can still treat existing serialised data as
-    // ForwarderData, we check we can deserialise the old variants.
+    // A previous version of this implementation used [`SenderData`] instead of
+    // [`ForwarderData`]. To ensure we can still treat existing serialised data as
+    // `ForwarderData`, we check we can deserialise the old variants.
     #[test]
     fn test_deserialize_old_format() {
         let master_key = Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap();
