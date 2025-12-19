@@ -44,6 +44,7 @@ use super::{
 use crate::types::events::room_key::RoomKeyContent;
 use crate::{
     error::{EventError, MegolmResult},
+    olm::group_sessions::forwarder_data::ForwarderData,
     types::{
         EventEncryptionAlgorithm, SigningKeys, deserialize_curve_key,
         events::{
@@ -192,7 +193,7 @@ pub struct InboundGroupSession {
     /// This is distinct from [`InboundGroupSession::sender_data`].
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    pub forwarder_data: Option<SenderData>,
+    pub forwarder_data: Option<ForwarderData>,
 
     /// The Room this GroupSession belongs to
     pub room_id: OwnedRoomId,
@@ -275,7 +276,7 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: &SessionKey,
         sender_data: SenderData,
-        forwarder_data: Option<SenderData>,
+        forwarder_data: Option<ForwarderData>,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
         shared_history: bool,
@@ -711,7 +712,7 @@ pub struct PickledInboundGroupSession {
     pub sender_data: SenderData,
     /// Information on the device/sender who forwarded us this session
     #[serde(default)]
-    pub forwarder_data: Option<SenderData>,
+    pub forwarder_data: Option<ForwarderData>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
     /// Flag remembering if the session was directly sent to us by the sender
@@ -763,7 +764,7 @@ impl HistoricRoomKey {
     /// configuration for the given algorithm cannot be determined.
     pub fn try_into_inbound_group_session(
         &self,
-        forwarder_data: &SenderData,
+        forwarder_data: &ForwarderData,
     ) -> Result<InboundGroupSession, SessionCreationError> {
         let HistoricRoomKey {
             algorithm,

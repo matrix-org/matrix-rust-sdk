@@ -1,0 +1,11 @@
+---
+source: crates/matrix-sdk-crypto/src/olm/group_sessions/forwarder_data.rs
+expression: "ForwarderData::SenderUnverified(KnownSenderData\n{\n    user_id: owned_user_id!(\"@foo:bar.baz\"), device_id: None, master_key:\n    Box::new(Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap()),\n})"
+---
+{
+  "SenderUnverified": {
+    "user_id": "@foo:bar.baz",
+    "device_id": null,
+    "master_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+  }
+}
