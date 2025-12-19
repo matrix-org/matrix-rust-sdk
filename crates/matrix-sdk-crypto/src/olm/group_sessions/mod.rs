@@ -15,11 +15,13 @@
 use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
+mod forwarder_data;
 mod inbound;
 mod outbound;
 mod sender_data;
 pub(crate) mod sender_data_finder;
 
+pub use forwarder_data::ForwarderData;
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{

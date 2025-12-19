@@ -72,8 +72,8 @@ use crate::{
     gossiping::GossippedSecret,
     identities::{Device, DeviceData, UserDevices, UserIdentityData, user::UserIdentity},
     olm::{
-        Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
-        Session, StaticAccountData,
+        Account, ExportedRoomKey, ForwarderData, InboundGroupSession, PrivateCrossSigningIdentity,
+        SenderData, Session, StaticAccountData,
     },
     store::types::RoomKeyWithheldEntry,
     types::{
@@ -1708,20 +1708,20 @@ impl Store {
         // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
         // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
         // via user verification and cross-signing).
-        if matches!(
-            &sender_data,
-            SenderData::UnknownDevice { .. }
-                | SenderData::VerificationViolation(_)
-                | SenderData::DeviceInfo { .. }
-        ) {
+        let Ok(forwarder_data) = (&sender_data).try_into() else {
             warn!(
                 "Not accepting a historic room key bundle due to insufficient trust in the sender"
             );
             return Ok(());
-        }
+        };
 
-        self.import_room_key_bundle_sessions(bundle_info, &bundle, &sender_data, progress_listener)
-            .await?;
+        self.import_room_key_bundle_sessions(
+            bundle_info,
+            &bundle,
+            &forwarder_data,
+            progress_listener,
+        )
+        .await?;
         self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
 
         Ok(())
@@ -1731,7 +1731,7 @@ impl Store {
         &self,
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
-        forwarder_data: &SenderData,
+        forwarder_data: &ForwarderData,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
         let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
@@ -2368,8 +2368,7 @@ mod tests {
                 .forwarder_data
                 .as_ref()
                 .expect("Session should contain forwarder data.")
-                .user_id()
-                .expect("Forwarder data should contain user ID."),
+                .user_id(),
             alice.user_id()
         );
 
