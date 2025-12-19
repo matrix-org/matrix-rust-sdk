@@ -343,6 +343,14 @@ impl Room {
         Ok(avatar_url_string)
     }
 
+    pub async fn set_own_member_display_name(
+        &self,
+        display_name: Option<String>,
+    ) -> Result<(), ClientError> {
+        self.inner.set_own_member_display_name(display_name).await?;
+        Ok(())
+    }
+
     /// Get the membership details for the current user.
     ///
     /// Returns:
