@@ -91,6 +91,22 @@ impl EventCacheStoreLock {
 
         Ok(lock_state)
     }
+
+    /// Clone the inner store, by-passing the lock.
+    ///
+    /// # Safety
+    ///
+    /// This method is useful when you want to build a new client with another
+    /// lock holder name for example. But the lock is fully by-passed in this
+    /// method. Be extremely careful!
+    pub(crate) unsafe fn clone_store(&self) -> Arc<DynEventCacheStore> {
+        self.store.clone()
+    }
+
+    /// Get the lock holder name.
+    pub(crate) fn lock_holder(&self) -> &str {
+        self.cross_process_lock.lock_holder()
+    }
 }
 
 /// The equivalent of [`CrossProcessLockState`] but for the [`EventCacheStore`].
