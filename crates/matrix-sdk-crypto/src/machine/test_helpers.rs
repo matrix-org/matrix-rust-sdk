@@ -21,6 +21,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
+    DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
     api::client::keys::{
         claim_keys,
         get_keys::{self, v3::Response as KeysQueryResponse},
@@ -30,24 +31,24 @@ use ruma::{
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
-    user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
+    user_id,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::{
+    Account, CollectStrategy, CrossSigningBootstrapRequests, DecryptionSettings, Device,
+    DeviceData, EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
     olm::PrivateCrossSigningIdentity,
-    store::{types::Changes, CryptoStoreWrapper, MemoryStore},
+    store::{CryptoStoreWrapper, MemoryStore, types::Changes},
     types::{
-        events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
-        requests::AnyOutgoingRequest,
         DeviceKeys,
+        events::{ToDeviceEvent, room::encrypted::ToDeviceEncryptedEventContent},
+        requests::AnyOutgoingRequest,
     },
     utilities::json_convert,
     verification::VerificationMachine,
-    Account, CollectStrategy, CrossSigningBootstrapRequests, DecryptionSettings, Device,
-    DeviceData, EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
 };
 
 /// These keys need to be periodically uploaded to the server.

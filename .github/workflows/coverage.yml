@@ -129,7 +129,7 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Get xtask
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -167,7 +167,7 @@ jobs:
       # The actual upload to Codecov is executed by a different workflow `upload_coverage.yml`.
       # The reason for this split is because `on.pull_request` workflows don't have access to secrets.
       - name: Store coverage report in artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: codecov_report
           path: |

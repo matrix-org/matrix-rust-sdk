@@ -23,7 +23,7 @@
 //!     - The event is a historic event and we need to first download the room
 //!       key from the backup.
 //!     - The event is a historic event in a previously unjoined room, we need
-//!       to receive historic room keys as defined in [MSC3061](https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255).
+//!       to receive historic room keys as defined in [MSC3061].
 //!
 //! R2D2 listens to the OlmMachine for received room keys and new
 //! m.room_key.withheld events.
@@ -109,8 +109,14 @@
 //!                    │              │  │              │
 //!                    └──────────────┘  └──────────────┘
 //! ```
+//!
+//! [MSC3061]: https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255
 
-use std::{collections::BTreeSet, pin::Pin, sync::Weak};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    pin::Pin,
+    sync::Weak,
+};
 
 use as_variant::as_variant;
 use futures_core::Stream;
@@ -148,7 +154,12 @@ use tracing::{info, instrument, trace, warn};
 #[cfg(doc)]
 use super::RoomEventCache;
 use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{Room, event_cache::RoomEventCacheLinkedChunkUpdate, room::PushContext};
+use crate::{
+    Client, Result, Room,
+    encryption::backups::BackupState,
+    event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::PushContext,
+};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
@@ -183,6 +194,11 @@ pub enum RedecryptorReport {
     /// The redecryptor might have missed some room keys so it might not have
     /// re-decrypted events that are now decryptable.
     Lagging,
+    /// A room key backup has become available.
+    ///
+    /// This means that components might want to tell R2D2 about events they
+    /// care about to attempt a decryption.
+    BackupAvailable,
 }
 
 pub(super) struct RedecryptorChannels {
@@ -205,7 +221,7 @@ impl RedecryptorChannels {
     }
 }
 
-/// A function that  can be used to filter and map [`TimelineEvent`]s into a
+/// A function which can be used to filter and map [`TimelineEvent`]s into a
 /// tuple of event ID and raw [`AnySyncTimelineEvent`].
 ///
 /// The tuple can be used to attempt to redecrypt events.
@@ -217,6 +233,22 @@ fn filter_timeline_event_to_utd(
     // Only pick out events that are UTDs, get just the Raw event as this is what
     // the OlmMachine needs.
     let event = as_variant!(event.kind, TimelineEventKind::UnableToDecrypt { event, .. } => event);
+    // Zip the event ID and event together so we don't have to pick out the event ID
+    // again. We need the event ID to replace the event in the cache.
+    event_id.zip(event)
+}
+
+/// A function which can be used to filter an map [`TimelineEvent`]s into a
+/// tuple of event ID and [`DecryptedRoomEvent`].
+///
+/// The tuple can be used to attempt to update the encryption info of the
+/// decrypted event.
+fn filter_timeline_event_to_decrypted(
+    event: TimelineEvent,
+) -> Option<(OwnedEventId, DecryptedRoomEvent)> {
+    let event_id = event.event_id();
+
+    let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
     // Zip the event ID and event together so we don't have to pick out the event ID
     // again. We need the event ID to replace the event in the cache.
     event_id.zip(event)
@@ -248,20 +280,31 @@ impl EventCache {
         Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
     }
 
+    /// Retrieve a set of events that we weren't able to decrypt from the memory
+    /// of the event cache.
+    async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
+        let mut utds = BTreeMap::new();
+
+        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = room_cache
+                .events()
+                .await
+                .into_iter()
+                .flatten()
+                .filter_map(filter_timeline_event_to_utd)
+                .collect();
+
+            utds.insert(room_id.to_owned(), room_utds);
+        }
+
+        utds
+    }
+
     async fn get_decrypted_events(
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
-        let filter = |event: TimelineEvent| {
-            let event_id = event.event_id();
-
-            let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
-            // Zip the event ID and event together so we don't have to pick out the event ID
-            // again. We need the event ID to replace the event in the cache.
-            event_id.zip(event)
-        };
-
         let events = match self.inner.store.lock().await? {
             // If the lock is clean, no problem.
             // If the lock is dirty, it doesn't really matter as we are hitting the store
@@ -272,7 +315,27 @@ impl EventCache {
             }
         };
 
-        Ok(events.into_iter().filter_map(filter).collect())
+        Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
+    }
+
+    async fn get_decrypted_events_from_memory(
+        &self,
+    ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
+        let mut decrypted_events = BTreeMap::new();
+
+        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = room_cache
+                .events()
+                .await
+                .into_iter()
+                .flatten()
+                .filter_map(filter_timeline_event_to_decrypted)
+                .collect();
+
+            decrypted_events.insert(room_id.to_owned(), room_utds);
+        }
+
+        decrypted_events
     }
 
     /// Handle a chunk of events that we were previously unable to decrypt but
@@ -336,6 +399,11 @@ impl EventCache {
             diffs,
             origin: EventsOrigin::Cache,
         });
+
+        let _ = room_cache
+            .inner
+            .generic_update_sender
+            .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
 
         // We report that we resolved some UTDs, this is mainly for listeners that don't
         // care about the actual events, just about the fact that UTDs got
@@ -430,6 +498,16 @@ impl EventCache {
         self.retry_decryption_for_events(room_id, events).await
     }
 
+    async fn retry_decryption_for_in_memory_events(&self) {
+        let utds = self.get_utds_from_memory().await;
+
+        for (room_id, utds) in utds.into_iter() {
+            if let Err(e) = self.retry_decryption_for_events(&room_id, utds).await {
+                warn!(%room_id, "Failed to redecrypt in-memory events {e:?}");
+            }
+        }
+    }
+
     /// Attempt to redecrypt a chunk of UTDs.
     #[instrument(skip_all, fields(room_id, session_id))]
     async fn retry_decryption_for_events(
@@ -481,6 +559,40 @@ impl EventCache {
         Ok(())
     }
 
+    /// Attempt to update the encryption info for the given list of events.
+    async fn update_encryption_info_for_events(
+        &self,
+        room: &Room,
+        events: Vec<EventIdAndEvent>,
+    ) -> Result<(), EventCacheError> {
+        // Let's attempt to update their encryption info.
+        let mut updated_events = Vec::with_capacity(events.len());
+
+        for (event_id, mut event) in events {
+            if let Some(session_id) = event.encryption_info.session_id() {
+                let new_encryption_info =
+                    room.get_encryption_info(session_id, &event.encryption_info.sender).await;
+
+                // Only create a replacement if the encryption info actually changed.
+                if let Some(new_encryption_info) = new_encryption_info
+                    && event.encryption_info != new_encryption_info
+                {
+                    event.encryption_info = new_encryption_info;
+                    updated_events.push((event_id, event, None));
+                }
+            }
+        }
+
+        let event_ids: BTreeSet<_> =
+            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
+
+        if !event_ids.is_empty() {
+            trace!(?event_ids, "Replacing the encryption info of some events");
+        }
+
+        self.on_resolved_utds(room.room_id(), updated_events).await
+    }
+
     #[instrument(skip_all, fields(room_id, session_id))]
     async fn update_encryption_info(
         &self,
@@ -506,31 +618,39 @@ impl EventCache {
         }
 
         // Let's attempt to update their encryption info.
-        let mut updated_events = Vec::with_capacity(events.len());
+        self.update_encryption_info_for_events(&room, events).await
+    }
 
-        for (event_id, mut event) in events {
-            let new_encryption_info =
-                room.get_encryption_info(session_id, &event.encryption_info.sender).await;
+    async fn retry_update_encryption_info_for_in_memory_events(&self) {
+        let decrypted_events = self.get_decrypted_events_from_memory().await;
 
-            // Only create a replacement if the encryption info actually changed.
-            if let Some(new_encryption_info) = new_encryption_info
-                && event.encryption_info != new_encryption_info
-            {
-                event.encryption_info = new_encryption_info;
-                updated_events.push((event_id, event, None));
+        for (room_id, events) in decrypted_events.into_iter() {
+            let Some(room) = self.inner.client().ok().and_then(|c| c.get_room(&room_id)) else {
+                continue;
+            };
+
+            if let Err(e) = self.update_encryption_info_for_events(&room, events).await {
+                warn!(
+                    %room_id,
+                    "Failed to replace the encryption info for in-memory events {e:?}"
+                );
             }
         }
+    }
 
-        let event_ids: BTreeSet<_> =
-            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
-
-        if !event_ids.is_empty() {
-            trace!(?event_ids, "Replacing the encryption info of some events");
-        }
-
-        self.on_resolved_utds(room_id, updated_events).await?;
-
-        Ok(())
+    /// Retry to decrypt and update the encryption info of all the events
+    /// contained in the memory part of the event cache.
+    ///
+    /// This list of events will map one-to-one to the events components
+    /// subscribed to the event cache are have received and are keeping cached.
+    ///
+    /// If components subscribed to the event cache are doing additional
+    /// caching, they'll need to listen to [RedecryptorReport]s and
+    /// explicitly request redecryption attempts using
+    /// [EventCache::request_decryption].
+    async fn retry_in_memory_events(&self) {
+        self.retry_decryption_for_in_memory_events().await;
+        self.retry_update_encryption_info_for_in_memory_events().await;
     }
 
     /// Explicitly request the redecryption of a set of events.
@@ -614,6 +734,14 @@ impl EventCache {
     ///             // it which events we care about, i.e. which events we're displaying to the
     ///             // user, and let it redecrypt things with an explicit request.
     ///         }
+    ///         RedecryptorReport::BackupAvailable => {
+    ///             // A backup has become available. We can, just like in the Lagging case, tell
+    ///             // the event cache to attempt to redecrypt some events.
+    ///             //
+    ///             // This is only necessary with the BackupDownloadStrategy::OnDecryptionFailure
+    ///             // as the decryption attempt in this case will trigger the download of the
+    ///             // room key from the backup.
+    ///         }
     ///         RedecryptorReport::ResolvedUtds { .. } => {
     ///             // This may be interesting for statistical reasons or in case we'd like to
     ///             // fetch and inspect these events in some manner.
@@ -627,6 +755,25 @@ impl EventCache {
     ) -> impl Stream<Item = Result<RedecryptorReport, BroadcastStreamRecvError>> {
         BroadcastStream::new(self.inner.redecryption_channels.utd_reporter.subscribe())
     }
+}
+
+#[inline(always)]
+fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
+    cache.upgrade().map(|inner| EventCache { inner })
+}
+
+async fn send_report_and_retry_memory_events(
+    cache: &Weak<EventCacheInner>,
+    report: RedecryptorReport,
+) -> Result<(), ()> {
+    let Some(cache) = upgrade_event_cache(cache) else {
+        return Err(());
+    };
+
+    cache.retry_in_memory_events().await;
+    let _ = cache.inner.redecryption_channels.utd_reporter.send(report);
+
+    Ok(())
 }
 
 /// Struct holding on to the redecryption task.
@@ -645,11 +792,13 @@ impl Redecryptor {
     /// This creates a task that listens to various streams and attempts to
     /// redecrypt UTDs that can be found inside the [`EventCache`].
     pub(super) fn new(
+        client: &Client,
         cache: Weak<EventCacheInner>,
         receiver: UnboundedReceiver<DecryptionRetryRequest>,
         linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
+        let backup_state_stream = client.encryption().backups().state_stream();
 
         let task = spawn(async {
             let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
@@ -658,6 +807,7 @@ impl Redecryptor {
                 cache,
                 request_redecryption_stream,
                 linked_chunk_stream,
+                backup_state_stream,
             )
             .await;
         })
@@ -685,16 +835,14 @@ impl Redecryptor {
         })
     }
 
-    #[inline(always)]
-    fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
-        cache.upgrade().map(|inner| EventCache { inner })
-    }
-
     async fn redecryption_loop(
         cache: &Weak<EventCacheInner>,
         decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
         events_stream: &mut Pin<
             &mut impl Stream<Item = Result<RoomEventCacheLinkedChunkUpdate, BroadcastStreamRecvError>>,
+        >,
+        backup_state_stream: &mut Pin<
+            &mut impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
         >,
     ) -> bool {
         let Some((room_key_stream, withheld_stream)) =
@@ -711,7 +859,7 @@ impl Redecryptor {
                 // An explicit request, presumably from the timeline, has been received to decrypt
                 // events that were encrypted with a certain room key.
                 Some(request) = decryption_request_stream.next() => {
-                        let Some(cache) = Self::upgrade_event_cache(cache) else {
+                        let Some(cache) = upgrade_event_cache(cache) else {
                             break false;
                         };
 
@@ -741,7 +889,7 @@ impl Redecryptor {
                             // Alright, some room keys were received and persisted in our store,
                             // let's attempt to redecrypt events that were encrypted using these
                             // room keys.
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -770,12 +918,11 @@ impl Redecryptor {
                             // This would most likely be the timeline from the UI crate. The
                             // timeline might attempt to redecrypt all UTDs it is showing to the
                             // user.
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
-                                break false;
-                            };
+                            warn!("The room key stream lagged, reporting the lag to our listeners");
 
-                            let message = RedecryptorReport::Lagging;
-                            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
+                                break false;
+                            }
                         },
                         // The stream got closed, this could mean that our OlmMachine got
                         // regenerated, let's return true and try to recreate the stream.
@@ -787,7 +934,7 @@ impl Redecryptor {
                 withheld_info = withheld_stream.next() => {
                     match withheld_info {
                         Some(infos) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -813,7 +960,7 @@ impl Redecryptor {
                 Some(event_updates) = events_stream.next() => {
                     match event_updates {
                         Ok(updates) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
                             };
 
@@ -827,12 +974,40 @@ impl Redecryptor {
                             );
                         }
                         Err(_) => {
-                            let Some(cache) = Self::upgrade_event_cache(cache) else {
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
                                 break false;
-                            };
-
-                            let message = RedecryptorReport::Lagging;
-                            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+                            }
+                        }
+                    }
+                }
+                Some(backup_state_update) = backup_state_stream.next() => {
+                    match backup_state_update {
+                        Ok(state) => {
+                            match state {
+                                BackupState::Unknown |
+                                BackupState::Creating |
+                                BackupState::Enabling |
+                                BackupState::Resuming |
+                                BackupState::Downloading |
+                                BackupState::Disabling =>{
+                                    // Those states aren't particularly interesting to components
+                                    // listening to R2D2 reports.
+                                }
+                                BackupState::Enabled => {
+                                    // Alright, the backup got enabled, we might or might not have
+                                    // downloaded the room keys from the backup. In case they get
+                                    // downloaded on-demand, let's try to decrypt all the events we
+                                    // have cached in-memory.
+                                    if send_report_and_retry_memory_events(cache, RedecryptorReport::BackupAvailable).await.is_err() {
+                                        break false;
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
+                                break false;
+                            }
                         }
                     }
                 }
@@ -845,26 +1020,33 @@ impl Redecryptor {
         cache: Weak<EventCacheInner>,
         decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
         events_stream: BroadcastStream<RoomEventCacheLinkedChunkUpdate>,
+        backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
     ) {
         // We pin the decryption request stream here since that one doesn't need to be
         // recreated and we don't want to miss messages coming from the stream
         // while recreating it unnecessarily.
         pin_mut!(decryption_request_stream);
         pin_mut!(events_stream);
+        pin_mut!(backup_state_stream);
 
-        while Self::redecryption_loop(&cache, &mut decryption_request_stream, &mut events_stream)
-            .await
+        while Self::redecryption_loop(
+            &cache,
+            &mut decryption_request_stream,
+            &mut events_stream,
+            &mut backup_state_stream,
+        )
+        .await
         {
             info!("Regenerating the re-decryption streams");
 
-            let Some(cache) = Self::upgrade_event_cache(&cache) else {
+            // Report that the stream got recreated so listeners know about it, at the same
+            // time retry to decrypt anything we have cached in memory.
+            if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging)
+                .await
+                .is_err()
+            {
                 break;
-            };
-
-            // Report that the stream got recreated so listeners can attempt to redecrypt
-            // any UTDs they might be seeing.
-            let message = RedecryptorReport::Lagging;
-            let _ = cache.inner.redecryption_channels.utd_reporter.send(message);
+            }
         }
 
         info!("Shutting down the event cache redecryptor");
@@ -919,7 +1101,7 @@ mod tests {
     use crate::{
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
-        event_cache::{DecryptionRetryRequest, RoomEventCacheUpdate},
+        event_cache::{DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate},
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -1227,13 +1409,14 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let (room_cache, _) = bob
-            .event_cache()
+        let event_cache = bob.event_cache();
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // We regenerate the Olm machine to check if the room key stream is recreated to
         // correctly.
@@ -1263,6 +1446,12 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
+
         // Now we send the room key to Bob.
         matrix_mock_server
             .mock_sync()
@@ -1286,6 +1475,12 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Set { index, value });
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 
     #[async_test]
@@ -1302,14 +1497,15 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let (room_cache, _) = bob
-            .event_cache()
+        let event_cache = bob.event_cache();
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1331,6 +1527,12 @@ mod tests {
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
 
         // Now we send the room key to Bob.
         matrix_mock_server
@@ -1358,8 +1560,14 @@ mod tests {
 
         let encryption_info = value.encryption_info().unwrap();
         assert_matches!(&encryption_info.verification_state, VerificationState::Unverified(_));
-        let session_id = encryption_info.session_id().unwrap().to_owned();
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
+
+        let session_id = encryption_info.session_id().unwrap().to_owned();
         let alice_user_id = alice.user_id().unwrap();
 
         // Alice now creates the identity.
@@ -1401,6 +1609,12 @@ mod tests {
             VerificationState::Unverified(_),
             "The event should now know about the identity but still be unverified"
         );
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 
     #[async_test]
@@ -1416,14 +1630,16 @@ mod tests {
         let (event, room_key) =
             prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
 
+        let event_cache = bob.event_cache();
+
         // Let's now see what Bob's event cache does.
-        let (room_cache, _) = bob
-            .event_cache()
+        let (room_cache, _) = event_cache
             .for_room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
         matrix_mock_server
@@ -1464,6 +1680,11 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
@@ -1475,5 +1696,11 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Set { index, value });
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
     }
 }

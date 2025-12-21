@@ -20,27 +20,27 @@ use std::{
 
 use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
+    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
 use tracing::{debug, error, info, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 
 use crate::{
+    DeviceData,
     error::OlmResult,
     gossiping::GossipMachine,
-    store::{types::Changes, Result as StoreResult, Store},
+    store::{Result as StoreResult, Store, types::Changes},
     types::{
+        EventEncryptionAlgorithm,
         events::EventType,
         requests::{OutgoingRequest, ToDeviceRequest},
-        EventEncryptionAlgorithm,
     },
-    DeviceData,
 };
 
 #[derive(Debug, Clone)]
@@ -106,30 +106,30 @@ impl SessionManager {
         sender: &UserId,
         curve_key: Curve25519PublicKey,
     ) -> OlmResult<()> {
-        if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
-            if let Some(session) = device.get_most_recent_session().await? {
-                info!(sender_key = ?curve_key, "Marking session to be unwedged");
+        if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await?
+            && let Some(session) = device.get_most_recent_session().await?
+        {
+            info!(sender_key = ?curve_key, "Marking session to be unwedged");
 
-                let creation_time = Duration::from_secs(session.creation_time.get().into());
-                let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
+            let creation_time = Duration::from_secs(session.creation_time.get().into());
+            let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
-                let should_unwedge = now
-                    .checked_sub(creation_time)
-                    .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
-                    .unwrap_or(true);
+            let should_unwedge = now
+                .checked_sub(creation_time)
+                .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
+                .unwrap_or(true);
 
-                if should_unwedge {
-                    self.users_for_key_claim
-                        .write()
-                        .entry(device.user_id().to_owned())
-                        .or_default()
-                        .insert(device.device_id().into());
-                    self.wedged_devices
-                        .write()
-                        .entry(device.user_id().to_owned())
-                        .or_default()
-                        .insert(device.device_id().into());
-                }
+            if should_unwedge {
+                self.users_for_key_claim
+                    .write()
+                    .entry(device.user_id().to_owned())
+                    .or_default()
+                    .insert(device.device_id().into());
+                self.wedged_devices
+                    .write()
+                    .entry(device.user_id().to_owned())
+                    .or_default()
+                    .insert(device.device_id().into());
             }
         }
 
@@ -148,29 +148,26 @@ impl SessionManager {
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id)) {
-            if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let (_, content) =
-                    device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
+        if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id))
+            && let Some(device) = self.store.get_device(user_id, device_id).await?
+        {
+            let (_, content) = device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
 
-                let event_type = content.event_type().to_owned();
+            let event_type = content.event_type().to_owned();
 
-                let request = ToDeviceRequest::new(
-                    device.user_id(),
-                    device.device_id().to_owned(),
-                    &event_type,
-                    content.cast(),
-                );
+            let request = ToDeviceRequest::new(
+                device.user_id(),
+                device.device_id().to_owned(),
+                &event_type,
+                content.cast(),
+            );
 
-                let request = OutgoingRequest {
-                    request_id: request.txn_id.clone(),
-                    request: Arc::new(request.into()),
-                };
+            let request = OutgoingRequest {
+                request_id: request.txn_id.clone(),
+                request: Arc::new(request.into()),
+            };
 
-                self.outgoing_to_device_requests
-                    .write()
-                    .insert(request.request_id.clone(), request);
-            }
+            self.outgoing_to_device_requests.write().insert(request.request_id.clone(), request);
         }
 
         Ok(())
@@ -593,8 +590,9 @@ mod tests {
     use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
+        DeviceId, OwnedUserId, UserId,
         api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
-        owned_server_name, user_id, DeviceId, OwnedUserId, UserId,
+        owned_server_name, user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -607,8 +605,8 @@ mod tests {
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{
-            types::{Changes, DeviceChanges, PendingChanges},
             CryptoStoreWrapper, MemoryStore, Store,
+            types::{Changes, DeviceChanges, PendingChanges},
         },
         verification::VerificationMachine,
     };
@@ -824,7 +822,7 @@ mod tests {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn test_session_unwedging() {
-        use ruma::{time::SystemTime, SecondsSinceUnixEpoch};
+        use ruma::{SecondsSinceUnixEpoch, time::SystemTime};
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();
@@ -1013,12 +1011,14 @@ mod tests {
         manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         // Alice isn't timed out anymore.
-        assert!(manager
-            .failed_devices
-            .read()
-            .get(alice)
-            .unwrap()
-            .failure_count(alice_account.device_id())
-            .is_none());
+        assert!(
+            manager
+                .failed_devices
+                .read()
+                .get(alice)
+                .unwrap()
+                .failure_count(alice_account.device_id())
+                .is_none()
+        );
     }
 }

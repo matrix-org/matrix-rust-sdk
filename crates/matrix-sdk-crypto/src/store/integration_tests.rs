@@ -98,7 +98,7 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore) {
+            pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore + use<>) {
                 let store = get_store(name, None, true).await;
                 let account = get_account();
 
@@ -1430,6 +1430,7 @@ macro_rules! cryptostore_integration_tests {
                     room_id!("!r:s.co"),
                     &session_key,
                     sender_data,
+                    None,
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     None,
                     false,

@@ -25,13 +25,15 @@ use matrix_sdk::{
     Client, Room, RoomState, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
-    encryption::{EncryptionSettings, backups::BackupState},
+    encryption::{
+        BackupDownloadStrategy, EncryptionSettings, backups::BackupState, recovery::RecoveryState,
+    },
     room::{
         edit::EditedContent,
         reply::{EnforceThread, Reply},
     },
     ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
+        MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             InitialStateEvent,
@@ -45,7 +47,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_test::TestResult;
+use matrix_sdk_test::{TestError, TestResult};
 use matrix_sdk_ui::{
     Timeline,
     notification_client::NotificationClient,
@@ -65,7 +67,7 @@ use tokio::{
 };
 use tracing::{debug, warn};
 
-use crate::helpers::TestClientBuilder;
+use crate::helpers::{TestClientBuilder, wait_for_room};
 
 /// Checks that there a timeline update, and returns the EventTimelineItem.
 ///
@@ -345,8 +347,7 @@ async fn test_stale_local_echo_time_abort_edit() {
 async fn test_enabling_backups_retries_decryption() {
     let encryption_settings = EncryptionSettings {
         auto_enable_backups: true,
-        backup_download_strategy:
-            matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
         ..Default::default()
     };
     let alice = TestClientBuilder::new("alice")
@@ -409,6 +410,7 @@ async fn test_enabling_backups_retries_decryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
+        .response
         .event_id;
 
     alice
@@ -482,11 +484,17 @@ async fn test_enabling_backups_retries_decryption() {
     pin_mut!(room_key_stream);
 
     // Wait for the room key to arrive before continuing.
-    if let Some(update) = room_key_stream.next().await {
-        let _update = update.expect(
+    let wait_for_room_key = async {
+        if let Some(update) = room_key_stream.next().await {
+            let _update = update.expect(
             "We should not miss the update since we're only broadcasting a small amount of updates",
         );
-    }
+        }
+    };
+
+    timeout(Duration::from_secs(5), wait_for_room_key)
+        .await
+        .expect("We should have downloaded the room key from the backup");
 
     // Alright, we should now receive an update that the event had been decrypted.
     let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
@@ -619,6 +627,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
         .await
         .expect("We should be able to send a message to our new room")
+        .response
         .event_id;
 
     // We don't need Alice anymore.
@@ -725,6 +734,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         room.send(RoomMessageEventContent::text_plain(message))
             .await
             .expect("We should be able to send a message to our new room")
+            .response
             .event_id
     }
 
@@ -942,7 +952,7 @@ async fn test_thread_focused_timeline() -> TestResult {
     };
 
     // Bob sends messages in a thread.
-    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?;
+    let resp = bob_room.send(RoomMessageEventContent::text_plain("Root message")).await?.response;
     let thread_root = resp.event_id;
 
     let thread_reply_event_content = bob_room
@@ -955,7 +965,7 @@ async fn test_thread_focused_timeline() -> TestResult {
         )
         .await?;
 
-    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.event_id;
+    let thread_reply_event_id = bob_room.send(thread_reply_event_content).await?.response.event_id;
 
     // Alice creates a timeline focused on the in-thread event, so this will use
     // /context, and the thread root will be part of the response.
@@ -990,6 +1000,389 @@ async fn test_thread_focused_timeline() -> TestResult {
 
     alice_sync.abort();
     bob_sync.abort();
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    debug!("Creating room…");
+    let initial_state = vec![
+        InitialStateEvent::with_empty_state_key(
+            RoomEncryptionEventContent::with_recommended_defaults(),
+        )
+        .to_raw_any(),
+    ];
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state,
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    // Let's sync now so we can be sure that we have the correct room state.
+    alice.sync_once(Default::default()).await?;
+
+    // The room should be encrypted.
+    assert!(room.latest_encryption_state().await?.is_encrypted());
+
+    // Create a timeline for this room, filtering out all non-message items.
+    let timeline = room.timeline().await.unwrap();
+    let (items, mut stream) = timeline
+        .subscribe_filter_map(|item| {
+            item.as_event()
+                .and_then(|item| item.content().as_message().is_some().then(|| item.clone()))
+        })
+        .await;
+    assert!(items.is_empty());
+
+    // Send message.
+    debug!("Sending initial message…");
+    timeline.send(RoomMessageEventContent::text_plain("It's a secret to everybody").into()).await?;
+
+    // Receiving the local echo for the message.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let local_echo = assert_matches!(vector_diff, Some(VectorDiff::PushBack { value }) => value);
+
+    // We're not sent yet.
+    assert!(local_echo.is_editable());
+    assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+    assert_eq!(local_echo.content().as_message().unwrap().body(), "It's a secret to everybody");
+
+    // Now we receive an update from the send queue that the event is in the sent
+    // state.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let sent_event =
+        assert_matches!(vector_diff, Some(VectorDiff::Set { index: 0, value }) => value);
+    assert_matches!(sent_event.send_state(), Some(EventSendState::Sent { .. }));
+
+    // Now the next update, since we're not syncing, should be the send queue
+    // inserting the event into the event cache.
+
+    // We first remove the old item.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    assert_matches!(vector_diff, Some(VectorDiff::Remove { index: 0 }));
+
+    // Now the new event with the encryption info arrives.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
+    let sent_event = assert_matches!(vector_diff, Some(VectorDiff::PushFront {  value }) => value);
+
+    // The encryption info should be correctly populated.
+    let encryption_info =
+        sent_event.encryption_info().expect("The event should have encryption info available");
+
+    // Since we're the sender, we should be in the verified state.
+    assert_eq!(encryption_info.verification_state, VerificationState::Verified);
+    assert_pending!(stream);
+
+    Ok(())
+}
+
+async fn prepare_room_with_pinned_events(
+    alice: &Client,
+    recovery_passphrase: &str,
+    number_of_normal_events: usize,
+) -> Result<(OwnedRoomId, OwnedEventId), TestError> {
+    let sync_service = SyncService::builder(alice.clone()).build().await?;
+    sync_service.start().await;
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice.encryption().recovery().enable().with_passphrase(recovery_passphrase).await?;
+
+    debug!("Creating room…");
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state: vec![],
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    room.enable_encryption().await?;
+
+    // Send an event to the encrypted room and pin it.
+    let room_id = room.room_id().to_owned();
+    let result =
+        room.send(RoomMessageEventContent::text_plain("It's a secret to everybody")).await?;
+    let event_id = result.response.event_id;
+
+    let timeline = room.timeline().await?;
+    timeline.pin_event(&event_id).await?;
+
+    // Now send a bunch of normal events, this ensures that our pinned event isn't
+    // in the main timeline when we restore things.
+    for i in 0..number_of_normal_events {
+        room.send(RoomMessageEventContent::text_plain(format!("Normal event {i}"))).await?;
+    }
+
+    sync_service.stop().await;
+
+    Ok((room_id, event_id))
+}
+
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
+    event_count: usize,
+) -> TestResult {
+    const RECOVERY_PASSPHRASE: &str = "I am error";
+
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+    };
+
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice")
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+    let user_id = alice.user_id().expect("We should have a user ID by now");
+
+    let (room_id, event_id) =
+        prepare_room_with_pinned_events(&alice, RECOVERY_PASSPHRASE, event_count).await?;
+
+    // Now `another_alice` comes into play.
+    let another_alice = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+
+    // Alright, we're done with the original Alice.
+    drop(alice);
+
+    // No rooms as of yet, we have not synced with the server as of yet.
+    assert!(another_alice.rooms().is_empty());
+    another_alice.event_cache().subscribe()?;
+
+    let sync_service = SyncService::builder(another_alice.clone()).build().await?;
+    // We need to subscribe to the room, otherwise we won't request the
+    // `m.room.pinned_events` stat event.
+    //
+    // Additionally if we subscribe to the room after we already synced, we'll won't
+    // receive the event, likely due to a Synapse bug.
+    sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service.start().await;
+    another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // Let's get the room.
+    let room = wait_for_room(&another_alice, &room_id).await;
+
+    assert!(room.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
+
+    // Let's see if the pinned event is there.
+    let pinned_events = room.load_pinned_events().await?.unwrap_or_default();
+    assert!(
+        pinned_events.contains(&event_id),
+        "The pinned event should be found in the pinned events state event"
+    );
+
+    // Let's see if the event is there, it should be a UTD.
+    let event = room.event(&event_id, Default::default()).await?;
+    assert!(event.kind.is_utd());
+
+    // Alright, let's now get to the timeline with a PinnedEvents focus.
+    let pinned_timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::PinnedEvents {
+            max_events_to_load: 100,
+            max_concurrent_requests: 10,
+        })
+        .build()
+        .await?;
+
+    let (items, mut stream) = pinned_timeline.subscribe_filter_map(|i| i.as_event().cloned()).await;
+
+    // If we don't have any items as of yet, wait on the stream.
+    if items.is_empty() {
+        let _ = assert_next_with_timeout!(stream, 5000);
+    }
+
+    // Alright, let's get the event from the timeline.
+    let item = pinned_timeline
+        .item_by_event_id(&event_id)
+        .await
+        .expect("We should have access to the pinned event");
+
+    // Still a UTD.
+    assert!(
+        item.content().is_unable_to_decrypt(),
+        "The pinned event should be a UTD as we didn't recover yet"
+    );
+    assert_eq!(pinned_timeline.items().await.len(), 2);
+
+    // Let's now recover.
+    another_alice.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
+    assert_eq!(another_alice.encryption().recovery().state(), RecoveryState::Enabled);
+
+    // The next update for the timeline should replace the UTD item with a decrypted
+    // value.
+    let next_item = assert_next_with_timeout!(stream, 5000);
+
+    assert_let!(VectorDiff::Set { index: 0, value } = next_item);
+    let content = value.content();
+
+    // And we're not a UTD anymore.
+    assert!(!content.is_unable_to_decrypt());
+    let message = content.as_message().expect("The pinned event should be a message");
+    assert_eq!(message.body(), "It's a secret to everybody");
+
+    // And we check that we don't have any more items in the timeline, the UTD item
+    // was indeed replaced.
+    let items = pinned_timeline.items().await;
+    assert_eq!(items.len(), 2);
+
+    Ok(())
+}
+
+/// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
+/// replaced in the timeline with the decrypted variant.
+///
+/// We do this by first creating the pinned events on one Client, called
+/// `alice`. Then another client object is created, called `another_alice`.
+/// `another_alice` initially doesn't have access to the room history.
+///
+/// Only once `another_alice` recovers things and gets access to the backup can
+/// she download the room key to decrypt the pinned event.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_in_timeline() -> TestResult {
+    test_pinned_events_are_decrypted_after_recovering_with_event_count(0).await
+}
+
+/// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
+/// replaced in the timeline with the decrypted variant even if the pinened UTD
+/// event isn't part of the main timeline and thus wasn't put into the event
+/// cache by the main timeline backpaginating.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+// FIXME: This test is ignored because R2D2 can't decrypt this pinned event as it's never put into
+// the event cache.
+#[ignore]
+async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_timeline() -> TestResult
+{
+    test_pinned_events_are_decrypted_after_recovering_with_event_count(30).await
+}
+
+/// Test that UTDs in a timeline focused on a single event, once decrypted by
+/// R2D2 (the redecryptor), get replaced in the timeline with the decrypted
+/// variant even if the focused UTD event isn't part of the main timeline and
+/// thus wasn't put into the event cache by the main timeline backpaginating.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+// FIXME: This test is ignored because R2D2 can't decrypt this event as
+// it's never put into the event cache.
+#[ignore]
+async fn test_permalink_timelines_redecrypt() -> TestResult {
+    const RECOVERY_PASSPHRASE: &str = "I am error";
+
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+    };
+
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice")
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+    let user_id = alice.user_id().expect("We should have a user ID by now");
+
+    // We can reuse the function for pinned events and the pinned event as our
+    // targeted event.
+    let (room_id, event_id) =
+        prepare_room_with_pinned_events(&alice, RECOVERY_PASSPHRASE, 30).await?;
+
+    // Now `another_alice` comes into play.
+    let another_alice = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+
+    // Alright, we're done with the original Alice.
+    drop(alice);
+
+    // No rooms as of yet, we have not synced with the server as of yet.
+    assert!(another_alice.rooms().is_empty());
+    another_alice.event_cache().subscribe()?;
+
+    let sync_service = SyncService::builder(another_alice.clone()).build().await?;
+    // We need to subscribe to the room, otherwise we won't request the
+    // `m.room.pinned_events` state event.
+    //
+    // Additionally if we subscribe to the room after we already synced, we won't
+    // receive the event, likely due to a Synapse bug.
+    sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service.start().await;
+    another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // Let's get the room.
+    let room = wait_for_room(&another_alice, &room_id).await;
+
+    assert!(room.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
+
+    // Let's see if the event is there, it should be a UTD.
+    let event = room.event(&event_id, Default::default()).await?;
+    assert!(event.kind.is_utd());
+
+    // Alright, let's now go to the timeline with an Event focus.
+    let permalink_timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Event {
+            target: event_id.to_owned(),
+            num_context_events: 1,
+            hide_threaded_events: true,
+        })
+        .build()
+        .await?;
+
+    let (items, mut stream) =
+        permalink_timeline.subscribe_filter_map(|i| i.as_event().cloned()).await;
+
+    // If we don't have any items as of yet, wait on the stream.
+    if items.is_empty() {
+        let _ = assert_next_with_timeout!(stream, 5000);
+    }
+
+    // Alright, let's get the event from the timeline.
+    let item = permalink_timeline
+        .item_by_event_id(&event_id)
+        .await
+        .expect("We should have access to the focused event");
+
+    // Still a UTD.
+    assert!(
+        item.content().is_unable_to_decrypt(),
+        "The focused event should be a UTD as we didn't recover yet"
+    );
+    assert_eq!(permalink_timeline.items().await.len(), 3);
+
+    // Let's now recover.
+    another_alice.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
+    assert_eq!(another_alice.encryption().recovery().state(), RecoveryState::Enabled);
+
+    // The next update for the timeline should replace the UTD item with a decrypted
+    // value.
+    let next_item = assert_next_with_timeout!(stream, 5000);
+
+    assert_let!(VectorDiff::Set { index: 0, value } = next_item);
+    let content = value.content();
+
+    // And we're not a UTD anymore.
+    assert!(!content.is_unable_to_decrypt());
+    let message = content.as_message().expect("The focused event should be a message");
+    assert_eq!(message.body(), "It's a secret to everybody");
+
+    // And we check that we don't have any more items in the timeline, the UTD item
+    // was indeed replaced.
+    let items = permalink_timeline.items().await;
+    assert_eq!(items.len(), 3);
 
     Ok(())
 }

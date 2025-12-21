@@ -487,13 +487,27 @@ pub trait StateStore: AsyncTraitDeps {
     /// bumpstamp is kept.
     ///
     /// If the new thread subscription has a bumpstamp that's lower than or
-    /// equal to a previously one, the existing subscription is kept, i.e.
+    /// equal to a previous one, the existing subscription is kept, i.e.
     /// this method must have no effect.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
         subscription: StoredThreadSubscription,
+    ) -> Result<(), Self::Error>;
+
+    /// Inserts or updates multiple thread subscriptions.
+    ///
+    /// If the new thread subscription hasn't set a bumpstamp, and there was a
+    /// previous subscription in the database with a bumpstamp, the existing
+    /// bumpstamp is kept.
+    ///
+    /// If the new thread subscription has a bumpstamp that's lower than or
+    /// equal to a previous one, the existing subscription is kept, i.e.
+    /// this method must have no effect.
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
     ) -> Result<(), Self::Error>;
 
     /// Remove a previous thread subscription for a given room and thread.
@@ -826,6 +840,13 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
+    }
+
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
+    ) -> Result<(), Self::Error> {
+        self.0.upsert_thread_subscriptions(updates).await.map_err(Into::into)
     }
 
     async fn load_thread_subscription(

@@ -236,6 +236,12 @@ impl QrCodeData {
         Ok(Self { inner: qrcode::QrCodeData::from_bytes(&bytes)? }.into())
     }
 
+    /// Serialize the [`QrCodeData`] into a byte vector for encoding as a QR
+    /// code.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.inner.to_bytes()
+    }
+
     /// The server name contained within the scanned QR code data.
     ///
     /// Note: This value is only present when scanning a QR code the belongs to

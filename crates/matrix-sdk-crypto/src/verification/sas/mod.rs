@@ -24,28 +24,28 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use inner_sas::InnerSas;
 use ruma::{
+    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
-        key::verification::{cancel::CancelCode, start::SasV1Content, ShortAuthenticationString},
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
+        key::verification::{ShortAuthenticationString, cancel::CancelCode, start::SasV1Content},
     },
-    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 pub use sas_state::AcceptedProtocols;
 use tracing::{debug, error, trace};
 
 use super::{
+    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
     cache::RequestInfo,
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
-    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
+    Emoji,
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     store::CryptoStoreError,
     types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
-    Emoji,
 };
 
 /// Short authentication string object.
@@ -573,26 +573,22 @@ impl Sas {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
-        let content = {
-            let mut guard = self.inner.write();
+        let mut guard = self.inner.write();
 
-            if let Some(request) = &self.request_handle {
-                request.cancel_with_code(&code);
+        if let Some(request) = &self.request_handle {
+            request.cancel_with_code(&code);
+        }
+
+        let sas: InnerSas = (*guard).clone();
+        let (sas, content) = sas.cancel(true, code);
+        ObservableWriteGuard::set(&mut guard, sas);
+
+        content.map(|c| match c {
+            OutgoingContent::Room(room_id, content) => {
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
-
-            let sas: InnerSas = (*guard).clone();
-            let (sas, content) = sas.cancel(true, code);
-            ObservableWriteGuard::set(&mut guard, sas);
-
-            content.map(|c| match c {
-                OutgoingContent::Room(room_id, content) => {
-                    RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
-                }
-                OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
-            })
-        };
-
-        content
+            OutgoingContent::ToDevice(c) => self.content_to_request(&c).into(),
+        })
     }
 
     pub(crate) fn cancel_if_timed_out(&self) -> Option<OutgoingVerificationRequest> {
@@ -871,21 +867,21 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
-        events::key::verification::{accept::AcceptMethod, ShortAuthenticationString},
-        user_id, DeviceId, TransactionId, UserId,
+        DeviceId, TransactionId, UserId, device_id,
+        events::key::verification::{ShortAuthenticationString, accept::AcceptMethod},
+        user_id,
     };
     use tokio::sync::Mutex;
 
     use super::Sas;
     use crate::{
+        Account, DeviceData, SasState,
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStoreWrapper, MemoryStore},
         verification::{
-            event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
+            event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
         },
-        Account, DeviceData, SasState,
     };
 
     fn alice_id() -> &'static UserId {

@@ -1978,6 +1978,47 @@ impl_state_store!({
         Ok(())
     }
 
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
+    ) -> Result<()> {
+        let tx = self
+            .inner
+            .transaction(keys::THREAD_SUBSCRIPTIONS)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
+
+        for (room_id, thread_id, subscription) in updates {
+            let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room_id, thread_id));
+            let mut new = PersistedThreadSubscription::from(subscription);
+
+            // See if there's a previous subscription.
+            if let Some(previous_value) = obj.get(&encoded_key).await? {
+                let previous: PersistedThreadSubscription =
+                    self.deserialize_value(&previous_value)?;
+
+                // If the previous status is the same as the new one, don't do anything.
+                if new == previous {
+                    continue;
+                }
+                if !compare_thread_subscription_bump_stamps(
+                    previous.bump_stamp,
+                    &mut new.bump_stamp,
+                ) {
+                    continue;
+                }
+            }
+
+            let serialized_value = self.serialize_value(&new);
+            obj.put(&serialized_value?).with_key(encoded_key).build()?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
     async fn load_thread_subscription(
         &self,
         room: &RoomId,

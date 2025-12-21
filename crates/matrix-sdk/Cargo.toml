@@ -41,7 +41,11 @@ sqlite = [
     "matrix-sdk-sqlite?/event-cache",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
-indexeddb = ["matrix-sdk-indexeddb/state-store"]
+indexeddb = [
+    "matrix-sdk-indexeddb/state-store",
+    "matrix-sdk-indexeddb/event-cache-store",
+    "matrix-sdk-indexeddb/media-store"
+]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
@@ -86,6 +90,7 @@ assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
+async-once-cell.workspace = true
 axum = { version = "0.8.4", optional = true }
 bytes = "1.11.0"
 bytesize = "2.3.0"

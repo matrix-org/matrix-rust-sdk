@@ -317,6 +317,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-once-cell"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
+
+[[package]]
 name = "async-rx"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2900,6 +2906,9 @@ name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "lazy_static"
@@ -3150,6 +3159,7 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "async-channel",
+ "async-once-cell",
  "async-stream",
  "async-trait",
  "axum",
@@ -4805,6 +4815,7 @@ dependencies = [
  "assign",
  "js_int",
  "js_option",
+ "language-tags",
  "ruma-client-api",
  "ruma-common",
  "ruma-events",
@@ -4879,6 +4890,7 @@ dependencies = [
  "indexmap",
  "js_int",
  "js_option",
+ "language-tags",
  "percent-encoding",
  "pulldown-cmark",
  "regex",

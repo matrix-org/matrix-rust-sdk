@@ -37,18 +37,24 @@ use crate::{
     event_cache_store::{
         migrations::current::keys,
         serializer::constants::{
-            INDEXED_KEY_LOWER_CHUNK_IDENTIFIER, INDEXED_KEY_LOWER_EVENT_ID,
-            INDEXED_KEY_LOWER_EVENT_INDEX, INDEXED_KEY_LOWER_EVENT_POSITION,
-            INDEXED_KEY_UPPER_CHUNK_IDENTIFIER, INDEXED_KEY_UPPER_EVENT_ID,
+            INDEXED_KEY_LOWER_CHUNK_IDENTIFIER, INDEXED_KEY_LOWER_EVENT_INDEX,
+            INDEXED_KEY_LOWER_EVENT_POSITION, INDEXED_KEY_UPPER_CHUNK_IDENTIFIER,
             INDEXED_KEY_UPPER_EVENT_INDEX, INDEXED_KEY_UPPER_EVENT_POSITION,
         },
         types::{Chunk, Event, Gap, Lease, Position},
     },
     serializer::{
-        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
-        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
-        INDEXED_KEY_UPPER_STRING,
+        indexed_type::{
+            constants::{
+                INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
+                INDEXED_KEY_UPPER_STRING,
+            },
+            traits::{
+                Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+                IndexedPrefixKeyComponentBounds,
+            },
+        },
+        safe_encode::types::{MaybeEncrypted, SafeEncodeSerializer},
     },
 };
 
@@ -399,14 +405,18 @@ impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        Self::encode((linked_chunk_id, &*INDEXED_KEY_LOWER_EVENT_ID), serializer)
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        Self(linked_chunk_id, (*INDEXED_KEY_LOWER_STRING).clone())
     }
 
     fn upper_key_with_prefix(
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        Self::encode((linked_chunk_id, &*INDEXED_KEY_UPPER_EVENT_ID), serializer)
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        Self(linked_chunk_id, (*INDEXED_KEY_UPPER_STRING).clone())
     }
 }
 
@@ -437,11 +447,13 @@ impl IndexedKey<Event> for IndexedEventRoomKey {
 
 impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
     fn lower_key_with_prefix(room_id: &RoomId, serializer: &SafeEncodeSerializer) -> Self {
-        Self::encode((room_id, &*INDEXED_KEY_LOWER_EVENT_ID), serializer)
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        Self(room_id, (*INDEXED_KEY_LOWER_STRING).clone())
     }
 
     fn upper_key_with_prefix(room_id: &RoomId, serializer: &SafeEncodeSerializer) -> Self {
-        Self::encode((room_id, &*INDEXED_KEY_UPPER_EVENT_ID), serializer)
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        Self(room_id, (*INDEXED_KEY_UPPER_STRING).clone())
     }
 }
 

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
-use futures_util::{pin_mut, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, pin_mut};
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
@@ -28,63 +28,64 @@ use matrix_sdk_common::{
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{
-    room::topic::{OriginalRoomTopicEvent, RoomTopicEventContent},
     StateEvent,
+    room::topic::{OriginalRoomTopicEvent, RoomTopicEventContent},
 };
 use ruma::{
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+    RoomId, TransactionId, UserId,
     api::client::{
         keys::{get_keys, upload_keys},
         sync::sync_events::DeviceLists,
     },
     device_id,
     events::{
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
+        AnyToDeviceEvent, MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
         room::message::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
-        AnyToDeviceEvent, MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
     },
     room_id,
     serde::Raw,
-    uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
+    uint, user_id,
 };
 use serde_json::json;
 use vodozemac::{
-    megolm::{GroupSession, SessionConfig},
     Ed25519PublicKey,
+    megolm::{GroupSession, SessionConfig},
 };
 
 use super::CrossSigningBootstrapRequests;
 use crate::{
+    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
+    RoomEventDecryptionResult, TrustRequirement,
     error::{EventError, OlmResult},
     machine::{
+        EncryptionSyncChanges, OlmMachine,
         test_helpers::{
             get_machine_after_query_test_helper, get_machine_pair_with_session,
             get_machine_pair_with_session_using_store,
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
-        EncryptionSyncChanges, OlmMachine,
     },
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
     store::{
-        types::{BackupDecryptionKey, Changes, DeviceChanges, PendingChanges, RoomKeyInfo},
         CryptoStore, MemoryStore,
+        types::{BackupDecryptionKey, Changes, DeviceChanges, PendingChanges, RoomKeyInfo},
     },
     types::{
+        DeviceKeys, SignedKey, SigningKeys,
         events::{
+            ToDeviceEvent,
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
-            ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},
-        DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-    RoomEventDecryptionResult, TrustRequirement,
 };
 
 mod decryption_verification_state;
@@ -236,12 +237,14 @@ async fn test_session_invalidation() {
 
     machine.discard_room_key(room_id).await.unwrap();
 
-    assert!(machine
-        .inner
-        .group_session_manager
-        .get_outbound_group_session(room_id)
-        .unwrap()
-        .invalidated());
+    assert!(
+        machine
+            .inner
+            .group_session_manager
+            .get_outbound_group_session(room_id)
+            .unwrap()
+            .invalidated()
+    );
 }
 
 #[test]
@@ -688,7 +691,7 @@ async fn test_megolm_encryption() {
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let encrypted_content = alice
+    let result = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -698,7 +701,7 @@ async fn test_megolm_encryption() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
 
     let event = json_convert(&event).unwrap();
@@ -932,7 +935,8 @@ async fn test_megolm_state_encryption_outer_state_key_no_inner() {
     let encrypted_content = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content))
         .await
-        .unwrap();
+        .unwrap()
+        .content;
 
     // Construct an outer event that has `state_key` defined.
     let event = json!({
@@ -1076,7 +1080,7 @@ async fn test_withheld_unverified() {
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let content = alice
+    let result = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -1086,7 +1090,7 @@ async fn test_withheld_unverified() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": content,
+        "content": result.content,
     });
     let room_event = json_convert(&room_event).unwrap();
 
@@ -1281,7 +1285,7 @@ async fn test_query_ratcheted_key() {
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let content = alice
+    let result = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -1291,7 +1295,7 @@ async fn test_query_ratcheted_key() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": content,
+        "content": result.content,
     });
 
     // should share at index 1
@@ -1395,11 +1399,10 @@ async fn test_room_key_over_megolm() {
         "session_key": session_key.to_base64(),
     });
 
-    let encrypted_content =
-        alice.encrypt_room_event_raw(room_id, "m.room_key", &content).await.unwrap();
+    let result = alice.encrypt_room_event_raw(room_id, "m.room_key", &content).await.unwrap();
     let event = json!({
         "sender": alice.user_id(),
-        "content": encrypted_content,
+        "content": result.content,
         "type": "m.room.encrypted",
     });
 
@@ -1470,7 +1473,7 @@ async fn test_room_key_with_fake_identity_keys() {
     inbound.creator_info.signing_keys = signing_keys.into();
 
     let content = message_like_event_content!({});
-    let content = outbound.encrypt("m.dummy", &content).await;
+    let result = outbound.encrypt("m.dummy", &content).await;
     alice.store().save_inbound_group_sessions(&[inbound]).await.unwrap();
 
     let event = json!({
@@ -1478,7 +1481,7 @@ async fn test_room_key_with_fake_identity_keys() {
         "event_id": "$xxxxx:example.org",
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "type": "m.room.encrypted",
-        "content": content,
+        "content": result.content,
     });
     let event = json_convert(&event).unwrap();
 
@@ -1745,7 +1748,7 @@ async fn test_unsigned_decryption() {
     // Encrypt first message.
     let first_message_text = "This is the original message";
     let first_message_content = RoomMessageEventContent::text_plain(first_message_text);
-    let first_message_encrypted_content =
+    let first_message_result =
         alice.encrypt_room_event(room_id, first_message_content).await.unwrap();
 
     let mut first_message_encrypted_event = json!({
@@ -1753,7 +1756,7 @@ async fn test_unsigned_decryption() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": first_message_encrypted_content,
+        "content": first_message_result.content,
     });
     let raw_encrypted_event = json_convert(&first_message_encrypted_event).unwrap();
 
@@ -1790,7 +1793,7 @@ async fn test_unsigned_decryption() {
     let second_message_text = "This is the ~~original~~ edited message";
     let second_message_content =
         RoomMessageEventContent::text_plain(second_message_text).make_replacement(first_message);
-    let second_message_encrypted_content =
+    let second_message_result =
         alice.encrypt_room_event(room_id, second_message_content).await.unwrap();
 
     let second_message_encrypted_event = json!({
@@ -1798,7 +1801,7 @@ async fn test_unsigned_decryption() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": second_message_encrypted_content,
+        "content": second_message_result.content,
     });
 
     // Bundle the edit in the unsigned object of the first event.
@@ -1900,7 +1903,7 @@ async fn test_unsigned_decryption() {
     let third_message_text = "This a reply in a thread";
     let third_message_content = RoomMessageEventContent::text_plain(third_message_text)
         .make_for_thread(first_message, ReplyWithinThread::No, AddMentions::No);
-    let third_message_encrypted_content =
+    let third_message_result =
         alice.encrypt_room_event(room_id, third_message_content).await.unwrap();
 
     let third_message_encrypted_event = json!({
@@ -1908,7 +1911,7 @@ async fn test_unsigned_decryption() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": third_message_encrypted_content,
+        "content": third_message_result.content,
         "room_id": room_id,
     });
 

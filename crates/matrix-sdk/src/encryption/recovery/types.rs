@@ -107,6 +107,10 @@ pub(super) struct SecretStorageDisabledContent {}
 
 /// A custom global account data event which tells us that a new backup should
 /// not be automatically created.
+///
+/// This event is defined in [MSC4287].
+///
+/// [MSC4287]: https://github.com/matrix-org/matrix-spec-proposals/pull/4287
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "m.org.matrix.custom.backup_disabled", kind = GlobalAccountData)]
 pub(super) struct BackupDisabledContent {

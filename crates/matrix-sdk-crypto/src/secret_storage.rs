@@ -17,17 +17,26 @@
 //!
 //! [spec]: https://spec.matrix.org/v1.8/client-server-api/#storage
 
+// This is here because we have a zeroize(skip) further below, which incorrectly triggers a
+// unused_assignments warning due to the macro not using a variable.
+//
+// This will be fixed once we bump Zeroize.
+#![allow(unused_assignments)]
+
 use std::fmt;
 
-pub use hmac::digest::MacError;
 use hmac::Hmac;
+pub use hmac::digest::MacError;
 use pbkdf2::pbkdf2;
 use rand::{
+    RngCore,
     distributions::{Alphanumeric, DistString},
-    thread_rng, RngCore,
+    thread_rng,
 };
 use ruma::{
+    UInt,
     events::{
+        GlobalAccountDataEventContent, GlobalAccountDataEventType,
         secret::request::SecretName,
         secret_storage::{
             key::{
@@ -36,10 +45,8 @@ use ruma::{
             },
             secret::SecretEncryptedData,
         },
-        GlobalAccountDataEventContent, GlobalAccountDataEventType,
     },
     serde::Base64,
-    UInt,
 };
 use serde::de::Error;
 use sha2::Sha512;
@@ -494,15 +501,13 @@ impl SecretStorageKey {
         bytes.zeroize();
 
         // The string is formatted into groups of four characters separated by spaces.
-        let ret = base_58
+        base_58
             .chars()
             .collect::<Vec<char>>()
             .chunks(DISPLAY_CHUNK_SIZE)
             .map(|c| c.iter().collect::<String>())
             .collect::<Vec<_>>()
-            .join(" ");
-
-        ret
+            .join(" ")
     }
 
     /// Encrypt a given secret string as a Secrets Storage secret with the
@@ -636,11 +641,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         let key = SecretStorageKey::from_account_data(passphrase, content)
             .expect("We should be able to restore our secret storage key");
@@ -667,11 +674,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         let base58_key = key.to_base58();
 
@@ -744,11 +753,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         assert_matches!(
             SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned()),

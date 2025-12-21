@@ -463,7 +463,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             TimelineFocus::Event { target: event_id, num_context_events, hide_threaded_events } => {
                 let TimelineFocusKind::Event { paginator, .. } = &*self.focus else {
-                    // Note: this is sync'd with code in the ctor.
+                    // NOTE: this is sync'd with code in the ctor.
                     unreachable!();
                 };
 
@@ -583,7 +583,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             TimelineFocus::PinnedEvents { .. } => {
                 let TimelineFocusKind::PinnedEvents { loader } = &*self.focus else {
-                    // Note: this is sync'd with code in the ctor.
+                    // NOTE: this is sync'd with code in the ctor.
                     unreachable!();
                 };
 

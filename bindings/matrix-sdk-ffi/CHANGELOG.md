@@ -6,15 +6,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- [**breaking**] `LatestEventValue::Local { is_sending: bool }` is replaced
+  by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,
+  `HasBeenSent` and `CannotBeSent`.
+  ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968/))
+
 ### Features
 
+- Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
+[#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
+- Add `QrCodeData::to_bytes()` to allow generation of a QR code.
+  ([#5939](https://github.com/matrix-org/matrix-rust-sdk/pull/5939))
 - [**breaking**]: The new Latest Event API replaces the old API.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+- Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
+  levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
 - Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
   events defaults, per-event overrides, notifications), so clients can compute the required power level
   for actions and compare with previous values.
+  
+### Refactor
+
+- [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the 
+  actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the 
+  event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- [**breaking**] The function `TimelineEvent::event_type` is now `TimelineEvent::content`. 
+  ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- [**breaking**] The `SpaceService` will no longer auto-subscribe to required
+  client events when invoking the `subscribe_to_joined_spaces` but instead do it
+  through its, now async, constructor.
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
+- [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
+  `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
 
 ## [0.16.0] - 2025-12-04
 

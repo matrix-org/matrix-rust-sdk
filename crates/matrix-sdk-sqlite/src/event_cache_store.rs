@@ -21,8 +21,8 @@ use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        store::{extract_event_relation, EventCacheStore},
         Event, Gap,
+        store::{EventCacheStore, extract_event_relation},
     },
     linked_chunk::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
@@ -32,10 +32,10 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
 use rusqlite::{
-    params, params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior,
+    OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
 };
 use tokio::{
     fs,
@@ -44,13 +44,13 @@ use tokio::{
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
+    OpenStoreError, Secret, SqliteStoreConfig,
     connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
-        repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+        EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars,
     },
-    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -1481,7 +1481,7 @@ fn find_event_relations_transaction(
         Ok(related)
     };
 
-    let related = if let Some(filters) = filters {
+    if let Some(filters) = filters {
         let question_marks = repeat_vars(filters.len());
         let query = format!(
             "SELECT events.content, event_chunks.chunk_id, event_chunks.position
@@ -1533,9 +1533,7 @@ fn find_event_relations_transaction(
         let transaction = transaction.query_map(parameters, get_rows)?;
 
         collect_results(transaction)
-    };
-
-    related
+    }
 }
 
 /// Like `deadpool::managed::Object::with_transaction`, but starts the
@@ -1631,27 +1629,27 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         event_cache::{
+            Gap,
             store::{
+                EventCacheStore, EventCacheStoreError,
                 integration_tests::{
                     check_test_event, make_test_event, make_test_event_with_event_id,
                 },
-                EventCacheStore, EventCacheStoreError,
             },
-            Gap,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
     };
-    use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
+    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
     use ruma::{event_id, room_id};
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
     use crate::{
+        SqliteStoreConfig,
         event_cache_store::keys,
         utils::{EncryptableStore as _, SqliteAsyncConnExt},
-        SqliteStoreConfig,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2537,7 +2535,7 @@ mod encrypted_tests {
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
         room_id, user_id,
     };
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
 

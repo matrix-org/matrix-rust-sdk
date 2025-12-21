@@ -4,19 +4,19 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::cross_process_lock::CrossProcessLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio::sync::{Mutex, broadcast};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
 
 use super::{
-    caches::SessionStore, types::RoomKeyBundleInfo, DeviceChanges, IdentityChanges,
-    LockableCryptoStore,
+    DeviceChanges, IdentityChanges, LockableCryptoStore, caches::SessionStore,
+    types::RoomKeyBundleInfo,
 };
 use crate::{
+    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -227,14 +227,12 @@ impl CryptoStoreWrapper {
                 .await?
                 .as_ref()
                 .and_then(|i| i.other())
+                && !other_identity.was_previously_verified()
+                && own_identity_after.is_identity_signed(other_identity)
             {
-                if !other_identity.was_previously_verified()
-                    && own_identity_after.is_identity_signed(other_identity)
-                {
-                    trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
-                    other_identity.mark_as_previously_verified();
-                    updated_identities.push(other_identity.clone().into());
-                }
+                trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
+                other_identity.mark_as_previously_verified();
+                updated_identities.push(other_identity.clone().into());
             }
         }
 
@@ -375,7 +373,7 @@ impl CryptoStoreWrapper {
     fn filter_errors_out_of_stream<ItemType>(
         stream: BroadcastStream<ItemType>,
         stream_name: &str,
-    ) -> impl Stream<Item = ItemType>
+    ) -> impl Stream<Item = ItemType> + use<ItemType>
     where
         ItemType: 'static + Clone + Send,
     {

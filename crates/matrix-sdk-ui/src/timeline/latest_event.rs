@@ -69,10 +69,17 @@ pub enum LatestEventValue {
         /// The content of the local event.
         content: TimelineItemContent,
 
-        /// Whether the local event is sending if it is set to `true`, otherwise
-        /// it cannot be sent.
-        is_sending: bool,
+        /// Whether the local event is sending, has been sent or cannot be sent.
+        state: LatestEventValueLocalState,
     },
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum LatestEventValueLocalState {
+    IsSending,
+    HasBeenSent,
+    CannotBeSent,
 }
 
 impl LatestEventValue {
@@ -153,14 +160,11 @@ impl LatestEventValue {
                     _ => Self::None,
                 }
             }
-            BaseLatestEventValue::LocalIsSending(LocalLatestEventValue {
-                timestamp,
-                content: ref serialized_content,
-            })
-            | BaseLatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
-                timestamp,
-                content: ref serialized_content,
-            }) => {
+            BaseLatestEventValue::LocalIsSending(ref local_value)
+            | BaseLatestEventValue::LocalHasBeenSent { value: ref local_value, .. }
+            | BaseLatestEventValue::LocalCannotBeSent(ref local_value) => {
+                let LocalLatestEventValue { timestamp, content: serialized_content } = local_value;
+
                 let Ok(message_like_event_content) = serialized_content.deserialize() else {
                     return Self::None;
                 };
@@ -172,12 +176,28 @@ impl LatestEventValue {
                     .await
                     .map(TimelineDetails::Ready)
                     .unwrap_or(TimelineDetails::Unavailable);
-                let is_sending = matches!(value, BaseLatestEventValue::LocalIsSending(_));
 
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
-                    TimelineAction::AddItem { content } => {
-                        Self::Local { timestamp, sender, profile, content, is_sending }
-                    }
+                    TimelineAction::AddItem { content } => Self::Local {
+                        timestamp: *timestamp,
+                        sender,
+                        profile,
+                        content,
+                        state: match value {
+                            BaseLatestEventValue::LocalIsSending(_) => {
+                                LatestEventValueLocalState::IsSending
+                            }
+                            BaseLatestEventValue::LocalHasBeenSent { .. } => {
+                                LatestEventValueLocalState::HasBeenSent
+                            }
+                            BaseLatestEventValue::LocalCannotBeSent(_) => {
+                                LatestEventValueLocalState::CannotBeSent
+                            }
+                            BaseLatestEventValue::Remote(_) | BaseLatestEventValue::None => {
+                                unreachable!("Only local latest events are supposed to be handled");
+                            }
+                        },
+                    },
 
                     TimelineAction::HandleAggregation { kind, .. } => {
                         // Add some debug logging here to help diagnose issues with the latest
@@ -210,7 +230,7 @@ mod tests {
 
     use super::{
         super::{MsgLikeContent, MsgLikeKind, TimelineItemContent},
-        BaseLatestEventValue, LatestEventValue, TimelineDetails,
+        BaseLatestEventValue, LatestEventValue, LatestEventValueLocalState, TimelineDetails,
     };
 
     #[async_test]
@@ -275,7 +295,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
@@ -283,7 +303,38 @@ mod tests {
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
             );
-            assert!(is_sending);
+            assert_matches!(state, LatestEventValueLocalState::IsSending);
+        })
+    }
+
+    #[async_test]
+    async fn test_local_has_been_sent() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+
+        let base_value = BaseLatestEventValue::LocalHasBeenSent {
+            event_id: event_id!("$ev0").to_owned(),
+            value: LocalLatestEventValue {
+                timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+                content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+            },
+        };
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(sender, "@example:localhost");
+            assert_matches!(profile, TimelineDetails::Unavailable);
+            assert_matches!(
+                content,
+                TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
+            );
+            assert_matches!(state, LatestEventValueLocalState::HasBeenSent);
         })
     }
 
@@ -303,7 +354,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
@@ -311,7 +362,7 @@ mod tests {
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
             );
-            assert!(is_sending.not());
+            assert_matches!(state, LatestEventValueLocalState::CannotBeSent);
         })
     }
 

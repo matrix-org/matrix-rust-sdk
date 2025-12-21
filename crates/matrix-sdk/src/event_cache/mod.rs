@@ -192,10 +192,10 @@ impl fmt::Debug for EventCache {
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
-        let (generic_update_sender, _) = channel(32);
-        let (linked_chunk_update_sender, _) = channel(32);
+        let (generic_update_sender, _) = channel(128);
+        let (linked_chunk_update_sender, _) = channel(128);
 
-        let (thread_subscriber_sender, thread_subscriber_receiver) = channel(32);
+        let (thread_subscriber_sender, thread_subscriber_receiver) = channel(128);
         let thread_subscriber_task = AbortOnDrop::new(spawn(Self::thread_subscriber_task(
             client.clone(),
             linked_chunk_update_sender.clone(),
@@ -280,7 +280,7 @@ impl EventCache {
                     .take()
                     .expect("We should have initialized the channel an subscribing should happen only once");
 
-                redecryptor::Redecryptor::new(Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
+                redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
 

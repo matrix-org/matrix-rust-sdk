@@ -18,7 +18,7 @@ use ruma::{
     DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        MessageLikeEventType,
+        MessageLikeEventType, room::encrypted::EncryptedEventScheme,
     },
     push::Action,
     serde::{
@@ -319,6 +319,16 @@ pub enum AlgorithmInfo {
     },
 }
 
+/// Struct containing information on the forwarder of the keys used to decrypt
+/// an event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ForwarderInfo {
+    /// The user ID of the forwarder.
+    pub user_id: OwnedUserId,
+    /// The device ID of the forwarder.
+    pub device_id: OwnedDeviceId,
+}
+
 /// Struct containing information on how an event was decrypted.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct EncryptionInfo {
@@ -328,6 +338,11 @@ pub struct EncryptionInfo {
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is `Verified` as well.
     pub sender_device: Option<OwnedDeviceId>,
+    /// If the keys for this message were shared-on-invite as part of an
+    /// [MSC4268] key bundle, information about the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub forwarder: Option<ForwarderInfo>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
@@ -361,14 +376,21 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
         struct Helper {
             pub sender: OwnedUserId,
             pub sender_device: Option<OwnedDeviceId>,
+            pub forwarder: Option<ForwarderInfo>,
             pub algorithm_info: AlgorithmInfo,
             pub verification_state: VerificationState,
             #[serde(rename = "session_id")]
             pub old_session_id: Option<String>,
         }
 
-        let Helper { sender, sender_device, algorithm_info, verification_state, old_session_id } =
-            Helper::deserialize(deserializer)?;
+        let Helper {
+            sender,
+            sender_device,
+            forwarder,
+            algorithm_info,
+            verification_state,
+            old_session_id,
+        } = Helper::deserialize(deserializer)?;
 
         let algorithm_info = match algorithm_info {
             AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id } => {
@@ -382,7 +404,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
             other => other,
         };
 
-        Ok(EncryptionInfo { sender, sender_device, algorithm_info, verification_state })
+        Ok(EncryptionInfo { sender, sender_device, forwarder, algorithm_info, verification_state })
     }
 }
 
@@ -713,14 +735,21 @@ impl TimelineEvent {
 
             Ok(Some(MessageLikeEventType::RoomEncrypted)) => {
                 // The bundled latest thread event is encrypted, but we didn't have any
-                // information about it in the unsigned map. Provide some dummy
-                // UTD info, since we can't really do much better.
+                // information about it in the unsigned map. Try to fetch the information from
+                // the content instead.
+                let session_id = if let Some(content) =
+                    latest_event.get_field::<EncryptedEventScheme>("content").ok().flatten()
+                {
+                    match content {
+                        EncryptedEventScheme::MegolmV1AesSha2(content) => Some(content.session_id),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
                 Some(Box::new(TimelineEvent::from_utd_with_max_timestamp(
                     latest_event.cast(),
-                    UnableToDecryptInfo {
-                        session_id: None,
-                        reason: UnableToDecryptReason::Unknown,
-                    },
+                    UnableToDecryptInfo { session_id, reason: UnableToDecryptReason::Unknown },
                     max_timestamp,
                 )))
             }
@@ -964,18 +993,18 @@ impl fmt::Debug for TimelineEventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Self::PlainText { event } => f
-                .debug_struct("TimelineEventDecryptionResult::PlainText")
+                .debug_struct("TimelineEventKind::PlainText")
                 .field("event", &DebugRawEvent(event))
                 .finish(),
 
             Self::UnableToDecrypt { event, utd_info } => f
-                .debug_struct("TimelineEventDecryptionResult::UnableToDecrypt")
+                .debug_struct("TimelineEventKind::UnableToDecrypt")
                 .field("event", &DebugRawEvent(event))
                 .field("utd_info", &utd_info)
                 .finish(),
 
             Self::Decrypted(decrypted) => {
-                f.debug_tuple("TimelineEventDecryptionResult::Decrypted").field(decrypted).finish()
+                f.debug_tuple("TimelineEventKind::Decrypted").field(decrypted).finish()
             }
         }
     }
@@ -1457,7 +1486,9 @@ mod tests {
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, device_id, event_id,
-        events::room::message::RoomMessageEventContent, serde::Raw, user_id,
+        events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
+        serde::Raw,
+        user_id,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -1608,6 +1639,7 @@ mod tests {
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: None,
+                    forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),
                         sender_claimed_keys: Default::default(),
@@ -1648,6 +1680,7 @@ mod tests {
                         "encryption_info": {
                             "sender": "@sender:example.com",
                             "sender_device": null,
+                            "forwarder": null,
                             "algorithm_info": {
                                 "MegolmV1AesSha2": {
                                     "curve25519_key": "xxx",
@@ -2032,6 +2065,7 @@ mod tests {
         let info = EncryptionInfo {
             sender: user_id!("@alice:localhost").to_owned(),
             sender_device: Some(device_id!("ABCDEFGH").to_owned()),
+            forwarder: None,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: "curvecurvecurve".into(),
                 sender_claimed_keys: Default::default(),
@@ -2053,6 +2087,7 @@ mod tests {
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
+                    forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),
                         sender_claimed_keys: BTreeMap::from([
@@ -2095,5 +2130,44 @@ mod tests {
                 serde_json::to_value(&room_event).unwrap(),
             }
         });
+    }
+
+    #[test]
+    fn test_from_bundled_latest_event_keeps_session_id() {
+        let session_id = "hgLyeSqXfb8vc5AjQLsg6TSHVu0HJ7HZ4B6jgMvxkrs";
+        let serialized = json!({
+            "content": {
+              "algorithm": "m.megolm.v1.aes-sha2",
+              "ciphertext": "AwgAEoABzL1JYhqhjW9jXrlT3M6H8mJ4qffYtOQOnPuAPNxsuG20oiD/Fnpv6jnQGhU6YbV9pNM+1mRnTvxW3CbWOPjLKqCWTJTc7Q0vDEVtYePg38ncXNcwMmfhgnNAoW9S7vNs8C003x3yUl6NeZ8bH+ci870BZL+kWM/lMl10tn6U7snNmSjnE3ckvRdO+11/R4//5VzFQpZdf4j036lNSls/WIiI67Fk9iFpinz9xdRVWJFVdrAiPFwb8L5xRZ8aX+e2JDMlc1eW8gk",
+              "device_id": "SKCGPNUWAU",
+              "sender_key": "Gim/c7uQdSXyrrUbmUOrBT6sMC0gO7QSLmOK6B7NOm0",
+              "session_id": session_id,
+            },
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": 2189,
+            "room_id": "!someroom:example.com",
+            "sender": "@carl:example.com",
+            "type": "m.room.encrypted"
+        });
+        let json = serialized.to_string();
+        let value = Raw::<AnySyncTimelineEvent>::from_json_string(json).unwrap();
+
+        let kind = TimelineEventKind::UnableToDecrypt {
+            event: value.clone(),
+            utd_info: UnableToDecryptInfo {
+                session_id: None,
+                reason: UnableToDecryptReason::Unknown,
+            },
+        };
+        let result = TimelineEvent::from_bundled_latest_event(
+            &kind,
+            Some(value.cast_unchecked()),
+            MilliSecondsSinceUnixEpoch::now(),
+        )
+        .expect("Could not get bundled latest event");
+
+        assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = result.kind);
+        assert!(utd_info.session_id.is_some());
+        assert_eq!(utd_info.session_id.unwrap(), session_id);
     }
 }

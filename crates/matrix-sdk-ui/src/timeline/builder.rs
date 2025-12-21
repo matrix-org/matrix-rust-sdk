@@ -264,7 +264,7 @@ impl TimelineBuilder {
             })
         };
 
-        let crypto_drop_handles = spawn_crypto_tasks(room, controller.clone()).await;
+        let crypto_drop_handles = spawn_crypto_tasks(controller.clone()).await;
 
         let timeline = Timeline {
             controller,

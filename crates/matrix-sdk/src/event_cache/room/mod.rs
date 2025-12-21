@@ -34,7 +34,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomId,
     api::Direction,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
@@ -184,6 +184,11 @@ impl RoomEventCache {
         }
     }
 
+    /// Get the room ID for this [`RoomEventCache`].
+    pub fn room_id(&self) -> &RoomId {
+        &self.inner.room_id
+    }
+
     /// Read all current events.
     ///
     /// Use [`RoomEventCache::subscribe`] to get all current events, plus a
@@ -329,7 +334,7 @@ impl RoomEventCache {
     /// chunk **only**. It doesn't look inside the storage.
     pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Result<Option<O>>
     where
-        P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+        P: FnMut(&Event, Option<&Event>) -> Option<O>,
     {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
     }
@@ -377,6 +382,26 @@ impl RoomEventCache {
             .await
             .ok()
             .flatten())
+    }
+
+    /// Try to find the related events for an event by ID in this room.
+    ///
+    /// You can filter which types of related events to retrieve using
+    /// `filter`. `None` will retrieve related events of any type.
+    ///
+    /// The related events are sorted like this:
+    ///
+    /// - events saved out-of-band (with `RoomEventCache::save_events`) will be
+    ///   located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the storage)
+    ///   will be sorted according to their ordering in the linked chunk.
+    pub async fn find_event_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<Vec<Event>> {
+        // Search in all loaded or stored events.
+        self.inner.state.read().await?.find_event_relations(event_id, filter.clone()).await
     }
 
     /// Clear all the storage for this [`RoomEventCache`].
@@ -1109,6 +1134,34 @@ mod private {
             .await
         }
 
+        /// Find all relations for an event in the persisted storage.
+        ///
+        /// This goes straight to the database, as a simplification; we don't
+        /// expect to need to have to look up in memory events, or that
+        /// all the related events are actually loaded.
+        ///
+        /// The related events are sorted like this:
+        /// - events saved out-of-band with
+        ///   [`super::RoomEventCache::save_events`] will be located at the
+        ///   beginning of the array.
+        /// - events present in the linked chunk (be it in memory or in the
+        ///   database) will be sorted according to their ordering in the linked
+        ///   chunk.
+        pub async fn find_event_relations(
+            &self,
+            event_id: &EventId,
+            filters: Option<Vec<RelationType>>,
+        ) -> Result<Vec<Event>, EventCacheError> {
+            find_event_relations(
+                event_id,
+                &self.state.room_id,
+                filters,
+                &self.state.room_linked_chunk,
+                &self.store,
+            )
+            .await
+        }
+
         //// Find a single event in this room, starting from the most recent event.
         ///
         /// The `predicate` receives two arguments: the current event, and the
@@ -1117,9 +1170,9 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
+        pub fn rfind_map_event_in_memory_by<'i, O, P>(&'i self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+            P: FnMut(&'i Event, Option<&'i Event>) -> Option<O>,
         {
             self.state
                 .room_linked_chunk
@@ -1127,14 +1180,10 @@ mod private {
                 .peekable()
                 .batching(|iter| {
                     iter.next().map(|(_position, event)| {
-                        (
-                            event,
-                            iter.peek()
-                                .and_then(|(_next_position, next_event)| next_event.event_id()),
-                        )
+                        (event, iter.peek().map(|(_next_position, next_event)| *next_event))
                     })
                 })
-                .find_map(|(event, next_event_id)| predicate(event, next_event_id))
+                .find_map(|(event, next_event)| predicate(event, next_event))
         }
 
         #[cfg(test)]
@@ -2318,7 +2367,23 @@ mod private {
             return Ok(None);
         };
 
-        // Then, initialize the stack with all the related events, to find the
+        // Then, find the transitive closure of all the related events.
+        let related =
+            find_event_relations(event_id, room_id, filters, room_linked_chunk, store).await?;
+
+        Ok(Some((target, related)))
+    }
+
+    /// Implementation of
+    /// [`RoomEventCacheStateLockReadGuard::find_event_relations`].
+    async fn find_event_relations(
+        event_id: &EventId,
+        room_id: &RoomId,
+        filters: Option<Vec<RelationType>>,
+        room_linked_chunk: &EventLinkedChunk,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<Vec<Event>, EventCacheError> {
+        // Initialize the stack with all the related events, to find the
         // transitive closure of all the related events.
         let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
         let mut stack =
@@ -2379,7 +2444,7 @@ mod private {
         // Keep only the events, not their positions.
         let related = related.into_iter().map(|(event, _pos)| event).collect();
 
-        Ok(Some((target, related)))
+        Ok(related)
     }
 }
 
@@ -2748,6 +2813,7 @@ mod timed_tests {
                 assert_eq!(expected_room_id, room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         // Check the storage.
         let linked_chunk = from_all_chunks::<3, _, _>(
@@ -2827,6 +2893,7 @@ mod timed_tests {
                 assert_eq!(expected_room_id, room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         // The in-memory linked chunk keeps the bundled relation.
         {
@@ -2978,6 +3045,13 @@ mod timed_tests {
             });
 
             assert!(stream.is_empty());
+
+            assert_let_timeout!(
+                Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) =
+                    generic_stream.recv()
+            );
+            assert_eq!(room_id, expected_room_id);
+            assert!(generic_stream.is_empty());
         }
 
         // After clearing,…
@@ -2995,6 +3069,7 @@ mod timed_tests {
             Ok(RoomEventCacheGenericUpdate { room_id: received_room_id }) = generic_stream.recv()
         );
         assert_eq!(received_room_id, room_id);
+        assert!(generic_stream.is_empty());
 
         // Events individually are not forgotten by the event cache, after clearing a
         // room.
@@ -3105,6 +3180,7 @@ mod timed_tests {
                 assert_eq!(room_id, expected_room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -3138,6 +3214,7 @@ mod timed_tests {
                 assert_eq!(expected_room_id, room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         // A new update with one of these events leads to deduplication.
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
@@ -3269,6 +3346,7 @@ mod timed_tests {
                 assert_eq!(expected_room_id, room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         {
             let mut state = room_event_cache.inner.state.write().await.unwrap();
@@ -3330,6 +3408,7 @@ mod timed_tests {
                 assert_eq!(expected_room_id, room_id);
             }
         );
+        assert!(generic_stream.is_empty());
 
         {
             let state = room_event_cache.inner.state.read().await.unwrap();
@@ -3437,9 +3516,10 @@ mod timed_tests {
 
         // Same for the generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: received_room_id }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
         );
-        assert_eq!(received_room_id, room_id);
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
 
         // Shrink the linked chunk to the last chunk.
         let diffs = room_event_cache
@@ -3699,6 +3779,8 @@ mod timed_tests {
         assert_eq!(events1[0].event_id().as_deref(), Some(evid2));
         assert!(stream1.is_empty());
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
@@ -3716,6 +3798,12 @@ mod timed_tests {
         });
 
         assert!(stream1.is_empty());
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
 
         // Have another subscriber.
         // Since it's not the first one, and the previous one loaded some more events,
@@ -3819,8 +3907,8 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event.and_then(|event| event.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {
@@ -3833,8 +3921,8 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event.and_then(|event| event.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {

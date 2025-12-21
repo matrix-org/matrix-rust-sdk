@@ -18,8 +18,8 @@ use std::{
     fmt,
     ops::Bound,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLockReadGuard,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -28,32 +28,34 @@ use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock as S
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
-    events::{
-        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
-        AnyMessageLikeEventContent,
-    },
-    serde::Raw,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UserId,
+    events::{
+        AnyMessageLikeEventContent,
+        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+    },
+    serde::Raw,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
-use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, megolm::SessionConfig};
 pub use vodozemac::{
+    PickleError,
     megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
     olm::IdentityKeys,
-    PickleError,
 };
 
 use super::SessionCreationError;
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
+    DeviceData,
     olm::account::shared_history_from_history_visibility,
     session_manager::CollectStrategy,
     store::caches::SequenceNumber,
     types::{
+        EventEncryptionAlgorithm,
         events::{
             room::encrypted::{
                 MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
@@ -62,9 +64,7 @@ use crate::{
             room_key_withheld::RoomKeyWithheldContent,
         },
         requests::ToDeviceRequest,
-        EventEncryptionAlgorithm,
     },
-    DeviceData,
 };
 
 const ONE_HOUR: Duration = Duration::from_secs(60 * 60);
@@ -149,6 +149,19 @@ impl EncryptionSettings {
             sharing_strategy,
         }
     }
+}
+
+/// The result of encrypting a message with an outbound group session.
+///
+/// Contains the encrypted content, the algorithm used, and the session ID.
+#[derive(Debug)]
+pub struct OutboundGroupSessionEncryptionResult {
+    /// The encrypted content of the message.
+    pub content: Raw<RoomEncryptedEventContent>,
+    /// The algorithm used to encrypt the message.
+    pub algorithm: EventEncryptionAlgorithm,
+    /// The session ID used to encrypt the message.
+    pub session_id: Arc<str>,
 }
 
 /// Outbound group session.
@@ -485,7 +498,7 @@ impl OutboundGroupSession {
         &self,
         payload: &T,
         relates_to: Option<serde_json::Value>,
-    ) -> Raw<RoomEncryptedEventContent> {
+    ) -> OutboundGroupSessionEncryptionResult {
         let ciphertext = self
             .encrypt_helper(
                 serde_json::to_string(payload).expect("payload serialization never fails"),
@@ -509,7 +522,13 @@ impl OutboundGroupSession {
             ),
         };
         let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
-        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
+
+        OutboundGroupSessionEncryptionResult {
+            content: Raw::new(&content)
+                .expect("m.room.encrypted event content can always be serialized"),
+            algorithm: self.settings.algorithm.to_owned(),
+            session_id: self.session_id.clone(),
+        }
     }
 
     /// Encrypt a room message for the given room.
@@ -532,7 +551,7 @@ impl OutboundGroupSession {
         &self,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
-    ) -> Raw<RoomEncryptedEventContent> {
+    ) -> OutboundGroupSessionEncryptionResult {
         #[derive(Serialize)]
         struct Payload<'a> {
             #[serde(rename = "type")]
@@ -586,7 +605,7 @@ impl OutboundGroupSession {
         }
 
         let payload = Payload { event_type, state_key, content, room_id: &self.room_id };
-        self.encrypt_inner(&payload, None).await
+        self.encrypt_inner(&payload, None).await.content
     }
 
     fn elapsed(&self) -> bool {
@@ -859,13 +878,14 @@ mod tests {
     use std::time::Duration;
 
     use ruma::{
+        EventEncryptionAlgorithm,
         events::room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
         },
-        uint, EventEncryptionAlgorithm,
+        uint,
     };
 
-    use super::{EncryptionSettings, ShareState, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD, ShareState};
     use crate::CollectStrategy;
 
     #[test]
@@ -918,13 +938,13 @@ mod tests {
 
         use matrix_sdk_test::async_test;
         use ruma::{
-            device_id, events::room::message::RoomMessageEventContent, room_id, serde::Raw, uint,
-            user_id, SecondsSinceUnixEpoch,
+            SecondsSinceUnixEpoch, device_id, events::room::message::RoomMessageEventContent,
+            room_id, serde::Raw, uint, user_id,
         };
 
         use crate::{
-            olm::{OutboundGroupSession, SenderData},
             Account, EncryptionSettings, MegolmError,
+            olm::{OutboundGroupSession, SenderData},
         };
 
         const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
@@ -945,8 +965,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_session_is_expired_if_we_rotate_every_message_and_one_was_sent(
-        ) -> Result<(), MegolmError> {
+        async fn test_session_is_expired_if_we_rotate_every_message_and_one_was_sent()
+        -> Result<(), MegolmError> {
             // Given a session that expires after one message
             let session = create_session(EncryptionSettings {
                 rotation_period_msgs: 1,
@@ -1060,8 +1080,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_session_with_zero_msgs_rotation_expires_after_one_message(
-        ) -> Result<(), MegolmError> {
+        async fn test_session_with_zero_msgs_rotation_expires_after_one_message()
+        -> Result<(), MegolmError> {
             // Given a session that is supposed to expire after zero messages
             let session = create_session(EncryptionSettings {
                 rotation_period_msgs: 0,

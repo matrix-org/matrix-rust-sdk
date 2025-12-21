@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Added a new field `forwarder` to `InboundGroupSession` of type `ForwarderData`, which stores information about the forwarder of a session shared in a room key bundle under [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+  ([#5980])(https://github.com/matrix-org/matrix-rust-sdk/pull/5980)
+- The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
+  used when encrypting raw events.
+  ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
+
+### Refactor
+
+- [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
+  been eliminated entirely.
+  ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

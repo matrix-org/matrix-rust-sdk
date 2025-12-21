@@ -55,17 +55,17 @@ impl SpaceService {
     /// Returns a list of all the top-level joined spaces. It will eagerly
     /// compute the latest version and also notify subscribers if there were
     /// any changes.
-    pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
-        self.inner.joined_spaces().await.into_iter().map(Into::into).collect()
+    pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
+        self.inner.top_level_joined_spaces().await.into_iter().map(Into::into).collect()
     }
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
     /// joined or left, the stream will yield diffs that reflect the changes.
-    pub async fn subscribe_to_joined_spaces(
+    pub async fn subscribe_to_top_level_joined_spaces(
         &self,
         listener: Box<dyn SpaceServiceJoinedSpacesListener>,
     ) -> Arc<TaskHandle> {
-        let (initial_values, mut stream) = self.inner.subscribe_to_joined_spaces().await;
+        let (initial_values, mut stream) = self.inner.subscribe_to_top_level_joined_spaces().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
@@ -81,8 +81,8 @@ impl SpaceService {
     /// Returns a flattened list containing all the spaces where the user has
     /// permission to send `m.space.child` state events.
     ///
-    /// Note: Unlike [`Self::joined_spaces()`], this method does not recompute
-    /// the space graph, nor does it notify subscribers about changes.
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph, nor does it notify subscribers about changes.
     pub async fn editable_spaces(&self) -> Vec<SpaceRoom> {
         self.inner.editable_spaces().await.into_iter().map(Into::into).collect()
     }
@@ -106,6 +106,13 @@ impl SpaceService {
         let parents = self.inner.joined_parents_of_child(&child_id).await;
 
         Ok(parents.into_iter().map(Into::into).collect())
+    }
+
+    /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
+    /// if it isn't known.
+    pub async fn get_space_room(&self, room_id: String) -> Result<Option<SpaceRoom>, ClientError> {
+        let room_id = RoomId::parse(room_id.as_str())?;
+        Ok(self.inner.get_space_room(&room_id).await.map(Into::into))
     }
 
     pub async fn add_child_to_space(

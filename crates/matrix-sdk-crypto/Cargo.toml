@@ -1,7 +1,7 @@
 [package]
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "Matrix encryption library"
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
@@ -36,9 +36,6 @@ _disable-minimum-rotation-period-ms = []
 # https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
 # details.
 test-send-sync = []
-
-# "message-ids" feature doesn't do anything and is deprecated.
-message-ids = []
 
 # Testing helpers for implementations based upon this
 testing = ["matrix-sdk-test"]

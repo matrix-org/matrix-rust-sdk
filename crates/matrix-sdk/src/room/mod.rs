@@ -2643,7 +2643,8 @@ impl Room {
         if let Some(txn_id) = txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
-        fut.await
+
+        fut.await.map(|result| result.response)
     }
 
     /// Creates the inner [`MessageType`] for an already-uploaded media file
@@ -3829,7 +3830,7 @@ impl Room {
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
-            Ok(self.send(content).await?)
+            Ok(self.send(content).await?.response)
         } else {
             Err(BeaconError::NotLive)
         }
@@ -4100,7 +4101,16 @@ impl Room {
         event_id: OwnedEventId,
         opts: RelationsOptions,
     ) -> Result<Relations> {
-        opts.send(self, event_id).await
+        let relations = opts.send(self, event_id).await;
+
+        // Save any new related events to the cache.
+        if let Ok(Relations { chunk, .. }) = &relations
+            && let Ok((cache, _handles)) = self.event_cache().await
+        {
+            cache.save_events(chunk.clone()).await;
+        }
+
+        relations
     }
 
     /// Search this room's [`RoomIndex`] for query and return at most

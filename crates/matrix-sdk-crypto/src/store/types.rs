@@ -24,23 +24,23 @@ use std::{
 
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{Deserialize, Serialize};
-use vodozemac::{base64_encode, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{DehydrationError, GossipRequest};
 use crate::{
+    Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         SenderData,
     },
     types::{
+        EventEncryptionAlgorithm,
         events::{
             room_key_bundle::RoomKeyBundleContent,
             room_key_withheld::{RoomKeyWithheldContent, RoomKeyWithheldEvent},
         },
-        EventEncryptionAlgorithm,
     },
-    Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
 };
 
 /// Aggregated changes to be saved in the database.

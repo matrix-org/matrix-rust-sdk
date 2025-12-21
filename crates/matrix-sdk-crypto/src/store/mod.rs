@@ -43,7 +43,7 @@ use std::{
     fmt::Debug,
     ops::Deref,
     pin::pin,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -52,29 +52,28 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
-    OwnedUserId, RoomId, UserId,
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
+    events::secret::request::SecretName,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{info, instrument, trace, warn};
 use types::{RoomKeyBundleInfo, StoredRoomKeyBundleData};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, megolm::SessionOrdering};
 
 use self::types::{
     Changes, CrossSigningKeyExport, DeviceChanges, DeviceUpdates, IdentityChanges, IdentityUpdates,
     PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, UserKeyQueryResult,
 };
-#[cfg(doc)]
-use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
+    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
     gossiping::GossippedSecret,
-    identities::{user::UserIdentity, Device, DeviceData, UserDevices, UserIdentityData},
+    identities::{Device, DeviceData, UserDevices, UserIdentityData, user::UserIdentity},
     olm::{
-        Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
-        Session, StaticAccountData,
+        Account, ExportedRoomKey, ForwarderData, InboundGroupSession, PrivateCrossSigningIdentity,
+        SenderData, Session, StaticAccountData,
     },
     store::types::RoomKeyWithheldEntry,
     types::{
@@ -82,8 +81,9 @@ use crate::{
         SecretsBundle,
     },
     verification::VerificationMachine,
-    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
 };
+#[cfg(doc)]
+use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 
 pub mod caches;
 mod crypto_store_wrapper;
@@ -593,7 +593,7 @@ impl Store {
     // take a `&StoreTransaction`, but callers didn't quite like that.
     pub(crate) async fn with_transaction<
         T,
-        Fut: futures_core::Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
+        Fut: Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
         F: FnOnce(StoreTransaction) -> Fut,
     >(
         &self,
@@ -666,7 +666,9 @@ impl Store {
                 // If this happens, it means that we have two sessions purporting to have the
                 // same session id, but where the ratchets do not match up.
                 // In other words, someone is playing silly buggers.
-                warn!("Received a group session with an ratchet that does not connect to the one in the store, discarding");
+                warn!(
+                    "Received a group session with an ratchet that does not connect to the one in the store, discarding"
+                );
                 None
             }
 
@@ -1453,7 +1455,19 @@ impl Store {
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        let exported_keys: Vec<&ExportedRoomKey> = exported_keys.iter().collect();
+        let exported_keys = exported_keys.iter().filter_map(|key| {
+            key.try_into()
+                .map_err(|e| {
+                    warn!(
+                        sender_key = key.sender_key().to_base64(),
+                        room_id = ?key.room_id(),
+                        session_id = key.session_id(),
+                        error = ?e,
+                        "Couldn't import a room key from a file export."
+                    );
+                })
+                .ok()
+        });
         self.import_sessions_impl(exported_keys, from_backup_version, progress_listener).await
     }
 
@@ -1491,57 +1505,44 @@ impl Store {
         self.import_room_keys(exported_keys, None, progress_listener).await
     }
 
-    async fn import_sessions_impl<T>(
+    async fn import_sessions_impl(
         &self,
-        room_keys: Vec<T>,
+        sessions: impl Iterator<Item = InboundGroupSession>,
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
-    ) -> Result<RoomKeyImportResult>
-    where
-        T: TryInto<InboundGroupSession> + RoomKeyExport + Copy,
-        T::Error: Debug,
-    {
-        let mut sessions = Vec::new();
+    ) -> Result<RoomKeyImportResult> {
+        let sessions: Vec<_> = sessions.collect();
+        let mut imported_sessions = Vec::new();
 
-        let total_count = room_keys.len();
+        let total_count = sessions.len();
         let mut keys = BTreeMap::new();
 
-        for (i, key) in room_keys.into_iter().enumerate() {
-            match key.try_into() {
-                Ok(session) => {
-                    // Only import the session if we didn't have this session or
-                    // if it's a better version of the same session.
-                    if let Some(merged) = self.merge_received_group_session(session).await? {
-                        if from_backup_version.is_some() {
-                            merged.mark_as_backed_up();
-                        }
-
-                        keys.entry(merged.room_id().to_owned())
-                            .or_insert_with(BTreeMap::new)
-                            .entry(merged.sender_key().to_base64())
-                            .or_insert_with(BTreeSet::new)
-                            .insert(merged.session_id().to_owned());
-
-                        sessions.push(merged);
-                    }
+        for (i, session) in sessions.into_iter().enumerate() {
+            // Only import the session if we didn't have this session or
+            // if it's a better version of the same session.
+            if let Some(merged) = self.merge_received_group_session(session).await? {
+                if from_backup_version.is_some() {
+                    merged.mark_as_backed_up();
                 }
-                Err(e) => {
-                    warn!(
-                        sender_key = key.sender_key().to_base64(),
-                        room_id = ?key.room_id(),
-                        session_id = key.session_id(),
-                        error = ?e,
-                        "Couldn't import a room key from a file export."
-                    );
-                }
+
+                keys.entry(merged.room_id().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .entry(merged.sender_key().to_base64())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(merged.session_id().to_owned());
+
+                imported_sessions.push(merged);
             }
 
             progress_listener(i, total_count);
         }
 
-        let imported_count = sessions.len();
+        let imported_count = imported_sessions.len();
 
-        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
+        self.inner
+            .store
+            .save_inbound_group_sessions(imported_sessions, from_backup_version)
+            .await?;
 
         info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
@@ -1606,18 +1607,20 @@ impl Store {
     /// ```no_run
     /// use std::pin::pin;
     ///
-    /// use matrix_sdk_crypto::{olm::ExportedRoomKey, OlmMachine};
+    /// use matrix_sdk_crypto::{OlmMachine, olm::ExportedRoomKey};
     /// use ruma::{device_id, room_id, user_id};
     /// use tokio_stream::StreamExt;
     /// # async {
     /// let alice = user_id!("@alice:example.org");
     /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
-    /// let mut keys = pin!(machine
-    ///     .store()
-    ///     .export_room_keys_stream(|s| s.room_id() == room_id)
-    ///     .await
-    ///     .unwrap());
+    /// let mut keys = pin!(
+    ///     machine
+    ///         .store()
+    ///         .export_room_keys_stream(|s| s.room_id() == room_id)
+    ///         .await
+    ///         .unwrap()
+    /// );
     /// while let Some(key) = keys.next().await {
     ///     println!("{}", key.room_id);
     /// }
@@ -1702,19 +1705,23 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        if matches!(
-            &sender_data,
-            SenderData::UnknownDevice { .. }
-                | SenderData::VerificationViolation(_)
-                | SenderData::DeviceInfo { .. }
-        ) {
+        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
+        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
+        // via user verification and cross-signing).
+        let Ok(forwarder_data) = (&sender_data).try_into() else {
             warn!(
                 "Not accepting a historic room key bundle due to insufficient trust in the sender"
             );
             return Ok(());
-        }
+        };
 
-        self.import_room_key_bundle_sessions(bundle_info, &bundle, progress_listener).await?;
+        self.import_room_key_bundle_sessions(
+            bundle_info,
+            &bundle,
+            &forwarder_data,
+            progress_listener,
+        )
+        .await?;
         self.import_room_key_bundle_withheld_info(bundle_info, &bundle).await?;
 
         Ok(())
@@ -1724,6 +1731,7 @@ impl Store {
         &self,
         bundle_info: &StoredRoomKeyBundleData,
         bundle: &RoomKeyBundle,
+        forwarder_data: &ForwarderData,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
         let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
@@ -1764,7 +1772,21 @@ impl Store {
                     );
                 }
 
-                self.import_sessions_impl(good, None, progress_listener).await?;
+                let keys = good.iter().filter_map(|key| {
+                    key.try_into_inbound_group_session(forwarder_data)
+                        .map_err(|e| {
+                            warn!(
+                                sender_key = ?key.sender_key().to_base64(),
+                                room_id = ?key.room_id(),
+                                session_id = key.session_id(),
+                                error = ?e,
+                                "Couldn't import a room key from a key bundle."
+                            );
+                        })
+                        .ok()
+                });
+
+                self.import_sessions_impl(keys, None, progress_listener).await?;
             }
         }
 
@@ -1854,27 +1876,27 @@ mod tests {
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
+        RoomId, device_id,
         events::room::{EncryptedFileInit, JsonWebKeyInit},
         owned_device_id, owned_mxc_uri, room_id,
         serde::Base64,
-        user_id, RoomId,
+        user_id,
     };
     use serde_json::json;
-    use vodozemac::{megolm::SessionKey, Ed25519Keypair};
+    use vodozemac::{Ed25519Keypair, megolm::SessionKey};
 
     use crate::{
+        Account, OlmMachine,
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
         store::types::{DehydratedDeviceKey, RoomKeyWithheldEntry, StoredRoomKeyBundleData},
         types::{
+            EventEncryptionAlgorithm,
             events::{
                 room_key_bundle::RoomKeyBundleContent,
                 room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
             },
-            EventEncryptionAlgorithm,
         },
-        Account, OlmMachine,
     };
 
     #[async_test]
@@ -1981,6 +2003,7 @@ mod tests {
                 BTreeMap::new(),
                 crate::types::Signatures::new(),
             )),
+            None,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(ruma::events::room::history_visibility::HistoryVisibility::Shared),
             true,
@@ -2339,6 +2362,16 @@ mod tests {
         assert_eq!(imported_sessions.len(), 1);
         assert_eq!(imported_sessions[0].room_id(), room_id);
 
+        // The session forwarder data should be set correctly.
+        assert_eq!(
+            imported_sessions[0]
+                .forwarder_data
+                .as_ref()
+                .expect("Session should contain forwarder data.")
+                .user_id(),
+            alice.user_id()
+        );
+
         assert_matches!(
             bob.store()
                 .get_withheld_info(room_id, sessions[1].session_id())
@@ -2426,6 +2459,7 @@ mod tests {
             room_id,
             session_key,
             SenderData::unknown(),
+            None,
             #[cfg(not(feature = "experimental-algorithms"))]
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             #[cfg(feature = "experimental-algorithms")]

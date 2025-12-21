@@ -30,7 +30,7 @@ use thiserror::Error;
 use traits::{Indexed, IndexedKey};
 use wasm_bindgen::JsValue;
 
-use crate::serializer::SafeEncodeSerializer;
+use crate::serializer::safe_encode::types::SafeEncodeSerializer;
 
 #[derive(Debug, Error)]
 pub enum IndexedTypeSerializerError<IndexingError> {

@@ -101,7 +101,7 @@ pub use self::{
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
-    latest_event::LatestEventValue,
+    latest_event::{LatestEventValue, LatestEventValueLocalState},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };

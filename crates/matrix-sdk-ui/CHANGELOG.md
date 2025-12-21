@@ -6,13 +6,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- [**breaking**] `LatestEventValue::Local { is_sending: bool }` is replaced
+  by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,
+  `HasBeenSent` and `CannotBeSent`.
+  ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968/))
+- Fix the redecryption of events in timelines built using the
+  `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
+  ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
+
 ### Features
 
+- Add `SpaceService::get_space_room` to get a space
+  given its id from the space graph if available.
+  ([#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944))
 - [**breaking**]: The new Latest Event API replaces the old API. All the
   `new_` prefixes have been removed. The following methods are removed:
   `EventTimelineItem::from_latest_event`, and `Timeline::latest_event`. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
-  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+  ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
+- `Room::load_event_with_relations` now also calls `/relations` to fetch related events when falling back
+  to network mode after a cache miss.
+  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))  
+  
+### Refactor
+
+- [**breaking**] The `SpaceService` will no longer auto-subscribe to required
+  client events when invoking the `subscribe_to_joined_spaces` but instead do it
+  through its, now async, constructor.
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
+- [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
+  `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
+  ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
 
 ## [0.16.0] - 2025-12-04
 

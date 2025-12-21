@@ -44,24 +44,24 @@
 use std::sync::Arc;
 
 use ruma::{
-    api::client::dehydrated_device::{put_dehydrated_device, DehydratedDeviceData},
+    DeviceId,
+    api::client::dehydrated_device::{DehydratedDeviceData, put_dehydrated_device},
     assign,
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId,
 };
 use thiserror::Error;
 use tracing::{instrument, trace};
 use vodozemac::{DehydratedDeviceError, LibolmPickleError};
 
 use crate::{
-    store::{
-        types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
-        CryptoStoreWrapper, MemoryStore, Store,
-    },
-    verification::VerificationMachine,
     Account, CryptoStoreError, DecryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
     SignatureError,
+    store::{
+        CryptoStoreWrapper, MemoryStore, Store,
+        types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
+    },
+    verification::VerificationMachine,
 };
 
 /// Error type for device dehydration issues.
@@ -408,6 +408,7 @@ mod tests {
     use js_option::JsOption;
     use matrix_sdk_test::async_test;
     use ruma::{
+        DeviceId, RoomId, TransactionId, UserId,
         api::client::{
             dehydrated_device::put_dehydrated_device,
             keys::get_keys::v3::Response as KeysQueryResponse,
@@ -417,10 +418,11 @@ mod tests {
         events::AnyToDeviceEvent,
         room_id,
         serde::Raw,
-        user_id, DeviceId, RoomId, TransactionId, UserId,
+        user_id,
     };
 
     use crate::{
+        DecryptionSettings, EncryptionSettings, OlmMachine, TrustRequirement,
         dehydrated_devices::DehydratedDevice,
         machine::{
             test_helpers::{create_session, get_prepared_machine_test_helper},
@@ -428,9 +430,8 @@ mod tests {
         },
         olm::OutboundGroupSession,
         store::types::DehydratedDeviceKey,
-        types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
+        types::{DeviceKeys as DeviceKeysType, events::ToDeviceEvent},
         utilities::json_convert,
-        DecryptionSettings, EncryptionSettings, OlmMachine, TrustRequirement,
     };
 
     fn pickle_key() -> DehydratedDeviceKey {

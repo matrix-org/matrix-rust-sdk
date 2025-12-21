@@ -289,6 +289,7 @@ enum LogTarget {
     MatrixSdkEventCache,
     MatrixSdkEventCacheStore,
     MatrixSdkHttpClient,
+    MatrixSdkLatestEvents,
     MatrixSdkOidc,
     MatrixSdkSendQueue,
     MatrixSdkSlidingSync,
@@ -319,6 +320,7 @@ impl LogTarget {
             LogTarget::MatrixSdkHttpClient => "matrix_sdk::http_client",
             LogTarget::MatrixSdkSlidingSync => "matrix_sdk::sliding_sync",
             LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
+            LogTarget::MatrixSdkLatestEvents => "matrix_sdk::latest_events",
             LogTarget::MatrixSdkSendQueue => "matrix_sdk::send_queue",
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
@@ -341,6 +343,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
     (LogTarget::MatrixSdkSendQueue, LogLevel::Info),
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
+    (LogTarget::MatrixSdkLatestEvents, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
     (LogTarget::MatrixSdkCommonCrossProcessLock, LogLevel::Warn),
@@ -372,6 +375,8 @@ pub enum TraceLogPacks {
     NotificationClient,
     /// Enables all the logs relevant to sync profiling.
     SyncProfiling,
+    /// Enables all the logs relevant to the latest events.
+    LatestEvents,
 }
 
 impl TraceLogPacks {
@@ -398,6 +403,11 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkCrypto,
                 LogTarget::MatrixSdkCommonCrossProcessLock,
                 LogTarget::MatrixSdkCommonDeserializedResponses,
+            ],
+            TraceLogPacks::LatestEvents => &[
+                LogTarget::MatrixSdkLatestEvents,
+                LogTarget::MatrixSdkSendQueue,
+                LogTarget::MatrixSdkEventCache,
             ],
         }
     }
@@ -746,6 +756,7 @@ mod tests {
             matrix_sdk_ui::timeline=info,
             matrix_sdk::send_queue=info,
             matrix_sdk::event_cache=info,
+            matrix_sdk::latest_events=info,
             matrix_sdk_base::event_cache=info,
             matrix_sdk_sqlite::event_cache_store=info,
             matrix_sdk_common::cross_process_lock=warn,
@@ -791,6 +802,7 @@ mod tests {
             matrix_sdk_ui::timeline=trace,
             matrix_sdk::send_queue=trace,
             matrix_sdk::event_cache=trace,
+            matrix_sdk::latest_events=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
             matrix_sdk_common::cross_process_lock=warn,
@@ -837,6 +849,7 @@ mod tests {
             matrix_sdk_ui::timeline=info,
             matrix_sdk::send_queue=trace,
             matrix_sdk::event_cache=trace,
+            matrix_sdk::latest_events=info,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
             matrix_sdk_common::cross_process_lock=warn,

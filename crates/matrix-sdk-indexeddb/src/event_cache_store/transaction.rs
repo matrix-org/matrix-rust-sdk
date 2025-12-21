@@ -32,8 +32,9 @@ use crate::{
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position},
     },
-    serializer::{
-        Indexed, IndexedKeyRange, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
+    serializer::indexed_type::{
+        range::IndexedKeyRange,
+        traits::{Indexed, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
         IndexedTypeSerializer,
     },
     transaction::{Transaction, TransactionError},

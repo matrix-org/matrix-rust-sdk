@@ -24,18 +24,21 @@ use itertools::Itertools;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
+    BoxFuture,
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ForwarderInfo,
         ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
         UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
         UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
-    timer, BoxFuture,
+    timer,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
 use ruma::{
+    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::client::{
         dehydrated_device::DehydratedDeviceData,
         keys::{
@@ -48,30 +51,31 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventContent, secret::request::SecretName,
     },
     serde::{JsonObject, Raw},
-    DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
-use serde_json::{value::to_raw_value, Value};
+use serde::Serialize;
+use serde_json::{Value, value::to_raw_value};
 use tokio::sync::Mutex;
 use tracing::{
-    debug, error,
+    Span, debug, error,
     field::{debug, display},
-    info, instrument, trace, warn, Span,
+    info, instrument, trace, warn,
 };
-use vodozemac::{megolm::DecryptionError, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{Curve25519PublicKey, Ed25519Signature, megolm::DecryptionError};
 
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{user::UserIdentity, Device, IdentityManager, UserDevices},
+    identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -79,16 +83,18 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
+        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
+        Store, StoreTransaction,
         caches::StoreCache,
         types::{
             Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
             RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
         },
-        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
-        Store, StoreTransaction,
     },
     types::{
+        EventEncryptionAlgorithm, Signatures,
         events::{
+            ToDeviceEvent, ToDeviceEvents,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
@@ -100,19 +106,24 @@ use crate::{
             room_key_withheld::{
                 MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
             },
-            ToDeviceEvent, ToDeviceEvents,
         },
         requests::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
-    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
+
+#[derive(Debug, Serialize)]
+/// The result of encrypting a room event.
+pub struct RawEncryptionResult {
+    /// The encrypted event content.
+    pub content: Raw<RoomEncryptedEventContent>,
+    /// Information about the encryption that was performed.
+    pub encryption_info: EncryptionInfo,
+}
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -1056,7 +1067,7 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         content: impl MessageLikeEventContent,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+    ) -> MegolmResult<RawEncryptionResult> {
         let event_type = content.event_type().to_string();
         let content = Raw::new(&content)?.cast_unchecked();
         self.encrypt_room_event_raw(room_id, &event_type, &content).await
@@ -1086,8 +1097,49 @@ impl OlmMachine {
         room_id: &RoomId,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
-        self.inner.group_session_manager.encrypt(room_id, event_type, content).await
+    ) -> MegolmResult<RawEncryptionResult> {
+        self.inner.group_session_manager.encrypt(room_id, event_type, content).await.map(|result| {
+            RawEncryptionResult {
+                content: result.content,
+                encryption_info: self
+                    .own_encryption_info(result.algorithm, result.session_id.to_string()),
+            }
+        })
+    }
+
+    fn own_encryption_info(
+        &self,
+        algorithm: EventEncryptionAlgorithm,
+        session_id: String,
+    ) -> EncryptionInfo {
+        let identity_keys = self.identity_keys();
+
+        let algorithm_info = match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key: identity_keys.curve25519.to_base64(),
+                sender_claimed_keys: BTreeMap::from([(
+                    DeviceKeyAlgorithm::Ed25519,
+                    identity_keys.ed25519.to_base64(),
+                )]),
+                session_id: Some(session_id),
+            },
+            EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => {
+                AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                    curve25519_public_key_base64: identity_keys.curve25519.to_base64(),
+                }
+            }
+            _ => unreachable!(
+                "Only MegolmV1AesSha2 and OlmV1Curve25519AesSha2 are supported on this level"
+            ),
+        };
+
+        EncryptionInfo {
+            sender: self.inner.user_id.clone(),
+            sender_device: Some(self.inner.device_id.clone()),
+            forwarder: None,
+            algorithm_info,
+            verification_state: VerificationState::Verified,
+        }
     }
 
     /// Encrypt a state event for the given room.
@@ -1532,15 +1584,14 @@ impl OlmMachine {
                     ToDeviceUnableToDecryptReason::DecryptionFailure
                 };
 
-                if let OlmError::SessionWedged(sender, curve_key) = err {
-                    if let Err(e) =
+                if let OlmError::SessionWedged(sender, curve_key) = err
+                    && let Err(e) =
                         self.inner.session_manager.mark_device_as_wedged(&sender, curve_key).await
-                    {
-                        error!(
-                            error = ?e,
-                            "Couldn't mark device to be unwedged",
-                        );
-                    }
+                {
+                    error!(
+                        error = ?e,
+                        "Couldn't mark device to be unwedged",
+                    );
                 }
 
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt {
@@ -1966,11 +2017,18 @@ impl OlmMachine {
         let (verification_state, device_id) =
             self.get_room_event_verification_state(session, sender).await?;
 
-        let sender = sender.to_owned();
-
         Ok(Arc::new(EncryptionInfo {
-            sender,
+            sender: sender.to_owned(),
             sender_device: device_id,
+            forwarder: session.forwarder_data.as_ref().and_then(|data| {
+                // Per the comment on `KnownSenderData::device_id`, we should never encounter a
+                // `None` value here, but must still deal with an `Optional` for backwards
+                // compatibility. The approach below allows us to avoid unwrapping.
+                data.device_id().map(|device_id| ForwarderInfo {
+                    device_id: device_id.to_owned(),
+                    user_id: data.user_id().to_owned(),
+                })
+            }),
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),
                 sender_claimed_keys: session
@@ -2770,7 +2828,7 @@ impl OlmMachine {
         let prev_generation =
             self.inner.store.get_custom_value(Self::CURRENT_GENERATION_STORE_KEY).await?;
 
-        let gen = match prev_generation {
+        let generation = match prev_generation {
             Some(val) => {
                 // There was a value in the store. We need to signal that we're a different
                 // process, so we don't just reuse the value but increment it.
@@ -2782,14 +2840,14 @@ impl OlmMachine {
             None => 0,
         };
 
-        tracing::debug!("Initialising crypto store generation at {}", gen);
+        tracing::debug!("Initialising crypto store generation at {generation}");
 
         self.inner
             .store
-            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, gen.to_le_bytes().to_vec())
+            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, generation.to_le_bytes().to_vec())
             .await?;
 
-        *gen_guard = Some(gen);
+        *gen_guard = Some(generation);
 
         Ok(())
     }

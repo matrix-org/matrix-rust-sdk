@@ -33,29 +33,29 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
+    DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::cancel::{
             CancelCode, KeyVerificationCancelEventContent,
             ToDeviceKeyVerificationCancelEventContent,
         },
         relation::Reference,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    UserId,
 };
 pub use sas::{AcceptSettings, AcceptedProtocols, EmojiShortAuthString, Sas, SasState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 use crate::{
+    CryptoStoreError, DeviceData, LocalTrust, OwnUserIdentityData, UserIdentityData,
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
-    store::{types::Changes, CryptoStoreWrapper},
-    types::{requests::OutgoingVerificationRequest, Signatures},
-    CryptoStoreError, DeviceData, LocalTrust, OwnUserIdentityData, UserIdentityData,
+    store::{CryptoStoreWrapper, types::Changes},
+    types::{Signatures, requests::OutgoingVerificationRequest},
 };
 
 #[derive(Clone, Debug)]
@@ -738,24 +738,24 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use ruma::{
-        device_id,
+        DeviceId, UserId, device_id,
         events::{AnyToDeviceEventContent, ToDeviceEvent},
-        user_id, DeviceId, UserId,
+        user_id,
     };
     use tokio::sync::Mutex;
 
-    use super::{event_enums::OutgoingContent, VerificationStore};
+    use super::{VerificationStore, event_enums::OutgoingContent};
     use crate::{
+        Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
         olm::PrivateCrossSigningIdentity,
         store::{
-            types::{Changes, IdentityChanges},
             CryptoStore, CryptoStoreWrapper, MemoryStore,
+            types::{Changes, IdentityChanges},
         },
         types::{
             events::ToDeviceEvents,
             requests::{AnyOutgoingRequest, OutgoingRequest, OutgoingVerificationRequest},
         },
-        Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
     };
 
     pub(crate) fn request_to_event(

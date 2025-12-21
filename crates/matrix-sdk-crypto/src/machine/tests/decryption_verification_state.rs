@@ -20,15 +20,18 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
 use ruma::{
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+    MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
+    events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
     room_id,
     serde::Raw,
-    user_id, MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
+    user_id,
 };
 use serde_json::json;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use crate::{
+    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+    OlmMachine, OtherUserIdentityData, TrustRequirement, UserIdentity,
     machine::{
         test_helpers::{
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
@@ -38,16 +41,14 @@ use crate::{
     olm::{InboundGroupSession, OutboundGroupSession, SenderData},
     store::types::{Changes, IdentityChanges},
     types::{
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
         events::{
-            room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
+            room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
         requests::AnyOutgoingRequest,
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
-    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
-    OlmMachine, OtherUserIdentityData, TrustRequirement, UserIdentity,
 };
 
 #[async_test]
@@ -107,7 +108,7 @@ async fn test_decryption_verification_state() {
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let encrypted_content = alice
+    let result = alice
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -117,7 +118,7 @@ async fn test_decryption_verification_state() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
 
     let event = json_convert(&event).unwrap();
@@ -311,14 +312,15 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
 
     // so alice identity should be now trusted
 
-    assert!(bob
-        .get_identity(alice.user_id(), None)
-        .await
-        .unwrap()
-        .unwrap()
-        .other()
-        .unwrap()
-        .is_verified());
+    assert!(
+        bob.get_identity(alice.user_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .is_verified()
+    );
 }
 
 #[async_test]
@@ -366,7 +368,7 @@ async fn test_verification_states_spoofed_sender(
 
     // Alice now sends a second message to Bob, using the same room key, but the HS
     // admin rewrites the 'sender' to Charlie.
-    let encrypted_content = alice
+    let result = alice
         .encrypt_room_event(
             room_id,
             AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::text_plain(
@@ -380,7 +382,7 @@ async fn test_verification_states_spoofed_sender(
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": "@charlie:example.org",  // Note! spoofed sender
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
     let event = json_convert(&event).unwrap();
 
@@ -448,6 +450,7 @@ async fn test_verification_states_multiple_device() {
         fake_room_id,
         &olm,
         SenderData::unknown(),
+        None,
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
         false,
@@ -466,6 +469,7 @@ async fn test_verification_states_multiple_device() {
         fake_room_id,
         &olm,
         SenderData::unknown(),
+        None,
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
         false,
@@ -614,9 +618,11 @@ async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
     bob.store()
         .save_changes(Changes {
             identities: IdentityChanges {
-                new: vec![OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
-                    .unwrap()
-                    .into()],
+                new: vec![
+                    OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
+                        .unwrap()
+                        .into(),
+                ],
                 ..Default::default()
             },
             ..Default::default()
@@ -668,7 +674,7 @@ async fn encrypt_message(
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
-    let encrypted_content = sender
+    let result = sender
         .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
         .await
         .unwrap();
@@ -678,7 +684,7 @@ async fn encrypt_message(
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": sender.user_id(),
         "type": "m.room.encrypted",
-        "content": encrypted_content,
+        "content": result.content,
     });
     let event = json_convert(&event).unwrap();
 

@@ -11,6 +11,7 @@ use ruma::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
         RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
+        TimelineEventType as RumaTimelineEventType,
     },
     EventId,
 };
@@ -39,16 +40,16 @@ impl TimelineEvent {
         self.0.origin_server_ts().into()
     }
 
-    pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
-        let event_type = match &*self.0 {
+    pub fn content(&self) -> Result<TimelineEventContent, ClientError> {
+        let content = match &*self.0 {
             AnySyncTimelineEvent::MessageLike(event) => {
-                TimelineEventType::MessageLike { content: event.clone().try_into()? }
+                TimelineEventContent::MessageLike { content: event.clone().try_into()? }
             }
             AnySyncTimelineEvent::State(event) => {
-                TimelineEventType::State { content: event.clone().try_into()? }
+                TimelineEventContent::State { content: event.clone().try_into()? }
             }
         };
-        Ok(event_type)
+        Ok(content)
     }
 
     /// Returns the thread root event id for the event, if it's part of a
@@ -72,16 +73,216 @@ impl From<AnyTimelineEvent> for TimelineEvent {
     }
 }
 
+/// The timeline event type.
+#[derive(uniffi::Enum, PartialEq, Eq, Hash)]
+pub enum TimelineEventType {
+    /// The event is a message-like one and should be displayed as such.
+    MessageLike { value: MessageLikeEventType },
+    /// The event is a state event, and may or may not be displayed in the
+    /// timeline.
+    State { value: StateEventType },
+}
+
+impl From<RumaTimelineEventType> for TimelineEventType {
+    fn from(value: RumaTimelineEventType) -> Self {
+        match value {
+            RumaTimelineEventType::Audio => {
+                Self::MessageLike { value: MessageLikeEventType::Audio }
+            }
+            RumaTimelineEventType::File => Self::MessageLike { value: MessageLikeEventType::File },
+            RumaTimelineEventType::Image => {
+                Self::MessageLike { value: MessageLikeEventType::Image }
+            }
+            RumaTimelineEventType::Video => {
+                Self::MessageLike { value: MessageLikeEventType::Video }
+            }
+            RumaTimelineEventType::Voice => {
+                Self::MessageLike { value: MessageLikeEventType::Voice }
+            }
+            RumaTimelineEventType::Emote => {
+                Self::MessageLike { value: MessageLikeEventType::Emote }
+            }
+            RumaTimelineEventType::Encrypted => {
+                Self::MessageLike { value: MessageLikeEventType::Encrypted }
+            }
+            RumaTimelineEventType::RoomMessage => {
+                Self::MessageLike { value: MessageLikeEventType::RoomMessage }
+            }
+            RumaTimelineEventType::CallAnswer => {
+                Self::MessageLike { value: MessageLikeEventType::CallAnswer }
+            }
+            RumaTimelineEventType::CallInvite => {
+                Self::MessageLike { value: MessageLikeEventType::CallInvite }
+            }
+            RumaTimelineEventType::CallHangup => {
+                Self::MessageLike { value: MessageLikeEventType::CallHangup }
+            }
+            RumaTimelineEventType::CallCandidates => {
+                Self::MessageLike { value: MessageLikeEventType::CallCandidates }
+            }
+            RumaTimelineEventType::CallNegotiate => {
+                Self::MessageLike { value: MessageLikeEventType::CallNegotiate }
+            }
+            RumaTimelineEventType::CallReject => {
+                Self::MessageLike { value: MessageLikeEventType::CallReject }
+            }
+            RumaTimelineEventType::CallSdpStreamMetadataChanged => {
+                Self::MessageLike { value: MessageLikeEventType::CallSdpStreamMetadataChanged }
+            }
+            RumaTimelineEventType::CallSelectAnswer => {
+                Self::MessageLike { value: MessageLikeEventType::CallSelectAnswer }
+            }
+            RumaTimelineEventType::KeyVerificationReady => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationReady }
+            }
+            RumaTimelineEventType::KeyVerificationStart => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationStart }
+            }
+            RumaTimelineEventType::KeyVerificationCancel => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationCancel }
+            }
+            RumaTimelineEventType::KeyVerificationAccept => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationAccept }
+            }
+            RumaTimelineEventType::KeyVerificationKey => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationKey }
+            }
+            RumaTimelineEventType::KeyVerificationMac => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationMac }
+            }
+            RumaTimelineEventType::KeyVerificationDone => {
+                Self::MessageLike { value: MessageLikeEventType::KeyVerificationDone }
+            }
+            RumaTimelineEventType::Location => {
+                Self::MessageLike { value: MessageLikeEventType::Location }
+            }
+            RumaTimelineEventType::Message => {
+                Self::MessageLike { value: MessageLikeEventType::Message }
+            }
+            RumaTimelineEventType::PollStart => {
+                Self::MessageLike { value: MessageLikeEventType::PollStart }
+            }
+            RumaTimelineEventType::UnstablePollStart => {
+                Self::MessageLike { value: MessageLikeEventType::UnstablePollStart }
+            }
+            RumaTimelineEventType::PollResponse => {
+                Self::MessageLike { value: MessageLikeEventType::PollResponse }
+            }
+            RumaTimelineEventType::UnstablePollResponse => {
+                Self::MessageLike { value: MessageLikeEventType::UnstablePollResponse }
+            }
+            RumaTimelineEventType::PollEnd => {
+                Self::MessageLike { value: MessageLikeEventType::PollEnd }
+            }
+            RumaTimelineEventType::UnstablePollEnd => {
+                Self::MessageLike { value: MessageLikeEventType::UnstablePollEnd }
+            }
+            RumaTimelineEventType::Beacon => {
+                Self::MessageLike { value: MessageLikeEventType::Beacon }
+            }
+            RumaTimelineEventType::Reaction => {
+                Self::MessageLike { value: MessageLikeEventType::Reaction }
+            }
+            RumaTimelineEventType::RoomEncrypted => {
+                Self::MessageLike { value: MessageLikeEventType::RoomEncrypted }
+            }
+            RumaTimelineEventType::RoomRedaction => {
+                Self::MessageLike { value: MessageLikeEventType::RoomRedaction }
+            }
+            RumaTimelineEventType::Sticker => {
+                Self::MessageLike { value: MessageLikeEventType::Sticker }
+            }
+            RumaTimelineEventType::CallNotify => {
+                Self::MessageLike { value: MessageLikeEventType::CallNotify }
+            }
+            RumaTimelineEventType::RtcNotification => {
+                Self::MessageLike { value: MessageLikeEventType::RtcNotification }
+            }
+            RumaTimelineEventType::RtcDecline => {
+                Self::MessageLike { value: MessageLikeEventType::RtcDecline }
+            }
+            RumaTimelineEventType::PolicyRuleRoom => {
+                Self::State { value: StateEventType::PolicyRuleRoom }
+            }
+            RumaTimelineEventType::PolicyRuleServer => {
+                Self::State { value: StateEventType::PolicyRuleServer }
+            }
+            RumaTimelineEventType::PolicyRuleUser => {
+                Self::State { value: StateEventType::PolicyRuleUser }
+            }
+            RumaTimelineEventType::RoomAliases => {
+                Self::State { value: StateEventType::RoomAliases }
+            }
+            RumaTimelineEventType::RoomAvatar => Self::State { value: StateEventType::RoomAvatar },
+            RumaTimelineEventType::RoomCanonicalAlias => {
+                Self::State { value: StateEventType::RoomCanonicalAlias }
+            }
+            RumaTimelineEventType::RoomCreate => Self::State { value: StateEventType::RoomCreate },
+            RumaTimelineEventType::RoomEncryption => {
+                Self::State { value: StateEventType::RoomEncryption }
+            }
+            RumaTimelineEventType::RoomGuestAccess => {
+                Self::State { value: StateEventType::RoomGuestAccess }
+            }
+            RumaTimelineEventType::RoomHistoryVisibility => {
+                Self::State { value: StateEventType::RoomHistoryVisibility }
+            }
+            RumaTimelineEventType::RoomJoinRules => {
+                Self::State { value: StateEventType::RoomJoinRules }
+            }
+            RumaTimelineEventType::RoomMember => {
+                Self::State { value: StateEventType::RoomMemberEvent }
+            }
+            RumaTimelineEventType::RoomLanguage => {
+                Self::State { value: StateEventType::RoomLanguage }
+            }
+            RumaTimelineEventType::RoomName => Self::State { value: StateEventType::RoomName },
+            RumaTimelineEventType::RoomImagePack => {
+                Self::State { value: StateEventType::RoomImagePack }
+            }
+            RumaTimelineEventType::RoomPinnedEvents => {
+                Self::State { value: StateEventType::RoomPinnedEvents }
+            }
+            RumaTimelineEventType::RoomPowerLevels => {
+                Self::State { value: StateEventType::RoomPowerLevels }
+            }
+            RumaTimelineEventType::RoomServerAcl => {
+                Self::State { value: StateEventType::RoomServerAcl }
+            }
+            RumaTimelineEventType::RoomThirdPartyInvite => {
+                Self::State { value: StateEventType::RoomThirdPartyInvite }
+            }
+            RumaTimelineEventType::RoomTombstone => {
+                Self::State { value: StateEventType::RoomTombstone }
+            }
+            RumaTimelineEventType::RoomTopic => Self::State { value: StateEventType::RoomTopic },
+            RumaTimelineEventType::SpaceChild => Self::State { value: StateEventType::SpaceChild },
+            RumaTimelineEventType::SpaceParent => {
+                Self::State { value: StateEventType::SpaceParent }
+            }
+            RumaTimelineEventType::BeaconInfo => Self::State { value: StateEventType::BeaconInfo },
+            RumaTimelineEventType::CallMember => Self::State { value: StateEventType::CallMember },
+            RumaTimelineEventType::MemberHints => {
+                Self::State { value: StateEventType::MemberHints }
+            }
+            RumaTimelineEventType::_Custom(_) => {
+                Self::State { value: StateEventType::Custom { value: value.to_string() } }
+            }
+            _ => Self::MessageLike { value: MessageLikeEventType::Other(value.to_string()) },
+        }
+    }
+}
+
 #[derive(uniffi::Enum)]
 // A note about this `allow(clippy::large_enum_variant)`.
-// In order to reduce the size of `TimelineEventType`, we would need to
+// In order to reduce the size of `TimelineEventContent`, we would need to
 // put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
 // UniFFI. We would need to change the `uniffi::Record` of the subtypes into
 // `uniffi::Object`, which is a radical change. It would simplify the memory
 // usage, but it would slow down the performance around the FFI border. Thus,
 // let's consider this is a false-positive lint in this particular case.
 #[allow(clippy::large_enum_variant)]
-pub enum TimelineEventType {
+pub enum TimelineEventContent {
     MessageLike { content: MessageLikeEventContent },
     State { content: StateEventContent },
 }
@@ -300,9 +501,11 @@ where
     Ok(original_content)
 }
 
-#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
+#[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
 pub enum StateEventType {
+    BeaconInfo,
     CallMember,
+    MemberHints,
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
@@ -313,8 +516,10 @@ pub enum StateEventType {
     RoomEncryption,
     RoomGuestAccess,
     RoomHistoryVisibility,
+    RoomImagePack,
     RoomJoinRules,
     RoomMemberEvent,
+    RoomLanguage,
     RoomName,
     RoomPinnedEvents,
     RoomPowerLevels,
@@ -324,12 +529,15 @@ pub enum StateEventType {
     RoomTopic,
     SpaceChild,
     SpaceParent,
+    Custom { value: String },
 }
 
 impl From<StateEventType> for ruma::events::StateEventType {
     fn from(val: StateEventType) -> Self {
         match val {
+            StateEventType::BeaconInfo => Self::BeaconInfo,
             StateEventType::CallMember => Self::CallMember,
+            StateEventType::MemberHints => Self::MemberHints,
             StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
             StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
             StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
@@ -340,7 +548,9 @@ impl From<StateEventType> for ruma::events::StateEventType {
             StateEventType::RoomEncryption => Self::RoomEncryption,
             StateEventType::RoomGuestAccess => Self::RoomGuestAccess,
             StateEventType::RoomHistoryVisibility => Self::RoomHistoryVisibility,
+            StateEventType::RoomImagePack => Self::RoomImagePack,
             StateEventType::RoomJoinRules => Self::RoomJoinRules,
+            StateEventType::RoomLanguage => Self::RoomLanguage,
             StateEventType::RoomMemberEvent => Self::RoomMember,
             StateEventType::RoomName => Self::RoomName,
             StateEventType::RoomPinnedEvents => Self::RoomPinnedEvents,
@@ -351,17 +561,28 @@ impl From<StateEventType> for ruma::events::StateEventType {
             StateEventType::RoomTopic => Self::RoomTopic,
             StateEventType::SpaceChild => Self::SpaceChild,
             StateEventType::SpaceParent => Self::SpaceParent,
+            StateEventType::Custom { value } => value.into(),
         }
     }
 }
 
-#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
+#[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
 pub enum MessageLikeEventType {
+    Audio,
+    Beacon,
     CallAnswer,
     CallCandidates,
     CallHangup,
     CallInvite,
-    RtcNotification,
+    CallNegotiate,
+    CallNotify,
+    CallReject,
+    CallSdpStreamMetadataChanged,
+    CallSelectAnswer,
+    Emote,
+    Encrypted,
+    File,
+    Image,
     KeyVerificationAccept,
     KeyVerificationCancel,
     KeyVerificationDone,
@@ -369,6 +590,8 @@ pub enum MessageLikeEventType {
     KeyVerificationMac,
     KeyVerificationReady,
     KeyVerificationStart,
+    Location,
+    Message,
     PollEnd,
     PollResponse,
     PollStart,
@@ -376,21 +599,39 @@ pub enum MessageLikeEventType {
     RoomEncrypted,
     RoomMessage,
     RoomRedaction,
+    RtcDecline,
+    RtcNotification,
     Sticker,
     UnstablePollEnd,
     UnstablePollResponse,
     UnstablePollStart,
+    Video,
+    Voice,
     Other(String),
 }
 
 impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
     fn from(val: MessageLikeEventType) -> Self {
         match val {
+            MessageLikeEventType::Audio => Self::Audio,
+            MessageLikeEventType::File => Self::File,
+            MessageLikeEventType::Image => Self::Image,
+            MessageLikeEventType::Video => Self::Video,
+            MessageLikeEventType::Voice => Self::Voice,
+            MessageLikeEventType::Beacon => Self::Beacon,
             MessageLikeEventType::CallAnswer => Self::CallAnswer,
-            MessageLikeEventType::CallInvite => Self::CallInvite,
-            MessageLikeEventType::RtcNotification => Self::RtcNotification,
-            MessageLikeEventType::CallHangup => Self::CallHangup,
             MessageLikeEventType::CallCandidates => Self::CallCandidates,
+            MessageLikeEventType::CallInvite => Self::CallInvite,
+            MessageLikeEventType::CallHangup => Self::CallHangup,
+            MessageLikeEventType::CallNegotiate => Self::CallNegotiate,
+            MessageLikeEventType::CallNotify => Self::CallNotify,
+            MessageLikeEventType::CallReject => Self::CallReject,
+            MessageLikeEventType::CallSdpStreamMetadataChanged => {
+                Self::CallSdpStreamMetadataChanged
+            }
+            MessageLikeEventType::CallSelectAnswer => Self::CallSelectAnswer,
+            MessageLikeEventType::Emote => Self::Emote,
+            MessageLikeEventType::Encrypted => Self::Encrypted,
             MessageLikeEventType::KeyVerificationReady => Self::KeyVerificationReady,
             MessageLikeEventType::KeyVerificationStart => Self::KeyVerificationStart,
             MessageLikeEventType::KeyVerificationCancel => Self::KeyVerificationCancel,
@@ -398,14 +639,18 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
             MessageLikeEventType::KeyVerificationKey => Self::KeyVerificationKey,
             MessageLikeEventType::KeyVerificationMac => Self::KeyVerificationMac,
             MessageLikeEventType::KeyVerificationDone => Self::KeyVerificationDone,
+            MessageLikeEventType::Location => Self::Location,
+            MessageLikeEventType::Message => Self::Message,
             MessageLikeEventType::Reaction => Self::Reaction,
             MessageLikeEventType::RoomEncrypted => Self::RoomEncrypted,
             MessageLikeEventType::RoomMessage => Self::RoomMessage,
             MessageLikeEventType::RoomRedaction => Self::RoomRedaction,
+            MessageLikeEventType::RtcDecline => Self::RtcDecline,
             MessageLikeEventType::Sticker => Self::Sticker,
             MessageLikeEventType::PollEnd => Self::PollEnd,
             MessageLikeEventType::PollResponse => Self::PollResponse,
             MessageLikeEventType::PollStart => Self::PollStart,
+            MessageLikeEventType::RtcNotification => Self::RtcNotification,
             MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
             MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
             MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,

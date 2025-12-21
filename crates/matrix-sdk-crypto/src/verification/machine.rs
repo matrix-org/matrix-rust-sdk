@@ -16,31 +16,32 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
     events::{
-        key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
-        ToDeviceEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
+        key::verification::VerificationMethod,
     },
     serde::Raw,
-    uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
+    uint,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn, Span};
+use tracing::{Span, debug, info, instrument, trace, warn};
 
 use super::{
+    FlowId, Verification, VerificationResult, VerificationStore,
     cache::{RequestInfo, VerificationCache},
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
     sas::Sas,
-    FlowId, Verification, VerificationResult, VerificationStore,
 };
 use crate::{
+    DeviceData, OtherUserIdentityData,
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
     store::{CryptoStoreError, CryptoStoreWrapper},
     types::requests::{
         OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
     },
-    DeviceData, OtherUserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -253,16 +254,16 @@ impl VerificationMachine {
         requests.extend(self.verifications.garbage_collect());
 
         for request in requests {
-            if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into() {
-                if let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device {
-                    let event = ToDeviceEvent::new(self.own_user_id().to_owned(), content);
+            if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into()
+                && let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device
+            {
+                let event = ToDeviceEvent::new(self.own_user_id().to_owned(), content);
 
-                    events.push(
-                        Raw::new(&event)
-                            .expect("Failed to serialize m.key_verification.cancel event")
-                            .cast(),
-                    );
-                }
+                events.push(
+                    Raw::new(&event)
+                        .expect("Failed to serialize m.key_verification.cancel event")
+                        .cast(),
+                );
             }
 
             self.verifications.add_verification_request(request)
@@ -554,15 +555,15 @@ mod tests {
 
     use super::{Sas, VerificationMachine};
     use crate::{
+        Account, VerificationRequest,
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStoreWrapper, MemoryStore},
         verification::{
+            FlowId, VerificationStore,
             cache::VerificationCache,
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
             tests::{alice_device_id, alice_id, setup_stores, wrap_any_to_device_content},
-            FlowId, VerificationStore,
         },
-        Account, VerificationRequest,
     };
 
     async fn verification_machine() -> (VerificationMachine, VerificationStore) {

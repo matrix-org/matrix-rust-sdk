@@ -9,32 +9,32 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_base::{
+    MinimalRoomMemberEvent, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, RoomInfo,
+    RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
-        compare_thread_subscription_bump_stamps, migration_helpers::RoomInfoV1, ChildTransactionId,
-        DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError, QueuedRequest,
-        QueuedRequestKind, RoomLoadSettings, SentRequestKey, StoredThreadSubscription,
-        ThreadSubscriptionStatus,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
+        StoredThreadSubscription, ThreadSubscriptionStatus,
+        compare_thread_subscription_bump_stamps, migration_helpers::RoomInfoV1,
     },
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
-    StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    canonical_json::{redact, RedactedBecause},
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    canonical_json::{RedactedBecause, redact},
     events::{
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             create::RoomCreateEventContent,
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -45,13 +45,13 @@ use tokio::{
 use tracing::{debug, instrument, trace, warn};
 
 use crate::{
+    OpenStoreError, Secret, SqliteStoreConfig,
     connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
-        repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt, repeat_vars,
     },
-    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -2230,6 +2230,57 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    async fn upsert_thread_subscriptions(
+        &self,
+        updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
+    ) -> Result<(), Self::Error> {
+        let values: Vec<_> = updates
+            .into_iter()
+            .map(|(room_id, thread_id, subscription)| {
+                (
+                    self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id),
+                    self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id),
+                    subscription.status.as_str(),
+                    subscription.bump_stamp,
+                )
+            })
+            .collect();
+
+        self.write()
+            .await
+            .with_transaction(move |txn| {
+                let mut txn = txn.prepare_cached(
+                    "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp) 
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (room_id, event_id) DO UPDATE 
+                    SET 
+                        status = 
+                            CASE
+                                WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.status
+                                WHEN EXCLUDED.bump_stamp IS NULL THEN EXCLUDED.status
+                                WHEN thread_subscriptions.bump_stamp < EXCLUDED.bump_stamp THEN EXCLUDED.status
+                                ELSE thread_subscriptions.status
+                            END, 
+                        bump_stamp = 
+                            CASE
+                                WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.bump_stamp
+                                WHEN EXCLUDED.bump_stamp IS NULL THEN thread_subscriptions.bump_stamp
+                                WHEN thread_subscriptions.bump_stamp < EXCLUDED.bump_stamp THEN EXCLUDED.bump_stamp
+                                ELSE thread_subscriptions.bump_stamp
+                            END",
+                )?;
+
+                for value in values {
+                    txn.execute(value)?;
+                }
+
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+
+        Ok(())
+    }
+
     async fn load_thread_subscription(
         &self,
         room_id: &RoomId,
@@ -2296,9 +2347,9 @@ struct ReceiptData {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
-    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
 
@@ -2324,13 +2375,13 @@ mod encrypted_tests {
         sync::atomic::{AtomicU32, Ordering::SeqCst},
     };
 
-    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2403,43 +2454,43 @@ mod migration_tests {
     use std::{
         path::{Path, PathBuf},
         sync::{
-            atomic::{AtomicU32, Ordering::SeqCst},
             Arc,
+            atomic::{AtomicU32, Ordering::SeqCst},
         },
     };
 
     use as_variant::as_variant;
     use matrix_sdk_base::{
+        RoomState, StateStore,
         media::{MediaFormat, MediaRequestParameters},
         store::{
             ChildTransactionId, DependentQueuedRequestKind, RoomLoadSettings,
             SerializableEventContent,
         },
         sync::UnreadNotificationsCount,
-        RoomState, StateStore,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use ruma::{
+        EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, RoomId, TransactionId, UserId,
         events::{
-            room::{create::RoomCreateEventContent, message::RoomMessageEventContent, MediaSource},
             StateEventType,
+            room::{MediaSource, create::RoomCreateEventContent, message::RoomMessageEventContent},
         },
-        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
-        RoomId, TransactionId, UserId,
+        room_id, server_name, user_id,
     };
     use rusqlite::Transaction;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::{fs, sync::Mutex};
     use zeroize::Zeroizing;
 
-    use super::{init, keys, SqliteStateStore, DATABASE_NAME};
+    use super::{DATABASE_NAME, SqliteStateStore, init, keys};
     use crate::{
+        OpenStoreError, Secret, SqliteStoreConfig,
         error::{Error, Result},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
-        OpenStoreError, Secret, SqliteStoreConfig,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());

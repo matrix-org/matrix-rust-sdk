@@ -21,12 +21,12 @@ use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::debug;
 use tracing::{trace, warn};
 
-use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
+use super::{FlowId, Sas, Verification, event_enums::OutgoingContent};
+#[cfg(feature = "qrcode")]
+use crate::QrVerification;
 use crate::types::requests::{
     OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
-#[cfg(feature = "qrcode")]
-use crate::QrVerification;
 
 #[derive(Clone, Debug, Default)]
 pub struct VerificationCache {
@@ -259,13 +259,12 @@ impl VerificationCache {
 
         if let Some((user_id, flow_id)) =
             self.inner.flow_ids_waiting_for_response.read().get(request_id)
+            && let Some(verification) = self.get(user_id, flow_id.as_str())
         {
-            if let Some(verification) = self.get(user_id, flow_id.as_str()) {
-                match verification {
-                    Verification::SasV1(s) => s.mark_request_as_sent(request_id),
-                    #[cfg(feature = "qrcode")]
-                    Verification::QrV1(_) => (),
-                }
+            match verification {
+                Verification::SasV1(s) => s.mark_request_as_sent(request_id),
+                #[cfg(feature = "qrcode")]
+                Verification::QrV1(_) => (),
             }
         }
     }

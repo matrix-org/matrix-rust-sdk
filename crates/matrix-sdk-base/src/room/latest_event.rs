@@ -31,8 +31,8 @@ impl Room {
         self.info.read().latest_event_value.timestamp()
     }
 
-    /// Return the value of [`LatestEventValue::is_local`].
-    pub fn latest_event_is_local(&self) -> bool {
-        self.info.read().latest_event_value.is_local()
+    /// Return the value of [`LatestEventValue::is_unsent`].
+    pub fn latest_event_is_unsent(&self) -> bool {
+        self.info.read().latest_event_value.is_unsent()
     }
 }

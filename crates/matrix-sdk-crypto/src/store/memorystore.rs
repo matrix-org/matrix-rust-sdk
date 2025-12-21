@@ -21,26 +21,26 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{
     cross_process_lock::{
-        memory_store_helper::{try_take_leased_lock, Lease},
         CrossProcessLockGeneration,
+        memory_store_helper::{Lease, try_take_leased_lock},
     },
     locks::RwLock as StdRwLock,
 };
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId, events::secret::request::SecretName,
 };
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 use vodozemac::Curve25519PublicKey;
 
 use super::{
+    Account, CryptoStore, InboundGroupSession, Session,
     caches::DeviceStore,
     types::{
         BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
         StoredRoomKeyBundleData, TrackedUser,
     },
-    Account, CryptoStore, InboundGroupSession, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -551,14 +551,15 @@ impl CryptoStore for MemoryStore {
             .await?
             .into_iter()
             .filter_map(|(session, backed_up_to)| {
-                if let Some(ref existing_version) = backed_up_to {
-                    if existing_version.as_str() == backup_version {
-                        // This session is already backed up in the required backup
-                        return None;
-                    }
+                if let Some(ref existing_version) = backed_up_to
+                    && existing_version.as_str() == backup_version
+                {
+                    // This session is already backed up in the required backup
+                    None
+                } else {
+                    // It's not backed up, or it's backed up in a different backup
+                    Some(session)
                 }
-                // It's not backed up, or it's backed up in a different backup
-                Some(session)
             })
             .take(limit)
             .collect())
@@ -786,22 +787,22 @@ mod tests {
     use std::collections::HashMap;
 
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id, RoomId};
+    use ruma::{RoomId, room_id, user_id};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SessionId;
     use crate::{
+        DeviceData,
         identities::device::testing::get_device,
         olm::{
-            tests::get_account_and_session_test_helper, Account, InboundGroupSession,
-            OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
+            Account, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
+            tests::get_account_and_session_test_helper,
         },
         store::{
+            CryptoStore,
             memorystore::MemoryStore,
             types::{Changes, DeviceChanges, PendingChanges},
-            CryptoStore,
         },
-        DeviceData,
     };
 
     #[async_test]
@@ -846,6 +847,7 @@ mod tests {
             room_id,
             &outbound.session_key().await,
             SenderData::unknown(),
+            None,
             outbound.settings().algorithm.to_owned(),
             None,
             false,
@@ -1244,6 +1246,7 @@ mod tests {
             room_id,
             &outbound.session_key().await,
             SenderData::unknown(),
+            None,
             outbound.settings().algorithm.to_owned(),
             None,
             false,
@@ -1279,25 +1282,25 @@ mod integration_tests {
     use async_trait::async_trait;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockGeneration;
     use ruma::{
-        events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
+        DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
     };
     use vodozemac::Curve25519PublicKey;
 
     use super::MemoryStore;
     use crate::{
+        Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         olm::{
             InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
             SenderDataType, StaticAccountData,
         },
         store::{
+            CryptoStore,
             types::{
                 BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
                 RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData, TrackedUser,
             },
-            CryptoStore,
         },
-        Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
     };
 
     /// Holds on to a MemoryStore during a test, and moves it back into STORES

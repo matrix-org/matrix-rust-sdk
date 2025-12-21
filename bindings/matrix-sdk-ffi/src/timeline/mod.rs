@@ -31,8 +31,9 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
-    LatestEventValue as UiLatestEventValue, MediaUploadProgress as SdkMediaUploadProgress, Profile,
-    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
+    LatestEventValue as UiLatestEventValue, LatestEventValueLocalState,
+    MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
@@ -1301,7 +1302,7 @@ impl LazyTimelineItemProvider {
 }
 
 /// Mimic the [`UiLatestEventValue`] type.
-#[derive(Clone, uniffi::Enum)]
+#[derive(uniffi::Enum)]
 pub enum LatestEventValue {
     None,
     Remote {
@@ -1316,7 +1317,7 @@ pub enum LatestEventValue {
         sender: String,
         profile: ProfileDetails,
         content: TimelineItemContent,
-        is_sending: bool,
+        state: LatestEventValueLocalState,
     },
 }
 
@@ -1333,13 +1334,13 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     content: content.into(),
                 }
             }
-            UiLatestEventValue::Local { timestamp, sender, profile, content, is_sending } => {
+            UiLatestEventValue::Local { timestamp, sender, profile, content, state } => {
                 Self::Local {
                     timestamp: timestamp.into(),
                     sender: sender.to_string(),
                     profile: profile.into(),
                     content: content.into(),
-                    is_sending,
+                    state,
                 }
             }
         }

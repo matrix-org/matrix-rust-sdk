@@ -15,27 +15,27 @@
 use std::collections::BTreeMap;
 
 use ruma::{
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
             cancel::CancelCode,
             mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
         },
         relation::Reference,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
 };
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
-use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, sas::EstablishedSas};
 
-use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
+use super::{FlowId, OutgoingContent, sas_state::SupportedMacMethod};
 use crate::{
+    Emoji, OwnUserIdentityData,
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::event_enums::{MacContent, StartContent},
-    Emoji, OwnUserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -300,17 +300,16 @@ pub fn get_mac_content(
 
     mac.insert(key_id.to_string(), mac_method.calculate_mac(sas, &key, &format!("{info}{key_id}")));
 
-    if let Some(own_identity) = &ids.own_identity {
-        if own_identity.is_verified() {
-            if let Some(key) = own_identity.master_key().get_first_key() {
-                let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
+    if let Some(own_identity) = &ids.own_identity
+        && own_identity.is_verified()
+        && let Some(key) = own_identity.master_key().get_first_key()
+    {
+        let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
 
-                let calculated_mac =
-                    mac_method.calculate_mac(sas, &key.to_base64(), &format!("{info}{key_id}"));
+        let calculated_mac =
+            mac_method.calculate_mac(sas, &key.to_base64(), &format!("{info}{key_id}"));
 
-                mac.insert(key_id, calculated_mac);
-            }
-        }
+        mac.insert(key_id, calculated_mac);
     }
 
     let mut keys: Vec<_> = mac.keys().map(|s| s.as_str()).collect();

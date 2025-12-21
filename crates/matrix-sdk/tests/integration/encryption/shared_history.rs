@@ -85,6 +85,7 @@ async fn test_shared_history_out_of_order() {
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
         .await
         .expect("We should be able to send an initial message")
+        .response
         .event_id;
 
     matrix_mock_server
@@ -193,6 +194,13 @@ async fn test_shared_history_out_of_order() {
         .event(&event_id, None)
         .await
         .expect("Bob should be able to fetch the event Alice has sent");
+
+    let encryption_info = event.encryption_info().expect("Event did not have encryption info");
+
+    // Check Bob stored information about the key forwarder.
+    let forwarder_info = encryption_info.forwarder.as_ref().unwrap();
+    assert_eq!(forwarder_info.user_id, alice_user_id);
+    assert_eq!(forwarder_info.device_id, alice_device_id);
 
     assert_decrypted_message_eq!(
         event,
