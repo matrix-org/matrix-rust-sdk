@@ -23,122 +23,10 @@ use ruma::events::{
 
 use crate::{
     client::JoinRule,
-    event::{MessageLikeEventType, StateEventType},
+    event::{MessageLikeEventType, StateEventType, TimelineEventType},
     timeline::msg_like::MsgLikeContent,
     utils::Timestamp,
 };
-
-#[derive(Clone, uniffi::Enum, Eq, PartialEq, Hash)]
-pub enum FFITimelineEventType {
-    StateEvent { event: StateEventType },
-    MessageLike { event: MessageLikeEventType },
-    Custom { event_type: String },
-}
-
-impl From<RumaTimelineEventType> for FFITimelineEventType {
-    fn from(event_type: RumaTimelineEventType) -> Self {
-        // Avoid duplication and endless copy paste
-        fn message_like(e: MessageLikeEventType) -> FFITimelineEventType {
-            FFITimelineEventType::MessageLike { event: e }
-        }
-
-        fn state_event(e: StateEventType) -> FFITimelineEventType {
-            FFITimelineEventType::StateEvent { event: e }
-        }
-
-        match event_type {
-            // Message-like events
-            RumaTimelineEventType::CallAnswer => message_like(MessageLikeEventType::CallAnswer),
-            RumaTimelineEventType::CallInvite => message_like(MessageLikeEventType::CallInvite),
-            RumaTimelineEventType::CallHangup => message_like(MessageLikeEventType::CallHangup),
-            RumaTimelineEventType::RtcNotification => {
-                message_like(MessageLikeEventType::RtcNotification)
-            }
-            RumaTimelineEventType::CallCandidates => {
-                message_like(MessageLikeEventType::CallCandidates)
-            }
-            RumaTimelineEventType::KeyVerificationReady => {
-                message_like(MessageLikeEventType::KeyVerificationReady)
-            }
-            RumaTimelineEventType::KeyVerificationStart => {
-                message_like(MessageLikeEventType::KeyVerificationStart)
-            }
-            RumaTimelineEventType::KeyVerificationCancel => {
-                message_like(MessageLikeEventType::KeyVerificationCancel)
-            }
-            RumaTimelineEventType::KeyVerificationAccept => {
-                message_like(MessageLikeEventType::KeyVerificationAccept)
-            }
-            RumaTimelineEventType::KeyVerificationKey => {
-                message_like(MessageLikeEventType::KeyVerificationKey)
-            }
-            RumaTimelineEventType::KeyVerificationMac => {
-                message_like(MessageLikeEventType::KeyVerificationMac)
-            }
-            RumaTimelineEventType::KeyVerificationDone => {
-                message_like(MessageLikeEventType::KeyVerificationDone)
-            }
-            RumaTimelineEventType::Reaction => message_like(MessageLikeEventType::Reaction),
-            RumaTimelineEventType::RoomEncrypted => {
-                message_like(MessageLikeEventType::RoomEncrypted)
-            }
-            RumaTimelineEventType::RoomMessage => message_like(MessageLikeEventType::RoomMessage),
-            RumaTimelineEventType::RoomRedaction => {
-                message_like(MessageLikeEventType::RoomRedaction)
-            }
-            RumaTimelineEventType::Sticker => message_like(MessageLikeEventType::Sticker),
-            RumaTimelineEventType::PollEnd => message_like(MessageLikeEventType::PollEnd),
-            RumaTimelineEventType::PollResponse => message_like(MessageLikeEventType::PollResponse),
-            RumaTimelineEventType::PollStart => message_like(MessageLikeEventType::PollStart),
-            RumaTimelineEventType::UnstablePollEnd => {
-                message_like(MessageLikeEventType::UnstablePollEnd)
-            }
-            RumaTimelineEventType::UnstablePollResponse => {
-                message_like(MessageLikeEventType::UnstablePollResponse)
-            }
-            RumaTimelineEventType::UnstablePollStart => {
-                message_like(MessageLikeEventType::UnstablePollStart)
-            }
-            RumaTimelineEventType::CallMember => state_event(StateEventType::CallMember),
-
-            // State events
-            RumaTimelineEventType::PolicyRuleRoom => state_event(StateEventType::PolicyRuleRoom),
-            RumaTimelineEventType::PolicyRuleServer => {
-                state_event(StateEventType::PolicyRuleServer)
-            }
-            RumaTimelineEventType::PolicyRuleUser => state_event(StateEventType::PolicyRuleUser),
-            RumaTimelineEventType::RoomAliases => state_event(StateEventType::RoomAliases),
-            RumaTimelineEventType::RoomAvatar => state_event(StateEventType::RoomAvatar),
-            RumaTimelineEventType::RoomCanonicalAlias => {
-                state_event(StateEventType::RoomCanonicalAlias)
-            }
-            RumaTimelineEventType::RoomCreate => state_event(StateEventType::RoomCreate),
-            RumaTimelineEventType::RoomEncryption => state_event(StateEventType::RoomEncryption),
-            RumaTimelineEventType::RoomGuestAccess => state_event(StateEventType::RoomGuestAccess),
-            RumaTimelineEventType::RoomHistoryVisibility => {
-                state_event(StateEventType::RoomHistoryVisibility)
-            }
-            RumaTimelineEventType::RoomJoinRules => state_event(StateEventType::RoomJoinRules),
-            RumaTimelineEventType::RoomName => state_event(StateEventType::RoomName),
-            RumaTimelineEventType::RoomMember => state_event(StateEventType::RoomMemberEvent),
-            RumaTimelineEventType::RoomPinnedEvents => {
-                state_event(StateEventType::RoomPinnedEvents)
-            }
-            RumaTimelineEventType::RoomPowerLevels => state_event(StateEventType::RoomPowerLevels),
-            RumaTimelineEventType::RoomServerAcl => state_event(StateEventType::RoomServerAcl),
-            RumaTimelineEventType::RoomThirdPartyInvite => {
-                state_event(StateEventType::RoomThirdPartyInvite)
-            }
-            RumaTimelineEventType::RoomTombstone => state_event(StateEventType::RoomTombstone),
-            RumaTimelineEventType::RoomTopic => state_event(StateEventType::RoomTopic),
-            RumaTimelineEventType::SpaceChild => state_event(StateEventType::SpaceChild),
-            RumaTimelineEventType::SpaceParent => state_event(StateEventType::SpaceParent),
-
-            // Custom event types not covered above
-            _ => FFITimelineEventType::Custom { event_type: event_type.to_string() },
-        }
-    }
-}
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
@@ -403,8 +291,8 @@ pub enum OtherState {
         change: RoomPinnedEventsChange,
     },
     RoomPowerLevels {
-        events: HashMap<FFITimelineEventType, i64>,
-        previous_events: Option<HashMap<FFITimelineEventType, i64>>,
+        events: HashMap<TimelineEventType, i64>,
+        previous_events: Option<HashMap<TimelineEventType, i64>>,
         users: HashMap<String, i64>,
         previous: Option<HashMap<String, i64>>,
         thresholds: Option<PowerLevelChanges>,
