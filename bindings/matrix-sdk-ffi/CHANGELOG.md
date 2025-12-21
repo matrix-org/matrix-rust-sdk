@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
 - Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
   levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
+  events defaults, per-event overrides, notifications), so clients can compute the required power level
+  for actions and compare with previous values.
   
 ### Refactor
 
