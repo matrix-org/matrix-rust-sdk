@@ -472,7 +472,7 @@ impl RoomListDynamicEntriesController {
 pub enum RoomListEntriesDynamicFilterKind {
     All { filters: Vec<RoomListEntriesDynamicFilterKind> },
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
-        NonSpace,
+    NonSpace,
     Space,
     NonLeft,
     // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
