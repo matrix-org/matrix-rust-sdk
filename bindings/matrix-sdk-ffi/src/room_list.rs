@@ -472,7 +472,7 @@ impl RoomListDynamicEntriesController {
 pub enum RoomListEntriesDynamicFilterKind {
     All { filters: Vec<RoomListEntriesDynamicFilterKind> },
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
-    NonSpace,
+        NonSpace,
     Space,
     NonLeft,
     // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
@@ -482,6 +482,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     Favourite,
     LowPriority,
     NonLowPriority,
+    NonFavorite,
     Invite,
     Category { expect: RoomListFilterCategory },
     None,
@@ -524,6 +525,7 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::Favourite => Box::new(new_filter_favourite()),
             Kind::LowPriority => Box::new(new_filter_low_priority()),
             Kind::NonLowPriority => Box::new(new_filter_not(Box::new(new_filter_low_priority()))),
+            Kind::NonFavorite => Box::new(new_filter_not(Box::new(new_filter_favourite()))),
             Kind::Invite => Box::new(new_filter_invite()),
             Kind::Category { expect } => Box::new(new_filter_category(expect.into())),
             Kind::None => Box::new(new_filter_none()),
