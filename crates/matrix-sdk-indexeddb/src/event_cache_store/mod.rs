@@ -16,13 +16,13 @@
 
 use std::{rc::Rc, time::Duration};
 
-use indexed_db_futures::{database::Database, Build};
+use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
 use matrix_sdk_base::cross_process_lock::{
     CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
 };
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStore, Event, Gap},
+    event_cache::{Event, Gap, store::EventCacheStore},
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
         RawChunk, Update,
@@ -30,7 +30,7 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{
-    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
@@ -41,7 +41,7 @@ use crate::{
         transaction::IndexeddbEventCacheStoreTransaction,
         types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
     },
-    serializer::indexed_type::{traits::Indexed, IndexedTypeSerializer},
+    serializer::indexed_type::{IndexedTypeSerializer, traits::Indexed},
     transaction::TransactionError,
 };
 

@@ -16,15 +16,14 @@
 //! the first version of `inbound_group_sessions`.
 
 use indexed_db_futures::{
+    Build,
     database::Database,
     error::{Error, OpenDbError},
-    Build,
 };
 
 use crate::crypto_store::{
-    keys,
+    Result, keys,
     migrations::{add_nonunique_index, add_unique_index, do_schema_upgrade, old_keys},
-    Result,
 };
 
 /// Perform schema migrations as needed, up to schema version 5.

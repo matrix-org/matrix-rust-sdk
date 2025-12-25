@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use indexed_db_futures::{error::OpenDbError, Build};
+use indexed_db_futures::{Build, error::OpenDbError};
 
-use crate::crypto_store::{keys, migrations::do_schema_upgrade, Result};
+use crate::crypto_store::{Result, keys, migrations::do_schema_upgrade};
 
 /// Perform the schema upgrade v101 to v102, add the `lease_locks` table.
 ///
