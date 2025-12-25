@@ -16,8 +16,8 @@ use std::ops::Deref;
 
 use indexed_db_futures::{cursor::CursorDirection, transaction as inner};
 use matrix_sdk_base::media::{
-    store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     MediaRequestParameters,
+    store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
 };
 use ruma::MxcUri;
 use uuid::Uuid;
@@ -34,7 +34,7 @@ use crate::{
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
     serializer::indexed_type::{
-        range::IndexedKeyRange, traits::IndexedPrefixKeyComponentBounds, IndexedTypeSerializer,
+        IndexedTypeSerializer, range::IndexedKeyRange, traits::IndexedPrefixKeyComponentBounds,
     },
     transaction::{Transaction, TransactionError},
 };

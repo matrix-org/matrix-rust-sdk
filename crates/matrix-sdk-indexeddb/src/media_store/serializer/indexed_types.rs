@@ -30,8 +30,8 @@
 use std::ops::Deref;
 
 use matrix_sdk_base::media::{
-    store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     MediaRequestParameters, UniqueKey,
+    store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
 };
 use matrix_sdk_crypto::CryptoStoreError;
 use ruma::MxcUri;

@@ -20,20 +20,19 @@
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
 use indexed_db_futures::{
-    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
 };
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        keys,
-        migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7, MigrationDb},
-        Result,
+        Result, keys,
+        migrations::{MigrationDb, add_nonunique_index, do_schema_upgrade, old_keys, v7},
     },
     serializer::SafeEncodeSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// Perform the schema upgrade v5 to v6, creating `inbound_group_sessions2`.

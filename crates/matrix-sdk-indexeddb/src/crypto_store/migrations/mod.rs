@@ -25,7 +25,7 @@ use indexed_db_futures::{
 };
 use tracing::info;
 
-use crate::{crypto_store::Result, serializer::SafeEncodeSerializer, IndexeddbCryptoStoreError};
+use crate::{IndexeddbCryptoStoreError, crypto_store::Result, serializer::SafeEncodeSerializer};
 
 mod old_keys;
 mod v0_to_v5;
@@ -274,13 +274,13 @@ mod tests {
     };
     use matrix_sdk_crypto::{
         olm::{InboundGroupSession, SenderData, SessionKey},
-        store::{types::RoomKeyWithheldEntry, CryptoStore},
-        types::{events::room_key_withheld::RoomKeyWithheldContent, EventEncryptionAlgorithm},
+        store::{CryptoStore, types::RoomKeyWithheldEntry},
+        types::{EventEncryptionAlgorithm, events::room_key_withheld::RoomKeyWithheldContent},
         vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey},
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, owned_user_id, room_id, OwnedRoomId, RoomId};
+    use ruma::{OwnedRoomId, RoomId, device_id, owned_user_id, room_id};
     use serde::Serialize;
     use tracing_subscriber::util::SubscriberInitExt;
     use wasm_bindgen::JsValue;
@@ -288,8 +288,8 @@ mod tests {
 
     use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
-        crypto_store::{keys, migrations::*, InboundGroupSessionIndexedDbObject},
         IndexeddbCryptoStore,
+        crypto_store::{InboundGroupSessionIndexedDbObject, keys, migrations::*},
     };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -658,10 +658,12 @@ mod tests {
             ))
         );
         assert_eq!(idb_object.sender_data_type, Some(session.sender_data_type() as u8));
-        assert!(raw_store
-            .index_names()
-            .find(|idx| idx == "inbound_group_session_sender_key_sender_data_type_idx")
-            .is_some());
+        assert!(
+            raw_store
+                .index_names()
+                .find(|idx| idx == "inbound_group_session_sender_key_sender_data_type_idx")
+                .is_some()
+        );
 
         transaction.commit().await.unwrap();
         db.close();

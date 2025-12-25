@@ -29,7 +29,7 @@
 
 use matrix_sdk_base::linked_chunk::{ChunkIdentifier, LinkedChunkId};
 use matrix_sdk_crypto::CryptoStoreError;
-use ruma::{events::relation::RelationType, EventId, RoomId};
+use ruma::{EventId, RoomId, events::relation::RelationType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

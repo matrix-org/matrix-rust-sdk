@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+#[cfg(feature = "state-store")]
+use matrix_sdk_base::StoreError;
 #[cfg(feature = "event-cache-store")]
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 #[cfg(feature = "media-store")]
 use matrix_sdk_base::media::store::MediaStoreError;
-#[cfg(feature = "state-store")]
-use matrix_sdk_base::StoreError;
 #[cfg(any(feature = "event-cache-store", feature = "media-store"))]
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 #[cfg(feature = "e2e-encryption")]

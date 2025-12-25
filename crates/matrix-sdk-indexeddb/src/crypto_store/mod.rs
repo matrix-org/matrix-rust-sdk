@@ -21,38 +21,38 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::{
+    KeyRange,
     cursor::Cursor,
     database::Database,
     internals::SystemRepr,
     object_store::ObjectStore,
     prelude::*,
     transaction::{Transaction, TransactionMode},
-    KeyRange,
 };
 use js_sys::Array;
 use matrix_sdk_base::cross_process_lock::{
     CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
 };
 use matrix_sdk_crypto::{
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
         Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PickledInboundGroupSession, PrivateCrossSigningIdentity, SenderDataType, Session,
         StaticAccountData,
     },
     store::{
+        CryptoStore, CryptoStoreError,
         types::{
             BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
             RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
-        CryptoStore, CryptoStoreError,
     },
     vodozemac::base64_encode,
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -313,11 +313,7 @@ impl PendingIndexeddbChanges {
             .iter()
             .filter_map(
                 |(store, pending_operations)| {
-                    if !pending_operations.is_empty() {
-                        Some(*store)
-                    } else {
-                        None
-                    }
+                    if !pending_operations.is_empty() { Some(*store) } else { None }
                 },
             )
             .collect()
@@ -2004,9 +2000,9 @@ mod unit_tests {
         // Testing the exact JSON here is theoretically flaky in the face of
         // serialization changes in serde_json but it seems unlikely, and it's
         // simple enough to fix if we need to.
-        assert!(serde_json::to_string(&session_needs_backup)
-            .unwrap()
-            .contains(r#""needs_backup":1"#),);
+        assert!(
+            serde_json::to_string(&session_needs_backup).unwrap().contains(r#""needs_backup":1"#),
+        );
     }
 
     #[test]
@@ -2178,7 +2174,7 @@ mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         olm::Account,
-        store::{types::PendingChanges, CryptoStore},
+        store::{CryptoStore, types::PendingChanges},
         vodozemac::base64_encode,
     };
     use matrix_sdk_test::async_test;

@@ -19,7 +19,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
     media_store::{
-        error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db, IndexeddbMediaStore,
+        IndexeddbMediaStore, error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
     },
     serializer::{indexed_type::IndexedTypeSerializer, safe_encode::types::SafeEncodeSerializer},
 };

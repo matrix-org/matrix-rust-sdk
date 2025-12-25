@@ -23,8 +23,8 @@ use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
     event_cache_store::{
-        error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
-        IndexeddbEventCacheStore,
+        IndexeddbEventCacheStore, error::IndexeddbEventCacheStoreError,
+        migrations::open_and_upgrade_db,
     },
     serializer::{indexed_type::IndexedTypeSerializer, safe_encode::types::SafeEncodeSerializer},
 };

@@ -29,7 +29,7 @@ use std::{rc::Rc, time::Duration};
 pub use builder::IndexeddbMediaStoreBuilder;
 pub use error::IndexeddbMediaStoreError;
 use indexed_db_futures::{
-    cursor::CursorDirection, database::Database, transaction::TransactionMode, Build,
+    Build, cursor::CursorDirection, database::Database, transaction::TransactionMode,
 };
 #[cfg(target_family = "wasm")]
 use matrix_sdk_base::cross_process_lock::{
@@ -37,15 +37,15 @@ use matrix_sdk_base::cross_process_lock::{
 };
 use matrix_sdk_base::{
     media::{
+        MediaRequestParameters,
         store::{
             IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStore,
             MediaStoreInner,
         },
-        MediaRequestParameters,
     },
     timer,
 };
-use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
 use tracing::instrument;
 
 use crate::{
@@ -53,7 +53,7 @@ use crate::{
         transaction::IndexeddbMediaStoreTransaction,
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
     },
-    serializer::indexed_type::{traits::Indexed, IndexedTypeSerializer},
+    serializer::indexed_type::{IndexedTypeSerializer, traits::Indexed},
     transaction::TransactionError,
 };
 
@@ -345,12 +345,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
 
         let transaction =
             self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readwrite)?;
-        if let Some(mut metadata) = transaction.get_media_metadata_by_id(request).await? {
-            if metadata.ignore_policy != ignore_policy {
-                metadata.ignore_policy = ignore_policy;
-                transaction.put_media_metadata(&metadata).await?;
-                transaction.commit().await?;
-            }
+        if let Some(mut metadata) = transaction.get_media_metadata_by_id(request).await?
+            && metadata.ignore_policy != ignore_policy
+        {
+            metadata.ignore_policy = ignore_policy;
+            transaction.put_media_metadata(&metadata).await?;
+            transaction.commit().await?;
         }
         Ok(())
     }

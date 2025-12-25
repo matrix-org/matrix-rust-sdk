@@ -16,14 +16,14 @@
 //! `backup_keys.backup_version_v1`, switching to a new serialization format.
 
 use indexed_db_futures::{
-    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
 };
 use wasm_bindgen::JsValue;
 
 use crate::{
     crypto_store::{
         keys,
-        migrations::{do_schema_upgrade, old_keys, MigrationDb},
+        migrations::{MigrationDb, do_schema_upgrade, old_keys},
     },
     serializer::SafeEncodeSerializer,
 };
