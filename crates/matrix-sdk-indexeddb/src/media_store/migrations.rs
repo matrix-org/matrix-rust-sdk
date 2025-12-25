@@ -21,7 +21,7 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{v2, Version};
+    use super::{Version, v2};
 
     pub const VERSION: Version = Version::V2;
     pub use v2::keys;

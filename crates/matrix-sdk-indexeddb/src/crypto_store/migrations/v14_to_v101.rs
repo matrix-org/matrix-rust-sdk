@@ -19,15 +19,15 @@ limitations under the License.
 //! the key around; finally, we drop the old table.
 
 use indexed_db_futures::{
-    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
 };
 use matrix_sdk_crypto::store::types::RoomKeyWithheldEntry;
 use tracing::{debug, info, warn};
 use wasm_bindgen::JsValue;
 
-use super::{old_keys, MigrationDb};
+use super::{MigrationDb, old_keys};
 use crate::{
-    crypto_store::{keys, migrations::do_schema_upgrade, Result},
+    crypto_store::{Result, keys, migrations::do_schema_upgrade},
     serializer::SafeEncodeSerializer,
 };
 

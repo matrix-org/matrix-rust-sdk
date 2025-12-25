@@ -14,11 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use indexed_db_futures::{error::OpenDbError, transaction::TransactionMode, Build};
+use indexed_db_futures::{Build, error::OpenDbError, transaction::TransactionMode};
 
 use super::MigrationDb;
 use crate::{
-    crypto_store::{keys, migrations::do_schema_upgrade, Result},
+    crypto_store::{Result, keys, migrations::do_schema_upgrade},
     serializer::SafeEncodeSerializer,
 };
 

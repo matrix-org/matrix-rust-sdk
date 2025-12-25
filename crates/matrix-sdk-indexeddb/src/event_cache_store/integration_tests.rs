@@ -15,11 +15,11 @@
 use assert_matches::assert_matches;
 use matrix_sdk_base::{
     event_cache::{
-        store::{
-            integration_tests::{check_test_event, make_test_event},
-            EventCacheStore,
-        },
         Gap,
+        store::{
+            EventCacheStore,
+            integration_tests::{check_test_event, make_test_event},
+        },
     },
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
 };
@@ -573,8 +573,8 @@ pub async fn test_load_previous_chunk(store: IndexeddbEventCacheStore) {
 /// mod tests {
 ///     use super::{EventCacheStore, EventCacheStoreResult, MyStore};
 ///
-///     async fn get_event_cache_store(
-///     ) -> Result<impl EventCacheStore, EventCacheStoreError> {
+///     async fn get_event_cache_store()
+///     -> Result<impl EventCacheStore, EventCacheStoreError> {
 ///         Ok(MyStore::new())
 ///     }
 ///
