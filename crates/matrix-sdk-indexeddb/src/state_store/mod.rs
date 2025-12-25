@@ -372,12 +372,12 @@ impl IndexeddbStateStore {
             .open_cursor()
             .with_direction(CursorDirection::Prev)
             .await?
+            && let Some(record) = cursor.next_record::<JsValue>().await?
         {
-            if let Some(record) = cursor.next_record::<JsValue>().await? {
-                return Ok(record.as_string());
-            }
+            Ok(record.as_string())
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 
     /// Encrypt (if needs be) then JSON-serialize a value.
@@ -1044,32 +1044,32 @@ impl_state_store!({
                     };
 
                     let raw_evt = self.deserialize_value::<Raw<AnySyncStateEvent>>(&value)?;
-                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                        if let Some(redaction) = redactions.get(&event_id) {
-                            let redaction_rules = {
-                                if redaction_rules.is_none() {
-                                    redaction_rules.replace(room_info
-                                        .get(&self.encode_key(keys::ROOM_INFOS, room_id))
-                                        .await?
-                                        .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
-                                        .map(|info| info.room_version_rules_or_default())
-                                        .unwrap_or_else(|| {
-                                            warn!(?room_id, "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}");
-                                            ROOM_VERSION_RULES_FALLBACK
-                                        }).redaction
-                                    );
-                                }
-                                redaction_rules.as_ref().unwrap()
-                            };
+                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id")
+                        && let Some(redaction) = redactions.get(&event_id)
+                    {
+                        let redaction_rules = {
+                            if redaction_rules.is_none() {
+                                redaction_rules.replace(room_info
+                                    .get(&self.encode_key(keys::ROOM_INFOS, room_id))
+                                    .await?
+                                    .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
+                                    .map(|info| info.room_version_rules_or_default())
+                                    .unwrap_or_else(|| {
+                                        warn!(?room_id, "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}");
+                                        ROOM_VERSION_RULES_FALLBACK
+                                    }).redaction
+                                );
+                            }
+                            redaction_rules.as_ref().unwrap()
+                        };
 
-                            let redacted = redact(
-                                raw_evt.deserialize_as::<CanonicalJsonObject>()?,
-                                redaction_rules,
-                                Some(RedactedBecause::from_raw_event(redaction)?),
-                            )
-                            .map_err(StoreError::Redaction)?;
-                            state.put(&self.serialize_value(&redacted)?).with_key(key).build()?;
-                        }
+                        let redacted = redact(
+                            raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                            redaction_rules,
+                            Some(RedactedBecause::from_raw_event(redaction)?),
+                        )
+                        .map_err(StoreError::Redaction)?;
+                        state.put(&self.serialize_value(&redacted)?).with_key(key).build()?;
                     }
                 }
             }

@@ -408,11 +408,11 @@ async fn v3_fix_store(store: &ObjectStore<'_>, store_cipher: Option<&StoreCipher
 
         if json.contains(r#""content":null"#) {
             let mut value: JsonValue = serde_json::from_str(json)?;
-            if let Some(content) = value.get_mut("content") {
-                if matches!(content, JsonValue::Null) {
-                    *content = JsonValue::Object(Default::default());
-                    return Ok(Some(value));
-                }
+            if let Some(content) = value.get_mut("content")
+                && matches!(content, JsonValue::Null)
+            {
+                *content = JsonValue::Object(Default::default());
+                return Ok(Some(value));
             }
         }
 
