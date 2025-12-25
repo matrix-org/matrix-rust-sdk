@@ -406,15 +406,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         )?;
         if let Some(chunk) =
             transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await?
+            && let Some(previous_identifier) = chunk.previous
         {
-            if let Some(previous_identifier) = chunk.previous {
-                let previous_identifier = ChunkIdentifier::new(previous_identifier);
-                return Ok(transaction
-                    .load_chunk_by_id(linked_chunk_id, previous_identifier)
-                    .await?);
-            }
+            let previous_identifier = ChunkIdentifier::new(previous_identifier);
+            Ok(transaction.load_chunk_by_id(linked_chunk_id, previous_identifier).await?)
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 
     #[instrument(skip(self))]

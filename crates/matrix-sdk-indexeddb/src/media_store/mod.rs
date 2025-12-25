@@ -345,12 +345,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
 
         let transaction =
             self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readwrite)?;
-        if let Some(mut metadata) = transaction.get_media_metadata_by_id(request).await? {
-            if metadata.ignore_policy != ignore_policy {
-                metadata.ignore_policy = ignore_policy;
-                transaction.put_media_metadata(&metadata).await?;
-                transaction.commit().await?;
-            }
+        if let Some(mut metadata) = transaction.get_media_metadata_by_id(request).await?
+            && metadata.ignore_policy != ignore_policy
+        {
+            metadata.ignore_policy = ignore_policy;
+            transaction.put_media_metadata(&metadata).await?;
+            transaction.commit().await?;
         }
         Ok(())
     }
