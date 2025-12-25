@@ -1047,20 +1047,26 @@ impl_state_store!({
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id")
                         && let Some(redaction) = redactions.get(&event_id)
                     {
-                        let redaction_rules = {
-                            if redaction_rules.is_none() {
-                                redaction_rules.replace(room_info
+                        let redaction_rules = match &redaction_rules {
+                            Some(r) => r,
+                            None => {
+                                let value = room_info
                                     .get(&self.encode_key(keys::ROOM_INFOS, room_id))
                                     .await?
                                     .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
                                     .map(|info| info.room_version_rules_or_default())
                                     .unwrap_or_else(|| {
-                                        warn!(?room_id, "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}");
+                                        warn!(
+                                            ?room_id,
+                                            "Unable to get the room version rules, \
+                                             defaulting to rules for room version \
+                                             {ROOM_VERSION_FALLBACK}"
+                                        );
                                         ROOM_VERSION_RULES_FALLBACK
-                                    }).redaction
-                                );
+                                    })
+                                    .redaction;
+                                redaction_rules.get_or_insert(value)
                             }
-                            redaction_rules.as_ref().unwrap()
                         };
 
                         let redacted = redact(
