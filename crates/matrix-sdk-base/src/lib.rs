@@ -32,6 +32,7 @@ mod error;
 pub mod event_cache;
 pub mod latest_event;
 pub mod media;
+pub mod webrtc;
 pub mod notification_settings;
 mod response_processors;
 mod room;

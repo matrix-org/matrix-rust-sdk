@@ -19,6 +19,7 @@ resolver = "3"
 rust-version = "1.88"
 
 [workspace.dependencies]
+webrtc = "0.14.0"
 anyhow = "1.0.100"
 aquamarine = "0.6.0"
 as_variant = "1.3.0"
