@@ -387,7 +387,24 @@ impl Aggregations {
         }
 
         self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
-        self.related_events.entry(related_to).or_default().push(aggregation);
+
+        // We can have 3 different states for the same aggregation in related_events, in
+        // chronological order:
+        //
+        // 1. The local echo with a transaction ID.
+        // 2. The local echo with the event ID returned by the server after sending the
+        //    event.
+        // 3. The remote echo received via sync.
+        //
+        // The transition from states 1 to 2 is handled in `mark_aggregation_as_sent()`.
+        // So here we need to handle the transition from states 2 to 3. We need to
+        // replace the local echo by the remote echo, which might have more data, like
+        // the raw JSON.
+        let related_events = self.related_events.entry(related_to).or_default();
+        if let Some(pos) = related_events.iter().position(|agg| agg.own_id == aggregation.own_id) {
+            related_events.remove(pos);
+        }
+        related_events.push(aggregation);
     }
 
     /// Is the given id one for a known aggregation to another event?
