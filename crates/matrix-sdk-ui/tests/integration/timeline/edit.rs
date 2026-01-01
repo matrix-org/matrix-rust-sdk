@@ -312,16 +312,14 @@ async fn test_send_edit() {
     let hello_world_message = hello_world_item.content().as_message().unwrap();
     assert!(!hello_world_message.is_edited());
     assert!(hello_world_item.is_editable());
+    assert_matches!(hello_world_item.original_json(), Some(_));
+    assert_matches!(hello_world_item.latest_edit_json(), None);
 
     server.mock_room_send().ok(event_id!("$edit_event")).mock_once().mount().await;
 
+    let edit = RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!");
     timeline
-        .edit(
-            &hello_world_item.identifier(),
-            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
-                "Hello, Room!",
-            )),
-        )
+        .edit(&hello_world_item.identifier(), EditedContent::RoomMessage(edit.clone()))
         .await
         .unwrap();
 
@@ -337,6 +335,31 @@ async fn test_send_edit() {
     let edit_message = edit_item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
+    assert_matches!(edit_item.original_json(), Some(_));
+    // The local echo doesn't have the edit's JSON yet.
+    assert_matches!(edit_item.latest_edit_json(), None);
+
+    // We receive the remote echo for the edit.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("*Hello, Room!")
+                    .sender(client.user_id().unwrap())
+                    .event_id(event_id!("$edit_event"))
+                    .edit(hello_world_item.event_id().unwrap(), edit),
+            ),
+        )
+        .await;
+
+    let edit_item =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
+    let edit_message = edit_item.content().as_message().unwrap();
+    assert_eq!(edit_message.body(), "Hello, Room!");
+    assert!(edit_message.is_edited());
+    assert_matches!(edit_item.original_json(), Some(_));
+    // The remote echo populated the edit's JSON.
+    assert_matches!(edit_item.latest_edit_json(), Some(_));
 
     // The response to the mocked endpoint does not generate further timeline
     // updates, so just wait for a bit before verifying that the endpoint was
