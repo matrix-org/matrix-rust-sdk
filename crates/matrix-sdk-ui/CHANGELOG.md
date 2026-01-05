@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `EventTimelineItem::get_shield` now returns a new type,
+  `TimelineEventShieldState`, which extends the old `ShieldState` with a code
+  for `SentInClear`, now that the latter has been removed from `ShieldState`.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
 - Add `SpaceService::get_space_room` to get a space
   given its id from the space graph if available.
   ([#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944))

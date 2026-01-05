@@ -46,7 +46,6 @@ const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 const MISMATCHED_SENDER: &str = "\
     The sender of the event does not match the owner of the device \
     that created the Megolm session.";
-pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
@@ -283,8 +282,6 @@ pub enum ShieldStateCode {
     UnsignedDevice,
     /// The sender hasn't been verified by the Client's user.
     UnverifiedIdentity,
-    /// An unencrypted event in an encrypted room.
-    SentInClear,
     /// The sender was previously verified but changed their identity.
     #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
@@ -2008,7 +2005,6 @@ mod tests {
             assert_json_snapshot!(ShieldStateCode::UnknownDevice);
             assert_json_snapshot!(ShieldStateCode::UnsignedDevice);
             assert_json_snapshot!(ShieldStateCode::UnverifiedIdentity);
-            assert_json_snapshot!(ShieldStateCode::SentInClear);
             assert_json_snapshot!(ShieldStateCode::VerificationViolation);
         });
     }
