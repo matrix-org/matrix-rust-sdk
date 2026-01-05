@@ -2046,22 +2046,46 @@ impl Client {
 
     /// Fetches client well_known from network; no caching.
     pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
-        let server_url_string = self
-            .server()
-            .unwrap_or(
-                // Sometimes people configure their well-known directly on the homeserver so use
-                // this as a fallback when the server name is unknown.
-                &self.homeserver(),
-            )
-            .to_string();
+        let homeserver = self.homeserver();
+        let scheme = homeserver.scheme();
 
+        // Use the server name, either an explicit one or an implicit one taken from
+        // the user id
+        let server_url = self
+            .server()
+            .map(|server| server.to_string())
+            .or_else(|| self.user_id().map(|id| format!("{}://{}", scheme, id.server_name())));
+
+        let response = if let Some(server_url) = server_url {
+            // First try using the server name
+            self.fetch_client_well_known_with_url(server_url).await
+        } else {
+            None
+        };
+
+        if response.is_none() {
+            // Sometimes people configure their well-known directly on the homeserver so use
+            // this as a fallback when the server name is unknown.
+            warn!(
+                "Fetching the well-known from the server name didn't work, using the homeserver url instead"
+            );
+            self.fetch_client_well_known_with_url(homeserver.to_string()).await
+        } else {
+            response
+        }
+    }
+
+    async fn fetch_client_well_known_with_url(
+        &self,
+        url: String,
+    ) -> Option<discover_homeserver::Response> {
         let well_known = self
             .inner
             .http_client
             .send(
                 discover_homeserver::Request::new(),
                 Some(RequestConfig::short_retry()),
-                server_url_string,
+                url,
                 None,
                 (),
                 Default::default(),
@@ -4523,5 +4547,44 @@ pub(crate) mod tests {
         server.mock_get_device().error500().expect(1).mount().await;
 
         assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Err(_));
+    }
+
+    #[async_test]
+    async fn test_fetching_well_known_with_homeserver_url() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        server.mock_well_known().ok().mount().await;
+
+        assert_matches!(client.fetch_client_well_known().await, Some(_));
+    }
+
+    #[async_test]
+    async fn test_fetching_well_known_with_server_name() {
+        let server = MatrixMockServer::new().await;
+        let server_name = ServerName::parse(server.server().address().to_string()).unwrap();
+
+        server.mock_well_known().ok().mount().await;
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| builder.insecure_server_name_no_tls(&server_name))
+            .build()
+            .await;
+
+        assert_matches!(client.fetch_client_well_known().await, Some(_));
+    }
+
+    #[async_test]
+    async fn test_fetching_well_known_with_domain_part_of_user_id() {
+        let server = MatrixMockServer::new().await;
+        server.mock_well_known().ok().mount().await;
+
+        let user_id =
+            UserId::parse(format!("@user:{}", server.server().address())).expect("Invalid user id");
+        let client = MockClientBuilder::new(None)
+            .logged_in_with_token("A_TOKEN".to_owned(), user_id, owned_device_id!("ABCDEF"))
+            .build()
+            .await;
+
+        assert_matches!(client.fetch_client_well_known().await, Some(_));
     }
 }
