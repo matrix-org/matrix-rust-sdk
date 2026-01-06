@@ -415,7 +415,7 @@ impl EncryptedMmapDirectory {
     ) -> Result<KeyBuffer, OpenDirectoryError> {
         let dir_path = key_path.parent().unwrap_or(key_path);
 
-        let _ = create_dir_all(dir_path);
+        create_dir_all(dir_path).map_err(|err| err.into_tv_err(dir_path))?;
         // Derive a AES key from our passphrase using a randomly generated salt
         // to prevent bruteforce attempts using rainbow tables.
         let (key, hmac_key, salt) = EncryptedMmapDirectory::derive_key(passphrase, pbkdf_count)
