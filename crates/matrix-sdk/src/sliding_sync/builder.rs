@@ -289,11 +289,9 @@ impl SlidingSyncBuilder {
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                SlidingSyncStickyParameters::new(
-                    self.subscriptions,
-                    self.extensions.unwrap_or_default(),
-                ),
+                SlidingSyncStickyParameters::new(self.subscriptions),
             )),
+            extensions: self.extensions.unwrap_or_default(),
 
             internal_channel: internal_channel_sender,
 

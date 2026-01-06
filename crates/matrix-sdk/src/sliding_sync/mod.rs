@@ -113,6 +113,10 @@ pub(super) struct SlidingSyncInner {
     /// Request parameters that are sticky.
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
+    /// The intended state of the extensions being supplied to sliding /sync
+    /// calls.
+    extensions: http::request::Extensions,
+
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
@@ -421,8 +425,7 @@ impl SlidingSync {
 
         debug!(pos = ?position_guard.pos, "Got a position");
 
-        let to_device_enabled =
-            self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
+        let to_device_enabled = self.inner.extensions.to_device.enabled == Some(true);
 
         let restored_fields = if self.inner.share_pos || to_device_enabled {
             restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key).await?
@@ -485,6 +488,9 @@ impl SlidingSync {
 
         // Apply sticky parameters, if needs be.
         self.inner.sticky.write().unwrap().maybe_apply(&mut request, txn_id);
+
+        // Add extensions.
+        request.extensions = self.inner.extensions.clone();
 
         // Extensions are now applied (via sticky parameters).
         //
@@ -630,14 +636,13 @@ impl SlidingSync {
     /// Is the e2ee extension enabled for this sliding sync instance?
     #[cfg(feature = "e2e-encryption")]
     fn is_e2ee_enabled(&self) -> bool {
-        self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
+        self.inner.extensions.e2ee.enabled == Some(true)
     }
 
     /// Is the thread subscriptions extension enabled for this sliding sync
     /// instance?
     fn is_thread_subscriptions_enabled(&self) -> bool {
-        self.inner.sticky.read().unwrap().data().extensions.thread_subscriptions.enabled
-            == Some(true)
+        self.inner.extensions.thread_subscriptions.enabled == Some(true)
     }
 
     #[cfg(not(feature = "e2e-encryption"))]
@@ -832,16 +837,6 @@ impl SlidingSync {
         let mut position_lock = self.inner.position.lock().await;
         position_lock.pos = Some(new_pos);
     }
-
-    /// Read the static extension configuration for this Sliding Sync.
-    ///
-    /// Note: this is not the next content of the sticky parameters, but rightly
-    /// the static configuration that was set during creation of this
-    /// Sliding Sync.
-    pub fn extensions_config(&self) -> http::request::Extensions {
-        let sticky = self.inner.sticky.read().unwrap();
-        sticky.data().extensions.clone()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -885,18 +880,11 @@ pub(super) struct SlidingSyncStickyParameters {
     /// but one wants to receive updates.
     room_subscriptions:
         BTreeMap<OwnedRoomId, (RoomSubscriptionState, http::request::RoomSubscription)>,
-
-    /// The intended state of the extensions being supplied to sliding /sync
-    /// calls.
-    extensions: http::request::Extensions,
 }
 
 impl SlidingSyncStickyParameters {
     /// Create a new set of sticky parameters.
-    pub fn new(
-        room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
-        extensions: http::request::Extensions,
-    ) -> Self {
+    pub fn new(room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>) -> Self {
         Self {
             room_subscriptions: room_subscriptions
                 .into_iter()
@@ -904,7 +892,6 @@ impl SlidingSyncStickyParameters {
                     (room_id, (RoomSubscriptionState::Pending, room_subscription))
                 })
                 .collect(),
-            extensions,
         }
     }
 }
@@ -919,7 +906,6 @@ impl StickyData for SlidingSyncStickyParameters {
             .filter(|(_, (state, _))| matches!(state, RoomSubscriptionState::Pending))
             .map(|(room_id, (_, room_subscription))| (room_id.clone(), room_subscription.clone()))
             .collect();
-        request.extensions = self.extensions.clone();
     }
 
     fn on_commit(&mut self) {
@@ -1222,10 +1208,8 @@ mod tests {
         room_subscriptions.insert(r0.to_owned(), Default::default());
 
         // At first it's invalidated.
-        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
-            room_subscriptions,
-            Default::default(),
-        ));
+        let mut sticky =
+            SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(room_subscriptions));
         assert!(sticky.is_invalidated());
 
         // Then when we create a request, the sticky parameters are applied.
@@ -1295,10 +1279,8 @@ mod tests {
         let r0 = room_id!("!r0.matrix.org");
         let r1 = room_id!("!r1:matrix.org");
 
-        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
-            BTreeMap::new(),
-            Default::default(),
-        ));
+        let mut sticky =
+            SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(BTreeMap::new()));
 
         // A room subscription is added, applied, and committed.
         {
@@ -1383,150 +1365,6 @@ mod tests {
             // All room subscriptions have been sent.
             assert!(request.room_subscriptions.is_empty());
         }
-    }
-
-    #[test]
-    fn test_extensions_are_sticky() {
-        let mut extensions = http::request::Extensions::default();
-        extensions.account_data.enabled = Some(true);
-
-        // At first it's invalidated.
-        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
-            Default::default(),
-            extensions,
-        ));
-
-        assert!(sticky.is_invalidated(), "invalidated because of non default parameters");
-
-        // `StickyParameters::new` follows its caller's intent when it comes to e2ee and
-        // to-device.
-        let extensions = &sticky.data().extensions;
-        assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None);
-        assert_eq!(extensions.to_device.since, None);
-
-        // What the user explicitly enabled is… enabled.
-        assert_eq!(extensions.account_data.enabled, Some(true));
-
-        let txn_id: &TransactionId = "tid123".into();
-        let mut request = http::Request::default();
-        request.txn_id = Some(txn_id.to_string());
-        sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
-        assert!(sticky.is_invalidated());
-        assert_eq!(request.extensions.to_device.enabled, None);
-        assert_eq!(request.extensions.to_device.since, None);
-        assert_eq!(request.extensions.e2ee.enabled, None);
-        assert_eq!(request.extensions.account_data.enabled, Some(true));
-    }
-
-    #[async_test]
-    async fn test_sticky_extensions_plus_since() -> Result<()> {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let sync = client
-            .sliding_sync("test-slidingsync")?
-            .add_list(SlidingSyncList::builder("new_list"))
-            .build()
-            .await?;
-
-        // No extensions have been explicitly enabled here.
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None);
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, None);
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
-
-        // Now enable e2ee and to-device.
-        let sync = client
-            .sliding_sync("test-slidingsync")?
-            .add_list(SlidingSyncList::builder("new_list"))
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
-            )
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
-            .build()
-            .await?;
-
-        // Even without a since token, the first request will contain the extensions
-        // configuration, at least.
-        let txn_id = TransactionId::new();
-        let (request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
-            .await?;
-
-        assert_eq!(request.extensions.e2ee.enabled, Some(true));
-        assert_eq!(request.extensions.to_device.enabled, Some(true));
-        assert!(request.extensions.to_device.since.is_none());
-
-        {
-            // Committing with another transaction id doesn't validate anything.
-            let mut sticky = sync.inner.sticky.write().unwrap();
-            assert!(sticky.is_invalidated());
-            sticky.maybe_commit(
-                "hopefully the rng won't generate this very specific transaction id".into(),
-            );
-            assert!(sticky.is_invalidated());
-        }
-
-        // Regenerating a request will yield the same one.
-        let txn_id2 = TransactionId::new();
-        let (request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id2.to_owned()))
-            .await?;
-
-        assert_eq!(request.extensions.e2ee.enabled, Some(true));
-        assert_eq!(request.extensions.to_device.enabled, Some(true));
-        assert!(request.extensions.to_device.since.is_none());
-
-        assert!(txn_id != txn_id2, "the two requests must not share the same transaction id");
-
-        {
-            // Committing with the expected transaction id will validate it.
-            let mut sticky = sync.inner.sticky.write().unwrap();
-            assert!(sticky.is_invalidated());
-            sticky.maybe_commit(txn_id2.as_str().into());
-            assert!(!sticky.is_invalidated());
-        }
-
-        // The next request should contain no sticky parameters.
-        let txn_id = TransactionId::new();
-        let (request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
-            .await?;
-        assert!(request.extensions.e2ee.enabled.is_none());
-        assert!(request.extensions.to_device.enabled.is_none());
-        assert!(request.extensions.to_device.since.is_none());
-
-        // If there's a to-device `since` token, we make sure we put the token
-        // into the extension config. The rest doesn't need to be re-enabled due to
-        // stickiness.
-        let _since_token = "since";
-
-        #[cfg(feature = "e2e-encryption")]
-        {
-            use matrix_sdk_base::crypto::store::types::Changes;
-            if let Some(olm_machine) = &*client.olm_machine().await {
-                olm_machine
-                    .store()
-                    .save_changes(Changes {
-                        next_batch_token: Some(_since_token.to_owned()),
-                        ..Default::default()
-                    })
-                    .await?;
-            }
-        }
-
-        let txn_id = TransactionId::new();
-        let (request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
-            .await?;
-
-        assert!(request.extensions.e2ee.enabled.is_none());
-        assert!(request.extensions.to_device.enabled.is_none());
-
-        #[cfg(feature = "e2e-encryption")]
-        assert_eq!(request.extensions.to_device.since.as_deref(), Some(_since_token));
-
-        Ok(())
     }
 
     // With MSC4186, with the `e2ee` extension enabled, if a request has no `pos`,
@@ -1671,141 +1509,6 @@ mod tests {
             let outgoing_requests = olm_machine.outgoing_requests().await?;
 
             assert!(outgoing_requests.is_empty());
-        }
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_unknown_pos_resets_pos_and_sticky_parameters() -> Result<()> {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        let sliding_sync = client
-            .sliding_sync("test-slidingsync")?
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
-            )
-            .build()
-            .await?;
-
-        // First request asks to enable the extension.
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
-        assert!(request.extensions.to_device.enabled.is_some());
-
-        let sync = sliding_sync.sync();
-        pin_mut!(sync);
-
-        // `pos` is `None` to start with.
-        assert!(sliding_sync.inner.position.lock().await.pos.is_none());
-
-        #[derive(Deserialize)]
-        struct PartialRequest {
-            txn_id: Option<String>,
-        }
-
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(|request: &Request| {
-                    // Repeat the txn_id in the response, if set.
-                    let request: PartialRequest = request.body_json().unwrap();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": request.txn_id,
-                        "pos": "0",
-                    }))
-                })
-                .mount_as_scoped(&server)
-                .await;
-
-            let next = sync.next().await;
-            assert_matches!(next, Some(Ok(_update_summary)));
-
-            // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
-        }
-
-        // Next request doesn't ask to enable the extension.
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
-        assert!(request.extensions.to_device.enabled.is_none());
-
-        // Next request is successful.
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(|request: &Request| {
-                    // Repeat the txn_id in the response, if set.
-                    let request: PartialRequest = request.body_json().unwrap();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": request.txn_id,
-                        "pos": "1",
-                    }))
-                })
-                .mount_as_scoped(&server)
-                .await;
-
-            let next = sync.next().await;
-            assert_matches!(next, Some(Ok(_update_summary)));
-
-            // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
-        }
-
-        // Next request is successful despite it receives an already
-        // received `pos` from the server.
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(|request: &Request| {
-                    // Repeat the txn_id in the response, if set.
-                    let request: PartialRequest = request.body_json().unwrap();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": request.txn_id,
-                        "pos": "0", // <- already received!
-                    }))
-                })
-                .up_to_n_times(1) // run this mock only once.
-                .mount_as_scoped(&server)
-                .await;
-
-            let next = sync.next().await;
-            assert_matches!(next, Some(Ok(_update_summary)));
-
-            // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
-        }
-
-        // Stop responding with successful requests!
-        //
-        // When responding with `M_UNKNOWN_POS`, that regenerates the sticky parameters,
-        // so they're reset. It also resets the `pos`.
-        {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(ResponseTemplate::new(400).set_body_json(json!({
-                    "error": "foo",
-                    "errcode": "M_UNKNOWN_POS",
-                })))
-                .mount_as_scoped(&server)
-                .await;
-
-            let next = sync.next().await;
-
-            // The expected error is returned.
-            assert_matches!(next, Some(Err(err)) if err.client_api_error_kind() == Some(&ErrorKind::UnknownPos));
-
-            // `pos` has been reset.
-            assert!(sliding_sync.inner.position.lock().await.pos.is_none());
-
-            // Next request asks to enable the extension again.
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
-
-            assert!(request.extensions.to_device.enabled.is_some());
-
-            // `sync` has been stopped.
-            assert!(sync.next().await.is_none());
         }
 
         Ok(())
