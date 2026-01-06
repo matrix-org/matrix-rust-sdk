@@ -224,6 +224,9 @@ pub(super) struct SlidingSyncListInner {
     /// knows).
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
 
+    /// Any filters to apply to the query.
+    filters: Option<http::request::ListFilters>,
+
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
 
@@ -313,6 +316,7 @@ impl SlidingSyncListInner {
 
         let mut request = assign!(http::request::List::default(), { ranges });
         request.room_details.timeline_limit = (*self.timeline_limit.read().unwrap()).into();
+        request.filters = self.filters.clone();
         request.room_details.required_state = self.required_state.clone();
 
         {
