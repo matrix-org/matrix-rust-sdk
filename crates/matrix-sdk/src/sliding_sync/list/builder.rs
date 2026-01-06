@@ -214,8 +214,9 @@ impl SlidingSyncListBuilder {
 
                 // From the builder
                 sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                    SlidingSyncListStickyParameters::new(self.required_state, self.filters),
+                    SlidingSyncListStickyParameters::new(self.filters),
                 )),
+                required_state: self.required_state,
                 timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
                 cache_policy: self.cache_policy,
