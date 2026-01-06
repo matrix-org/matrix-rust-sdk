@@ -1007,6 +1007,8 @@ pub struct EventTimelineItem {
     event_or_transaction_id: EventOrTransactionId,
     sender: String,
     sender_profile: ProfileDetails,
+    forwarder: Option<String>,
+    forwarder_profile: Option<ProfileDetails>,
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
@@ -1030,6 +1032,8 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             event_or_transaction_id: item.identifier().into(),
             sender: item.sender().to_string(),
             sender_profile: item.sender_profile().clone().into(),
+            forwarder: item.forwarder().map(ToString::to_string),
+            forwarder_profile: item.forwarder_profile().map(Into::into),
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
@@ -1077,6 +1081,21 @@ impl From<TimelineDetails<Profile>> for ProfileDetails {
             TimelineDetails::Pending => Self::Pending,
             TimelineDetails::Ready(profile) => Self::Ready {
                 display_name: profile.display_name,
+                display_name_ambiguous: profile.display_name_ambiguous,
+                avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+            },
+            TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
+        }
+    }
+}
+
+impl From<&TimelineDetails<Profile>> for ProfileDetails {
+    fn from(details: &TimelineDetails<Profile>) -> Self {
+        match details {
+            TimelineDetails::Unavailable => Self::Unavailable,
+            TimelineDetails::Pending => Self::Pending,
+            TimelineDetails::Ready(profile) => Self::Ready {
+                display_name: profile.display_name.clone(),
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
             },

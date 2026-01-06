@@ -67,6 +67,16 @@ pub struct EventTimelineItem {
     pub(super) sender: OwnedUserId,
     /// The sender's profile of the event.
     pub(super) sender_profile: TimelineDetails<Profile>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the user ID of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder: Option<OwnedUserId>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the forwarder's profile, if present.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder_profile: Option<TimelineDetails<Profile>>,
     /// The timestamp of the event.
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -108,15 +118,27 @@ pub(crate) enum TimelineItemHandle<'a> {
 }
 
 impl EventTimelineItem {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         sender: OwnedUserId,
         sender_profile: TimelineDetails<Profile>,
+        forwarder: Option<OwnedUserId>,
+        forwarder_profile: Option<TimelineDetails<Profile>>,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
     ) -> Self {
-        Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
+        Self {
+            sender,
+            sender_profile,
+            forwarder,
+            forwarder_profile,
+            timestamp,
+            content,
+            kind,
+            is_room_encrypted,
+        }
     }
 
     /// Check whether this item is a local echo.
@@ -214,6 +236,22 @@ impl EventTimelineItem {
     /// Get the profile of the sender.
     pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
         &self.sender_profile
+    }
+
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, returns the user ID of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub fn forwarder(&self) -> Option<&UserId> {
+        self.forwarder.as_deref()
+    }
+
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, returns the profile of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub fn forwarder_profile(&self) -> Option<&TimelineDetails<Profile>> {
+        self.forwarder_profile.as_ref()
     }
 
     /// Get the content of this item.
@@ -449,6 +487,8 @@ impl EventTimelineItem {
         Self {
             sender: self.sender.clone(),
             sender_profile: self.sender_profile.clone(),
+            forwarder: self.forwarder.clone(),
+            forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
             content,
             kind,

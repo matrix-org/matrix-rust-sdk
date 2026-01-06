@@ -30,6 +30,10 @@ All notable changes to this project will be documented in this file.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
 - Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
   levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- Expose `EventTimelineItem::forwarder` and `forwarder_profile`, which, if present, provide the ID and profile of
+  the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
+  key bundle.
+  ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
   
 ### Refactor
 
