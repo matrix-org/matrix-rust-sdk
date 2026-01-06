@@ -25,7 +25,7 @@ All notable changes to this project will be documented in this file.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
 - Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
   levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
-- Add `NonFavorite` filter to the Room List API.
+- Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
   
 ### Refactor
 
