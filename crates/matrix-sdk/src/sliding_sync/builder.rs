@@ -11,10 +11,10 @@ use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
-    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
-    Version, cache::format_storage_key_prefix, sticky_parameters::SlidingSyncStickyManager,
+    Error, RoomSubscriptionState, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder,
+    SlidingSyncPositionMarkers, Version, cache::format_storage_key_prefix,
 };
-use crate::{Client, Result, sliding_sync::SlidingSyncStickyParameters};
+use crate::{Client, Result};
 
 /// Configuration for a Sliding Sync instance.
 ///
@@ -28,7 +28,7 @@ pub struct SlidingSyncBuilder {
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
-    subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+    room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
@@ -50,7 +50,7 @@ impl SlidingSyncBuilder {
                 client,
                 lists: Vec::new(),
                 extensions: None,
-                subscriptions: BTreeMap::new(),
+                room_subscriptions: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
@@ -288,9 +288,14 @@ impl SlidingSyncBuilder {
 
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
-            sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                SlidingSyncStickyParameters::new(self.subscriptions),
-            )),
+            room_subscriptions: StdRwLock::new(
+                self.room_subscriptions
+                    .into_iter()
+                    .map(|(room_id, room_subscription)| {
+                        (room_id, (RoomSubscriptionState::Pending, room_subscription))
+                    })
+                    .collect(),
+            ),
             extensions: self.extensions.unwrap_or_default(),
 
             internal_channel: internal_channel_sender,
