@@ -11,7 +11,9 @@ use std::{
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
-use ruma::{TransactionId, api::client::sync::sync_events::v5 as http, assign};
+use ruma::{
+    TransactionId, api::client::sync::sync_events::v5 as http, assign, events::StateEventType,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
@@ -222,6 +224,9 @@ pub(super) struct SlidingSyncListInner {
     /// knows).
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
 
+    /// Required states to return per room.
+    required_state: Vec<(StateEventType, String)>,
+
     /// The maximum number of timeline events to query for.
     timeline_limit: StdRwLock<Bound>,
 
@@ -308,6 +313,7 @@ impl SlidingSyncListInner {
 
         let mut request = assign!(http::request::List::default(), { ranges });
         request.room_details.timeline_limit = (*self.timeline_limit.read().unwrap()).into();
+        request.room_details.required_state = self.required_state.clone();
 
         {
             let mut sticky = self.sticky.write().unwrap();
