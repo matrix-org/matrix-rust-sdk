@@ -465,12 +465,13 @@ impl ThreadSummaryStatus {
     }
 }
 
-/// Represents a Matrix room event that has been returned from `/sync`,
-/// after initial processing.
+/// Represents a matrix room event that has been returned from a Matrix
+/// client-server API endpoint such as `/sync` or `/messages`, after initial
+/// processing.
 ///
-/// Previously, this differed from [`TimelineEvent`] by wrapping an
-/// [`AnySyncTimelineEvent`] instead of an [`AnyTimelineEvent`], but nowadays
-/// they are essentially identical, and one of them should probably be removed.
+/// The "initial processing" includes an attempt to decrypt encrypted events, so
+/// the main thing this adds over [`AnyTimelineEvent`] is information on
+/// encryption.
 //
 // 🚨 Note about this type, please read! 🚨
 //
