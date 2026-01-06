@@ -6,7 +6,7 @@ use assign::assign;
 use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt, future, pin_mut};
 use matrix_sdk::{
-    assert_decrypted_message_eq, assert_next_with_timeout,
+    Client, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
     encryption::EncryptionSettings,
     room::power_levels::RoomPowerLevelChanges,
@@ -66,35 +66,15 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
-
-    let alice = TestClientBuilder::new("alice")
-        .use_sqlite()
-        .encryption_settings(encryption_settings)
-        .enable_share_history_on_invite(true)
-        .exclude_insecure_devices(exclude_insecure_devices)
-        .build()
+    let alice = create_encryption_enabled_client("alice", exclude_insecure_devices)
+        .instrument(alice_span.clone())
         .await?;
 
-    let sync_service_span = tracing::info_span!(parent: &alice_span, "sync_service");
-    let alice_sync_service = SyncService::builder(alice.clone())
-        .with_parent_span(sync_service_span)
-        .build()
-        .await
-        .expect("Could not build alice sync service");
+    let alice_sync_service = start_client_sync_service(&alice_span, &alice).await;
 
-    alice.encryption().wait_for_e2ee_initialization_tasks().await;
-    alice_sync_service.start().await;
-
-    let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new("bob")
-            .encryption_settings(encryption_settings)
-            .enable_share_history_on_invite(true)
-            .exclude_insecure_devices(exclude_insecure_devices)
-            .build()
-            .await?,
-    );
+    let bob = create_encryption_enabled_client("bob", exclude_insecure_devices)
+        .instrument(bob_span.clone())
+        .await?;
 
     // Alice creates a room ...
     let alice_room = alice
@@ -140,13 +120,7 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 
     // Bob should have received a to-device event with the payload
-    assert_eq!(bob_response.to_device.len(), 1);
-    let to_device_event = &bob_response.to_device[0];
-    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
-    assert_eq!(
-        raw.get_field::<String>("type").unwrap().unwrap(),
-        "io.element.msc4268.room_key_bundle"
-    );
+    assert_received_room_key_bundle(bob_response);
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
@@ -437,11 +411,13 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
     let charlie_span = tracing::info_span!("charlie");
     let derek_span = tracing::info_span!("derek");
 
-    let alice = create_encryption_enabled_client("alice").instrument(alice_span.clone()).await?;
-    let bob = create_encryption_enabled_client("bob").instrument(bob_span.clone()).await?;
+    let alice =
+        create_encryption_enabled_client("alice", false).instrument(alice_span.clone()).await?;
+    let bob = create_encryption_enabled_client("bob", false).instrument(bob_span.clone()).await?;
     let charlie =
-        create_encryption_enabled_client("charlie").instrument(charlie_span.clone()).await?;
-    let derek = create_encryption_enabled_client("derek").instrument(derek_span.clone()).await?;
+        create_encryption_enabled_client("charlie", false).instrument(charlie_span.clone()).await?;
+    let derek =
+        create_encryption_enabled_client("derek", false).instrument(derek_span.clone()).await?;
 
     // 1. Alice creates a room, and enables encryption
     let alice_room = alice
@@ -602,10 +578,11 @@ async fn test_history_sharing_session_merging() -> Result<()> {
     let bob_span = tracing::info_span!("bob");
     let charlie_span = tracing::info_span!("charlie");
 
-    let alice = create_encryption_enabled_client("alice").instrument(alice_span.clone()).await?;
-    let bob = create_encryption_enabled_client("bob").instrument(bob_span.clone()).await?;
+    let alice =
+        create_encryption_enabled_client("alice", false).instrument(alice_span.clone()).await?;
+    let bob = create_encryption_enabled_client("bob", false).instrument(bob_span.clone()).await?;
     let charlie =
-        create_encryption_enabled_client("charlie").instrument(charlie_span.clone()).await?;
+        create_encryption_enabled_client("charlie", false).instrument(charlie_span.clone()).await?;
 
     // 1. Alice creates a room, and enables encryption
     let alice_room = alice
@@ -745,33 +722,13 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
-
-    let alice = TestClientBuilder::new("alice")
-        .use_sqlite()
-        .encryption_settings(encryption_settings)
-        .enable_share_history_on_invite(true)
-        .build()
-        .await?;
-
-    let sync_service_span = tracing::info_span!(parent: &alice_span, "sync_service");
-    let alice_sync_service = SyncService::builder(alice.clone())
-        .with_parent_span(sync_service_span)
-        .build()
-        .await
-        .expect("Could not build alice sync service");
+    let alice = create_encryption_enabled_client("alice", false).await?;
+    let alice_sync_service = start_client_sync_service(&alice_span, &alice).await;
 
     alice.encryption().wait_for_e2ee_initialization_tasks().await;
     alice_sync_service.start().await;
 
-    let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new("bob")
-            .encryption_settings(encryption_settings)
-            .enable_share_history_on_invite(true)
-            .build()
-            .await?,
-    );
+    let bob = create_encryption_enabled_client("bob", false).await?;
 
     // Alice creates a room ...
     let alice_room = alice
@@ -807,16 +764,8 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         .instrument(bob_span.clone())
         .await?;
 
-    let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
-
     // Bob should have received a to-device event with the payload
-    assert_eq!(bob_response.to_device.len(), 1);
-    let to_device_event = &bob_response.to_device[0];
-    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
-    assert_eq!(
-        raw.get_field::<String>("type").unwrap().unwrap(),
-        "io.element.msc4268.room_key_bundle"
-    );
+    assert_received_room_key_bundle(bob.sync_once().instrument(bob_span.clone()).await?);
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
@@ -899,7 +848,18 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
     Ok(())
 }
 
-async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwareClient> {
+/// Creates a new encryption-enabled client with the given username and
+/// settings.
+///
+/// # Arguments
+///
+/// * `username` - The username for the client.
+/// * `exclude_insecure_devices` - A boolean indicating whether to exclude
+///   insecure devices.
+async fn create_encryption_enabled_client(
+    username: &str,
+    exclude_insecure_devices: bool,
+) -> Result<SyncTokenAwareClient> {
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
@@ -908,6 +868,7 @@ async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwa
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .enable_share_history_on_invite(true)
+            .exclude_insecure_devices(exclude_insecure_devices)
             .build()
             .await?,
     );
@@ -1023,4 +984,37 @@ async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) 
         utd_info.reason,
         MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
     );
+}
+
+/// Asserts that the given `sync_response` contains exactly one to-device event
+/// and that the event is a decrypted room key bundle.
+fn assert_received_room_key_bundle(sync_response: matrix_sdk::sync::SyncResponse) {
+    assert_eq!(sync_response.to_device.len(), 1, "Expected exactly one to-device event");
+    let to_device_event = &sync_response.to_device[0];
+    assert_let!(
+        ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event,
+        "Expected the to-device event to be decrypted"
+    );
+    assert_eq!(
+        raw.get_field::<String>("type").unwrap().unwrap(),
+        "io.element.msc4268.room_key_bundle",
+        "Expected the event type to be 'io.element.msc4268.room_key_bundle'"
+    );
+}
+
+/// Start the given client's sync service and attach a new span to track logs.
+async fn start_client_sync_service(
+    span: &tracing::Span,
+    client: &impl Deref<Target = Client>,
+) -> SyncService {
+    let sync_service_span = tracing::info_span!(parent: span, "sync_service");
+    let sync_service = SyncService::builder(client.deref().clone())
+        .with_parent_span(sync_service_span)
+        .build()
+        .await
+        .expect("Could not build sync service");
+
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
+    sync_service.start().await;
+    sync_service
 }
