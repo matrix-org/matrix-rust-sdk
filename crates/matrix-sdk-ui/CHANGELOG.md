@@ -32,7 +32,11 @@ All notable changes to this project will be documented in this file.
   ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
 - `Room::load_event_with_relations` now also calls `/relations` to fetch related events when falling back
   to network mode after a cache miss.
-  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))  
+  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930))
+- Expose `EventTimelineItem::forwarder` and `forwarder_profile`, which, if present, provide the ID and profile of
+  the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
+  key bundle.
+  ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
   
 ### Refactor
 
