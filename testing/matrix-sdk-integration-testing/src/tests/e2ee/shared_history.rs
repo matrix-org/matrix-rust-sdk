@@ -32,7 +32,8 @@ use matrix_sdk_ui::{
     Timeline,
     sync_service::SyncService,
     timeline::{
-        EncryptedMessage, MsgLikeContent, MsgLikeKind, RoomExt, TimelineItem, TimelineItemContent,
+        EncryptedMessage, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails, TimelineItem,
+        TimelineItemContent,
     },
 };
 use similar_asserts::assert_eq;
@@ -176,6 +177,35 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
         event,
         "Hello Bob",
         "The decrypted event should match the message Alice has sent"
+    );
+
+    // We should be able to find the event using the high level timeline API, and
+    // inspect who forwarded us the keys to decrypt.
+
+    let alice_id = alice.user_id().unwrap();
+    let alice_display_name =
+        alice.account().get_display_name().await?.expect("Alice should have a display name");
+
+    let bob_timeline = bob_room.timeline().await?;
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let item = assert_event_received(&bob_timeline, &event_id, "Hello Bob").await;
+    let event = item.as_event().expect("The timeline item should be an event");
+
+    assert_eq!(
+        event.forwarder().expect("We should be able to access the forwarder's ID"),
+        alice_id.as_str()
+    );
+    assert_let!(
+        Some(TimelineDetails::Ready(profile)) = event.forwarder_profile(),
+        "We should be able to access the forwarder's profile"
+    );
+    assert_eq!(
+        profile
+            .display_name
+            .as_ref()
+            .expect("We should be able to access the forwarder's display name"),
+        &alice_display_name
     );
 
     Ok(())
