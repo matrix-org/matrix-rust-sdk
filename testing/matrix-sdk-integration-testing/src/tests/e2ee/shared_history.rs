@@ -730,6 +730,175 @@ async fn test_history_sharing_session_merging() -> Result<()> {
     Ok(())
 }
 
+/// This is a very similar test to [`test_history_share_on_invite`], but we send
+/// a second message once Bob has fully joined.
+///
+/// We can't combine this with the above since:
+///
+/// - We want to test that history sharing works when Alice's device is deleted,
+///   which prevents Alice from sending;
+/// - Sending a message after we invite Bob but before they join causes the
+///   sessions to be merged, so we lose the forwarder info on the first event as
+///   intended.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let bob_span = tracing::info_span!("bob");
+
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = TestClientBuilder::new("alice")
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .enable_share_history_on_invite(true)
+        .build()
+        .await?;
+
+    let sync_service_span = tracing::info_span!(parent: &alice_span, "sync_service");
+    let alice_sync_service = SyncService::builder(alice.clone())
+        .with_parent_span(sync_service_span)
+        .build()
+        .await
+        .expect("Could not build alice sync service");
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice_sync_service.start().await;
+
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new("bob")
+            .encryption_settings(encryption_settings)
+            .enable_share_history_on_invite(true)
+            .build()
+            .await?,
+    );
+
+    // Alice creates a room ...
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PublicChat),
+        }))
+        .await?;
+    alice_room.enable_encryption().await?;
+
+    info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
+
+    // ... and sends a message
+    let event_id = alice_room
+        .send(RoomMessageEventContent::text_plain("Hello Bob"))
+        .await
+        .expect("We should be able to send a message to the room")
+        .response
+        .event_id;
+
+    let bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+
+    // Alice invites Bob to the room
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
+    // Alice's identity.
+    bob.encryption()
+        .request_user_identity(alice.user_id().unwrap())
+        .instrument(bob_span.clone())
+        .await?;
+
+    let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
+
+    // Bob should have received a to-device event with the payload
+    assert_eq!(bob_response.to_device.len(), 1);
+    let to_device_event = &bob_response.to_device[0];
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
+    assert_eq!(
+        raw.get_field::<String>("type").unwrap().unwrap(),
+        "io.element.msc4268.room_key_bundle"
+    );
+
+    bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
+
+    pin_mut!(bundle_stream);
+
+    let info = bundle_stream
+        .next()
+        .now_or_never()
+        .flatten()
+        .expect("We should be notified about the received bundle");
+
+    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(info.room_id, alice_room.room_id());
+
+    let bob_room = bob
+        .join_room_by_id(alice_room.room_id())
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to accept the invitation from Alice");
+
+    let event = bob_room
+        .event(&event_id, None)
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to fetch the historic event");
+
+    assert_decrypted_message_eq!(
+        event,
+        "Hello Bob",
+        "The decrypted event should match the message Alice has sent"
+    );
+
+    // We should be able to find the event using the high level timeline API, and
+    // inspect who forwarded us the keys to decrypt.
+
+    let alice_id = alice.user_id().unwrap();
+    let alice_display_name =
+        alice.account().get_display_name().await?.expect("Alice should have a display name");
+
+    let bob_timeline = bob_room.timeline().await?;
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let item = assert_event_received(&bob_timeline, &event_id, "Hello Bob").await;
+    let event = item.as_event().expect("The timeline item should be an event");
+
+    assert_eq!(
+        event.forwarder().expect("We should be able to access the forwarder's ID"),
+        alice_id.as_str()
+    );
+    assert_let!(
+        Some(TimelineDetails::Ready(profile)) = event.forwarder_profile(),
+        "We should be able to access the forwarder's profile"
+    );
+    assert_eq!(
+        profile
+            .display_name
+            .as_ref()
+            .expect("We should be able to access the forwarder's display name"),
+        &alice_display_name
+    );
+
+    // Alice sends a second message, which Bob should receive, but have no forwarder
+    // info for as it was sent as part of a session they already have.
+
+    let event_id = alice_room
+        .send(RoomMessageEventContent::text_plain("I said Hello, Bob"))
+        .await
+        .expect("We should be able to send a message to the room")
+        .response
+        .event_id;
+
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let item = assert_event_received(&bob_timeline, &event_id, "I said Hello, Bob").await;
+    assert!(
+        item.as_event().expect("The timeline item should be an event").forwarder().is_none(),
+        "There should be no forwarder for the second message"
+    );
+
+    Ok(())
+}
+
 async fn create_encryption_enabled_client(username: &str) -> Result<SyncTokenAwareClient> {
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
