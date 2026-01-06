@@ -226,9 +226,23 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             | Some(action @ TimelineAction::HandleAggregation { .. }) => {
                 let encryption_info = event.kind.encryption_info().cloned();
                 let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+
+                let forwarder = encryption_info
+                    .as_ref()
+                    .and_then(|info| info.forwarder.as_ref())
+                    .map(|info| info.user_id.clone());
+
+                let forwarder_profile = if let Some(ref forwarder_id) = forwarder {
+                    Some(room_data_provider.profile_from_user_id(forwarder_id).await)
+                } else {
+                    None
+                };
+
                 let mut ctx = TimelineEventContext {
                     sender,
                     sender_profile,
+                    forwarder,
+                    forwarder_profile: forwarder_profile.flatten(),
                     timestamp,
                     // These are not used when handling an aggregation.
                     read_receipts: Default::default(),
@@ -700,6 +714,18 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
         });
 
+        let forwarder = event
+            .kind
+            .encryption_info()
+            .and_then(|info| info.forwarder.as_ref())
+            .map(|info| info.user_id.clone());
+
+        let forwarder_profile = if let Some(ref forwarder_id) = forwarder {
+            Some(room_data_provider.profile_from_user_id(forwarder_id).await)
+        } else {
+            None
+        };
+
         let (raw, utd_info) = match event.kind {
             TimelineEventKind::UnableToDecrypt { utd_info, event } => (event, Some(utd_info)),
             _ => (event.kind.into_raw(), None),
@@ -794,6 +820,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             let ctx = TimelineEventContext {
                 sender,
                 sender_profile,
+                forwarder,
+                forwarder_profile: forwarder_profile.flatten(),
                 timestamp,
                 read_receipts: if settings.track_read_receipts.is_enabled()
                     && should_add
