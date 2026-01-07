@@ -20,7 +20,6 @@ mod cache;
 mod client;
 mod error;
 mod list;
-mod sticky_parameters;
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -49,10 +48,7 @@ use tokio::{
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
-use self::{
-    cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor,
-    sticky_parameters::LazyTransactionId,
-};
+use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
 use crate::{Client, Result, config::RequestConfig};
 
 /// The Sliding Sync instance.
@@ -309,24 +305,14 @@ impl SlidingSync {
         debug!("Sliding Sync response has been handled by the client");
         trace!(?sync_response);
 
-        // Commit sticky parameters, if needed.
+        // All room subscriptions are marked as `Applied`.
         {
-            // All room subscriptions are marked as `Applied`.
-            {
-                let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
+            let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
 
-                for (state, _room_subscription) in room_subscriptions.values_mut() {
-                    if matches!(state, RoomSubscriptionState::Pending) {
-                        *state = RoomSubscriptionState::Applied;
-                    }
+            for (state, _room_subscription) in room_subscriptions.values_mut() {
+                if matches!(state, RoomSubscriptionState::Pending) {
+                    *state = RoomSubscriptionState::Applied;
                 }
-            }
-
-            // Commit lists.
-            if let Some(ref txn_id) = sliding_sync_response.txn_id {
-                let txn_id = txn_id.as_str().into();
-                let mut lists = self.inner.lists.write().await;
-                lists.values_mut().for_each(|list| list.maybe_commit_sticky(txn_id));
             }
         }
 
@@ -402,7 +388,6 @@ impl SlidingSync {
     #[instrument(skip_all)]
     async fn generate_sync_request(
         &self,
-        txn_id: &mut LazyTransactionId,
     ) -> Result<(http::Request, RequestConfig, OwnedMutexGuard<SlidingSyncPositionMarkers>)> {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
@@ -414,7 +399,7 @@ impl SlidingSync {
             let mut require_timeout = true;
 
             for (name, list) in lists.iter() {
-                requests_lists.insert(name.clone(), list.next_request(txn_id)?);
+                requests_lists.insert(name.clone(), list.next_request()?);
                 require_timeout = require_timeout && list.requires_timeout();
             }
 
@@ -519,11 +504,6 @@ impl SlidingSync {
         if to_device_enabled {
             request.extensions.to_device.since =
                 restored_fields.and_then(|fields| fields.to_device_token);
-        }
-
-        // Apply the transaction id if one was generated.
-        if let Some(txn_id) = txn_id.get() {
-            request.txn_id = Some(txn_id.to_string());
         }
 
         Ok((
@@ -685,8 +665,7 @@ impl SlidingSync {
     #[doc(hidden)]
     #[instrument(skip_all, fields(pos, conn_id = self.inner.id))]
     pub async fn sync_once(&self) -> Result<UpdateSummary> {
-        let (request, request_config, position_guard) =
-            self.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, request_config, position_guard) = self.generate_sync_request().await?;
 
         // Send the request.
         let summaries = self.send_sync_request(request, request_config, position_guard).await?;
@@ -791,12 +770,10 @@ impl SlidingSync {
 
         {
             let lists = self.inner.lists.read().await;
+
             for list in lists.values() {
                 // Invalidate in-memory data that would be persisted on disk.
                 list.set_maximum_number_of_rooms(None);
-
-                // Invalidate the sticky data for this list.
-                list.invalidate_sticky_data();
             }
         }
 
@@ -917,7 +894,7 @@ mod tests {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
-        OwnedRoomId, TransactionId, assign,
+        OwnedRoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id, room_id,
         serde::Raw,
@@ -932,7 +909,6 @@ mod tests {
     use super::{
         RoomSubscriptionState, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
         SlidingSyncListBuilder, SlidingSyncMode, cache::restore_sliding_sync_state, http,
-        sticky_parameters::LazyTransactionId,
     };
     use crate::{
         Client, Result,
@@ -1193,9 +1169,8 @@ mod tests {
             );
 
             // Generate the request.
-            let mut transaction_id = LazyTransactionId::new();
             let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request(&mut transaction_id).await.unwrap();
+                sliding_sync.generate_sync_request().await.unwrap();
 
             assert_eq!(request.room_subscriptions.len(), 1);
             assert!(request.room_subscriptions.contains_key(r0));
@@ -1252,9 +1227,8 @@ mod tests {
             );
 
             // Generate the request.
-            let mut transaction_id = LazyTransactionId::new();
             let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request(&mut transaction_id).await.unwrap();
+                sliding_sync.generate_sync_request().await.unwrap();
 
             assert_eq!(request.room_subscriptions.len(), 1);
             assert!(request.room_subscriptions.contains_key(r1));
@@ -1300,9 +1274,8 @@ mod tests {
             );
 
             // Generate the request.
-            let mut transaction_id = LazyTransactionId::new();
             let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request(&mut transaction_id).await.unwrap();
+                sliding_sync.generate_sync_request().await.unwrap();
 
             assert!(request.room_subscriptions.is_empty());
 
@@ -1425,10 +1398,7 @@ mod tests {
             .await?;
 
         // First request: no `pos`.
-        let txn_id = TransactionId::new();
-        let (_request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
-            .await?;
+        let (_request, _, _) = sync.generate_sync_request().await?;
 
         // Now, tracked users must be dirty.
         {
@@ -1466,10 +1436,7 @@ mod tests {
         // Second request: with a `pos` this time.
         sync.set_pos("chocolat".to_owned()).await;
 
-        let txn_id = TransactionId::new();
-        let (_request, _, _) = sync
-            .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
-            .await?;
+        let (_request, _, _) = sync.generate_sync_request().await?;
 
         // Tracked users are not marked as dirty.
         {
@@ -1523,8 +1490,7 @@ mod tests {
         {
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert!(request.pos.is_none());
         }
 
@@ -1561,8 +1527,7 @@ mod tests {
         // It's still 0, not "yolo".
         {
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("0"));
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert_eq!(request.pos.as_deref(), Some("0"));
         }
 
@@ -1612,8 +1577,7 @@ mod tests {
 
         // `pos` is `None` to start with.
         {
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
             assert!(request.pos.is_none());
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
@@ -1649,8 +1613,7 @@ mod tests {
 
         // It's alright, the next request will load it from the database.
         {
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert_eq!(request.pos.as_deref(), Some("42"));
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
         }
@@ -1660,8 +1623,7 @@ mod tests {
             let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
 
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert_eq!(request.pos.as_deref(), Some("42"));
         }
 
@@ -1672,8 +1634,7 @@ mod tests {
         {
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert!(request.pos.is_none());
         }
 
@@ -1682,8 +1643,7 @@ mod tests {
             let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _) =
-                sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
             assert!(request.pos.is_none());
         }
 
@@ -2312,8 +2272,7 @@ mod tests {
     async fn test_timeout_zero_list() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![]).await?;
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // Zero list means sliding sync is fully loaded, so there is a timeout to wait
         // on new update to pop.
@@ -2329,8 +2288,7 @@ mod tests {
         ])
         .await?;
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // The list does not require a timeout.
         assert!(request.timeout.is_none());
@@ -2358,8 +2316,7 @@ mod tests {
             };
         }
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // The list is now fully loaded, so it requires a timeout.
         assert!(request.timeout.is_some());
@@ -2377,8 +2334,7 @@ mod tests {
         ])
         .await?;
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // Two lists don't require a timeout.
         assert!(request.timeout.is_none());
@@ -2406,8 +2362,7 @@ mod tests {
             };
         }
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // One don't require a timeout.
         assert!(request.timeout.is_none());
@@ -2435,8 +2390,7 @@ mod tests {
             };
         }
 
-        let (request, _, _) =
-            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+        let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
         // All lists require a timeout.
         assert!(request.timeout.is_some());
