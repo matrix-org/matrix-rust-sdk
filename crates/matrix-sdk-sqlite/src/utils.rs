@@ -187,6 +187,7 @@ pub(crate) trait SqliteAsyncConnExt {
     ///
     /// Only returns an error in tests, otherwise the error is only logged.
     async fn vacuum(&self) -> Result<()> {
+        // Truncate the WAL file before vacuuming so it has room to grow.
         self.wal_checkpoint().await;
         if let Err(error) = self.execute_batch("VACUUM").await {
             // Since this is an optimisation step, do not propagate the error
@@ -199,12 +200,17 @@ pub(crate) trait SqliteAsyncConnExt {
             return Err(error.into());
         } else {
             trace!("VACUUM complete");
+            // Once vacuumed, truncate the WAL file again to purge the copied DB contents.
             self.wal_checkpoint().await;
         }
 
         Ok(())
     }
 
+    /// Adds a manual [WAL checkpoint] to copy back the contents of the WAL
+    /// files into the actual database, resetting the write-ahead log.
+    ///
+    /// [WAL checkpoint]: https://sqlite.org/c3ref/wal_checkpoint.html
     async fn wal_checkpoint(&self) {
         match self.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").await {
             Ok(_) => trace!("WAL checkpoint completed"),
