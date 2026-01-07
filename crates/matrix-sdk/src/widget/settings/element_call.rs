@@ -142,6 +142,11 @@ pub enum Intent {
     JoinExistingDm,
     /// The user wants to start a call in a "Direct Message" (DM) room.
     StartCallDm,
+    /// The user wants to start a voice call in a "Direct Message" (DM) room.
+    StartCallDmVoice,
+    /// The user wants to join an existing  voice call that is a "Direct
+    /// Message" (DM) room.
+    JoinExistingDmVoice,
 }
 
 /// Defines how (if) element-call renders a header.
