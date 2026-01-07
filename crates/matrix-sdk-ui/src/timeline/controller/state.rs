@@ -180,6 +180,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
         let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
+            forwarder: None,
+            forwarder_profile: None,
             timestamp: MilliSecondsSinceUnixEpoch::now(),
             read_receipts: Default::default(),
             // An event sent by ourselves is never matched against push rules.

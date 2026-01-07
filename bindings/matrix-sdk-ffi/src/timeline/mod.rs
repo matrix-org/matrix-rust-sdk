@@ -21,7 +21,6 @@ use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
 };
@@ -33,6 +32,7 @@ use matrix_sdk_ui::timeline::{
     self, AttachmentConfig, AttachmentSource, EventItemOrigin,
     LatestEventValue as UiLatestEventValue, LatestEventValueLocalState,
     MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
+    TimelineEventShieldState as SdkShieldState, TimelineEventShieldStateCode,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -980,12 +980,12 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 /// authenticity properties.
 #[derive(uniffi::Enum, Clone)]
 pub enum ShieldState {
-    /// A red shield with a tooltip containing the associated message should be
-    /// presented.
-    Red { code: ShieldStateCode, message: String },
-    /// A grey shield with a tooltip containing the associated message should be
-    /// presented.
-    Grey { code: ShieldStateCode, message: String },
+    /// A red shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Red { code: TimelineEventShieldStateCode },
+    /// A grey shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Grey { code: TimelineEventShieldStateCode },
     /// No shield should be presented.
     None,
 }
@@ -993,12 +993,8 @@ pub enum ShieldState {
 impl From<SdkShieldState> for ShieldState {
     fn from(value: SdkShieldState) -> Self {
         match value {
-            SdkShieldState::Red { code, message } => {
-                Self::Red { code, message: message.to_owned() }
-            }
-            SdkShieldState::Grey { code, message } => {
-                Self::Grey { code, message: message.to_owned() }
-            }
+            SdkShieldState::Red { code } => Self::Red { code },
+            SdkShieldState::Grey { code } => Self::Grey { code },
             SdkShieldState::None => Self::None,
         }
     }
@@ -1011,6 +1007,8 @@ pub struct EventTimelineItem {
     event_or_transaction_id: EventOrTransactionId,
     sender: String,
     sender_profile: ProfileDetails,
+    forwarder: Option<String>,
+    forwarder_profile: Option<ProfileDetails>,
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
@@ -1034,6 +1032,8 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             event_or_transaction_id: item.identifier().into(),
             sender: item.sender().to_string(),
             sender_profile: item.sender_profile().clone().into(),
+            forwarder: item.forwarder().map(ToString::to_string),
+            forwarder_profile: item.forwarder_profile().map(Into::into),
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
@@ -1081,6 +1081,21 @@ impl From<TimelineDetails<Profile>> for ProfileDetails {
             TimelineDetails::Pending => Self::Pending,
             TimelineDetails::Ready(profile) => Self::Ready {
                 display_name: profile.display_name,
+                display_name_ambiguous: profile.display_name_ambiguous,
+                avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+            },
+            TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
+        }
+    }
+}
+
+impl From<&TimelineDetails<Profile>> for ProfileDetails {
+    fn from(details: &TimelineDetails<Profile>) -> Self {
+        match details {
+            TimelineDetails::Unavailable => Self::Unavailable,
+            TimelineDetails::Pending => Self::Pending,
+            TimelineDetails::Ready(profile) => Self::Ready {
+                display_name: profile.display_name.clone(),
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
             },
@@ -1277,8 +1292,8 @@ pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineIt
 #[matrix_sdk_ffi_macros::export]
 impl LazyTimelineItemProvider {
     /// Returns the shields for this event timeline item.
-    fn get_shields(&self, strict: bool) -> Option<ShieldState> {
-        self.0.get_shield(strict).map(Into::into)
+    fn get_shields(&self, strict: bool) -> ShieldState {
+        self.0.get_shield(strict).into()
     }
 
     /// Returns some debug information for this event timeline item.

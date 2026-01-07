@@ -16,19 +16,19 @@
 //! ensuring that the keys are correctly encoded for this new store name.
 
 use indexed_db_futures::{
-    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
 };
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
+        migrations::{MigrationDb, do_schema_upgrade, old_keys, v7},
     },
     serializer::SafeEncodeSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// In the migration v5 to v7, we incorrectly copied the keys in

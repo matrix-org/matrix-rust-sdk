@@ -11,14 +11,11 @@ use ruma::{api::client::sync::sync_events::v5 as http, events::StateEventType};
 use tokio::sync::broadcast::Sender;
 
 use super::{
-    super::SlidingSyncInternalMessage, Bound, SlidingSyncList, SlidingSyncListCachePolicy,
-    SlidingSyncListInner, SlidingSyncListLoadingState, SlidingSyncListRequestGenerator,
-    SlidingSyncListStickyParameters, SlidingSyncMode,
+    super::{SlidingSyncInternalMessage, cache::restore_sliding_sync_list},
+    Bound, SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
+    SlidingSyncListLoadingState, SlidingSyncListRequestGenerator, SlidingSyncMode,
 };
-use crate::{
-    Client,
-    sliding_sync::{cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager},
-};
+use crate::Client;
 
 /// Data that might have been read from the cache.
 #[derive(Clone)]
@@ -213,9 +210,8 @@ impl SlidingSyncListBuilder {
                 sync_mode: StdRwLock::new(self.sync_mode.clone()),
 
                 // From the builder
-                sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                    SlidingSyncListStickyParameters::new(self.required_state, self.filters),
-                )),
+                filters: self.filters,
+                required_state: self.required_state,
                 timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
                 cache_policy: self.cache_policy,

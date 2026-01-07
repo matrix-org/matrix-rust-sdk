@@ -160,6 +160,8 @@ impl SqliteStateStore {
         };
         this.run_migrations(version, None).await?;
 
+        this.read().await?.wal_checkpoint().await;
+
         Ok(this)
     }
 

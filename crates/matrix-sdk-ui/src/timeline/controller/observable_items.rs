@@ -734,6 +734,8 @@ mod observable_items_tests {
             EventTimelineItem::new(
                 owned_user_id!("@ivan:mnt.io"),
                 TimelineDetails::Unavailable,
+                None,
+                None,
                 MilliSecondsSinceUnixEpoch(0u32.into()),
                 TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Message(Message {
@@ -768,6 +770,8 @@ mod observable_items_tests {
             EventTimelineItem::new(
                 owned_user_id!("@ivan:mnt.io"),
                 TimelineDetails::Unavailable,
+                None,
+                None,
                 MilliSecondsSinceUnixEpoch(0u32.into()),
                 TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Message(Message {

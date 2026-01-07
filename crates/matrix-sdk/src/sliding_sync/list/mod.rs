@@ -1,7 +1,6 @@
 mod builder;
 mod frozen;
 mod request_generator;
-mod sticky;
 
 use std::{
     fmt,
@@ -11,18 +10,14 @@ use std::{
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
-use ruma::{TransactionId, api::client::sync::sync_events::v5 as http, assign};
+use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
 
 pub use self::builder::*;
-use self::sticky::SlidingSyncListStickyParameters;
 pub(super) use self::{frozen::FrozenSlidingSyncList, request_generator::*};
-use super::{
-    Error, SlidingSyncInternalMessage,
-    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
-};
+use super::{Error, SlidingSyncInternalMessage};
 use crate::Result;
 
 /// Should this [`SlidingSyncList`] be stored in the cache, and automatically
@@ -149,11 +144,8 @@ impl SlidingSyncList {
     ///
     /// The next request is entirely calculated based on the request generator
     /// ([`SlidingSyncListRequestGenerator`]).
-    pub(super) fn next_request(
-        &self,
-        txn_id: &mut LazyTransactionId,
-    ) -> Result<http::request::List, Error> {
-        self.inner.next_request(txn_id)
+    pub(super) fn next_request(&self) -> Result<http::request::List, Error> {
+        self.inner.next_request()
     }
 
     /// Returns the current cache policy for this list.
@@ -181,17 +173,6 @@ impl SlidingSyncList {
         Ok(new_changes)
     }
 
-    /// Commit the set of sticky parameters for this list.
-    pub fn maybe_commit_sticky(&mut self, txn_id: &TransactionId) {
-        self.inner.sticky.write().unwrap().maybe_commit(txn_id);
-    }
-
-    /// Manually invalidate the sticky data, so the sticky parameters are
-    /// re-sent next time.
-    pub(super) fn invalidate_sticky_data(&self) {
-        let _ = self.inner.sticky.write().unwrap().data_mut();
-    }
-
     /// Get the sync-mode.
     #[cfg(feature = "testing")]
     pub fn sync_mode(&self) -> SlidingSyncMode {
@@ -217,10 +198,11 @@ pub(super) struct SlidingSyncListInner {
     #[cfg(target_family = "wasm")]
     requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool>,
 
-    /// Parameters that are sticky, and can be sent only once per session (until
-    /// the connection is dropped or the server invalidates what the client
-    /// knows).
-    sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
+    /// Any filters to apply to the query.
+    filters: Option<http::request::ListFilters>,
+
+    /// Required states to return per room.
+    required_state: Vec<(StateEventType, String)>,
 
     /// The maximum number of timeline events to query for.
     timeline_limit: StdRwLock<Bound>,
@@ -289,7 +271,7 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self, txn_id: &mut LazyTransactionId) -> Result<http::request::List, Error> {
+    fn next_request(&self) -> Result<http::request::List, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -297,22 +279,19 @@ impl SlidingSyncListInner {
         };
 
         // Here we go.
-        Ok(self.request(ranges, txn_id))
+        Ok(self.request(ranges))
     }
 
     /// Build a [`http::request::List`] based on the current state of the
     /// request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> http::request::List {
+    fn request(&self, ranges: Ranges) -> http::request::List {
         let ranges = ranges.into_iter().map(|r| ((*r.start()).into(), (*r.end()).into())).collect();
 
         let mut request = assign!(http::request::List::default(), { ranges });
         request.room_details.timeline_limit = (*self.timeline_limit.read().unwrap()).into();
-
-        {
-            let mut sticky = self.sticky.write().unwrap();
-            sticky.maybe_apply(&mut request, txn_id);
-        }
+        request.filters = self.filters.clone();
+        request.room_details.required_state = self.required_state.clone();
 
         request
     }
@@ -534,7 +513,7 @@ mod tests {
     use tokio::sync::broadcast::{channel, error::TryRecvError};
 
     use super::{SlidingSyncList, SlidingSyncListLoadingState, SlidingSyncMode};
-    use crate::sliding_sync::{SlidingSyncInternalMessage, sticky_parameters::LazyTransactionId};
+    use crate::sliding_sync::SlidingSyncInternalMessage;
 
     macro_rules! assert_json_roundtrip {
         (from $type:ty: $rust_value:expr => $json_value:expr) => {
@@ -625,7 +604,7 @@ mod tests {
             $(
                 {
                     // Generate a new request.
-                    let request = $list.next_request(&mut LazyTransactionId::new()).unwrap();
+                    let request = $list.next_request().unwrap();
 
                     assert_eq!(
                         request.ranges,
@@ -1136,7 +1115,7 @@ mod tests {
         assert!(list.maximum_number_of_rooms().is_none());
 
         // Simulate a request.
-        let _ = list.next_request(&mut LazyTransactionId::new());
+        let _ = list.next_request();
         let new_changes = list.update(Some(5)).unwrap();
         assert!(new_changes);
 
@@ -1144,7 +1123,7 @@ mod tests {
         assert_eq!(list.maximum_number_of_rooms(), Some(5));
 
         // Simulate another request.
-        let _ = list.next_request(&mut LazyTransactionId::new());
+        let _ = list.next_request();
         let new_changes = list.update(Some(5)).unwrap();
         assert!(!new_changes);
 

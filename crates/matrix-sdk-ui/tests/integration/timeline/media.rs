@@ -483,7 +483,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
         assert_let!(MediaSource::Plain(uri) = &file.source);
         assert!(uri.to_string().contains("localhost"));
 
-        (*index, progress.clone())
+        (*index, *progress)
     };
 
     // Eventually, the media is updated with the final MXC IDs…

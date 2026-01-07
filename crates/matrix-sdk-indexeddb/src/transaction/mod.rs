@@ -20,12 +20,12 @@
 
 use futures_util::TryStreamExt;
 use indexed_db_futures::{
-    cursor::CursorDirection, internals::SystemRepr, query_source::QuerySource,
-    transaction as inner, BuildSerde,
+    BuildSerde, cursor::CursorDirection, internals::SystemRepr, query_source::QuerySource,
+    transaction as inner,
 };
 use serde::{
-    de::{DeserializeOwned, Error},
     Serialize,
+    de::{DeserializeOwned, Error},
 };
 use thiserror::Error;
 use wasm_bindgen::JsValue;
@@ -33,9 +33,9 @@ use wasm_bindgen::JsValue;
 use crate::{
     error::{AsyncErrorDeps, GenericError},
     serializer::indexed_type::{
+        IndexedTypeSerializer,
         range::IndexedKeyRange,
         traits::{Indexed, IndexedKey},
-        IndexedTypeSerializer,
     },
 };
 

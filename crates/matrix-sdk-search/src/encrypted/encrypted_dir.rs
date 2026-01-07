@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    fs::File,
+    fs::{File, create_dir_all},
     io::{BufWriter, Cursor, Error as IoError, ErrorKind, Read, Write},
     path::Path,
     sync::Arc,
@@ -413,10 +413,13 @@ impl EncryptedMmapDirectory {
         passphrase: &str,
         pbkdf_count: u32,
     ) -> Result<KeyBuffer, OpenDirectoryError> {
+        let dir_path = key_path.parent().unwrap_or(key_path);
+
+        create_dir_all(dir_path).map_err(|err| err.into_tv_err(dir_path))?;
         // Derive a AES key from our passphrase using a randomly generated salt
         // to prevent bruteforce attempts using rainbow tables.
         let (key, hmac_key, salt) = EncryptedMmapDirectory::derive_key(passphrase, pbkdf_count)
-            .map_err(|err| err.into_tv_err(key_path))?;
+            .map_err(|err| err.into_tv_err(dir_path))?;
         // Generate a new random store key. This key will encrypt our Tantivy
         // indexing files. The key itself is stored encrypted using the derived
         // key.
@@ -695,5 +698,14 @@ mod tests {
         assert!(dir.is_err(), "Opened an existing store with the old passphrase");
         let _ = EncryptedMmapDirectory::open(tmpdir.path(), "password")
             .expect("Can't open the store with the new passphrase");
+    }
+
+    #[test]
+    fn create_store_in_nonexistent_directory() {
+        let tmpdir = tempdir().unwrap();
+        let nested_path = tmpdir.path().join("nested").join("directory");
+        let dir = EncryptedMmapDirectory::open_or_create(&nested_path, "password", PBKDF_COUNT)
+            .expect("Should create store in non-existent nested directory");
+        drop(dir);
     }
 }

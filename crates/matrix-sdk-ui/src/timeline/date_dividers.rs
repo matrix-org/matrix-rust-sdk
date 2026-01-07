@@ -683,6 +683,8 @@ mod tests {
         EventTimelineItem::new(
             owned_user_id!("@alice:example.org"),
             crate::timeline::TimelineDetails::Pending,
+            None,
+            None,
             timestamp,
             TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
             event_kind,

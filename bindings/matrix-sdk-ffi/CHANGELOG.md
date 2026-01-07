@@ -15,6 +15,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `LazyTimelineItemProvider::get_shields` no longer returns an
+  an `Option`: the `ShieldState` type contains a `None` variant, so the
+  `Option` was redundant. The `message` field has also been removed: since there
+  was no way to localise the returned string, applications should not be using it.
+  ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
@@ -25,9 +30,13 @@ All notable changes to this project will be documented in this file.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
 - Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
   levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
+- Expose `EventTimelineItem::forwarder` and `forwarder_profile`, which, if present, provide the ID and profile of
+  the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
+  key bundle.
+  ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
   events defaults, per-event overrides, notifications), so clients can compute the required power level
-  for actions and compare with previous values.
+  for actions and compare with previous values. ([#5931](https://github.com/matrix-org/matrix-rust-sdk/pull/5931))
   
 ### Refactor
 

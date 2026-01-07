@@ -47,14 +47,14 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     // Requests enable the e2ee and to_device extensions on the first run.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "e2ee": {
-                    "enabled": true
+                    "enabled": true,
                 },
                 "to_device": {
-                    "enabled": true
+                    "enabled": true,
                 }
             }
         },
@@ -64,33 +64,39 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     };
 
     // The request then passes the `pos`ition marker to the next request, as usual
-    // in sliding sync. The extensions haven't changed, so they're not updated
-    // (sticky parameters ftw).
+    // in sliding sync.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
+            "extensions": {
+                "e2ee": {
+                    "enabled": true,
+                },
+                "to_device": {
+                    "enabled": true,
+                }
+            }
         },
         respond with = {
             "pos": "1",
             "extensions": {
                 "to_device": {
-                    "next_batch": "nb0"
+                    "next_batch": "nb0",
                 }
             }
         },
     };
 
     // The to-device since token is passed from the previous request.
-    // The extensions haven't changed, so they're not updated (sticky parameters
-    // ftw).
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "to_device": {
-                    "since": "nb0"
+                    "enabled": true,
+                    "since": "nb0",
                 }
             }
         },
@@ -105,18 +111,15 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     };
 
     // The to-device since token is passed from the previous request.
-    // The extensions haven't changed, so they're not updated (sticky parameters
-    // ftw)... in the first request. Then, the sliding sync instance will retry
-    // those requests, so it will include them again; as a matter of fact, the
-    // last request that we assert against will contain those.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
         sync matches Some(Err(_)),
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "to_device": {
-                    "since": "nb1"
+                    "enabled": true,
+                    "since": "nb1",
                 }
             }
         },
@@ -134,15 +137,12 @@ async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
     let stream = encryption_sync.sync(sync_permit_guard);
     pin_mut!(stream);
 
-    // The next request will contain sticky parameters again.
+    // The next request will contain extensions again.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
-                "e2ee": {
-                    "enabled": true
-                },
                 "to_device": {
                     "enabled": true,
                     "since": "nb1"
@@ -219,8 +219,6 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
 
     encryption_sync.run_fixed_iterations(2, sync_permit_guard).await?;
 
-    // First iteration fills the whole request.
-    // Second iteration only sends non-sticky parameters.
     let expected_requests = [
         json!({
             "conn_id": "encryption",
@@ -235,6 +233,14 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
         }),
         json!({
             "conn_id": "encryption",
+            "extensions": {
+                "e2ee": {
+                    "enabled": true
+                },
+                "to_device": {
+                    "enabled": true
+                }
+            }
         }),
     ];
 
@@ -280,14 +286,17 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
         },
     };
 
-    // Second iteration only sends non-sticky parameters, plus the to-device token
-    // from the previous request.
+    // Second iteration contains the to-device token from the previous request.
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
         assert request = {
             "conn_id": "encryption",
             "extensions": {
+                "e2ee": {
+                    "enabled": true
+                },
                 "to_device": {
+                    "enabled": true,
                     "since": "nb0",
                 },
             }
@@ -321,7 +330,11 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
         assert request = {
             "conn_id": "encryption",
             "extensions": {
+                "e2ee": {
+                    "enabled": true
+                },
                 "to_device": {
+                    "enabled": true,
                     "since": "nb2",
                 },
             }
@@ -453,7 +466,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "to_device": {
@@ -504,7 +517,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "to_device": {
@@ -529,7 +542,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     sliding_sync_then_assert_request_and_fake_response! {
         [server, stream]
-        assert request = {
+        assert request >= {
             "conn_id": "encryption",
             "extensions": {
                 "to_device": {
