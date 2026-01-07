@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use indexed_db_futures::{error::OpenDbError, Build};
+use indexed_db_futures::{Build, error::OpenDbError};
 
-use crate::crypto_store::{keys, migrations::do_schema_upgrade, Result};
+use crate::crypto_store::{Result, keys, migrations::do_schema_upgrade};
 
 /// Perform the schema upgrade v11 to v12, adding an index on
 /// `(curve_key, sender_data_type, session_id)` to `inbound_group_sessions3`.

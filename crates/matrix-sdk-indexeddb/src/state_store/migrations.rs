@@ -28,17 +28,17 @@ use indexed_db_futures::{
 };
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
-    deserialized_responses::SyncOrStrippedState, store::migration_helpers::RoomInfoV1,
-    StateStoreDataKey,
+    StateStoreDataKey, deserialized_responses::SyncOrStrippedState,
+    store::migration_helpers::RoomInfoV1,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::{
+        StateEventType,
         room::{
             create::RoomCreateEventContent,
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
-        StateEventType,
     },
     serde::Raw,
 };
@@ -47,8 +47,8 @@ use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use wasm_bindgen::JsValue;
 
 use super::{
-    deserialize_value, encode_key, encode_to_range, keys, serialize_value, Result, RoomMember,
-    ALL_STORES,
+    ALL_STORES, Result, RoomMember, deserialize_value, encode_key, encode_to_range, keys,
+    serialize_value,
 };
 use crate::IndexeddbStateStoreError;
 
@@ -408,11 +408,11 @@ async fn v3_fix_store(store: &ObjectStore<'_>, store_cipher: Option<&StoreCipher
 
         if json.contains(r#""content":null"#) {
             let mut value: JsonValue = serde_json::from_str(json)?;
-            if let Some(content) = value.get_mut("content") {
-                if matches!(content, JsonValue::Null) {
-                    *content = JsonValue::Object(Default::default());
-                    return Ok(Some(value));
-                }
+            if let Some(content) = value.get_mut("content")
+                && matches!(content, JsonValue::Null)
+            {
+                *content = JsonValue::Object(Default::default());
+                return Ok(Some(value));
             }
         }
 
@@ -854,33 +854,34 @@ mod tests {
         transaction::{Transaction, TransactionMode},
     };
     use matrix_sdk_base::{
+        RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
         deserialized_responses::RawMemberEvent,
         store::{RoomLoadSettings, StateStoreExt},
         sync::UnreadNotificationsCount,
-        RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
+        EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UserId,
         events::{
+            AnySyncStateEvent, StateEventType,
             room::{
                 create::RoomCreateEventContent,
                 member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
             },
-            AnySyncStateEvent, StateEventType,
         },
         owned_user_id, room_id,
         serde::Raw,
-        server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UserId,
+        server_name, user_id,
     };
     use serde_json::json;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
 
-    use super::{old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
+    use super::{CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, MigrationConflictStrategy, old_keys};
     use crate::{
-        serializer::safe_encode::traits::SafeEncode,
-        state_store::{encode_key, keys, serialize_value, Result},
         IndexeddbStateStore, IndexeddbStateStoreError,
+        serializer::safe_encode::traits::SafeEncode,
+        state_store::{Result, encode_key, keys, serialize_value},
     };
 
     const CUSTOM_DATA_KEY: &[u8] = b"custom_data_key";

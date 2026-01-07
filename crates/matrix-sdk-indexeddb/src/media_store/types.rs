@@ -19,7 +19,7 @@ use std::{
 
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
-    media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters},
+    media::{MediaRequestParameters, store::IgnoreMediaRetentionPolicy},
 };
 use ruma::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};

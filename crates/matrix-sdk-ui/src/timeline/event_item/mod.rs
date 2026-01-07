@@ -24,7 +24,7 @@ use matrix_sdk::{
     deserialized_responses::{EncryptionInfo, ShieldState},
     send_queue::{SendHandle, SendReactionHandle},
 };
-use matrix_sdk_base::deserialized_responses::{SENT_IN_CLEAR, ShieldStateCode};
+use matrix_sdk_base::deserialized_responses::ShieldStateCode;
 use once_cell::sync::Lazy;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
@@ -67,6 +67,16 @@ pub struct EventTimelineItem {
     pub(super) sender: OwnedUserId,
     /// The sender's profile of the event.
     pub(super) sender_profile: TimelineDetails<Profile>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the user ID of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder: Option<OwnedUserId>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the forwarder's profile, if present.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder_profile: Option<TimelineDetails<Profile>>,
     /// The timestamp of the event.
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -108,15 +118,27 @@ pub(crate) enum TimelineItemHandle<'a> {
 }
 
 impl EventTimelineItem {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         sender: OwnedUserId,
         sender_profile: TimelineDetails<Profile>,
+        forwarder: Option<OwnedUserId>,
+        forwarder_profile: Option<TimelineDetails<Profile>>,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
     ) -> Self {
-        Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
+        Self {
+            sender,
+            sender_profile,
+            forwarder,
+            forwarder_profile,
+            timestamp,
+            content,
+            kind,
+            is_room_encrypted,
+        }
     }
 
     /// Check whether this item is a local echo.
@@ -216,6 +238,22 @@ impl EventTimelineItem {
         &self.sender_profile
     }
 
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, returns the user ID of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub fn forwarder(&self) -> Option<&UserId> {
+        self.forwarder.as_deref()
+    }
+
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, returns the profile of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub fn forwarder_profile(&self) -> Option<&TimelineDetails<Profile>> {
+        self.forwarder_profile.as_ref()
+    }
+
     /// Get the content of this item.
     pub fn content(&self) -> &TimelineItemContent {
         &self.content
@@ -309,30 +347,29 @@ impl EventTimelineItem {
         }
     }
 
-    /// Gets the [`ShieldState`] which can be used to decorate messages in the
-    /// recommended way.
-    pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
+    /// Gets the [`TimelineEventShieldState`] which can be used to decorate
+    /// messages in the recommended way.
+    pub fn get_shield(&self, strict: bool) -> TimelineEventShieldState {
         if !self.is_room_encrypted || self.is_local_echo() {
-            return None;
+            return TimelineEventShieldState::None;
         }
 
         // An unable-to-decrypt message has no authenticity shield.
         if self.content().is_unable_to_decrypt() {
-            return None;
+            return TimelineEventShieldState::None;
         }
 
         match self.encryption_info() {
             Some(info) => {
                 if strict {
-                    Some(info.verification_state.to_shield_state_strict())
+                    info.verification_state.to_shield_state_strict().into()
                 } else {
-                    Some(info.verification_state.to_shield_state_lax())
+                    info.verification_state.to_shield_state_lax().into()
                 }
             }
-            None => Some(ShieldState::Red {
-                code: ShieldStateCode::SentInClear,
-                message: SENT_IN_CLEAR,
-            }),
+            None => {
+                TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
+            }
         }
     }
 
@@ -450,6 +487,8 @@ impl EventTimelineItem {
         Self {
             sender: self.sender.clone(),
             sender_profile: self.sender_profile.clone(),
+            forwarder: self.forwarder.clone(),
+            forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
             content,
             kind,
@@ -691,5 +730,73 @@ impl ReactionsByKeyBySender {
             return Some(info);
         }
         None
+    }
+}
+
+/// Extends [`ShieldState`] to allow for a `SentInClear` code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimelineEventShieldState {
+    /// A red shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Red {
+        /// A machine-readable representation.
+        code: TimelineEventShieldStateCode,
+    },
+    /// A grey shield with a tooltip containing a message appropriate to the
+    /// associated code should be presented.
+    Grey {
+        /// A machine-readable representation.
+        code: TimelineEventShieldStateCode,
+    },
+    /// No shield should be presented.
+    None,
+}
+
+impl From<ShieldState> for TimelineEventShieldState {
+    fn from(value: ShieldState) -> Self {
+        match value {
+            ShieldState::Red { code, message: _ } => {
+                TimelineEventShieldState::Red { code: code.into() }
+            }
+            ShieldState::Grey { code, message: _ } => {
+                TimelineEventShieldState::Grey { code: code.into() }
+            }
+            ShieldState::None => TimelineEventShieldState::None,
+        }
+    }
+}
+
+/// Extends [`ShieldStateCode`] to allow for a `SentInClear` code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum TimelineEventShieldStateCode {
+    /// Not enough information available to check the authenticity.
+    AuthenticityNotGuaranteed,
+    /// The sending device isn't yet known by the Client.
+    UnknownDevice,
+    /// The sending device hasn't been verified by the sender.
+    UnsignedDevice,
+    /// The sender hasn't been verified by the Client's user.
+    UnverifiedIdentity,
+    /// The sender was previously verified but changed their identity.
+    VerificationViolation,
+    /// The `sender` field on the event does not match the owner of the device
+    /// that established the Megolm session.
+    MismatchedSender,
+    /// An unencrypted event in an encrypted room.
+    SentInClear,
+}
+
+impl From<ShieldStateCode> for TimelineEventShieldStateCode {
+    fn from(value: ShieldStateCode) -> Self {
+        use TimelineEventShieldStateCode::*;
+        match value {
+            ShieldStateCode::AuthenticityNotGuaranteed => AuthenticityNotGuaranteed,
+            ShieldStateCode::UnknownDevice => UnknownDevice,
+            ShieldStateCode::UnsignedDevice => UnsignedDevice,
+            ShieldStateCode::UnverifiedIdentity => UnverifiedIdentity,
+            ShieldStateCode::VerificationViolation => VerificationViolation,
+            ShieldStateCode::MismatchedSender => MismatchedSender,
+        }
     }
 }

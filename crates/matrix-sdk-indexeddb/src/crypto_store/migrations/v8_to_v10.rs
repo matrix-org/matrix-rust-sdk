@@ -16,23 +16,22 @@
 //! inbound_group_sessions3, shrinking the values stored in each record.
 
 use indexed_db_futures::{
-    error::OpenDbError, query_source::QuerySource, transaction::TransactionMode, Build,
+    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
 };
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        keys,
+        InboundGroupSessionIndexedDbObject, Result, keys,
         migrations::{
-            add_nonunique_index, do_schema_upgrade, old_keys,
-            v7::InboundGroupSessionIndexedDbObject2, MigrationDb,
+            MigrationDb, add_nonunique_index, do_schema_upgrade, old_keys,
+            v7::InboundGroupSessionIndexedDbObject2,
         },
-        InboundGroupSessionIndexedDbObject, Result,
     },
     serializer::SafeEncodeSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.

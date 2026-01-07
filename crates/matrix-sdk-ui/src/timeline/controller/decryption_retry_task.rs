@@ -236,6 +236,8 @@ mod tests {
             TimelineItemKind::Event(EventTimelineItem::new(
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
+                None,
+                None,
                 timestamp(),
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
                 event_kind,
@@ -262,6 +264,8 @@ mod tests {
             TimelineItemKind::Event(EventTimelineItem::new(
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
+                None,
+                None,
                 timestamp(),
                 TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
                     EncryptedMessage::from_content(
@@ -315,6 +319,8 @@ mod tests {
             TimelineItemKind::Event(EventTimelineItem::new(
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
+                None,
+                None,
                 timestamp(),
                 TimelineItemContent::message(
                     content.msgtype,

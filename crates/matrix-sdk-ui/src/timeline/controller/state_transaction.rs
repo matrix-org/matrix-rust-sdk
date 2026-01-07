@@ -226,9 +226,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             | Some(action @ TimelineAction::HandleAggregation { .. }) => {
                 let encryption_info = event.kind.encryption_info().cloned();
                 let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+
+                let (forwarder, forwarder_profile) =
+                    get_forwarder_info(&event, room_data_provider).await;
+
                 let mut ctx = TimelineEventContext {
                     sender,
                     sender_profile,
+                    forwarder,
+                    forwarder_profile,
                     timestamp,
                     // These are not used when handling an aggregation.
                     read_receipts: Default::default(),
@@ -680,9 +686,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
-        let thread_summary = if let ThreadSummaryStatus::Some(summary) = event.thread_summary {
-            let latest_reply_item = if let Some(latest_reply) = summary.latest_reply {
-                self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
+        let thread_summary = if let ThreadSummaryStatus::Some(ref summary) = event.thread_summary {
+            let latest_reply_item = if let Some(ref latest_reply) = summary.latest_reply {
+                self.fetch_latest_thread_reply(latest_reply, room_data_provider).await
             } else {
                 None
             };
@@ -699,6 +705,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let bundled_edit_encryption_info = event.kind.unsigned_encryption_map().and_then(|map| {
             map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
         });
+
+        let (forwarder, forwarder_profile) = get_forwarder_info(&event, room_data_provider).await;
 
         let (raw, utd_info) = match event.kind {
             TimelineEventKind::UnableToDecrypt { utd_info, event } => (event, Some(utd_info)),
@@ -794,6 +802,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             let ctx = TimelineEventContext {
                 sender,
                 sender_profile,
+                forwarder,
+                forwarder_profile,
                 timestamp,
                 read_receipts: if settings.track_read_receipts.is_enabled()
                     && should_add
@@ -1028,4 +1038,35 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         }
     }
+}
+
+/// Retrieves the forwarder information for a given timeline event.
+///
+/// # Parameters
+///
+/// - `event`: The timeline event to extract forwarder information from.
+/// - `room_data_provider`: A reference to the room data provider.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// - `Option<OwnedUserId>`: The user ID of the forwarder, if available.
+/// - `Option<Profile>`: The profile of the forwarder, if available.
+async fn get_forwarder_info<P: RoomDataProvider>(
+    event: &TimelineEvent,
+    room_data_provider: &P,
+) -> (Option<OwnedUserId>, Option<Profile>) {
+    let forwarder = event
+        .kind
+        .encryption_info()
+        .and_then(|info| info.forwarder.as_ref())
+        .map(|info| info.user_id.clone());
+
+    let forwarder_profile = if let Some(ref forwarder_id) = forwarder {
+        Some(room_data_provider.profile_from_user_id(forwarder_id).await)
+    } else {
+        None
+    };
+
+    (forwarder, forwarder_profile.flatten())
 }

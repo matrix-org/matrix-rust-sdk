@@ -108,6 +108,16 @@ impl Flow {
 pub(super) struct TimelineEventContext {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the user ID of the forwarder.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder: Option<OwnedUserId>,
+    /// If the keys used to decrypt this event were shared-on-invite as part of
+    /// an [MSC4268] key bundle, the forwarder's profile.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub(super) forwarder_profile: Option<Profile>,
     /// The event's `origin_server_ts` field (or creation time for local echo).
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
@@ -762,6 +772,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn add_item(&mut self, content: TimelineItemContent) {
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
+
+        let forwarder = self.ctx.forwarder.to_owned();
+        let forwarder_profile = self
+            .ctx
+            .forwarder
+            .as_ref()
+            .map(|_| TimelineDetails::from_initial_value(self.ctx.forwarder_profile.clone()));
+
         let timestamp = self.ctx.timestamp;
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
@@ -808,6 +826,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let item = EventTimelineItem::new(
             sender,
             sender_profile,
+            forwarder,
+            forwarder_profile,
             timestamp,
             content,
             kind,
