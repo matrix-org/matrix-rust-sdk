@@ -12,7 +12,7 @@ use tokio::sync::broadcast::Sender;
 
 use super::{
     super::{SlidingSyncInternalMessage, cache::restore_sliding_sync_list},
-    Bound, SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
+    Bound, PollTimeout, SlidingSyncList, SlidingSyncListCachePolicy, SlidingSyncListInner,
     SlidingSyncListLoadingState, SlidingSyncListRequestGenerator, SlidingSyncMode,
 };
 use crate::Client;
@@ -31,9 +31,9 @@ struct SlidingSyncListCachedData {
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     #[cfg(not(target_family = "wasm"))]
-    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync>,
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> PollTimeout + Send + Sync>,
     #[cfg(target_family = "wasm")]
-    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> bool>,
+    requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> PollTimeout>,
     required_state: Vec<(StateEventType, String)>,
     filters: Option<http::request::ListFilters>,
     timeline_limit: Bound,
@@ -71,7 +71,13 @@ impl SlidingSyncListBuilder {
     pub(super) fn new(name: impl Into<String>) -> Self {
         Self {
             sync_mode: SlidingSyncMode::default(),
-            requires_timeout: Arc::new(|request_generator| request_generator.is_fully_loaded()),
+            requires_timeout: Arc::new(|request_generator| {
+                if request_generator.is_fully_loaded() {
+                    PollTimeout::Default
+                } else {
+                    PollTimeout::None
+                }
+            }),
             required_state: vec![
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
@@ -127,7 +133,7 @@ impl SlidingSyncListBuilder {
     #[cfg(not(target_family = "wasm"))]
     pub fn requires_timeout<F>(mut self, f: F) -> Self
     where
-        F: Fn(&SlidingSyncListRequestGenerator) -> bool + Send + Sync + 'static,
+        F: Fn(&SlidingSyncListRequestGenerator) -> PollTimeout + Send + Sync + 'static,
     {
         self.requires_timeout = Arc::new(f);
         self
@@ -141,7 +147,7 @@ impl SlidingSyncListBuilder {
     #[cfg(target_family = "wasm")]
     pub fn requires_timeout<F>(mut self, f: F) -> Self
     where
-        F: Fn(&SlidingSyncListRequestGenerator) -> bool + 'static,
+        F: Fn(&SlidingSyncListRequestGenerator) -> PollTimeout + 'static,
     {
         self.requires_timeout = Arc::new(f);
         self
