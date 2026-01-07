@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Add manual WAL checkpoints when opening Sqlite DBs and when vacuuming them, since the WAL files aren't automatically shrinking. ([#6004](https://github.com/matrix-org/matrix-rust-sdk/pull/6004))
 - Use the server name extracted from the user id in `Client::fetch_client_well_known` as a fallback value. Otherwise, sometimes the server name is not available and we can't reload the well-known contents. ([#5996](https://github.com/matrix-org/matrix-rust-sdk/pull/5996))
 - Latest Event is lazier: a `RoomLatestEvents` can be registered even if its
   associated `RoomEventCache` isn't created yet.
