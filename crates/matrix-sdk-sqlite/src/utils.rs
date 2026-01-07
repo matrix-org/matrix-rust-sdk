@@ -187,6 +187,7 @@ pub(crate) trait SqliteAsyncConnExt {
     ///
     /// Only returns an error in tests, otherwise the error is only logged.
     async fn vacuum(&self) -> Result<()> {
+        self.wal_checkpoint().await;
         if let Err(error) = self.execute_batch("VACUUM").await {
             // Since this is an optimisation step, do not propagate the error
             // but log it.
@@ -198,9 +199,17 @@ pub(crate) trait SqliteAsyncConnExt {
             return Err(error.into());
         } else {
             trace!("VACUUM complete");
+            self.wal_checkpoint().await;
         }
 
         Ok(())
+    }
+
+    async fn wal_checkpoint(&self) {
+        match self.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").await {
+            Ok(_) => trace!("WAL checkpoint completed"),
+            Err(error) => error!(?error, "WAL checkpoint error"),
+        }
     }
 
     async fn get_db_size(&self) -> Result<usize> {
