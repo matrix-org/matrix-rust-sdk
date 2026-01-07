@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - Replace in-memory stores with IndexedDB implementations when initializing
   `Client` with `BuilderStoreConfig::IndexedDb`.
   [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
+- Call: Add support for the new Intents for voice only calls `Intent.StartCallDmVoice`
+  and `Intent.JoinExistingDmVoice`.
+  [#6003](https://github.com/matrix-org/matrix-rust-sdk/pull/6003)
 
 ### Bugfix
 
