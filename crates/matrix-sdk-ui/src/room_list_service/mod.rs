@@ -63,7 +63,7 @@ use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
-    event_cache::EventCacheError, timeout::timeout,
+    event_cache::EventCacheError, sliding_sync::PollTimeout, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
@@ -230,10 +230,18 @@ impl RoomListService {
                             | State::SettingUp
                             | State::Recovering
                             | State::Error { .. }
-                            | State::Terminated { .. } => false,
+                            | State::Terminated { .. } => PollTimeout::Some(0),
 
                             // Otherwise we want long-polling if the list is fully-loaded.
-                            State::Running => request_generator.is_fully_loaded(),
+                            State::Running => {
+                                if request_generator.is_fully_loaded() {
+                                    // Long-polling.
+                                    PollTimeout::Default
+                                } else {
+                                    // No long-polling yet.
+                                    PollTimeout::Some(0)
+                                }
+                            }
                         }
                     }),
             )

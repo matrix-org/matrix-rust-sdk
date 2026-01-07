@@ -354,8 +354,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         states = Init => SettingUp,
         // No `pos` because it's the first fresh query.
         assert pos None,
-        // No `timeout` because we don't want long-polling.
-        assert timeout None,
+        // `timeout=0` because we don't want long-polling.
+        assert timeout Some(0),
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -416,7 +416,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         // The previous `pos`.
         assert pos Some("0"),
         // Still no long-polling because the list isn't fully-loaded.
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -444,7 +444,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         states = Running => Running,
         assert pos Some("1"),
         // Still no long-polling because the list isn't fully-loaded.
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -473,7 +473,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         assert pos Some("2"),
         // Still no long-polling because the list isn't fully-loaded,
         // but it's about to be!
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {

@@ -407,18 +407,18 @@ impl SlidingSync {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
-        let require_timeout = {
+        let timeout = {
             let lists = self.inner.lists.read().await;
 
-            // Start at `true` in case there is zero list.
-            let mut require_timeout = true;
+            // Start at `Default` in case there is zero list.
+            let mut timeout = PollTimeout::Default;
 
             for (name, list) in lists.iter() {
                 requests_lists.insert(name.clone(), list.next_request()?);
-                require_timeout = require_timeout && list.requires_timeout();
+                timeout = timeout.min(list.requires_timeout());
             }
 
-            require_timeout
+            timeout
         };
 
         // Collect the `pos`.
@@ -490,7 +490,11 @@ impl SlidingSync {
         //
         // The `timeout` query is necessary when all lists require it. Please see
         // [`SlidingSyncList::requires_timeout`].
-        let timeout = require_timeout.then(|| self.inner.poll_timeout);
+        let timeout = match timeout {
+            PollTimeout::None => None,
+            PollTimeout::Some(timeout) => Some(Duration::from_secs(timeout.into())),
+            PollTimeout::Default => Some(self.inner.poll_timeout),
+        };
 
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
@@ -884,6 +888,36 @@ pub struct UpdateSummary {
     pub lists: Vec<String>,
     /// The rooms that have seen updates
     pub rooms: Vec<OwnedRoomId>,
+}
+
+/// Define what kind of poll timeout [`SlidingSync`] must use.
+#[derive(Debug)]
+pub enum PollTimeout {
+    /// No `timeout` must be present.
+    None,
+
+    /// A `timeout=X` must be present, where `X` is the value inside `Some`.
+    Some(u32),
+
+    /// A `timeout=X` must be present, where `X` is the default value passed to
+    /// [`SlidingSyncBuilder::poll_timeout`].
+    Default,
+}
+
+impl PollTimeout {
+    fn min(self, left: Self) -> Self {
+        match (self, left) {
+            (Self::None, _) => Self::None,
+
+            (Self::Some(_), Self::None) => Self::None,
+            (Self::Some(right), Self::Some(left)) => Self::Some(right.min(left)),
+            (Self::Some(right), Self::Default) => Self::Some(right),
+
+            (Self::Default, Self::None) => Self::None,
+            (Self::Default, Self::Some(left)) => Self::Some(left),
+            (Self::Default, Self::Default) => Self::Default,
+        }
+    }
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
