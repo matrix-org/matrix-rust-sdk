@@ -32,6 +32,9 @@ All notable changes to this project will be documented in this file.
 - Add `SlidingSync::unsubscribe_to_rooms` and
   `SlidingSync::clear_and_subscribe_to_rooms`.
   ([#6012](https://github.com/matrix-org/matrix-rust-sdk/pull/6012))
+- [**breaking**] Sliding Sync has a new `PollTimeout` type, used by
+  `SlidingSyncBuilder::requires_timeout`.
+  ([#6005](https://github.com/matrix-org/matrix-rust-sdk/pull/6005))
 
 ### Bugfix
 

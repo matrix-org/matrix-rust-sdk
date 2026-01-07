@@ -891,12 +891,20 @@ pub struct UpdateSummary {
 }
 
 /// Define what kind of poll timeout [`SlidingSync`] must use.
+///
+/// [The spec says about `timeout`][spec]:
+///
+/// > How long to wait for new events […] If omitted the response is always
+/// > returned immediately, even if there are no changes.
+///
+/// [spec]: https://github.com/matrix-org/matrix-spec-proposals/blob/erikj/sss/proposals/4186-simplified-sliding-sync.md#top-level
 #[derive(Debug)]
 pub enum PollTimeout {
     /// No `timeout` must be present.
     None,
 
-    /// A `timeout=X` must be present, where `X` is the value inside `Some`.
+    /// A `timeout=X` must be present, where `X` is in seconds and
+    /// represents how long to wait for new events.
     Some(u32),
 
     /// A `timeout=X` must be present, where `X` is the default value passed to
@@ -905,6 +913,16 @@ pub enum PollTimeout {
 }
 
 impl PollTimeout {
+    /// Computes the smallest `PollTimeout` between two of them.
+    ///
+    /// The rules are the following:
+    ///
+    /// * `None` < `Some`,
+    /// * `Some(x) < Some(y)` if and only if `x < y`,
+    /// * `Some < Default`.
+    ///
+    /// The `Default` value is unknown at this step but is assumed to be the
+    /// largest.
     fn min(self, left: Self) -> Self {
         match (self, left) {
             (Self::None, _) => Self::None,
