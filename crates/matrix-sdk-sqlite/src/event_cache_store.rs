@@ -149,7 +149,10 @@ impl SqliteEventCacheStore {
         let conn = pool.get().await?;
 
         let version = conn.db_version().await?;
+
         run_migrations(&conn, version).await?;
+
+        conn.wal_checkpoint().await;
 
         let store_cipher = match secret {
             Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
