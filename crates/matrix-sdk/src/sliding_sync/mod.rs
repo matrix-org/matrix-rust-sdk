@@ -1148,6 +1148,71 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_extensions_to_device_since_is_set() {
+        use matrix_sdk_base::crypto::store::types::Changes;
+
+        let client = logged_in_client(None).await;
+        let sliding_sync = SlidingSyncBuilder::new("foo".to_owned(), client.clone())
+            .unwrap()
+            .with_to_device_extension(assign!(
+                http::request::ToDevice::default(),
+                {
+                    enabled: Some(true),
+                }
+            ))
+            .build()
+            .await
+            .unwrap();
+
+        // Test `SlidingSyncInner::extensions`.
+        {
+            let to_device = &sliding_sync.inner.extensions.to_device;
+
+            assert_eq!(to_device.enabled, Some(true));
+            assert!(to_device.since.is_none());
+        }
+
+        // Test `Request::extensions`.
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await.unwrap();
+
+            let to_device = &request.extensions.to_device;
+
+            assert_eq!(to_device.enabled, Some(true));
+            assert!(to_device.since.is_none());
+        }
+
+        // Define a `since` token.
+        let since_token = "depuis".to_owned();
+
+        {
+            if let Some(olm_machine) = &*client.olm_machine().await {
+                olm_machine
+                    .store()
+                    .save_changes(Changes {
+                        next_batch_token: Some(since_token.clone()),
+                        ..Default::default()
+                    })
+                    .await
+                    .unwrap();
+            } else {
+                panic!("Where is the Olm machine?");
+            }
+        }
+
+        // Test `Request::extensions` again.
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await.unwrap();
+
+            let to_device = &request.extensions.to_device;
+
+            assert_eq!(to_device.enabled, Some(true));
+            assert_eq!(to_device.since, Some(since_token));
+        }
+    }
+
     #[async_test]
     async fn test_room_subscriptions_are_sticky() {
         let r0 = room_id!("!r0.matrix.org");
