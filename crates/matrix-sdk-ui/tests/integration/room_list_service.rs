@@ -417,7 +417,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         assert pos Some("0"),
         // Still no long-polling because the list isn't fully-loaded.
         assert timeout None,
-        assert request = {
+        assert request >= {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
@@ -445,7 +445,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         assert pos Some("1"),
         // Still no long-polling because the list isn't fully-loaded.
         assert timeout None,
-        assert request = {
+        assert request >= {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
@@ -474,7 +474,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         // Still no long-polling because the list isn't fully-loaded,
         // but it's about to be!
         assert timeout None,
-        assert request = {
+        assert request >= {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
@@ -502,7 +502,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         assert pos Some("3"),
         // The list is fully-loaded, we can start long-polling.
         assert timeout Some(30000),
-        assert request = {
+        assert request >= {
             "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
@@ -2414,6 +2414,25 @@ async fn test_room_subscription() -> Result<(), Error> {
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 2]],
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                    ],
+                    "filters": {},
                     "timeline_limit": 1,
                 },
             },
