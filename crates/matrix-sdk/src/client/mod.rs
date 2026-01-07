@@ -2045,17 +2045,30 @@ impl Client {
     }
 
     /// Fetches client well_known from network; no caching.
+    ///
+    /// 1. If the [`Client::server`] value is available, we use it to fetch the
+    ///    well-known contents.
+    /// 2. If it's not, we try extracting the server name from the
+    ///    [`Client::user_id`] and building the server URL from it.
+    /// 3. If we couldn't get the well-known contents with either the explicit
+    ///    server name or the implicit extracted one, we try the homeserver URL
+    ///    as a last resort.
     pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
         let homeserver = self.homeserver();
         let scheme = homeserver.scheme();
 
         // Use the server name, either an explicit one or an implicit one taken from
-        // the user id
+        // the user id: sometimes we'll have only the homeserver url available and no
+        // server name, but the server name can be extracted from the current user id.
         let server_url = self
             .server()
             .map(|server| server.to_string())
+            // If the server name wasn't available, extract it from the user id and build a URL:
+            // Reuse the same scheme as the homeserver url does, assuming if it's `http` there it
+            // will be the same for the public server url, lacking a better candidate.
             .or_else(|| self.user_id().map(|id| format!("{}://{}", scheme, id.server_name())));
 
+        // If the server name is available, first try using it
         let response = if let Some(server_url) = server_url {
             // First try using the server name
             self.fetch_client_well_known_with_url(server_url).await
@@ -2063,6 +2076,7 @@ impl Client {
             None
         };
 
+        // If we didn't get a well-known value yet, try with the homeserver url instead:
         if response.is_none() {
             // Sometimes people configure their well-known directly on the homeserver so use
             // this as a fallback when the server name is unknown.
