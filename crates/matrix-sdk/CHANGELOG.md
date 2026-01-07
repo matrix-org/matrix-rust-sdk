@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
   [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
 - Sliding Sync room subscriptions are sent once to save bandwidth.
   ([#6002](https://github.com/matrix-org/matrix-rust-sdk/pull/6002))
+- [**breaking**] Sliding Sync has a new `PollTimeout` type, used by
+  `SlidingSyncBuilder::requires_timeout`.
+  ([#6005](https://github.com/matrix-org/matrix-rust-sdk/pull/6005))
 
 ### Bugfix
 
