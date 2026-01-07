@@ -27,7 +27,10 @@ pub(crate) async fn check_requests(server: MockServer, expected_requests: &[serd
             &expected_requests[num_requests],
             assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict),
         ) {
-            panic!("{error}\n\njson_value = {json_value:?}");
+            panic!(
+                "{error}\n\nexpected_requests[{num_requests}] = {expected_request}\n\njson_value = {json_value:?}",
+                expected_request = expected_requests[num_requests],
+            );
         }
 
         num_requests += 1;

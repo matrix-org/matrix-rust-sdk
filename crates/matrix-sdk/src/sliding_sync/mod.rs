@@ -498,8 +498,6 @@ impl SlidingSync {
         // Add extensions.
         request.extensions = self.inner.extensions.clone();
 
-        // Extensions are now applied (via sticky parameters).
-        //
         // Override the to-device token if the extension is enabled.
         if to_device_enabled {
             request.extensions.to_device.since =
@@ -723,7 +721,7 @@ impl SlidingSync {
                             // Here, errors we **cannot** ignore, and that must stop the sync loop.
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                                    // The Sliding Sync session has expired. Let's reset `pos` and sticky parameters.
+                                    // The Sliding Sync session has expired. Let's reset `pos`.
                                     self.expire_session().await;
                                 }
 
@@ -755,8 +753,7 @@ impl SlidingSync {
 
     /// Expire the current Sliding Sync session on the client-side.
     ///
-    /// Expiring a Sliding Sync session means: resetting `pos`. It also resets
-    /// sticky parameters.
+    /// Expiring a Sliding Sync session means: resetting `pos`.
     ///
     /// This should only be used when it's clear that this session was about to
     /// expire anyways, and should be used only in very specific cases (e.g.
@@ -766,7 +763,7 @@ impl SlidingSync {
     /// This method **MUST** be called when the sync loop is stopped.
     #[doc(hidden)]
     pub async fn expire_session(&self) {
-        info!("Session expired; resetting `pos` and sticky parameters");
+        info!("Session expired; resetting `pos`");
 
         {
             let lists = self.inner.lists.read().await;
