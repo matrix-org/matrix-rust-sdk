@@ -59,6 +59,7 @@ use ruma::{
         alias::get_alias,
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
+        room::create_room::v3::CreationContent,
         uiaa::UserIdentifier,
     },
     events::{
@@ -86,6 +87,7 @@ use ruma::{
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    room::RoomType,
     room_version_rules::AuthorizationRules,
     OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
@@ -2305,6 +2307,8 @@ pub struct CreateRoomParameters {
     pub history_visibility_override: Option<RoomHistoryVisibility>,
     #[uniffi(default = None)]
     pub canonical_alias: Option<String>,
+    #[uniffi(default = false)]
+    pub is_space: bool,
 }
 
 impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
@@ -2358,6 +2362,12 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         }
 
         request.initial_state = initial_state;
+
+        if value.is_space {
+            let mut creation_content = CreationContent::new();
+            creation_content.room_type = Some(RoomType::Space);
+            request.creation_content = Some(Raw::new(&creation_content)?);
+        }
 
         if let Some(power_levels) = value.power_level_content_override {
             match Raw::new(&power_levels.into()) {
