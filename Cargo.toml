@@ -59,6 +59,7 @@ indexmap = "2.12.1"
 insta = { version = "1.44.1", features = ["json", "redactions"] }
 itertools = "0.14.0"
 js-sys = "0.3.82"
+js_int = "0.2.2"
 mime = "0.3.17"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
 once_cell = "1.21.3"

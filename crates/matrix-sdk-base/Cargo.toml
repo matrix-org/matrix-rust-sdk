@@ -72,6 +72,7 @@ async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
 decancer = "3.3.3"
 webrtc = { workspace = true}
+js_int.workspace = true
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true
