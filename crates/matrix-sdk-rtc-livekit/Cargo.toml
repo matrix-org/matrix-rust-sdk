@@ -6,6 +6,7 @@ edition = "2024"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 rust-version.workspace = true
+build = "build.rs"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--generate-link-to-definition"]
