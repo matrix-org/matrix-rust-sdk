@@ -26,8 +26,6 @@ All notable changes to this project will be documented in this file.
 - Replace in-memory stores with IndexedDB implementations when initializing
   `Client` with `BuilderStoreConfig::IndexedDb`.
   [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
-- Sliding Sync room subscriptions are sent once to save bandwidth.
-  ([#6002](https://github.com/matrix-org/matrix-rust-sdk/pull/6002))
 
 ### Bugfix
 
