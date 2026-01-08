@@ -63,7 +63,7 @@ pub fn select_livekit_service_url(rtc_foci: &[RtcFocusInfo]) -> Option<String> {
 
 /// Drive a LiveKit connection based on active room call memberships.
 #[derive(Debug)]
-pub struct LiveKitRoomDriver<C> {
+pub struct LiveKitRoomDriver<C: LiveKitConnector> {
     room: Room,
     connector: C,
     connection: Option<C::Connection>,
@@ -106,7 +106,7 @@ where
         service_url: &str,
         room_info: &matrix_sdk::RoomInfo,
     ) -> LiveKitResult<()> {
-        let has_memberships = !room_info.active_room_call_memberships().is_empty();
+        let has_memberships = room_info.has_active_room_call();
 
         if has_memberships {
             if self.connection.is_none() {
