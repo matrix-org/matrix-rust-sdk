@@ -1,17 +1,8 @@
-use std::sync::Arc;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use js_int::UInt;
-use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::{API, APIBuilder};
-use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::data_channel::RTCDataChannel;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
-use webrtc::error::Result;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use ruma::events::call::{
     SessionDescription,
     answer::CallAnswerEventContent,
@@ -24,6 +15,15 @@ use ruma::{
     VoipVersionId,
 };
 use tokio::sync::Mutex;
+use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::{API, APIBuilder};
+use webrtc::data_channel::RTCDataChannel;
+use webrtc::error::Result;
+use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
+use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 use crate::Room;
 
@@ -80,13 +80,11 @@ pub fn is_call_initiator(
 ) -> bool {
     let mut ordered = memberships.to_vec();
     ordered.sort_by(|left, right| {
-        left.created_ts
-            .cmp(&right.created_ts)
-            .then_with(|| left.state_key.cmp(&right.state_key))
+        left.created_ts.cmp(&right.created_ts).then_with(|| left.state_key.cmp(&right.state_key))
     });
 
     ordered.first().is_some_and(|member| {
-        member.user_id.as_ref() == local_user_id && member.device_id.as_ref() == local_device_id
+        member.user_id == local_user_id && member.device_id == local_device_id
     })
 }
 
@@ -104,7 +102,7 @@ pub struct MatrixRtcSignalingIds {
 impl MatrixRtcSignalingIds {
     /// Build identifiers for a VoIP v0 call.
     pub fn version_0(call_id: OwnedVoipId) -> Self {
-        Self { call_id, party_id: call_id.clone(), version: VoipVersionId::V0 }
+        Self { call_id: call_id.clone(), party_id: call_id, version: VoipVersionId::V0 }
     }
 
     /// Build identifiers for a VoIP v1 call.
@@ -114,17 +112,18 @@ impl MatrixRtcSignalingIds {
 }
 
 /// A callback that delivers outgoing MatrixRTC candidates to your signaling layer.
-pub type CandidateSender =
-    Arc<dyn Fn(CallCandidatesEventContent) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type CandidateSender = Arc<
+    dyn Fn(CallCandidatesEventContent) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+>;
 
 /// Represents a single WebRTC call session.
 pub struct CallSession {
     /// The API object used for creating peer connections and other WebRTC entities.
     pub api: Arc<API>,
-    
+
     /// The central object managing the connection, tracks, and candidates.
     pub peer_connection: Arc<RTCPeerConnection>,
-    
+
     /// Optional DataChannel for sending arbitrary data.
     pub data_channel: Option<Arc<RTCDataChannel>>,
 
@@ -139,7 +138,7 @@ pub struct CallSession {
 }
 
 impl CallSession {
-     /// Creates a new CallSession, setting up the MediaEngine, API, and PeerConnection.
+    /// Creates a new CallSession, setting up the MediaEngine, API, and PeerConnection.
     pub async fn new(is_initiator: bool) -> Result<Arc<Self>> {
         // 1. Setup Media Engine (registers codecs and transports)
         let mut m = MediaEngine::default();
@@ -150,12 +149,10 @@ impl CallSession {
 
         // 3. Configure the Peer Connection (STUN servers are mandatory for NAT traversal)
         let config = RTCConfiguration {
-            ice_servers: vec![
-                RTCIceServer {
-                    urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-                    ..Default::default()
-                },
-            ],
+            ice_servers: vec![RTCIceServer {
+                urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                ..Default::default()
+            }],
             ..Default::default()
         };
 
@@ -173,34 +170,27 @@ impl CallSession {
 
         // 5. Setup event handlers (Crucial for signaling)
         let session_clone = Arc::clone(&session);
-        session_clone
-            .peer_connection
-            .on_ice_candidate(Box::new(move |candidate: Option<RTCIceCandidate>| {
-                let session_clone = Arc::clone(&session_clone);
-                Box::pin(async move {
-                    if let Some(candidate) = candidate {
-                        if let Some((ids, sender)) =
-                            session_clone.candidate_sender.lock().await.as_ref().cloned()
-                        {
-                            if let Ok(content) =
-                                CallSession::candidates_event(&ids, vec![candidate])
-                            {
-                                (sender)(content).await;
-                            }
+        let peer_connection = Arc::clone(&session.peer_connection);
+        peer_connection.on_ice_candidate(Box::new(move |candidate: Option<RTCIceCandidate>| {
+            let session_clone = Arc::clone(&session_clone);
+            Box::pin(async move {
+                if let Some(candidate) = candidate {
+                    if let Some((ids, sender)) =
+                        session_clone.candidate_sender.lock().await.as_ref().cloned()
+                    {
+                        if let Ok(content) = CallSession::candidates_event(&ids, vec![candidate]) {
+                            (sender)(content).await;
                         }
                     }
-                })
-            }));
+                }
+            })
+        }));
 
         Ok(session)
     }
 
     /// Register a callback that publishes outgoing ICE candidates as MatrixRTC events.
-    pub async fn set_candidate_sender(
-        &self,
-        ids: MatrixRtcSignalingIds,
-        sender: CandidateSender,
-    ) {
+    pub async fn set_candidate_sender(&self, ids: MatrixRtcSignalingIds, sender: CandidateSender) {
         *self.candidate_sender.lock().await = Some((ids, sender));
     }
 
@@ -211,9 +201,11 @@ impl CallSession {
         lifetime_ms: u64,
     ) -> Result<CallInviteEventContent> {
         if !self.is_initiator {
-            return Err(webrtc::error::Error::new("Only the initiator can create an offer.".to_owned()));
+            return Err(webrtc::error::Error::new(
+                "Only the initiator can create an offer.".to_owned(),
+            ));
         }
-        
+
         // 1. Create the offer
         let offer = self.peer_connection.create_offer(None).await?;
 
@@ -224,22 +216,32 @@ impl CallSession {
         let offer = to_matrix_session_description(offer);
         let lifetime = UInt::new_saturating(lifetime_ms);
         let content = match ids.version {
-            VoipVersionId::V0 => CallInviteEventContent::version_0(ids.call_id.clone(), lifetime, offer),
+            VoipVersionId::V0 => {
+                CallInviteEventContent::version_0(ids.call_id.clone(), lifetime, offer)
+            }
             VoipVersionId::V1 => CallInviteEventContent::version_1(
                 ids.call_id.clone(),
                 ids.party_id.clone(),
                 lifetime,
                 offer,
             ),
-            _ => CallInviteEventContent::new(ids.call_id.clone(), lifetime, offer, ids.version),
+            _ => CallInviteEventContent::new(
+                ids.call_id.clone(),
+                lifetime,
+                offer,
+                ids.version.clone(),
+            ),
         };
 
         Ok(content)
     }
 
-    /// Receiver side: Handles the incoming Offer, sets it as the Remote Description, 
+    /// Receiver side: Handles the incoming Offer, sets it as the Remote Description,
     /// creates an Answer, sets it as the Local Description, and returns the Answer.
-    pub async fn handle_offer(&self, offer: RTCSessionDescription) -> Result<RTCSessionDescription> {
+    pub async fn handle_offer(
+        &self,
+        offer: RTCSessionDescription,
+    ) -> Result<RTCSessionDescription> {
         if self.is_initiator {
             return Err(webrtc::error::Error::new("Initiator cannot handle an offer.".to_owned()));
         }
@@ -258,7 +260,7 @@ impl CallSession {
         for candidate in candidates.drain(..) {
             self.peer_connection.add_ice_candidate(candidate).await?;
         }
-        
+
         // The answer SDP should now be sent back to the initiator.
         Ok(answer)
     }
@@ -269,7 +271,7 @@ impl CallSession {
         invite: &CallInviteEventContent,
         ids: &MatrixRtcSignalingIds,
     ) -> Result<CallAnswerEventContent> {
-        let answer = self.handle_offer(from_matrix_session_description(&invite.offer)).await?;
+        let answer = self.handle_offer(from_matrix_session_description(&invite.offer)?).await?;
         let answer = to_matrix_session_description(answer);
         let content = match invite.version {
             VoipVersionId::V0 => CallAnswerEventContent::version_0(answer, invite.call_id.clone()),
@@ -278,7 +280,9 @@ impl CallSession {
                 invite.call_id.clone(),
                 ids.party_id.clone(),
             ),
-            _ => CallAnswerEventContent::new(answer, invite.call_id.clone(), invite.version),
+            _ => {
+                CallAnswerEventContent::new(answer, invite.call_id.clone(), invite.version.clone())
+            }
         };
 
         Ok(content)
@@ -287,7 +291,9 @@ impl CallSession {
     /// Initiator side: Handles the incoming Answer from the remote peer.
     pub async fn handle_answer(&self, answer: RTCSessionDescription) -> Result<()> {
         if !self.is_initiator {
-            return Err(webrtc::error::Error::new("Only the initiator handles the answer.".to_owned()));
+            return Err(webrtc::error::Error::new(
+                "Only the initiator handles the answer.".to_owned(),
+            ));
         }
 
         // 1. Set the remote description (the received answer)
@@ -304,11 +310,11 @@ impl CallSession {
 
     /// Initiator side: Handles an incoming MatrixRTC answer event.
     pub async fn handle_answer_event(&self, answer: &CallAnswerEventContent) -> Result<()> {
-        self.handle_answer(from_matrix_session_description(&answer.answer)).await
+        self.handle_answer(from_matrix_session_description(&answer.answer)?).await
     }
 
     /// Handles an incoming ICE candidate from the remote peer.
-    /// 
+    ///
     /// If the remote description has already been set, the candidate is added immediately.
     /// Otherwise, it is buffered in `pending_ice_candidates`.
     pub async fn add_remote_candidate(&self, candidate: RTCIceCandidateInit) -> Result<()> {
@@ -322,7 +328,7 @@ impl CallSession {
             let mut candidates = self.pending_ice_candidates.lock().await;
             candidates.push(candidate);
         }
-        
+
         Ok(())
     }
 
@@ -354,13 +360,13 @@ impl CallSession {
         let candidates = candidates
             .into_iter()
             .filter_map(|candidate| match candidate.to_json() {
-                Ok(json) => Some(Candidate {
-                    candidate: json.candidate,
-                    sdp_mid: json.sdp_mid,
-                    sdp_m_line_index: json
-                        .sdp_mline_index
-                        .map(|index| UInt::new_saturating(u64::from(index))),
-                }),
+                Ok(json) => {
+                    let mut candidate = Candidate::new(json.candidate);
+                    candidate.sdp_mid = json.sdp_mid;
+                    candidate.sdp_m_line_index =
+                        json.sdp_mline_index.map(|index| UInt::new_saturating(u64::from(index)));
+                    Some(candidate)
+                }
                 Err(_) => None,
             })
             .collect::<Vec<_>>();
@@ -374,7 +380,11 @@ impl CallSession {
                 ids.party_id.clone(),
                 candidates,
             ),
-            _ => CallCandidatesEventContent::new(ids.call_id.clone(), candidates, ids.version),
+            _ => CallCandidatesEventContent::new(
+                ids.call_id.clone(),
+                candidates,
+                ids.version.clone(),
+            ),
         };
 
         Ok(content)
@@ -385,10 +395,13 @@ fn to_matrix_session_description(desc: RTCSessionDescription) -> SessionDescript
     SessionDescription::new(desc.sdp_type.to_string(), desc.sdp)
 }
 
-fn from_matrix_session_description(desc: &SessionDescription) -> RTCSessionDescription {
-    RTCSessionDescription {
-        sdp_type: desc.session_type.as_str().into(),
-        sdp: desc.sdp.clone(),
-        parsed: None,
+fn from_matrix_session_description(desc: &SessionDescription) -> Result<RTCSessionDescription> {
+    match desc.session_type.as_str() {
+        "answer" => RTCSessionDescription::answer(desc.sdp.clone()),
+        "offer" => RTCSessionDescription::offer(desc.sdp.clone()),
+        "pranswer" => RTCSessionDescription::pranswer(desc.sdp.clone()),
+        other => {
+            Err(webrtc::error::Error::new(format!("Unsupported session description type: {other}")))
+        }
     }
 }
