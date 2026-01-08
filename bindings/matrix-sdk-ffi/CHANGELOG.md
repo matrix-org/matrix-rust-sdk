@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `RoomCreationParameters::is_space` parameter to be able to create spaces. ([#6010](https://github.com/matrix-org/matrix-rust-sdk/pull/6010/))
 - [**breaking**] `LazyTimelineItemProvider::get_shields` no longer returns an
   an `Option`: the `ShieldState` type contains a `None` variant, so the
   `Option` was redundant. The `message` field has also been removed: since there
