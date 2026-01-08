@@ -107,8 +107,7 @@ pub(super) struct SlidingSyncInner {
 
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
-    room_subscriptions:
-        StdRwLock<BTreeMap<OwnedRoomId, (RoomSubscriptionState, http::request::RoomSubscription)>>,
+    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, http::request::RoomSubscription>>,
 
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
@@ -151,18 +150,12 @@ impl SlidingSync {
         let mut skip_over_current_sync_loop_iteration = false;
 
         for room_id in room_ids {
-            // If the room subscription already exists, let's not
-            // override it with a new one. First, it would reset its
-            // state (`RoomSubscriptionState`), and second it would try to
-            // re-subscribe with the next request. We don't want that. A room
-            // subscription should happen once, and next subscriptions should
-            // be ignored.
             if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
                 if let Some(room) = self.inner.client.get_room(room_id) {
                     room.mark_members_missing();
                 }
 
-                entry.insert((RoomSubscriptionState::default(), settings.clone()));
+                entry.insert(settings.clone());
 
                 skip_over_current_sync_loop_iteration = true;
             }
@@ -304,17 +297,6 @@ impl SlidingSync {
 
         debug!("Sliding Sync response has been handled by the client");
         trace!(?sync_response);
-
-        // All room subscriptions are marked as `Applied`.
-        {
-            let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
-
-            for (state, _room_subscription) in room_subscriptions.values_mut() {
-                if matches!(state, RoomSubscriptionState::Pending) {
-                    *state = RoomSubscriptionState::Applied;
-                }
-            }
-        }
 
         let update_summary = {
             // Update the rooms.
@@ -485,15 +467,7 @@ impl SlidingSync {
         });
 
         // Add room subscriptions.
-        request.room_subscriptions = self
-            .inner
-            .room_subscriptions
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|(_, (state, _))| matches!(state, RoomSubscriptionState::Pending))
-            .map(|(room_id, (_, room_subscription))| (room_id.clone(), room_subscription.clone()))
-            .collect();
+        request.room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
 
         // Add extensions.
         request.extensions = self.inner.extensions.clone();
@@ -849,30 +823,6 @@ pub struct UpdateSummary {
     pub rooms: Vec<OwnedRoomId>,
 }
 
-/// A very basic bool-ish enum to represent the state of a
-/// [`RoomSubscription`].
-///
-/// Once a [`RoomSubscription`] has beent sent, it's not removed from the list
-/// of room subscriptions, but instead is marked as [`Self::Applied`], so that
-/// it cannot be sent again, mostly to save bandwidth.
-///
-/// [`RoomSubscription`]: http::request::RoomSubscription
-#[derive(Debug, Default)]
-enum RoomSubscriptionState {
-    /// The [`RoomSubscription`] has not been sent to or received correctly by
-    /// the server.
-    ///
-    /// [`RoomSubscription`]: http::request::RoomSubscription
-    #[default]
-    Pending,
-
-    /// The [`RoomSubscription`] has been sent and received correctly by the
-    /// server.
-    ///
-    /// [`RoomSubscription`]: http::request::RoomSubscription
-    Applied,
-}
-
 #[cfg(all(test, not(target_family = "wasm")))]
 #[allow(clippy::dbg_macro)]
 mod tests {
@@ -904,8 +854,8 @@ mod tests {
     };
 
     use super::{
-        RoomSubscriptionState, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
-        SlidingSyncListBuilder, SlidingSyncMode, cache::restore_sliding_sync_state, http,
+        SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+        cache::restore_sliding_sync_state, http,
     };
     use crate::{
         Client, Result,
@@ -1207,169 +1157,6 @@ mod tests {
 
             assert_eq!(to_device.enabled, Some(true));
             assert_eq!(to_device.since, Some(since_token));
-        }
-    }
-
-    #[async_test]
-    async fn test_room_subscriptions_are_sticky() {
-        let r0 = room_id!("!r0.matrix.org");
-        let r1 = room_id!("!r1:matrix.org");
-
-        let client = logged_in_client(None).await;
-        let sliding_sync =
-            SlidingSyncBuilder::new("foo".to_owned(), client).unwrap().build().await.unwrap();
-
-        // A room subscription is added. The request is sent and received.
-        {
-            // Insert `r0`.
-            sliding_sync.subscribe_to_rooms(&[r0], None, false);
-
-            // The room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert_eq!(request.room_subscriptions.len(), 1);
-            assert!(request.room_subscriptions.contains_key(r0));
-
-            // The room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos0".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // The room subscription is marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // A room subscription is re-added.
-        {
-            // Insert `r0`.
-            sliding_sync.subscribe_to_rooms(&[r0], None, false);
-
-            // The room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // A new room subscription is added.
-        {
-            // Insert `r1`.
-            sliding_sync.subscribe_to_rooms(&[r1], None, false);
-
-            // This room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            // This room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert_eq!(request.room_subscriptions.len(), 1);
-            assert!(request.room_subscriptions.contains_key(r1));
-
-            // This room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            // This room subscription is still marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos1".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // This room subscription is marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // No new room subscription is added.
-        {
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert!(request.room_subscriptions.is_empty());
-
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos1".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
         }
     }
 
