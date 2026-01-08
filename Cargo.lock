@@ -3485,6 +3485,7 @@ dependencies = [
  "gloo-timers",
  "growable-bloom-filter",
  "http",
+ "js_int",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
