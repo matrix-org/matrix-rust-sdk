@@ -2312,7 +2312,6 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe.
-
     room_list.subscribe_to_rooms(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
@@ -2357,7 +2356,6 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe to another room.
-
     room_list.subscribe_to_rooms(&[room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
@@ -2370,6 +2368,28 @@ async fn test_room_subscription() -> Result<(), Error> {
                 },
             },
             "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
                 room_id_2: {
                     "required_state": [
                         ["m.room.name", ""],
@@ -2402,13 +2422,12 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe to an already subscribed room. Nothing happens.
-
     room_list.subscribe_to_rooms(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         // strict comparison (with `=`) because we want to ensure
-        // the absence of `room_subscriptions`.
+        // the exact shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2436,7 +2455,52 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "timeline_limit": 1,
                 },
             },
-            // NO `room_subscriptions`!
+            "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+                room_id_2: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+            },
             "extensions": {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },

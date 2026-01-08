@@ -11,8 +11,8 @@ use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
-    Error, RoomSubscriptionState, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder,
-    SlidingSyncPositionMarkers, Version, cache::format_storage_key_prefix,
+    Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    Version, cache::format_storage_key_prefix,
 };
 use crate::{Client, Result};
 
@@ -288,14 +288,7 @@ impl SlidingSyncBuilder {
 
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
-            room_subscriptions: StdRwLock::new(
-                self.room_subscriptions
-                    .into_iter()
-                    .map(|(room_id, room_subscription)| {
-                        (room_id, (RoomSubscriptionState::Pending, room_subscription))
-                    })
-                    .collect(),
-            ),
+            room_subscriptions: StdRwLock::new(self.room_subscriptions),
             extensions: self.extensions.unwrap_or_default(),
 
             internal_channel: internal_channel_sender,
