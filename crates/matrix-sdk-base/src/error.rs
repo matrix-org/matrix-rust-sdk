@@ -58,6 +58,10 @@ pub enum Error {
     #[error(transparent)]
     CryptoStore(#[from] CryptoStoreError),
 
+    /// The given cross-process lock holder name is already used by a store.
+    #[error("The given cross-process lock holder name is already used by a store: `{0}`")]
+    DuplicatedCrossProcessLockHolder(String),
+
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
