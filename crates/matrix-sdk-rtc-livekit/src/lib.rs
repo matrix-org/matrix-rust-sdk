@@ -4,14 +4,8 @@ use async_trait::async_trait;
 use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitResult};
 
-pub use livekit::e2ee::{ExternalKeyProvider, KeyProvider};
+pub use livekit::e2ee;
 pub use livekit::{ConnectionState, Room, RoomOptions};
-
-/// Alias for the LiveKit base key provider.
-pub type BaseKeyProvider = KeyProvider;
-
-/// Alias for the LiveKit external E2EE key provider.
-pub type ExternalE2EEKeyProvider = ExternalKeyProvider;
 
 /// A token provider for joining LiveKit rooms.
 #[async_trait]
@@ -56,7 +50,8 @@ impl LiveKitSdkConnection {
 #[async_trait]
 impl LiveKitConnection for LiveKitSdkConnection {
     async fn disconnect(self) -> LiveKitResult<()> {
-        self.room.disconnect().await.map_err(LiveKitError::connector)
+        drop(self);
+        Ok(())
     }
 }
 
@@ -95,7 +90,7 @@ where
     async fn connect(&self, service_url: &str, room: &MatrixRoom) -> LiveKitResult<Self::Connection> {
         let token = self.token_provider.token(room).await?;
         let room_options = self.room_options.room_options(room);
-        let livekit_room = Room::connect(service_url, token, room_options)
+        let (livekit_room, _events) = Room::connect(service_url, &token, room_options)
             .await
             .map_err(LiveKitError::connector)?;
         Ok(LiveKitSdkConnection { room: livekit_room })
