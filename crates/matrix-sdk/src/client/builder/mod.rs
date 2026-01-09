@@ -381,6 +381,38 @@ impl ClientBuilder {
         self
     }
 
+    /// Set a client certificate (identity) for mutual TLS authentication.
+    ///
+    /// This enables mTLS by providing a client certificate that will be
+    /// presented to the server during the TLS handshake.
+    ///
+    /// Internally this will call the
+    /// [`reqwest::ClientBuilder::identity()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - A [`reqwest::Identity`] containing the client certificate
+    ///   and private key. This can be created from PKCS#12/PFX data using
+    ///   [`reqwest::Identity::from_pkcs12_der()`] or from PEM data using
+    ///   [`reqwest::Identity::from_pem()`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::fs;
+    /// use matrix_sdk::Client;
+    ///
+    /// let cert_data = fs::read("client.p12")?;
+    /// let identity = reqwest::Identity::from_pkcs12_der(&cert_data, "password")?;
+    /// let client_config = Client::builder().client_certificate(identity);
+    /// # anyhow::Ok(())
+    /// ```
+    #[cfg(not(target_family = "wasm"))]
+    pub fn client_certificate(mut self, identity: reqwest::Identity) -> Self {
+        self.http_settings().client_identity = Some(identity);
+        self
+    }
+
     /// Specify a [`reqwest::Client`] instance to handle sending requests and
     /// receiving responses.
     ///
