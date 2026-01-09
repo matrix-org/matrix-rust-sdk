@@ -2903,3 +2903,66 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ruma::{
+        api::client::room::{create_room, Visibility},
+        events::StateEventType,
+        room::RoomType,
+    };
+
+    use crate::{
+        client::{CreateRoomParameters, JoinRule, RoomPreset, RoomVisibility},
+        room::RoomHistoryVisibility,
+    };
+
+    #[test]
+    fn test_create_room_parameters_mapping() {
+        let params = CreateRoomParameters {
+            name: Some("A room".to_owned()),
+            topic: Some("A topic".to_owned()),
+            is_encrypted: true,
+            is_direct: true,
+            visibility: RoomVisibility::Public,
+            preset: RoomPreset::PublicChat,
+            invite: Some(vec!["@user:example.com".to_owned()]),
+            avatar: Some("http://example.com/avatar.jpg".to_owned()),
+            power_level_content_override: None,
+            join_rule_override: Some(JoinRule::Knock),
+            history_visibility_override: Some(RoomHistoryVisibility::Shared),
+            canonical_alias: Some("#a-room:example.com".to_owned()),
+            is_space: true,
+        };
+
+        let request: create_room::v3::Request =
+            params.try_into().expect("CreateRoomParameters couldn't be transformed into a Request");
+        let initial_state = request
+            .initial_state
+            .iter()
+            .map(|raw| raw.deserialize().expect("Initial state event failed to deserialize"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(request.name, Some("A room".to_owned()));
+        assert_eq!(request.topic, Some("A topic".to_owned()));
+        assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomEncryption));
+        assert!(request.is_direct);
+        assert_eq!(request.visibility, Visibility::Public);
+        assert_eq!(request.preset, Some(create_room::v3::RoomPreset::PublicChat));
+        assert_eq!(request.invite.len(), 1);
+        assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomAvatar));
+        assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomJoinRules));
+        assert!(initial_state
+            .iter()
+            .any(|e| e.event_type() == StateEventType::RoomHistoryVisibility));
+        assert_eq!(request.room_alias_name, Some("#a-room:example.com".to_owned()));
+
+        let room_type = request
+            .creation_content
+            .expect("Creation content is missing")
+            .deserialize()
+            .expect("Creation content can't be deserialized")
+            .room_type;
+        assert_eq!(room_type, Some(RoomType::Space));
+    }
+}
