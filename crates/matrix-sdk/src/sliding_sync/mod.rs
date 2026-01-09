@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::Debug,
     future::Future,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{Arc, RwLock as StdRwLock, RwLockWriteGuard as StdRwLockWriteGuard},
     time::Duration,
 };
 
@@ -132,10 +132,10 @@ impl SlidingSync {
         SlidingSyncBuilder::new(id, client)
     }
 
-    /// Subscribe to many rooms.
+    /// Add subscriptions to many rooms.
     ///
-    /// If the associated `Room`s exist, it will be marked as
-    /// members are missing, so that it ensures to re-fetch all members.
+    /// If the associated `Room`s exist, they will be marked as members are
+    /// missing, so that it ensures to re-fetch all members.
     ///
     /// A subscription to an already subscribed room is ignored.
     pub fn subscribe_to_rooms(
@@ -144,24 +144,57 @@ impl SlidingSync {
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
-        let settings = settings.unwrap_or_default();
-        let room_subscriptions = &mut self.inner.room_subscriptions.write().unwrap();
+        if subscribe_to_rooms(
+            self.inner.room_subscriptions.write().unwrap(),
+            &self.inner.client,
+            room_ids,
+            settings,
+            cancel_in_flight_request,
+        ) {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
+    }
 
+    /// Remove subscriptions to many rooms.
+    pub fn unsubscribe_to_rooms(&self, room_ids: &[&RoomId], cancel_in_flight_request: bool) {
+        let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
         let mut skip_over_current_sync_loop_iteration = false;
 
         for room_id in room_ids {
-            if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
-                if let Some(room) = self.inner.client.get_room(room_id) {
-                    room.mark_members_missing();
-                }
-
-                entry.insert(settings.clone());
-
+            if room_subscriptions.remove(*room_id).is_some() {
                 skip_over_current_sync_loop_iteration = true;
             }
         }
 
         if cancel_in_flight_request && skip_over_current_sync_loop_iteration {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
+    }
+
+    /// Replace all subscriptions to rooms by other ones.
+    ///
+    /// If the associated `Room`s exist, they will be marked as members are
+    /// missing, so that it ensures to re-fetch all members.
+    pub fn clear_and_subscribe_to_rooms(
+        &self,
+        room_ids: &[&RoomId],
+        settings: Option<http::request::RoomSubscription>,
+        cancel_in_flight_request: bool,
+    ) {
+        let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
+        room_subscriptions.clear();
+
+        if subscribe_to_rooms(
+            room_subscriptions,
+            &self.inner.client,
+            room_ids,
+            settings,
+            cancel_in_flight_request,
+        ) {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -771,6 +804,36 @@ impl SlidingSync {
     }
 }
 
+/// Private implementation for [`SlidingSync::subscribe_to_rooms`] and
+/// [`SlidingSync::clear_and_subscribe_to_rooms`].
+fn subscribe_to_rooms(
+    mut room_subscriptions: StdRwLockWriteGuard<
+        '_,
+        BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+    >,
+    client: &Client,
+    room_ids: &[&RoomId],
+    settings: Option<http::request::RoomSubscription>,
+    cancel_in_flight_request: bool,
+) -> bool {
+    let settings = settings.unwrap_or_default();
+    let mut skip_over_current_sync_loop_iteration = false;
+
+    for room_id in room_ids {
+        if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
+            if let Some(room) = client.get_room(room_id) {
+                room.mark_members_missing();
+            }
+
+            entry.insert(settings.clone());
+
+            skip_over_current_sync_loop_iteration = true;
+        }
+    }
+
+    cancel_in_flight_request && skip_over_current_sync_loop_iteration
+}
+
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
     #[instrument]
@@ -1006,6 +1069,76 @@ mod tests {
         // Members are still synced: because we have already subscribed to the
         // room, the members aren't marked as unsynced.
         assert!(room0.are_members_synced());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_subscribe_unsubscribe_and_clear_and_subscribe_to_rooms() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+        let room_id_2 = room_id!("!r2:bar.org");
+        let room_id_3 = room_id!("!r3:bar.org");
+
+        // Initially empty.
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert!(room_subscriptions.is_empty());
+        }
+
+        // Add 2 rooms.
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Remove 1 room.
+        sliding_sync.unsubscribe_to_rooms(&[room_id_0], false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 1);
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Add 2 rooms, but one already exists.
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Replace all rooms with 2 other rooms.
+        sliding_sync.clear_and_subscribe_to_rooms(
+            &[room_id_2, room_id_3],
+            Default::default(),
+            false,
+        );
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_2));
+            assert!(room_subscriptions.contains_key(room_id_3));
+        }
 
         Ok(())
     }
