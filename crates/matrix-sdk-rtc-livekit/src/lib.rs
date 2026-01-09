@@ -4,8 +4,14 @@ use async_trait::async_trait;
 use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitResult};
 
-pub use livekit::e2ee::{BaseKeyProvider, ExternalE2EEKeyProvider};
-pub use livekit::room::{ConnectionState, Room, RoomOptions};
+pub use livekit::e2ee::{ExternalKeyProvider, KeyProvider};
+pub use livekit::{ConnectionState, Room, RoomOptions};
+
+/// Alias for the LiveKit base key provider.
+pub type BaseKeyProvider = KeyProvider;
+
+/// Alias for the LiveKit external E2EE key provider.
+pub type ExternalE2EEKeyProvider = ExternalKeyProvider;
 
 /// A token provider for joining LiveKit rooms.
 #[async_trait]
