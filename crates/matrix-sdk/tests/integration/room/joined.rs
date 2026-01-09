@@ -1456,3 +1456,50 @@ async fn test_report_room() {
 
     room.report_room(reason.to_owned()).await.unwrap();
 }
+
+#[async_test]
+async fn test_set_own_member_display_name() {
+    // Given a room with an existing member event for the current user.
+    let (client, server) = logged_in_client_with_server().await;
+    let mut sync_builder = SyncResponseBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room_id = &DEFAULT_TEST_ROOM_ID;
+    let user_id = client.user_id().unwrap();
+
+    let existing_name = "Old Name";
+    let existing_avatar_url = mxc_uri!("mxc://example.org/avA7ar");
+
+    let member_event = EventFactory::new()
+        .member(user_id)
+        .display_name(existing_name.to_owned())
+        .avatar_url(existing_avatar_url)
+        .membership(MembershipState::Join);
+
+    let response = sync_builder
+        .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(member_event))
+        .build_json_sync_response();
+
+    mock_sync(&server, response, None).await;
+    client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(room_id).unwrap();
+
+    // When setting a new display name.
+    let new_name = "New Name";
+
+    // Then the user's display name is updated without changing the avatar URL.
+    Mock::given(method("PUT"))
+        .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/state/m.room.member/{user_id}")))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_partial_json(json!({
+            "displayname": new_name,
+            "avatar_url": existing_avatar_url.to_string(),
+            "membership": "join"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    room.set_own_member_display_name(Some(new_name.to_owned())).await.unwrap();
+}

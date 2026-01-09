@@ -114,7 +114,7 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
-            member::{MembershipChange, SyncRoomMemberEvent},
+            member::{MembershipChange, RoomMemberEventContent, SyncRoomMemberEvent},
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
                 ImageMessageEventContent, MessageType, RoomMessageEventContent,
@@ -1107,6 +1107,35 @@ impl Room {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    /// Sets the display name of the current user within this room.
+    ///
+    /// *Note*: This is different to [`crate::Account::set_display_name`] which
+    /// updates the user's display name across all of their rooms.
+    pub async fn set_own_member_display_name(
+        &self,
+        display_name: Option<String>,
+    ) -> Result<send_state_event::v3::Response> {
+        let user_id = self.own_user_id();
+        let member_event =
+            self.get_state_event_static_for_key::<RoomMemberEventContent, _>(user_id).await?;
+
+        let Some(RawSyncOrStrippedState::Sync(raw_event)) = member_event else {
+            return Err(Error::InsufficientData);
+        };
+
+        let event = raw_event.deserialize()?;
+
+        let mut content = match event {
+            SyncStateEvent::Original(original_event) => original_event.content,
+            SyncStateEvent::Redacted(redacted_event) => {
+                RoomMemberEventContent::new(redacted_event.content.membership)
+            }
+        };
+
+        content.displayname = display_name;
+        self.send_state_event_for_key(user_id, content).await
     }
 
     /// Get all state events of a given type in this room.

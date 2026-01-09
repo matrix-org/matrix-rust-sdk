@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::set_own_member_display_name` to set the current user's display name
+  within only the one single room (can be used for /myroomnick functionality).
+  [#5981](https://github.com/matrix-org/matrix-rust-sdk/pull/5981)
 - Sending `MessageLike` and `RawMessageLike` events through a `Room` now returns
   the used `EncryptionInfo`, if any.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
