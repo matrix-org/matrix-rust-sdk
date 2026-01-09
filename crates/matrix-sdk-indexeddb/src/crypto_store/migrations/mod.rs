@@ -30,6 +30,7 @@ use crate::{IndexeddbCryptoStoreError, crypto_store::Result, serializer::SafeEnc
 mod old_keys;
 mod v0_to_v5;
 mod v101_to_v102;
+mod v102_to_v103;
 mod v10_to_v11;
 mod v11_to_v12;
 mod v12_to_v13;
@@ -189,6 +190,10 @@ pub async fn open_and_upgrade_db(
 
     if old_version < 102 {
         v101_to_v102::schema_add(name).await?;
+    }
+
+    if old_version < 103 {
+        v102_to_v103::schema_add(name).await?;
     }
 
     // If you add more migrations here, you'll need to update

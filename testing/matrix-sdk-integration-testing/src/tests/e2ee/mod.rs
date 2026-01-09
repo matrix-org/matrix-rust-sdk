@@ -18,7 +18,7 @@ use matrix_sdk::{
         },
     },
     ruma::{
-        OwnedEventId,
+        OwnedEventId, OwnedRoomId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
             GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
@@ -38,7 +38,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use similar_asserts::assert_eq;
-use tracing::{debug, warn};
+use tracing::{Span, debug, warn};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
@@ -910,17 +910,21 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
+pub(super) async fn assert_can_perform_interactive_verification(
+    username: impl AsRef<str>,
+    backup_download_strategy: BackupDownloadStrategy,
+    enable_history_share_on_invite: bool,
+) -> Result<(SyncTokenAwareClient, SyncTokenAwareClient, OwnedRoomId, OwnedEventId)> {
     let encryption_settings = EncryptionSettings {
         auto_enable_cross_signing: true,
         auto_enable_backups: true,
-        backup_download_strategy: BackupDownloadStrategy::OneShot,
+        backup_download_strategy,
     };
 
     let first_client = SyncTokenAwareClient::new(
-        TestClientBuilder::new("alice_gossip_test")
-            .encryption_settings(encryption_settings)
+        TestClientBuilder::new(username)
+            .encryption_settings(encryption_settings.clone())
+            .enable_share_history_on_invite(enable_history_share_on_invite)
             .build()
             .await?,
     );
@@ -948,6 +952,7 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
     let second_client = SyncTokenAwareClient::new(
         TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
             .encryption_settings(encryption_settings)
+            .enable_share_history_on_invite(enable_history_share_on_invite)
             .build()
             .await?,
     );
@@ -1078,10 +1083,22 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
         "The recovery state should be in the Enabled state, since we have all the secrets"
     );
 
+    Ok((first_client, second_client, room_first_client.room_id().to_owned(), event_id))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
+    let (_, second_client, room_id, event_id) = assert_can_perform_interactive_verification(
+        "alice_gossip_test",
+        BackupDownloadStrategy::OneShot,
+        false,
+    )
+    .await?;
+
     // Let's now check if we can decrypt the event that was sent before our
     // device was created.
     let room = second_client
-        .get_room(room_first_client.room_id())
+        .get_room(&room_id)
         .expect("The second client should know about the room as well");
 
     let timeline_event = room.event(&event_id, None).await?;

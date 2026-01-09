@@ -18,7 +18,7 @@
 //! represent objects that are persisted in the database.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     time::Duration,
 };
 
@@ -86,6 +86,10 @@ pub struct Changes {
     /// Historical room key history bundles that we have received and should
     /// store.
     pub received_room_key_bundles: Vec<StoredRoomKeyBundleData>,
+
+    /// The set of rooms for which we have requested all room keys from the
+    /// backup in advance of constructing a room key bundle.
+    pub room_key_backups_fully_downloaded: HashSet<OwnedRoomId>,
 }
 
 /// Information about an [MSC4268] room key bundle.
