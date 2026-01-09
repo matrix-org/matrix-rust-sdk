@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
   `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
   ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
+- `RoomListService::subscribe_to_rooms` now forgets previous subscriptions.
+  ([#6012](https://github.com/matrix-org/matrix-rust-sdk/pull/6012))
 
 ## [0.16.0] - 2025-12-04
 
