@@ -2360,15 +2360,13 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request >= {
+        // strict comparison (with `=`) because we want to ensure
+        // the exact shape of `room_subscriptions`.
+        assert request = {
+            "conn_id": "room-list",
             "lists": {
                 ALL_ROOMS: {
                     "ranges": [[0, 2]],
-                    "timeline_limit": 1,
-                },
-            },
-            "room_subscriptions": {
-                room_id_1: {
                     "required_state": [
                         ["m.room.name", ""],
                         ["m.room.encryption", ""],
@@ -2386,10 +2384,12 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
-                        ["m.room.pinned_events", ""],
                     ],
-                    "timeline_limit": 20,
+                    "filters": {},
+                    "timeline_limit": 1,
                 },
+            },
+            "room_subscriptions": {
                 room_id_2: {
                     "required_state": [
                         ["m.room.name", ""],
@@ -2413,6 +2413,11 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
             },
+            "extensions": {
+                "account_data": { "enabled": true },
+                "receipts": { "enabled": true, "rooms": [ "*" ] },
+                "typing": { "enabled": true },
+            },
         },
         respond with = {
             "pos": "2",
@@ -2421,8 +2426,8 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
-    // Subscribe to an already subscribed room. Nothing happens.
-    room_list.subscribe_to_rooms(&[room_id_1]).await;
+    // Subscribe to an already subscribed room, plus a previously removed one.
+    room_list.subscribe_to_rooms(&[room_id_1, room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
