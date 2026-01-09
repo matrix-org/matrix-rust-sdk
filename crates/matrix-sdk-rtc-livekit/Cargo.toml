@@ -1,0 +1,28 @@
+[package]
+name = "matrix-sdk-rtc-livekit"
+description = "LiveKit SDK wiring for matrix-sdk-rtc."
+version = "0.16.0"
+edition = "2024"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
+rust-version.workspace = true
+build = "build.rs"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
+[features]
+default = ["native-tls"]
+
+native-tls = ["matrix-sdk-rtc/native-tls"]
+rustls-tls = ["matrix-sdk-rtc/rustls-tls"]
+js = ["matrix-sdk-rtc/js"]
+
+[dependencies]
+async-trait.workspace = true
+livekit = { git = "https://github.com/livekit/rust-sdks" }
+matrix-sdk.workspace = true
+matrix-sdk-rtc.workspace = true
+
+[lints]
+workspace = true

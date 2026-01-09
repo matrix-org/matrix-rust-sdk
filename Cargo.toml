@@ -128,6 +128,7 @@ matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.16.0" }
 matrix-sdk-ffi-macros = { path = "bindings/matrix-sdk-ffi-macros", version = "0.7.0" }
 matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.16.0", default-features = false }
 matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.16.0" }
+matrix-sdk-rtc = { path = "crates/matrix-sdk-rtc", version = "0.16.0" }
 matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.16.0", default-features = false }
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.16.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.16.0" }
