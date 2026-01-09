@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Utilize the cache and include common relations when focusing a timeline on an event without
+  requestion context.
+  ([#5858](https://github.com/matrix-org/matrix-rust-sdk/pull/5858))
 - [**breaking**] `EventTimelineItem::get_shield` now returns a new type,
   `TimelineEventShieldState`, which extends the old `ShieldState` with a code
   for `SentInClear`, now that the latter has been removed from `ShieldState`.

@@ -20,7 +20,9 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-    test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
+    test_utils::mocks::{
+        MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
+    },
 };
 use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, async_test,
@@ -37,13 +39,15 @@ use matrix_sdk_ui::{
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, event_id,
     events::{
-        MessageLikeEventType, TimelineEventType,
+        AnyTimelineEvent, MessageLikeEventType, TimelineEventType,
         room::{
             encryption::RoomEncryptionEventContent,
             message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
         },
     },
-    owned_event_id, room_id, user_id,
+    owned_event_id, room_id,
+    serde::Raw,
+    user_id,
 };
 use serde_json::json;
 use sliding_sync::assert_timeline_stream;
@@ -98,6 +102,71 @@ async fn test_timeline_is_threaded() {
     }
 
     {
+        // An event-focused timeline, focused on a non-thread event, isn't threaded when
+        // no context is requested.
+        let f = EventFactory::new();
+        let event_id = event_id!("$target");
+        let event =
+            f.text_msg("hello world").event_id(event_id).room(room_id).sender(&ALICE).into_event();
+        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
+        server
+            .mock_room_relations()
+            .match_target_event(event_id.to_owned())
+            .ok(RoomRelationsResponseTemplate::default()
+                .events(Vec::<Raw<AnyTimelineEvent>>::new()))
+            .mock_once()
+            .mount()
+            .await;
+
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Event {
+                target: owned_event_id!("$target"),
+                num_context_events: 0,
+                hide_threaded_events: true,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded().not());
+    }
+
+    {
+        // But an event-focused timeline, focused on an in-thread event, is threaded
+        // when no context is requested \o/
+        let f = EventFactory::new();
+        let thread_root = event_id!("$thread_root");
+        let event_id = event_id!("$thetarget");
+        let event = f
+            .text_msg("hey to you too")
+            .event_id(event_id)
+            .in_thread(thread_root, thread_root)
+            .room(room_id)
+            .sender(&ALICE)
+            .into_event();
+
+        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
+        server
+            .mock_room_relations()
+            .match_target_event(event_id.to_owned())
+            .ok(RoomRelationsResponseTemplate::default()
+                .events(Vec::<Raw<AnyTimelineEvent>>::new()))
+            .mock_once()
+            .mount()
+            .await;
+
+        let timeline = TimelineBuilder::new(&room)
+            .with_focus(TimelineFocus::Event {
+                target: owned_event_id!("$thetarget"),
+                num_context_events: 0,
+                hide_threaded_events: true,
+            })
+            .build()
+            .await
+            .unwrap();
+        assert!(timeline.is_threaded());
+    }
+
+    {
         // An event-focused timeline, focused on a non-thread event, isn't threaded.
         let f = EventFactory::new();
         let event = f
@@ -116,7 +185,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()
@@ -147,7 +216,7 @@ async fn test_timeline_is_threaded() {
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
                 target: owned_event_id!("$target"),
-                num_context_events: 0,
+                num_context_events: 2,
                 hide_threaded_events: true,
             })
             .build()
