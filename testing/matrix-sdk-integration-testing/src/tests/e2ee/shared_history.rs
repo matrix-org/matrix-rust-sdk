@@ -8,10 +8,10 @@ use futures::{FutureExt, StreamExt, future, pin_mut};
 use matrix_sdk::{
     Client, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
-    encryption::EncryptionSettings,
+    encryption::{BackupDownloadStrategy, EncryptionSettings},
     room::power_levels::RoomPowerLevelChanges,
     ruma::{
-        EventId,
+        EventId, OwnedEventId, OwnedRoomId,
         api::client::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
             uiaa::Password,
@@ -39,7 +39,10 @@ use matrix_sdk_ui::{
 use similar_asserts::assert_eq;
 use tracing::{Instrument, info};
 
-use crate::helpers::{SyncTokenAwareClient, TestClientBuilder, wait_for_room};
+use crate::{
+    helpers::{SyncTokenAwareClient, TestClientBuilder, wait_for_room},
+    tests::e2ee::assert_can_perform_interactive_verification,
+};
 
 /// When we invite another user to a room with "joined" history visibility, we
 /// share the encryption history.
@@ -844,6 +847,142 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         item.as_event().expect("The timeline item should be an event").forwarder().is_none(),
         "There should be no forwarder for the second message"
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let alice_a_span = tracing::info_span!(parent: alice_span.clone(), "device_a");
+    let alice_b_span = tracing::info_span!(parent: alice_span.clone(), "device_b");
+    let bob_span = tracing::info_span!("bob");
+
+    let (alice_a, alice_b, room_id, event_id): (
+        SyncTokenAwareClient,
+        SyncTokenAwareClient,
+        OwnedRoomId,
+        OwnedEventId,
+    ) = assert_can_perform_interactive_verification("alice", BackupDownloadStrategy::Manual, true)
+        .instrument(alice_span)
+        .await?;
+
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new("bob")
+            .use_sqlite()
+            .encryption_settings(EncryptionSettings {
+                auto_enable_cross_signing: true,
+                ..Default::default()
+            })
+            .enable_share_history_on_invite(true)
+            .build()
+            .await?,
+    );
+
+    // Alice checks she can decrypt message on her first device.
+    let alice_a_room = alice_a
+        .get_room(&room_id)
+        .expect("We should be able to fetch the room from Alice's first device");
+
+    let alice_a_event = alice_a_room
+        .event(&event_id, None)
+        .instrument(alice_a_span.clone())
+        .await
+        .expect("Alice should be able to fetch the event on Alice's first device");
+
+    assert!(alice_a_event.encryption_info().is_some());
+
+    // Alice logs out from her first device.
+    alice_a.logout().instrument(alice_a_span.clone()).await?;
+    alice_b.sync_once().instrument(alice_b_span.clone()).await?;
+
+    // Alice attempts to decrypt the message on her second device, which should fail
+    // as she has not downloaded the key from her backup.
+    let alice_b_room = alice_b
+        .get_room(&room_id)
+        .expect("We should be able to fetch the room from Alice's second device");
+
+    let alice_b_event = alice_b_room
+        .event(&event_id, None)
+        .instrument(alice_b_span.clone())
+        .await
+        .expect("Alice should be able to fetch the event from Alice's second device");
+
+    assert!(
+        alice_b_event.encryption_info().is_none(),
+        "Alice was able to decrypt the event before inviting Bob"
+    );
+
+    let bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+
+    // Alice now invites Bob to the room ...
+    alice_b.sync_once().instrument(alice_b_span.clone()).await?;
+    alice_b_room
+        .invite_user_by_id(bob.user_id().expect("We should be able to compute Bob's ID"))
+        .instrument(alice_b_span.clone())
+        .await?;
+
+    // ... which should trigger a download from key backup, allowing her to decrypt
+    // the message.
+
+    let alice_b_event = alice_b_room
+        .event(&event_id, None)
+        .instrument(alice_b_span.clone())
+        .await
+        .expect("Alice should be able to fetch the event");
+
+    assert!(
+        alice_b_event.encryption_info().is_some(),
+        "Alice was not able to decrypt the event after inviting Bob"
+    );
+
+    // Alice is done, let's log her out.
+    alice_b.logout().instrument(alice_b_span.clone()).await?;
+
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
+    // Alice's identity.
+    bob.encryption()
+        .request_user_identity(alice_b.user_id().unwrap())
+        .instrument(bob_span.clone())
+        .await?;
+
+    // Bob joins the room ...
+    let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
+
+    // ... and checks he received a to-device event with the payload.
+    assert_received_room_key_bundle(bob_response);
+
+    bob.get_room(&room_id).expect("Bob should have received the invite");
+
+    pin_mut!(bundle_stream);
+
+    let info = bundle_stream
+        .next()
+        .now_or_never()
+        .flatten()
+        .expect("We should be notified about the received bundle");
+
+    assert_eq!(Some(info.sender.deref()), alice_b.user_id());
+    assert_eq!(info.room_id, room_id);
+
+    // We now check that Bob can access the event.
+    let bob_room = bob
+        .join_room_by_id(&room_id)
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to accept the invitation from Alice");
+
+    let bob_event = bob_room
+        .event(&event_id, None)
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to fetch the historic event");
+
+    assert!(bob_event.encryption_info().is_some());
 
     Ok(())
 }
