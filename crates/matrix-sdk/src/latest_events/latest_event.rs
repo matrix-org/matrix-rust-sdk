@@ -1033,11 +1033,8 @@ impl LatestEventValuesForLocalEvents {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
-            LatestEventValue::LocalIsSending(LocalLatestEventValue { content, .. }) => {
-                *content = new_content;
-            }
-
-            LatestEventValue::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
+            LatestEventValue::LocalIsSending(LocalLatestEventValue { content, .. })
+            | LatestEventValue::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
                 *content = new_content;
             }
 
