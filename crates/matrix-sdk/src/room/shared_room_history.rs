@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::iter;
+use std::{collections::HashSet, iter};
 
 use matrix_sdk_base::{
-    crypto::types::events::room_key_bundle::RoomKeyBundleContent,
+    crypto::{store::types::Changes, types::events::room_key_bundle::RoomKeyBundleContent},
     media::{MediaFormat, MediaRequestParameters},
 };
 use ruma::{OwnedUserId, UserId, events::room::MediaSource};
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::{Error, Result, Room};
 
@@ -47,7 +47,20 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
     let olm_machine = client.olm_machine().await;
     let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-    // 1. Construct the key bundle
+    // 1. Download all available room keys from backup if we haven't already.
+    if !olm_machine.store().has_downloaded_all_room_keys(room.room_id()).await? {
+        debug!("Downloading room keys for room");
+        client.encryption().backups().download_room_keys_for_room(room.room_id()).await?;
+        olm_machine
+            .store()
+            .save_changes(Changes {
+                room_key_backups_fully_downloaded: HashSet::from_iter([room.room_id().to_owned()]),
+                ..Default::default()
+            })
+            .await?;
+    }
+
+    // 2. Construct the key bundle
     let bundle = olm_machine.store().build_room_key_bundle(room.room_id()).await?;
 
     if bundle.is_empty() {
@@ -55,7 +68,7 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
         return Ok(());
     }
 
-    // 2. Upload to the server as an encrypted file
+    // 3. Upload to the server as an encrypted file
     let json = serde_json::to_vec(&bundle)?;
     let upload = client.upload_encrypted_file(&mut (json.as_slice())).await?;
 
@@ -66,17 +79,17 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
         "Uploaded encrypted key blob"
     );
 
-    // 3. Ensure that we get a fresh list of devices for the invited user.
+    // 4. Ensure that we get a fresh list of devices for the invited user.
     let (req_id, request) = olm_machine.query_keys_for_users(iter::once(user_id.as_ref()));
 
     if !request.device_keys.is_empty() {
         room.client.keys_query(&req_id, request.device_keys).await?;
     }
 
-    // 4. Establish Olm sessions with all of the recipient's devices.
+    // 5. Establish Olm sessions with all of the recipient's devices.
     client.claim_one_time_keys(iter::once(user_id.as_ref())).await?;
 
-    // 5. Send to-device messages to the recipient to share the keys.
+    // 6. Send to-device messages to the recipient to share the keys.
     let content = RoomKeyBundleContent { room_id: room.room_id().to_owned(), file: upload };
     let requests = {
         let olm_machine = client.olm_machine().await;

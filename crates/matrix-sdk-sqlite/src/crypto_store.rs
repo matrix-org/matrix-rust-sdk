@@ -173,7 +173,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 13;
+const DATABASE_VERSION: u8 = 14;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -305,6 +305,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/crypto_store/013_lease_locks_with_generation.sql"
             ))?;
             txn.set_db_version(13)
+        })
+        .await?;
+    }
+
+    if version < 14 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/014_room_key_backups_fully_downloaded.sql"
+            ))?;
+            txn.set_db_version(14)
         })
         .await?;
     }
@@ -812,6 +822,16 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             )
             .await
             .optional()?)
+    }
+
+    async fn has_downloaded_all_room_keys(&self, room_id: Key) -> Result<bool> {
+        self.query_row(
+            "SELECT EXISTS (SELECT 1 FROM room_key_backups_fully_downloaded WHERE room_id = ?)",
+            (room_id,),
+            |row| row.get(0),
+        )
+        .await
+        .map_err(Into::into)
     }
 }
 
@@ -1454,6 +1474,11 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .map(|value| self.deserialize_value(&value))
             .transpose()
+    }
+
+    async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
+        let room_id = self.encode_key("room_key_backups_fully_downloaded", room_id);
+        self.acquire().await?.has_downloaded_all_room_keys(room_id).await
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
