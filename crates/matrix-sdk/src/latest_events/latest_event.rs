@@ -284,25 +284,14 @@ mod tests_latest_event {
     };
     use stream_assert::{assert_next_matches, assert_pending};
 
-    use super::{
-        LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent, With,
-    };
+    use super::{LatestEvent, LatestEventValue, SerializableEventContent, With};
     use crate::{
         client::WeakClient,
+        latest_events::local_room_message,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
-
-    fn local_room_message(body: &str) -> LocalLatestEventValue {
-        LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-        }
-    }
 
     fn new_local_echo_content(
         room_send_queue: &RoomSendQueue,
@@ -1743,7 +1732,7 @@ mod tests_latest_event_content {
 mod tests_latest_event_values_for_local_events {
     use assert_matches::assert_matches;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        OwnedTransactionId,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         owned_event_id,
         serde::Raw,
@@ -1752,8 +1741,9 @@ mod tests_latest_event_values_for_local_events {
 
     use super::{
         LatestEventValue, LatestEventValuesForLocalEvents, LocalLatestEventValue,
-        RemoteLatestEventValue, SerializableEventContent,
+        RemoteLatestEventValue,
     };
+    use crate::latest_events::local_room_message;
 
     fn remote_room_message(body: &str) -> RemoteLatestEventValue {
         RemoteLatestEventValue::from_plaintext(
@@ -1769,16 +1759,6 @@ mod tests_latest_event_values_for_local_events {
             )
             .unwrap(),
         )
-    }
-
-    fn local_room_message(body: &str) -> LocalLatestEventValue {
-        LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-        }
     }
 
     #[test]
