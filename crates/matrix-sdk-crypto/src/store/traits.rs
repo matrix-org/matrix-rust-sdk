@@ -357,7 +357,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     ) -> Result<Option<StoredRoomKeyBundleData>, Self::Error>;
 
     /// Get whether we have previously downloaded all room keys for a particular
-    /// from the key backup in advance of building a room key bundle.
+    /// room from the key backup in advance of building a room key bundle.
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error>;
 
     /// Get arbitrary data from the store

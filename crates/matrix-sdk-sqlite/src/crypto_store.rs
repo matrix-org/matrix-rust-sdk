@@ -825,13 +825,13 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
     }
 
     async fn has_downloaded_all_room_keys(&self, room_id: Key) -> Result<bool> {
-        self.query_row(
-            "SELECT EXISTS (SELECT 1 FROM room_key_backups_fully_downloaded WHERE room_id = ?)",
-            (room_id,),
-            |row| row.get(0),
-        )
-        .await
-        .map_err(Into::into)
+        Ok(self
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM room_key_backups_fully_downloaded WHERE room_id = ?)",
+                (room_id,),
+                |row| row.get(0),
+            )
+            .await?)
     }
 }
 
