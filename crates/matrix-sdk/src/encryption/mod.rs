@@ -427,7 +427,8 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
 }
 
 impl Client {
-    pub(crate) async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
+    /// Get the underlying OlmMachine if encryption has been initialized.
+    pub async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.base_client().olm_machine().await
     }
 
