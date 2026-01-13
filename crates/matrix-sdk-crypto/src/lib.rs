@@ -30,6 +30,7 @@ pub mod olm;
 pub mod secret_storage;
 mod session_manager;
 pub mod store;
+pub mod key_material;
 pub mod types;
 mod utilities;
 mod verification;
@@ -90,6 +91,7 @@ pub use identities::{
     Device, DeviceData, LocalTrust, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity,
     OwnUserIdentityData, UserDevices, UserIdentity, UserIdentityData,
 };
+pub use key_material::MatrixKeyMaterialProvider;
 pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
 use matrix_sdk_common::deserialized_responses::{DecryptedRoomEvent, UnableToDecryptInfo};
 #[cfg(feature = "qrcode")]
