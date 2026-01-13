@@ -16,7 +16,10 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{
     Timeline,
-    timeline::{TimelineBuilder, TimelineFocus, TimelineItem, TimelineReadReceiptTracking},
+    timeline::{
+        ThreadedTimelineInitializationMode, TimelineBuilder, TimelineFocus, TimelineItem,
+        TimelineReadReceiptTracking,
+    },
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, sync::OnceCell, task::JoinHandle};
@@ -151,7 +154,10 @@ impl RoomView {
         let r = room.clone();
         let task = spawn(async move {
             let timeline = TimelineBuilder::new(&r)
-                .with_focus(TimelineFocus::Thread { root_event_id: cloned_root })
+                .with_focus(TimelineFocus::Thread {
+                    root_event_id: cloned_root,
+                    initialization_mode: ThreadedTimelineInitializationMode::Cache,
+                })
                 .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
                 .build()
                 .await

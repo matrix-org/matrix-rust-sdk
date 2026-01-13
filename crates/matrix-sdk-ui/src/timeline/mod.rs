@@ -42,7 +42,7 @@ use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
     EventId, OwnedEventId, OwnedTransactionId, UserId,
-    api::client::receipt::create_receipt::v3::ReceiptType,
+    api::{Direction, client::receipt::create_receipt::v3::ReceiptType},
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
@@ -150,7 +150,12 @@ pub enum TimelineFocus {
     },
 
     /// Focus on a specific thread
-    Thread { root_event_id: OwnedEventId },
+    Thread {
+        /// The event ID of the thread root.
+        root_event_id: OwnedEventId,
+        /// How to initialise the timeline with events.
+        initialization_mode: ThreadedTimelineInitializationMode,
+    },
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
@@ -165,6 +170,27 @@ impl TimelineFocus {
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }
+}
+
+/// Determines how a timeline using [`TimelineFocus::Thread`] is initialised
+/// with events.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThreadedTimelineInitializationMode {
+    /// Initialise the timeline with threaded events and secondary relations
+    /// from the cache.
+    Cache,
+    /// Initialise the timeline by fetching threaded events and secondary
+    /// relations from the server, starting at either the beginning or the
+    /// end of the thread.
+    Remote {
+        /// What direction to fetch the events in. [`Direction::Forward`]
+        /// fetches events chronologically, starting at the root of the
+        /// thread. [`Direction::Backward`] fetches
+        /// events non-chronologically, starting at the end of the thread.
+        direction: Direction,
+        /// The maximum number of events to fetch.
+        max_events_to_load: u16,
+    },
 }
 
 /// Changes how dividers get inserted, either in between each day or in between

@@ -27,7 +27,8 @@ use matrix_sdk_test::{
     ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
-    AttachmentConfig, AttachmentSource, EventSendState, MediaUploadProgress, RoomExt, TimelineFocus,
+    AttachmentConfig, AttachmentSource, EventSendState, MediaUploadProgress, RoomExt,
+    ThreadedTimelineInitializationMode, TimelineFocus,
 };
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_ui::timeline::{GalleryConfig, GalleryItemInfo};
@@ -119,7 +120,10 @@ async fn test_send_attachment_from_file() -> TestResult {
     // Queue sending of an attachment in the thread.
     let thread_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: event_id.to_owned() })
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: event_id.to_owned(),
+            initialization_mode: ThreadedTimelineInitializationMode::Cache,
+        })
         .build()
         .await?;
     let config = AttachmentConfig {

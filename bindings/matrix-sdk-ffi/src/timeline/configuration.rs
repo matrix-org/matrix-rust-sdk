@@ -13,6 +13,7 @@ use super::FocusEventError;
 use crate::{
     error::ClientError,
     event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
+    ruma::Direction,
 };
 
 #[derive(uniffi::Object)]
@@ -82,6 +83,8 @@ pub enum TimelineFocus {
     Thread {
         /// The thread root event ID to focus on.
         root_event_id: String,
+        /// How to initialise the timeline with events.
+        initialization_mode: ThreadedTimelineInitializationMode,
     },
     PinnedEvents {
         max_events_to_load: u16,
@@ -110,7 +113,7 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                     hide_threaded_events,
                 })
             }
-            TimelineFocus::Thread { root_event_id } => {
+            TimelineFocus::Thread { root_event_id, initialization_mode } => {
                 let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {
                     FocusEventError::InvalidEventId {
                         event_id: root_event_id.clone(),
@@ -118,10 +121,49 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                     }
                 })?;
 
-                Ok(Self::Thread { root_event_id: parsed_root_event_id })
+                Ok(Self::Thread {
+                    root_event_id: parsed_root_event_id,
+                    initialization_mode: initialization_mode.into(),
+                })
             }
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
                 Ok(Self::PinnedEvents { max_events_to_load, max_concurrent_requests })
+            }
+        }
+    }
+}
+
+/// Determines how a timeline using [`TimelineFocus::Thread`] is initialised
+/// with events.
+#[derive(uniffi::Enum)]
+pub enum ThreadedTimelineInitializationMode {
+    /// Initialise the timeline with threaded events and secondary relations
+    /// from the cache.
+    Cache,
+    /// Initialise the timeline by fetching threaded events and secondary
+    /// relations from the server, starting at either the beginning or the
+    /// end of the thread.
+    Remote {
+        /// What direction to fetch the events in. [`Direction::Forward`]
+        /// fetches events chronologically, starting at the root of the
+        /// thread. [`Direction::Backward`] fetches
+        /// events non-chronologically, starting at the end of the thread.
+        direction: Direction,
+        /// The maximum number of events to fetch.
+        max_events_to_load: u16,
+    },
+}
+
+impl From<ThreadedTimelineInitializationMode>
+    for matrix_sdk_ui::timeline::ThreadedTimelineInitializationMode
+{
+    fn from(
+        value: ThreadedTimelineInitializationMode,
+    ) -> matrix_sdk_ui::timeline::ThreadedTimelineInitializationMode {
+        match value {
+            ThreadedTimelineInitializationMode::Cache => Self::Cache,
+            ThreadedTimelineInitializationMode::Remote { direction, max_events_to_load } => {
+                Self::Remote { direction: direction.into(), max_events_to_load }
             }
         }
     }

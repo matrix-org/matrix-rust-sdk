@@ -26,7 +26,9 @@ use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
     event_factory::EventFactory,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
+use matrix_sdk_ui::timeline::{
+    RoomExt, ThreadedTimelineInitializationMode, TimelineFocus, TimelineReadReceiptTracking,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
@@ -929,7 +931,10 @@ async fn test_send_single_receipt_threaded() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.to_owned() })
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: thread_root_event_id.to_owned(),
+            initialization_mode: ThreadedTimelineInitializationMode::Cache,
+        })
         .build()
         .await
         .unwrap();

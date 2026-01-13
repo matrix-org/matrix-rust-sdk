@@ -10,8 +10,9 @@ use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
-    Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
-    TimelineEventItemId, TimelineFocus, TimelineItemContent,
+    Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt,
+    ThreadedTimelineInitializationMode, TimelineDetails, TimelineEventItemId, TimelineFocus,
+    TimelineItemContent,
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch, UInt, event_id,
@@ -1054,7 +1055,10 @@ async fn test_send_reply_enforce_thread() {
     // Starting a thread.
     let thread_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: event_id_from_bob.to_owned() })
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: event_id_from_bob.to_owned(),
+            initialization_mode: ThreadedTimelineInitializationMode::Cache,
+        })
         .build()
         .await
         .unwrap();
@@ -1155,7 +1159,10 @@ async fn test_send_reply_enforce_thread_is_reply() {
     // Starting a thread, and making an explicit reply inside the thread.
     let thread_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: event_id_from_bob.to_owned() })
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: event_id_from_bob.to_owned(),
+            initialization_mode: ThreadedTimelineInitializationMode::Cache,
+        })
         .build()
         .await
         .unwrap();

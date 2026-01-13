@@ -32,8 +32,9 @@ use matrix_sdk_ui::{
     Timeline,
     timeline::{
         AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
-        RedactError, RoomExt, TimelineBuilder, TimelineEventItemId, TimelineEventShieldState,
-        TimelineFocus, TimelineItemContent, VirtualTimelineItem, default_event_filter,
+        RedactError, RoomExt, ThreadedTimelineInitializationMode, TimelineBuilder,
+        TimelineEventItemId, TimelineEventShieldState, TimelineFocus, TimelineItemContent,
+        VirtualTimelineItem, default_event_filter,
     },
 };
 use ruma::{
@@ -94,7 +95,10 @@ async fn test_timeline_is_threaded() {
     {
         // A thread timeline is threaded.
         let timeline = TimelineBuilder::new(&room)
-            .with_focus(TimelineFocus::Thread { root_event_id: owned_event_id!("$thread_root") })
+            .with_focus(TimelineFocus::Thread {
+                root_event_id: owned_event_id!("$thread_root"),
+                initialization_mode: ThreadedTimelineInitializationMode::Cache,
+            })
             .build()
             .await
             .unwrap();

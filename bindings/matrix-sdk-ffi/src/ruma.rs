@@ -1757,6 +1757,21 @@ impl From<RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>> for RoomAc
     }
 }
 
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum Direction {
+    Backward,
+    Forward,
+}
+
+impl From<Direction> for ruma::api::Direction {
+    fn from(value: Direction) -> Self {
+        match value {
+            Direction::Backward => ruma::api::Direction::Backward,
+            Direction::Forward => ruma::api::Direction::Forward,
+        }
+    }
+}
+
 #[cfg(feature = "unstable-msc4274")]
 pub use galleries::*;
 

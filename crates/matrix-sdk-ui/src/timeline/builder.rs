@@ -211,7 +211,7 @@ impl TimelineBuilder {
         });
 
         let thread_update_join_handle =
-            if let TimelineFocus::Thread { root_event_id: root } = &focus {
+            if let TimelineFocus::Thread { root_event_id: root, .. } = &focus {
                 Some({
                     let span = info_span!(
                         parent: Span::none(),

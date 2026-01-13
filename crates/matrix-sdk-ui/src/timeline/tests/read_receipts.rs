@@ -35,7 +35,8 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
-    MsgLikeContent, MsgLikeKind, RoomExt, TimelineFocus, TimelineReadReceiptTracking,
+    MsgLikeContent, MsgLikeKind, RoomExt, ThreadedTimelineInitializationMode, TimelineFocus,
+    TimelineReadReceiptTracking,
     controller::TimelineSettings,
     tests::{TestTimelineBuilder, encryption::get_client},
 };
@@ -791,7 +792,10 @@ async fn test_threaded_latest_user_read_receipt() {
     let receipt_thread = ReceiptThread::Thread(thread_root.clone());
 
     let timeline = TestTimelineBuilder::new()
-        .focus(TimelineFocus::Thread { root_event_id: thread_root })
+        .focus(TimelineFocus::Thread {
+            root_event_id: thread_root,
+            initialization_mode: ThreadedTimelineInitializationMode::Cache,
+        })
         .settings(TimelineSettings {
             track_read_receipts: TimelineReadReceiptTracking::AllEvents,
             ..Default::default()

@@ -26,6 +26,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, PaginationToken, Paginator},
+    room::{IncludeRelations, RelationsOptions},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -34,7 +35,7 @@ use matrix_sdk::{
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
-    api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
+    api::{Direction, client::receipt::create_receipt::v3::ReceiptType as SendReceiptType},
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
         AnySyncTimelineEvent, MessageLikeEventType,
@@ -72,7 +73,8 @@ use super::{
 };
 use crate::{
     timeline::{
-        MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
+        MsgLikeContent, MsgLikeKind, Room, ThreadedTimelineInitializationMode,
+        TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
         controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
@@ -580,30 +582,104 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => {
-                let (events, _) =
-                    room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
-                let has_events = !events.is_empty();
+            TimelineFocus::Thread { root_event_id, initialization_mode, .. } => {
+                let load_events_from_cache = || async {
+                    // Just fetch what threaded events we have in the cache.
+                    let (events, _) =
+                        room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
 
-                // For each event, we also need to find the related events, as they don't
-                // include the thread relationship, they won't be included in
-                // the initial list of events.
-                let mut related_events = Vector::new();
-                for event_id in events.iter().filter_map(|event| event.event_id()) {
-                    if let Some((_original, related)) =
-                        room_event_cache.find_event_with_relations(&event_id, None).await?
-                    {
-                        related_events.extend(related);
+                    // For each event, we also need to find the related events, as they don't
+                    // include the thread relationship, they won't be included in
+                    // the initial list of events.
+                    let mut related_events = Vector::new();
+                    for event_id in events.iter().filter_map(|event| event.event_id()) {
+                        if let Some((_original, related)) =
+                            room_event_cache.find_event_with_relations(&event_id, None).await?
+                        {
+                            related_events.extend(related);
+                        }
                     }
-                }
 
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+                    Ok::<_, Error>((events, related_events, RemoteEventOrigin::Cache))
+                };
+
+                let load_root_event = || async {
+                    Ok::<_, Error>(
+                        RoomDataProvider::load_event(&self.room_data_provider, root_event_id)
+                            .await
+                            .map_err(|_| Error::UnsupportedEvent),
+                    )?
+                };
+
+                let (events, related_events, origin) = match initialization_mode {
+                    ThreadedTimelineInitializationMode::Cache => load_events_from_cache().await?,
+                    ThreadedTimelineInitializationMode::Remote {
+                        direction,
+                        max_events_to_load,
+                    } => {
+                        // Run a /relations request to fetch events at the start (or end) of the
+                        // thread so that we can paginate forward (or
+                        // backward) from there.
+                        let options = RelationsOptions {
+                            from: None,
+                            dir: *direction,
+                            limit: Some((*max_events_to_load).into()),
+                            include_relations: IncludeRelations::AllRelations,
+                            recurse: true,
+                        };
+
+                        match self
+                            .room_data_provider
+                            .relations(root_event_id.clone(), options)
+                            .await
+                        {
+                            Ok(relations) => {
+                                let mut events = vec![];
+                                let mut related_events = vec![];
+
+                                // If we're paginating forwards, include the thread root event at
+                                // the start.
+                                if direction == &Direction::Forward {
+                                    events.push(load_root_event().await?);
+                                }
+
+                                for event in relations.chunk {
+                                    if extract_thread_root(event.raw()).is_some() {
+                                        events.push(event);
+                                    } else {
+                                        related_events.push(event);
+                                    }
+                                }
+
+                                // If we're paginating backwards, the server will return events in
+                                // achronological order so we need to reverse them.
+                                if direction == &Direction::Backward {
+                                    // If we've reached the end, include the thread root.
+                                    if relations.next_batch_token.is_none() {
+                                        events.push(load_root_event().await?);
+                                    }
+                                    events.reverse();
+                                    related_events.reverse();
+                                }
+                                (events, related_events.into(), RemoteEventOrigin::Pagination)
+                            }
+                            Err(err) => {
+                                warn!("error fetching relations on thread: {err}");
+                                load_events_from_cache().await?
+                            }
+                        }
+                    }
+                };
+
+                // Insert the thread events.
+                let has_events = !events.is_empty();
+                self.replace_with_initial_remote_events(events, origin).await;
 
                 // Now that we've inserted the thread events, add the aggregations too.
                 if !related_events.is_empty() {
                     self.handle_remote_aggregations(
                         vec![VectorDiff::Append { values: related_events }],
-                        RemoteEventOrigin::Cache,
+                        origin,
                     )
                     .await;
                 }
