@@ -95,7 +95,8 @@ pub mod matrix_keys {
     pub async fn room_olm_machine(
         room: &MatrixRoom,
     ) -> Result<OlmMachine, MatrixKeyMaterialError> {
-        let olm_machine = room.client().olm_machine().await;
+        let client = room.client();
+        let olm_machine = client.olm_machine().await;
         let Some(olm_machine) = olm_machine.as_ref() else {
             return Err(MatrixKeyMaterialError::NoOlmMachine);
         };
