@@ -26,3 +26,17 @@ If clang still picks GCC's headers, force the libc++ include path:
 CC=clang CXX=clang++ CXXFLAGS="-stdlib=libc++ -isystem /usr/include/c++/v1" \
   cargo build -p matrix-sdk-rtc-livekit
 ```
+
+### Linker errors about `std::__1` symbols
+
+If you see linker errors that mention `std::__1` (libc++), it means some native
+objects were built against libc++ but the final link step is using libstdc++.
+
+Try one of the following:
+
+- Ensure libc++ and libc++abi are installed (see above).
+- Explicitly link libc++/libc++abi when building:
+
+```bash
+RUSTFLAGS="-l c++ -l c++abi" cargo build -p matrix-sdk-rtc-livekit
+```
