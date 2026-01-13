@@ -17,7 +17,7 @@ default = ["native-tls"]
 native-tls = ["matrix-sdk-rtc/native-tls"]
 rustls-tls = ["matrix-sdk-rtc/rustls-tls"]
 js = ["matrix-sdk-rtc/js"]
-crypto = ["matrix-sdk-crypto"]
+crypto = ["matrix-sdk-crypto", "matrix-sdk/e2e-encryption"]
 
 [dependencies]
 async-trait.workspace = true
