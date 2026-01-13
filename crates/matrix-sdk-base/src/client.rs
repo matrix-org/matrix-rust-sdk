@@ -297,6 +297,8 @@ impl BaseClient {
         cross_process_store_locks_holder: &str,
         _handle_verification_events: bool,
     ) -> Result<Self> {
+        use crate::store::MemoryStore;
+
         let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
             .state_store(MemoryStore::new());
         Ok(Self::new(config, ThreadingSupport::Disabled))
