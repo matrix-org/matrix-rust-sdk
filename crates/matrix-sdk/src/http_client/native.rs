@@ -24,9 +24,9 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
-use reqwest::{Certificate, tls};
 #[cfg(any(feature = "native-tls", feature = "rustls-tls"))]
 use reqwest::Identity;
+use reqwest::{Certificate, tls};
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 

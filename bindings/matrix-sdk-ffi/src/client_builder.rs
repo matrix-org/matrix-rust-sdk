@@ -462,12 +462,10 @@ impl ClientBuilder {
 
             #[cfg(feature = "native-tls")]
             if let Some(client_cert) = builder.client_certificate {
-                let identity =
-                    Identity::from_pkcs12_der(&client_cert.data, &client_cert.password).map_err(
-                        |e| ClientBuildError::Generic {
-                            message: format!("Failed to parse client certificate: {e:?}"),
-                        },
-                    )?;
+                let identity = Identity::from_pkcs12_der(&client_cert.data, &client_cert.password)
+                    .map_err(|e| ClientBuildError::Generic {
+                        message: format!("Failed to parse client certificate: {e:?}"),
+                    })?;
                 inner_builder = inner_builder.client_certificate(identity);
             }
         }
@@ -643,7 +641,8 @@ impl ClientBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         #[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
         {
-            builder.client_certificate = Some(ClientCertificate { data: certificate_data, password });
+            builder.client_certificate =
+                Some(ClientCertificate { data: certificate_data, password });
         }
         Arc::new(builder)
     }
