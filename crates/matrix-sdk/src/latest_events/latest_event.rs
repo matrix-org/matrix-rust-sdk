@@ -284,25 +284,14 @@ mod tests_latest_event {
     };
     use stream_assert::{assert_next_matches, assert_pending};
 
-    use super::{
-        LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent, With,
-    };
+    use super::{LatestEvent, LatestEventValue, SerializableEventContent, With};
     use crate::{
         client::WeakClient,
+        latest_events::local_room_message,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
-
-    fn local_room_message(body: &str) -> LocalLatestEventValue {
-        LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-        }
-    }
 
     fn new_local_echo_content(
         room_send_queue: &RoomSendQueue,
@@ -892,9 +881,18 @@ impl LatestEventValueBuilder {
             // An error has occurred.
             //
             // Mark the latest event value matching `transaction_id`, and all its following values,
-            // as “cannot be sent”.
-            RoomSendQueueUpdate::SendError { transaction_id, .. } => {
-                buffer_of_values_for_local_events.mark_cannot_be_sent_from(transaction_id);
+            // as “cannot be sent” if the error isn't recoverable, and as "sending" if the error
+            // was recoverable.
+            RoomSendQueueUpdate::SendError { transaction_id, is_recoverable, .. } => {
+                if *is_recoverable {
+                    // If the room send queue error is recoverable, the send queue may retry to send
+                    // it in a short while, so the event should still be considered
+                    // sending. Leave it to that, at this point.
+                    buffer_of_values_for_local_events.mark_is_sending_from(transaction_id);
+                } else {
+                    // If the error isn't recoverable, mark as a true "cannot be sent".
+                    buffer_of_values_for_local_events.mark_cannot_be_sent_from(transaction_id);
+                }
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -1044,11 +1042,8 @@ impl LatestEventValuesForLocalEvents {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
-            LatestEventValue::LocalIsSending(LocalLatestEventValue { content, .. }) => {
-                *content = new_content;
-            }
-
-            LatestEventValue::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
+            LatestEventValue::LocalIsSending(LocalLatestEventValue { content, .. })
+            | LatestEventValue::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
                 *content = new_content;
             }
 
@@ -1743,7 +1738,7 @@ mod tests_latest_event_content {
 mod tests_latest_event_values_for_local_events {
     use assert_matches::assert_matches;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        OwnedTransactionId,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         owned_event_id,
         serde::Raw,
@@ -1752,8 +1747,9 @@ mod tests_latest_event_values_for_local_events {
 
     use super::{
         LatestEventValue, LatestEventValuesForLocalEvents, LocalLatestEventValue,
-        RemoteLatestEventValue, SerializableEventContent,
+        RemoteLatestEventValue,
     };
+    use crate::latest_events::local_room_message;
 
     fn remote_room_message(body: &str) -> RemoteLatestEventValue {
         RemoteLatestEventValue::from_plaintext(
@@ -1769,16 +1765,6 @@ mod tests_latest_event_values_for_local_events {
             )
             .unwrap(),
         )
-    }
-
-    fn local_room_message(body: &str) -> LocalLatestEventValue {
-        LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-        }
     }
 
     #[test]
@@ -2629,12 +2615,13 @@ mod tests_latest_event_value_builder {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it “cannot be sent”.
+        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
+        // error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
                 error: Arc::new(Error::UnknownError("oopsy".to_owned().into())),
-                is_recoverable: true,
+                is_recoverable: false,
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
@@ -3059,7 +3046,7 @@ mod tests_latest_event_value_builder {
     }
 
     #[async_test]
-    async fn test_local_send_error() {
+    async fn test_local_send_unrecoverable_error() {
         let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
         let user_id = client.user_id().unwrap();
 
@@ -3092,12 +3079,13 @@ mod tests_latest_event_value_builder {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it's “cannot be sent”.
+        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
+        // error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
                 error: Arc::new(Error::UnknownError("oopsy".to_owned().into())),
-                is_recoverable: true,
+                is_recoverable: false,
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
@@ -3110,6 +3098,84 @@ mod tests_latest_event_value_builder {
             assert_eq!(buffer.buffer.len(), 2);
             assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
             assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
+
+            value
+        };
+
+        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
+        // must change: since an event has been sent, the following events are now
+        // “is sending”.
+        {
+            let update = RoomSendQueueUpdate::SentEvent {
+                transaction_id: transaction_id_0.clone(),
+                event_id: event_id!("$ev0").to_owned(),
+            };
+
+            // The `LatestEventValue` has changed, it still matches the latest local
+            // event but it's “is sending”.
+            assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, previous_value.event_id(), user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "B"
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
+        }
+    }
+
+    #[async_test]
+    async fn test_local_send_recoverable_error() {
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
+
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+        let transaction_id_0 = OwnedTransactionId::from("txnid0");
+        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+
+        // Receiving two `NewLocalEvent`s.
+        let previous_value = {
+            let mut value = None;
+
+            for (transaction_id, body) in [(&transaction_id_0, "A"), (&transaction_id_1, "B")] {
+                let content = new_local_echo_content(&room_send_queue, transaction_id, body);
+
+                let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                    transaction_id: transaction_id.clone(),
+                    content,
+                });
+
+                // The `LatestEventValue` matches the new local event.
+                value = Some(assert_local_value_matches_room_message_with_body!(
+                    LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, value.and_then(|value: LatestEventValue| value.event_id()), user_id, None).await,
+                    LatestEventValue::LocalIsSending => with body = body
+                ));
+            }
+
+            assert_eq!(buffer.buffer.len(), 2);
+
+            value.unwrap()
+        };
+
+        // Receiving a `SendError` targeting the first event. The
+        // `LatestEventValue` doesn't change, because the sending error is recoverable
+        // (and thus will be retried soon, or as soon as network comes back).
+        let previous_value = {
+            let update = RoomSendQueueUpdate::SendError {
+                transaction_id: transaction_id_0.clone(),
+                error: Arc::new(Error::UnknownError("no more network".to_owned().into())),
+                is_recoverable: true,
+            };
+
+            // The `LatestEventValue` still matches the latest local event and should still
+            // be marked as a local being sent.
+            let value = assert_local_value_matches_room_message_with_body!(
+                LatestEventValueBuilder::new_local(&update, &mut buffer, &room_event_cache, previous_value.event_id(), user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "B"
+            );
+
+            assert_eq!(buffer.buffer.len(), 2);
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
+            assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalIsSending(_));
 
             value
         };
@@ -3169,12 +3235,13 @@ mod tests_latest_event_value_builder {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it's “cannot be sent”.
+        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
+        // error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
                 error: Arc::new(Error::UnknownError("oopsy".to_owned().into())),
-                is_recoverable: true,
+                is_recoverable: false,
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local

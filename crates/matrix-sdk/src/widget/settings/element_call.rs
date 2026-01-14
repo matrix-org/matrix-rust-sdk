@@ -142,6 +142,11 @@ pub enum Intent {
     JoinExistingDm,
     /// The user wants to start a call in a "Direct Message" (DM) room.
     StartCallDm,
+    /// The user wants to start a voice call in a "Direct Message" (DM) room.
+    StartCallDmVoice,
+    /// The user wants to join an existing  voice call that is a "Direct
+    /// Message" (DM) room.
+    JoinExistingDmVoice,
 }
 
 /// Defines how (if) element-call renders a header.
@@ -794,5 +799,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_call_intent_serialization() {
+        // The call intent serialized value must match the expected enum names as
+        // defined in the Element-Call repo:
+        // https://github.com/element-hq/element-call/blob/de8fdcfa694659a29f2c7a4401dd09cfec846a96/src/UrlParams.ts#L32
+        // The enum uses serde rename `snake_case` to serialize the values, but it makes
+        // it invisible that it is important, so ensure that the values are
+        // correct.
+        assert_eq!(serde_json::to_string(&Intent::StartCall).unwrap(), r#""start_call""#);
+        assert_eq!(serde_json::to_string(&Intent::JoinExisting).unwrap(), r#""join_existing""#);
+        assert_eq!(
+            serde_json::to_string(&Intent::JoinExistingDm).unwrap(),
+            r#""join_existing_dm""#
+        );
+        assert_eq!(serde_json::to_string(&Intent::StartCallDm).unwrap(), r#""start_call_dm""#);
+        assert_eq!(
+            serde_json::to_string(&Intent::StartCallDmVoice).unwrap(),
+            r#""start_call_dm_voice""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Intent::JoinExistingDmVoice).unwrap(),
+            r#""join_existing_dm_voice""#
+        );
     }
 }

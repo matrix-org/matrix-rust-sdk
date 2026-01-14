@@ -63,7 +63,7 @@ use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
-    event_cache::EventCacheError, timeout::timeout,
+    event_cache::EventCacheError, sliding_sync::PollTimeout, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
@@ -230,10 +230,18 @@ impl RoomListService {
                             | State::SettingUp
                             | State::Recovering
                             | State::Error { .. }
-                            | State::Terminated { .. } => false,
+                            | State::Terminated { .. } => PollTimeout::Some(0),
 
                             // Otherwise we want long-polling if the list is fully-loaded.
-                            State::Running => request_generator.is_fully_loaded(),
+                            State::Running => {
+                                if request_generator.is_fully_loaded() {
+                                    // Long-polling.
+                                    PollTimeout::Default
+                                } else {
+                                    // No long-polling yet.
+                                    PollTimeout::Some(0)
+                                }
+                            }
                         }
                     }),
             )
@@ -456,6 +464,8 @@ impl RoomListService {
     /// room in `room_ids`, so that the [`LatestEventValue`] will automatically
     /// be calculated and updated for these rooms, for free.
     ///
+    /// All previous room subscriptions will be forgotten.
+    ///
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
     pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
@@ -496,7 +506,11 @@ impl RoomListService {
         }
 
         // Subscribe to the rooms.
-        self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
+        self.sliding_sync.clear_and_subscribe_to_rooms(
+            room_ids,
+            Some(settings),
+            cancel_in_flight_request,
+        )
     }
 
     #[cfg(test)]

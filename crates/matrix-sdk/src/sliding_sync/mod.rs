@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::Debug,
     future::Future,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{Arc, RwLock as StdRwLock, RwLockWriteGuard as StdRwLockWriteGuard},
     time::Duration,
 };
 
@@ -107,8 +107,7 @@ pub(super) struct SlidingSyncInner {
 
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
-    room_subscriptions:
-        StdRwLock<BTreeMap<OwnedRoomId, (RoomSubscriptionState, http::request::RoomSubscription)>>,
+    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, http::request::RoomSubscription>>,
 
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
@@ -133,10 +132,10 @@ impl SlidingSync {
         SlidingSyncBuilder::new(id, client)
     }
 
-    /// Subscribe to many rooms.
+    /// Add subscriptions to many rooms.
     ///
-    /// If the associated `Room`s exist, it will be marked as
-    /// members are missing, so that it ensures to re-fetch all members.
+    /// If the associated `Room`s exist, they will be marked as members are
+    /// missing, so that it ensures to re-fetch all members.
     ///
     /// A subscription to an already subscribed room is ignored.
     pub fn subscribe_to_rooms(
@@ -145,30 +144,57 @@ impl SlidingSync {
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
-        let settings = settings.unwrap_or_default();
-        let room_subscriptions = &mut self.inner.room_subscriptions.write().unwrap();
+        if subscribe_to_rooms(
+            self.inner.room_subscriptions.write().unwrap(),
+            &self.inner.client,
+            room_ids,
+            settings,
+            cancel_in_flight_request,
+        ) {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
+    }
 
+    /// Remove subscriptions to many rooms.
+    pub fn unsubscribe_to_rooms(&self, room_ids: &[&RoomId], cancel_in_flight_request: bool) {
+        let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
         let mut skip_over_current_sync_loop_iteration = false;
 
         for room_id in room_ids {
-            // If the room subscription already exists, let's not
-            // override it with a new one. First, it would reset its
-            // state (`RoomSubscriptionState`), and second it would try to
-            // re-subscribe with the next request. We don't want that. A room
-            // subscription should happen once, and next subscriptions should
-            // be ignored.
-            if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
-                if let Some(room) = self.inner.client.get_room(room_id) {
-                    room.mark_members_missing();
-                }
-
-                entry.insert((RoomSubscriptionState::default(), settings.clone()));
-
+            if room_subscriptions.remove(*room_id).is_some() {
                 skip_over_current_sync_loop_iteration = true;
             }
         }
 
         if cancel_in_flight_request && skip_over_current_sync_loop_iteration {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
+    }
+
+    /// Replace all subscriptions to rooms by other ones.
+    ///
+    /// If the associated `Room`s exist, they will be marked as members are
+    /// missing, so that it ensures to re-fetch all members.
+    pub fn clear_and_subscribe_to_rooms(
+        &self,
+        room_ids: &[&RoomId],
+        settings: Option<http::request::RoomSubscription>,
+        cancel_in_flight_request: bool,
+    ) {
+        let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
+        room_subscriptions.clear();
+
+        if subscribe_to_rooms(
+            room_subscriptions,
+            &self.inner.client,
+            room_ids,
+            settings,
+            cancel_in_flight_request,
+        ) {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -305,17 +331,6 @@ impl SlidingSync {
         debug!("Sliding Sync response has been handled by the client");
         trace!(?sync_response);
 
-        // All room subscriptions are marked as `Applied`.
-        {
-            let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
-
-            for (state, _room_subscription) in room_subscriptions.values_mut() {
-                if matches!(state, RoomSubscriptionState::Pending) {
-                    *state = RoomSubscriptionState::Applied;
-                }
-            }
-        }
-
         let update_summary = {
             // Update the rooms.
             let updated_rooms = {
@@ -392,18 +407,18 @@ impl SlidingSync {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
-        let require_timeout = {
+        let timeout = {
             let lists = self.inner.lists.read().await;
 
-            // Start at `true` in case there is zero list.
-            let mut require_timeout = true;
+            // Start at `Default` in case there is zero list.
+            let mut timeout = PollTimeout::Default;
 
             for (name, list) in lists.iter() {
                 requests_lists.insert(name.clone(), list.next_request()?);
-                require_timeout = require_timeout && list.requires_timeout();
+                timeout = timeout.min(list.requires_timeout());
             }
 
-            require_timeout
+            timeout
         };
 
         // Collect the `pos`.
@@ -475,7 +490,11 @@ impl SlidingSync {
         //
         // The `timeout` query is necessary when all lists require it. Please see
         // [`SlidingSyncList::requires_timeout`].
-        let timeout = require_timeout.then(|| self.inner.poll_timeout);
+        let timeout = match timeout {
+            PollTimeout::None => None,
+            PollTimeout::Some(timeout) => Some(Duration::from_secs(timeout.into())),
+            PollTimeout::Default => Some(self.inner.poll_timeout),
+        };
 
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
@@ -485,15 +504,7 @@ impl SlidingSync {
         });
 
         // Add room subscriptions.
-        request.room_subscriptions = self
-            .inner
-            .room_subscriptions
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|(_, (state, _))| matches!(state, RoomSubscriptionState::Pending))
-            .map(|(room_id, (_, room_subscription))| (room_id.clone(), room_subscription.clone()))
-            .collect();
+        request.room_subscriptions = self.inner.room_subscriptions.read().unwrap().clone();
 
         // Add extensions.
         request.extensions = self.inner.extensions.clone();
@@ -797,6 +808,36 @@ impl SlidingSync {
     }
 }
 
+/// Private implementation for [`SlidingSync::subscribe_to_rooms`] and
+/// [`SlidingSync::clear_and_subscribe_to_rooms`].
+fn subscribe_to_rooms(
+    mut room_subscriptions: StdRwLockWriteGuard<
+        '_,
+        BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+    >,
+    client: &Client,
+    room_ids: &[&RoomId],
+    settings: Option<http::request::RoomSubscription>,
+    cancel_in_flight_request: bool,
+) -> bool {
+    let settings = settings.unwrap_or_default();
+    let mut skip_over_current_sync_loop_iteration = false;
+
+    for room_id in room_ids {
+        if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
+            if let Some(room) = client.get_room(room_id) {
+                room.mark_members_missing();
+            }
+
+            entry.insert(settings.clone());
+
+            skip_over_current_sync_loop_iteration = true;
+        }
+    }
+
+    cancel_in_flight_request && skip_over_current_sync_loop_iteration
+}
+
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
     #[instrument]
@@ -849,28 +890,52 @@ pub struct UpdateSummary {
     pub rooms: Vec<OwnedRoomId>,
 }
 
-/// A very basic bool-ish enum to represent the state of a
-/// [`RoomSubscription`].
+/// Define what kind of poll timeout [`SlidingSync`] must use.
 ///
-/// Once a [`RoomSubscription`] has beent sent, it's not removed from the list
-/// of room subscriptions, but instead is marked as [`Self::Applied`], so that
-/// it cannot be sent again, mostly to save bandwidth.
+/// [The spec says about `timeout`][spec]:
 ///
-/// [`RoomSubscription`]: http::request::RoomSubscription
-#[derive(Debug, Default)]
-enum RoomSubscriptionState {
-    /// The [`RoomSubscription`] has not been sent to or received correctly by
-    /// the server.
-    ///
-    /// [`RoomSubscription`]: http::request::RoomSubscription
-    #[default]
-    Pending,
+/// > How long to wait for new events […] If omitted the response is always
+/// > returned immediately, even if there are no changes.
+///
+/// [spec]: https://github.com/matrix-org/matrix-spec-proposals/blob/erikj/sss/proposals/4186-simplified-sliding-sync.md#top-level
+#[derive(Debug)]
+pub enum PollTimeout {
+    /// No `timeout` must be present.
+    None,
 
-    /// The [`RoomSubscription`] has been sent and received correctly by the
-    /// server.
+    /// A `timeout=X` must be present, where `X` is in seconds and
+    /// represents how long to wait for new events.
+    Some(u32),
+
+    /// A `timeout=X` must be present, where `X` is the default value passed to
+    /// [`SlidingSyncBuilder::poll_timeout`].
+    Default,
+}
+
+impl PollTimeout {
+    /// Computes the smallest `PollTimeout` between two of them.
     ///
-    /// [`RoomSubscription`]: http::request::RoomSubscription
-    Applied,
+    /// The rules are the following:
+    ///
+    /// * `None` < `Some`,
+    /// * `Some(x) < Some(y)` if and only if `x < y`,
+    /// * `Some < Default`.
+    ///
+    /// The `Default` value is unknown at this step but is assumed to be the
+    /// largest.
+    fn min(self, left: Self) -> Self {
+        match (self, left) {
+            (Self::None, _) => Self::None,
+
+            (Self::Some(_), Self::None) => Self::None,
+            (Self::Some(right), Self::Some(left)) => Self::Some(right.min(left)),
+            (Self::Some(right), Self::Default) => Self::Some(right),
+
+            (Self::Default, Self::None) => Self::None,
+            (Self::Default, Self::Some(left)) => Self::Some(left),
+            (Self::Default, Self::Default) => Self::Default,
+        }
+    }
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -904,8 +969,8 @@ mod tests {
     };
 
     use super::{
-        RoomSubscriptionState, SlidingSync, SlidingSyncBuilder, SlidingSyncList,
-        SlidingSyncListBuilder, SlidingSyncMode, cache::restore_sliding_sync_state, http,
+        SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+        cache::restore_sliding_sync_state, http,
     };
     use crate::{
         Client, Result,
@@ -1061,6 +1126,76 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_subscribe_unsubscribe_and_clear_and_subscribe_to_rooms() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+        let room_id_2 = room_id!("!r2:bar.org");
+        let room_id_3 = room_id!("!r3:bar.org");
+
+        // Initially empty.
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert!(room_subscriptions.is_empty());
+        }
+
+        // Add 2 rooms.
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Remove 1 room.
+        sliding_sync.unsubscribe_to_rooms(&[room_id_0], false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 1);
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Add 2 rooms, but one already exists.
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+        }
+
+        // Replace all rooms with 2 other rooms.
+        sliding_sync.clear_and_subscribe_to_rooms(
+            &[room_id_2, room_id_3],
+            Default::default(),
+            false,
+        );
+
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert_eq!(room_subscriptions.len(), 2);
+            assert!(room_subscriptions.contains_key(room_id_2));
+            assert!(room_subscriptions.contains_key(room_id_3));
+        }
+
+        Ok(())
+    }
+
+    #[async_test]
     async fn test_room_subscriptions_are_reset_when_session_expires() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
@@ -1207,169 +1342,6 @@ mod tests {
 
             assert_eq!(to_device.enabled, Some(true));
             assert_eq!(to_device.since, Some(since_token));
-        }
-    }
-
-    #[async_test]
-    async fn test_room_subscriptions_are_sticky() {
-        let r0 = room_id!("!r0.matrix.org");
-        let r1 = room_id!("!r1:matrix.org");
-
-        let client = logged_in_client(None).await;
-        let sliding_sync =
-            SlidingSyncBuilder::new("foo".to_owned(), client).unwrap().build().await.unwrap();
-
-        // A room subscription is added. The request is sent and received.
-        {
-            // Insert `r0`.
-            sliding_sync.subscribe_to_rooms(&[r0], None, false);
-
-            // The room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert_eq!(request.room_subscriptions.len(), 1);
-            assert!(request.room_subscriptions.contains_key(r0));
-
-            // The room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos0".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // The room subscription is marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // A room subscription is re-added.
-        {
-            // Insert `r0`.
-            sliding_sync.subscribe_to_rooms(&[r0], None, false);
-
-            // The room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // A new room subscription is added.
-        {
-            // Insert `r1`.
-            sliding_sync.subscribe_to_rooms(&[r1], None, false);
-
-            // This room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            // This room subscription is marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert_eq!(request.room_subscriptions.len(), 1);
-            assert!(request.room_subscriptions.contains_key(r1));
-
-            // This room subscription is still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            // This room subscription is still marked as `Pending`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Pending, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos1".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // This room subscription is marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-        }
-
-        // No new room subscription is added.
-        {
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-
-            // Generate the request.
-            let (request, _, mut position_markers) =
-                sliding_sync.generate_sync_request().await.unwrap();
-
-            assert!(request.room_subscriptions.is_empty());
-
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-
-            // Receive a response (simulate the request is sent and a response is received).
-            sliding_sync
-                .handle_response(
-                    http::Response::new("pos1".to_owned()),
-                    &mut position_markers,
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            // Room subscriptions are still marked as `Applied`.
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r0),
-                Some((RoomSubscriptionState::Applied, _))
-            );
-            assert_matches!(
-                sliding_sync.inner.room_subscriptions.read().unwrap().get(r1),
-                Some((RoomSubscriptionState::Applied, _))
-            );
         }
     }
 

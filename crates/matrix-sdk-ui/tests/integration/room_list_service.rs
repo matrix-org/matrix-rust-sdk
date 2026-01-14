@@ -354,8 +354,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         states = Init => SettingUp,
         // No `pos` because it's the first fresh query.
         assert pos None,
-        // No `timeout` because we don't want long-polling.
-        assert timeout None,
+        // `timeout=0` because we don't want long-polling.
+        assert timeout Some(0),
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -416,7 +416,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         // The previous `pos`.
         assert pos Some("0"),
         // Still no long-polling because the list isn't fully-loaded.
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -444,7 +444,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         states = Running => Running,
         assert pos Some("1"),
         // Still no long-polling because the list isn't fully-loaded.
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -473,7 +473,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         assert pos Some("2"),
         // Still no long-polling because the list isn't fully-loaded,
         // but it's about to be!
-        assert timeout None,
+        assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -2312,7 +2312,6 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe.
-
     room_list.subscribe_to_rooms(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
@@ -2357,58 +2356,12 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe to another room.
-
     room_list.subscribe_to_rooms(&[room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 2]],
-                    "timeline_limit": 1,
-                },
-            },
-            "room_subscriptions": {
-                room_id_2: {
-                    "required_state": [
-                        ["m.room.name", ""],
-                        ["m.room.encryption", ""],
-                        ["m.room.member", "$LAZY"],
-                        ["m.room.member", "$ME"],
-                        ["m.room.topic", ""],
-                        ["m.room.avatar", ""],
-                        ["m.room.canonical_alias", ""],
-                        ["m.room.power_levels", ""],
-                        ["org.matrix.msc3401.call.member", "*"],
-                        ["m.room.join_rules", ""],
-                        ["m.room.tombstone", ""],
-                        ["m.room.create", ""],
-                        ["m.room.history_visibility", ""],
-                        ["io.element.functional_members", ""],
-                        ["m.space.parent", "*"],
-                        ["m.space.child", "*"],
-                        ["m.room.pinned_events", ""],
-                    ],
-                    "timeline_limit": 20,
-                },
-            },
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {},
-            "rooms": {},
-        },
-    };
-
-    // Subscribe to an already subscribed room. Nothing happens.
-
-    room_list.subscribe_to_rooms(&[room_id_1]).await;
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
         // strict comparison (with `=`) because we want to ensure
-        // the absence of `room_subscriptions`.
+        // the exact shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2436,7 +2389,123 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "timeline_limit": 1,
                 },
             },
-            // NO `room_subscriptions`!
+            "room_subscriptions": {
+                room_id_2: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+            },
+            "extensions": {
+                "account_data": { "enabled": true },
+                "receipts": { "enabled": true, "rooms": [ "*" ] },
+                "typing": { "enabled": true },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    // Subscribe to an already subscribed room, plus a previously removed one.
+    room_list.subscribe_to_rooms(&[room_id_1, room_id_2]).await;
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        // strict comparison (with `=`) because we want to ensure
+        // the exact shape of `room_subscriptions`.
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                    ],
+                    "filters": {},
+                    "timeline_limit": 1,
+                },
+            },
+            "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+                room_id_2: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+            },
             "extensions": {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },

@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::set_own_member_display_name` to set the current user's display name
+  within only the one single room (can be used for /myroomnick functionality).
+  [#5981](https://github.com/matrix-org/matrix-rust-sdk/pull/5981)
 - Sending `MessageLike` and `RawMessageLike` events through a `Room` now returns
   the used `EncryptionInfo`, if any.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
@@ -19,15 +22,22 @@ All notable changes to this project will be documented in this file.
   are removed: `PossibleLatestEvent`, `is_suitable_for_latest_event`, and
   `LatestEvent` (replaced by `LatestEventValue`). See the documentation of
   `matrix_sdk::latest_event` to learn about the new API.
-  [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
+  ([#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/))
 - Expose a new method `RoomEventCache::find_event_relations` for loading
   events relating to a specific event ID from the cache.
-  [#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/)
+  ([#5930](https://github.com/matrix-org/matrix-rust-sdk/pull/5930/))
 - Replace in-memory stores with IndexedDB implementations when initializing
   `Client` with `BuilderStoreConfig::IndexedDb`.
-  [#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946)
-- Sliding Sync room subscriptions are sent once to save bandwidth.
-  ([#6002](https://github.com/matrix-org/matrix-rust-sdk/pull/6002))
+  ([#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946))
+- Call: Add support for the new Intents for voice only calls `Intent.StartCallDmVoice`
+  and `Intent.JoinExistingDmVoice`.
+  ([#6003](https://github.com/matrix-org/matrix-rust-sdk/pull/6003))
+- Add `SlidingSync::unsubscribe_to_rooms` and
+  `SlidingSync::clear_and_subscribe_to_rooms`.
+  ([#6012](https://github.com/matrix-org/matrix-rust-sdk/pull/6012))
+- [**breaking**] Sliding Sync has a new `PollTimeout` type, used by
+  `SlidingSyncBuilder::requires_timeout`.
+  ([#6005](https://github.com/matrix-org/matrix-rust-sdk/pull/6005))
 
 ### Bugfix
 

@@ -582,6 +582,23 @@ async fn compute_latest_events(
     }
 }
 
+#[cfg(test)]
+fn local_room_message(body: &str) -> LocalLatestEventValue {
+    use matrix_sdk_base::store::SerializableEventContent;
+    use ruma::{
+        MilliSecondsSinceUnixEpoch,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+    };
+
+    LocalLatestEventValue {
+        timestamp: MilliSecondsSinceUnixEpoch::now(),
+        content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain(body),
+        ))
+        .unwrap(),
+    }
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{collections::HashMap, ops::Not};
@@ -591,37 +608,25 @@ mod tests {
         RoomState,
         deserialized_responses::TimelineEventKind,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        store::SerializableEventContent,
     };
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
-        events::{
-            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-            SyncMessageLikeEvent, room::message::RoomMessageEventContent,
-        },
+        OwnedTransactionId, event_id,
+        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
         owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
     use tokio::task::yield_now;
 
     use super::{
-        LatestEventValue, LocalLatestEventValue, RegisteredRooms, RemoteLatestEventValue,
-        RoomEventCacheGenericUpdate, RoomLatestEvents, RoomSendQueueUpdate, RwLock,
-        SendQueueUpdate, WeakClient, WeakRoom, With, broadcast,
-        listen_to_event_cache_and_send_queue_updates, mpsc,
+        LatestEventValue, RegisteredRooms, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
+        RoomLatestEvents, RoomSendQueueUpdate, RwLock, SendQueueUpdate, WeakClient, WeakRoom, With,
+        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc,
     };
-    use crate::{latest_events::LatestEventQueueUpdate, test_utils::mocks::MatrixMockServer};
-
-    fn local_room_message(body: &str) -> LocalLatestEventValue {
-        LocalLatestEventValue {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-        }
-    }
+    use crate::{
+        latest_events::{LatestEventQueueUpdate, local_room_message},
+        test_utils::mocks::MatrixMockServer,
+    };
 
     #[async_test]
     async fn test_latest_events_are_lazy() {

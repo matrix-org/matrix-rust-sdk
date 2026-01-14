@@ -22,6 +22,7 @@ use imbl::Vector;
 #[cfg(test)]
 use matrix_sdk::Result;
 use matrix_sdk::{
+    config::RequestConfig,
     deserialized_responses::TimelineEvent,
     event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, PaginationToken, Paginator},
@@ -40,7 +41,7 @@ use ruma::{
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
         room::message::{MessageType, Relation},
     },
     room_version_rules::RoomVersionRules,
@@ -469,16 +470,46 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let event_paginator = Paginator::new(self.room_data_provider.clone());
 
-                // Start a /context request so we can know if the event is in a thread or not,
-                // and know which kind of pagination we'll be using then.
-                let start_from_result = event_paginator
-                    .start_from(event_id, (*num_context_events).into())
-                    .await
-                    .map_err(PaginationError::Paginator)?;
+                let load_events_with_context = || async {
+                    // Start a /context request to load the focused event and surrounding events.
+                    event_paginator
+                        .start_from(event_id, (*num_context_events).into())
+                        .await
+                        .map(|r| r.events)
+                        .map_err(PaginationError::Paginator)
+                };
+
+                let events = if *num_context_events == 0 {
+                    // If no context is requested, try to load the event from the cache first and
+                    // include common relations such as reactions and edits.
+                    let request_config = Some(RequestConfig::default().retry_limit(3));
+                    let relations_filter =
+                        Some(vec![RelationType::Annotation, RelationType::Replacement]);
+
+                    // Load the event from the cache or, failing that, the server.
+                    match self
+                        .room_data_provider
+                        .load_event_with_relations(event_id, request_config, relations_filter)
+                        .await
+                    {
+                        Ok((event, related_events)) => {
+                            let mut events = vec![event];
+                            events.extend(related_events);
+                            events
+                        }
+                        Err(err) => {
+                            error!("error when loading focussed event: {err}");
+                            // Fall back to load the focused event using /context.
+                            load_events_with_context().await?
+                        }
+                    }
+                } else {
+                    // Start a /context request to load the focussed event and surrounding events.
+                    load_events_with_context().await?
+                };
 
                 // Find the target event, and see if it's part of a thread.
-                let thread_root_event_id = start_from_result
-                    .events
+                let thread_root_event_id = events
                     .iter()
                     .find(
                         |event| {
@@ -494,7 +525,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         // Look if the thread root event is part of the /context response. This
                         // allows us to spare some backwards pagination with
                         // /relations.
-                        let includes_root_event = start_from_result.events.iter().any(|event| {
+                        let includes_root_event = events.iter().any(|event| {
                             if let Some(id) = event.event_id() { id == root_id } else { false }
                         });
 
@@ -517,8 +548,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     },
                 });
 
-                let has_events = !start_from_result.events.is_empty();
-                let events = start_from_result.events;
+                let has_events = !events.is_empty();
 
                 match paginator.get().expect("Paginator was not instantiated") {
                     AnyPaginator::Unthreaded { .. } => {
