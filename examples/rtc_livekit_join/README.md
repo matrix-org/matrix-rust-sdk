@@ -28,3 +28,26 @@ cargo run -p example-rtc-livekit-join
 4. Runs `LiveKitRoomDriver`, which connects to LiveKit when the room has active
    call memberships and disconnects when they disappear.
 
+## Call graph (example flow)
+
+```mermaid
+flowchart TD
+    A[main()] --> B[Client::builder().build()]
+    B --> C[login_username()]
+    C --> D[get_joined_room()/join_room_by_id()]
+    D --> E[tokio::spawn sync()]
+    D --> F[LiveKitSdkConnector::new()]
+    F --> G[LiveKitRoomDriver::new()]
+    G --> H[LiveKitRoomDriver::run()]
+    H --> I[Room::subscribe_info()]
+    H --> J[livekit_service_url()]
+    J --> K[Client::rtc_foci()]
+    H --> L[update_connection()]
+    L --> M{has_active_room_call?}
+    M -->|yes| N[LiveKitConnector::connect()]
+    N --> O[LiveKitSdkConnector::connect()]
+    O --> P[LiveKitTokenProvider::token()]
+    O --> Q[RoomOptions::default()]
+    O --> R[Room::connect (LiveKit SDK)]
+    M -->|no| S[LiveKitConnection::disconnect()]
+```
