@@ -626,7 +626,8 @@ impl ClientBuilder {
     /// be presented to the server during the TLS handshake.
     ///
     /// Note: This method only has an effect when the `native-tls` feature is
-    /// enabled. PKCS#12 client certificates are not supported with `rustls-tls`.
+    /// enabled. PKCS#12 client certificates are not supported with
+    /// `rustls-tls`.
     ///
     /// # Arguments
     ///
