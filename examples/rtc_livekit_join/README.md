@@ -20,6 +20,18 @@ RUST_LOG=info \
 cargo run -p example-rtc-livekit-join
 ```
 
+## Build notes (Linux)
+
+The LiveKit/WebRTC dependency currently links against libstdc++. If you build
+with `clang`/`libc++`, you may see undefined references like
+`std::__throw_bad_array_new_length()` or `std::__glibcxx_assert_fail`. In that
+case, build with the default GNU toolchain or ensure libstdc++ is linked.
+For example:
+
+```bash
+cargo build -p example-rtc-livekit-join
+```
+
 ## What this example does
 
 1. Logs into Matrix.
