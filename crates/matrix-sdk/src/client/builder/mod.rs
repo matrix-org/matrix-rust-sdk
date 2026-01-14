@@ -407,7 +407,7 @@ impl ClientBuilder {
     /// let client_config = Client::builder().client_certificate(identity);
     /// # anyhow::Ok(())
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(not(target_family = "wasm"), any(feature = "native-tls", feature = "rustls-tls")))]
     pub fn client_certificate(mut self, identity: reqwest::Identity) -> Self {
         self.http_settings().client_identity = Some(identity);
         self

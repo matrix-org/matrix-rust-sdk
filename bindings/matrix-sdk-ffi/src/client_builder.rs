@@ -4,7 +4,9 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 #[cfg(not(target_family = "wasm"))]
-use matrix_sdk::reqwest::{Certificate, Identity};
+use matrix_sdk::reqwest::Certificate;
+#[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
+use matrix_sdk::reqwest::Identity;
 use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
@@ -134,14 +136,14 @@ pub struct ClientBuilder {
     disable_built_in_root_certificates: bool,
     #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
     client_certificate: Option<ClientCertificate>,
 
     threading_support: ThreadingSupport,
 }
 
 /// Client certificate data for mTLS authentication.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
 #[derive(Clone)]
 struct ClientCertificate {
     /// PKCS#12 certificate data in DER format.
@@ -179,7 +181,7 @@ impl ClientBuilder {
             additional_root_certificates: Default::default(),
             #[cfg(not(target_family = "wasm"))]
             disable_built_in_root_certificates: false,
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
             client_certificate: None,
             encryption_settings: EncryptionSettings {
                 auto_enable_cross_signing: false,
@@ -458,6 +460,7 @@ impl ClientBuilder {
                 inner_builder = inner_builder.user_agent(user_agent);
             }
 
+            #[cfg(feature = "native-tls")]
             if let Some(client_cert) = builder.client_certificate {
                 let identity =
                     Identity::from_pkcs12_der(&client_cert.data, &client_cert.password).map_err(
@@ -624,17 +627,21 @@ impl ClientBuilder {
     /// This enables mTLS by providing a PKCS#12 client certificate that will
     /// be presented to the server during the TLS handshake.
     ///
+    /// Note: This method only has an effect when the `native-tls` feature is
+    /// enabled. PKCS#12 client certificates are not supported with `rustls-tls`.
+    ///
     /// # Arguments
     ///
     /// * `certificate_data` - The PKCS#12/PFX certificate data in DER format.
     /// * `password` - The password to decrypt the PKCS#12 data.
+    #[allow(unused_variables, unused_mut)]
     pub fn client_certificate(
         self: Arc<Self>,
         certificate_data: Vec<u8>,
         password: String,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(all(not(target_family = "wasm"), feature = "native-tls"))]
         {
             builder.client_certificate = Some(ClientCertificate { data: certificate_data, password });
         }
