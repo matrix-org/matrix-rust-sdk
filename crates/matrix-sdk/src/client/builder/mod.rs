@@ -392,19 +392,17 @@ impl ClientBuilder {
     /// # Arguments
     ///
     /// * `identity` - A [`reqwest::Identity`] containing the client certificate
-    ///   and private key. This can be created from PEM data using
-    ///   [`reqwest::Identity::from_pem()`], or from PKCS#12/PFX data using
-    ///   [`reqwest::Identity::from_pkcs12_der()`] (requires `native-tls` feature).
+    ///   and private key. See [`reqwest::Identity`] documentation for the
+    ///   available constructors for different TLS backends.
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```ignore
     /// use std::fs;
     /// use matrix_sdk::Client;
     ///
-    /// // PEM file containing both certificate and private key
-    /// let pem_data = fs::read("client-cert.pem")?;
-    /// let identity = reqwest::Identity::from_pem(&pem_data)?;
+    /// let cert_data = fs::read("client-cert.pem")?;
+    /// let identity = reqwest::Identity::from_pem(&cert_data)?;
     /// let client_config = Client::builder().client_certificate(identity);
     /// # anyhow::Ok(())
     /// ```
