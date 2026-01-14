@@ -401,8 +401,15 @@ impl ClientBuilder {
     /// use std::fs;
     /// use matrix_sdk::Client;
     ///
-    /// let cert_data = fs::read("client-cert.pem")?;
-    /// let identity = reqwest::Identity::from_pem(&cert_data)?;
+    /// // With rustls-tls: use from_pkcs8_pem with separate cert and key
+    /// let cert_pem = fs::read("client-cert.pem")?;
+    /// let key_pem = fs::read("client-key.pem")?;
+    /// let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)?;
+    ///
+    /// // With native-tls: use from_pkcs12_der with PKCS#12 bundle
+    /// // let p12_data = fs::read("client.p12")?;
+    /// // let identity = reqwest::Identity::from_pkcs12_der(&p12_data, "password")?;
+    ///
     /// let client_config = Client::builder().client_certificate(identity);
     /// # anyhow::Ok(())
     /// ```
