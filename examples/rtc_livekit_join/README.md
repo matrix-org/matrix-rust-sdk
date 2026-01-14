@@ -32,6 +32,11 @@ For example:
 cargo build -p example-rtc-livekit-join
 ```
 
+If you still see C++ compilation failures such as `changes meaning of 'Network'
+[-fpermissive]` or `-Wno-changes-meaning` being rejected, ensure your `CXX` is
+set to `g++` (the GNU toolchain). The bundled WebRTC headers expect GCC-style
+diagnostics and may not compile with `clang` in some environments.
+
 ## What this example does
 
 1. Logs into Matrix.
