@@ -372,7 +372,7 @@ impl SpaceRoomList {
         self.pagination_state.set(SpaceRoomListPaginationState::Idle { end_reached: false });
     }
 
-    /// Sorts spare rooms by various criteria as defined in
+    /// Sorts space rooms by various criteria as defined in
     /// https://spec.matrix.org/latest/client-server-api/#ordering-of-children-within-a-space
     fn compare_rooms(
         a: &SpaceRoom,
@@ -382,23 +382,7 @@ impl SpaceRoomList {
         let a_state = children_state.get(&a.room_id);
         let b_state = children_state.get(&b.room_id);
 
-        match (a_state, b_state) {
-            (Some(a_state), Some(b_state)) => {
-                match (&a_state.content.order, &b_state.content.order) {
-                    (Some(a_order), Some(b_order)) => a_order
-                        .cmp(b_order)
-                        .then(a_state.origin_server_ts.cmp(&b_state.origin_server_ts))
-                        .then(a.room_id.cmp(&b.room_id)),
-                    (Some(_), None) => Ordering::Less,
-                    (None, Some(_)) => Ordering::Greater,
-                    (None, None) => a_state
-                        .origin_server_ts
-                        .cmp(&b_state.origin_server_ts)
-                        .then(a.room_id.to_string().cmp(&b.room_id.to_string())),
-                }
-            }
-            _ => a.room_id.to_string().cmp(&b.room_id.to_string()),
-        }
+        SpaceRoom::compare_rooms(a, b, a_state.map(Into::into), b_state.map(Into::into))
     }
 }
 
