@@ -1,18 +1,28 @@
 use std::env;
 
 use anyhow::{Context, anyhow};
-use matrix_sdk::{Client, config::SyncSettings, ruma::RoomId};
+use matrix_sdk::{Client, RoomState, config::SyncSettings, ruma::RoomId};
 use matrix_sdk_rtc::LiveKitRoomDriver;
-use matrix_sdk_rtc_livekit::{LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions};
+use matrix_sdk_rtc_livekit::{
+    LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions,
+};
 
 struct EnvLiveKitTokenProvider {
     token: String,
 }
 
+struct DefaultRoomOptionsProvider;
+
 #[async_trait::async_trait]
 impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
     async fn token(&self, _room: &matrix_sdk::Room) -> matrix_sdk_rtc::LiveKitResult<String> {
         Ok(self.token.clone())
+    }
+}
+
+impl LiveKitRoomOptionsProvider for DefaultRoomOptionsProvider {
+    fn room_options(&self, _room: &matrix_sdk::Room) -> RoomOptions {
+        RoomOptions::default()
     }
 }
 
@@ -39,9 +49,9 @@ async fn main() -> anyhow::Result<()> {
         .context("login Matrix user")?;
 
     let room_id = RoomId::parse(room_id).context("parse ROOM_ID")?;
-    let room = match client.get_joined_room(&room_id) {
-        Some(room) => room,
-        None => client
+    let room = match client.get_room(&room_id) {
+        Some(room) if room.state() == RoomState::Joined => room,
+        _ => client
             .join_room_by_id(&room_id)
             .await
             .context("join room")?,
@@ -58,8 +68,7 @@ async fn main() -> anyhow::Result<()> {
     // contains active call memberships.
 
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token };
-    let room_options = |_| RoomOptions::default();
-    let connector = LiveKitSdkConnector::new(token_provider, room_options);
+    let connector = LiveKitSdkConnector::new(token_provider, DefaultRoomOptionsProvider);
 
     let driver = LiveKitRoomDriver::new(room, connector);
     driver.run().await.context("run LiveKit room driver")?;

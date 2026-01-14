@@ -34,7 +34,7 @@ cargo run -p example-rtc-livekit-join
 flowchart TD
     A[main()] --> B[Client::builder().build()]
     B --> C[login_username()]
-    C --> D[get_joined_room()/join_room_by_id()]
+    C --> D[get_room()/join_room_by_id()]
     D --> E[tokio::spawn sync()]
     D --> F[LiveKitSdkConnector::new()]
     F --> G[LiveKitRoomDriver::new()]
