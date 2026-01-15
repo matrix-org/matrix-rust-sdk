@@ -28,7 +28,7 @@ use super::{
     AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
     TimelineMetadata, TimelineState, rfind_event_by_id,
 };
-use crate::timeline::{TimelineItem, controller::TimelineStateTransaction};
+use crate::timeline::{TimelineItem, TimelineItemContent, controller::TimelineStateTransaction};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
@@ -538,11 +538,68 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                         // If the own receipt thread is unthreaded or main, we maintain maximal
                         // compatibility with clients using either unthreaded or main-thread read
                         // receipts by allowing both here.
-                        if !matches!(
-                            receipt.thread,
-                            ReceiptThread::Unthreaded | ReceiptThread::Main
-                        ) {
-                            continue;
+                        match receipt.thread {
+                            ReceiptThread::Unthreaded | ReceiptThread::Main => {
+                                // Processing happens below.
+                            }
+
+                            ReceiptThread::Thread(thread_root) => {
+                                // Special processing for threads: try to find a timeline item for
+                                // the root, and update its thread summary, if the receipt is for
+                                // ourselves.
+                                if user_id == self.meta.own_user_id
+                                    && let Some((item_pos, item)) =
+                                        rfind_event_by_id(&self.items, &thread_root)
+                                {
+                                    trace!(
+                                        "thread root has been found; will update thread summary with the latest receipts"
+                                    );
+
+                                    let item_id = item.internal_id.to_owned();
+                                    let mut new_item = item.clone();
+
+                                    if let Some(mut thread_summary) =
+                                        new_item.content.thread_summary()
+                                    {
+                                        // Assume read receipts only move forward, at the moment.
+                                        if receipt_type == ReceiptType::Read {
+                                            thread_summary.public_read_receipt_event_id =
+                                                Some(event_id.clone());
+                                        } else if receipt_type == ReceiptType::ReadPrivate {
+                                            thread_summary.private_read_receipt_event_id =
+                                                Some(event_id.clone());
+                                        } else {
+                                            continue;
+                                        }
+
+                                        let mut new_content = new_item
+                                            .content
+                                            .as_msglike()
+                                            .expect("only msglike has a thread summary")
+                                            .clone();
+
+                                        // Update the thread summary.
+                                        new_content.thread_summary = Some(thread_summary);
+                                        new_item = new_item.with_content(
+                                            TimelineItemContent::MsgLike(new_content),
+                                        );
+
+                                        self.items.replace(
+                                            item_pos,
+                                            TimelineItem::new(new_item, item_id),
+                                        );
+                                    }
+                                }
+
+                                // Couldn't find an item for this new read receipt; process the
+                                // next receipt.
+                                continue;
+                            }
+
+                            _ => {
+                                // No processing: ignore.
+                                continue;
+                            }
                         }
                     } else if own_receipt_thread != receipt.thread {
                         // Otherwise, we only keep the receipts of the same thread kind.
