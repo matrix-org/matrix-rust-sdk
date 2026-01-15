@@ -888,7 +888,7 @@ impl TimelineMetadata {
     /// the right-hand side, and `Ordering::Less` if it is older. If it's
     /// not possible to know which one is the more recent, defaults to
     /// `Ordering::Less`, making the right-hand side the default.
-    fn compare_optional_receipts(
+    pub(in crate::timeline) fn compare_optional_receipts(
         lhs: Option<&(OwnedEventId, Receipt)>,
         rhs_or_default: Option<&(OwnedEventId, Receipt)>,
         all_remote_events: &AllRemoteEvents,
