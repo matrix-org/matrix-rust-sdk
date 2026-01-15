@@ -6,6 +6,8 @@ use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
+    RumaApiError, ThreadingSupport,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
@@ -13,8 +15,6 @@ use matrix_sdk::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, ThreadingSupport,
 };
 use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};

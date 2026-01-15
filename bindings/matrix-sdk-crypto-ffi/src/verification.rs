@@ -3,10 +3,11 @@ use std::sync::Arc;
 use futures_util::{Stream, StreamExt};
 use matrix_sdk_common::executor::Handle;
 use matrix_sdk_crypto::{
-    matrix_sdk_qrcode::QrVerificationData, CancelInfo as RustCancelInfo, QrVerification as InnerQr,
-    QrVerificationState, Sas as InnerSas, SasState as RustSasState,
-    Verification as InnerVerification, VerificationRequest as InnerVerificationRequest,
+    CancelInfo as RustCancelInfo, QrVerification as InnerQr, QrVerificationState, Sas as InnerSas,
+    SasState as RustSasState, Verification as InnerVerification,
+    VerificationRequest as InnerVerificationRequest,
     VerificationRequestState as RustVerificationRequestState,
+    matrix_sdk_qrcode::QrVerificationData,
 };
 use ruma::events::key::verification::VerificationMethod;
 use vodozemac::{base64_decode, base64_encode};

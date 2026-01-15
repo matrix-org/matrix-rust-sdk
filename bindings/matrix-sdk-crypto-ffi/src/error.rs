@@ -1,9 +1,9 @@
 #![allow(missing_docs)]
 
 use matrix_sdk_crypto::{
-    store::{CryptoStoreError as InnerStoreError, DehydrationError as InnerDehydrationError},
     KeyExportError, MegolmError, OlmError, SecretImportError as RustSecretImportError,
     SignatureError as InnerSignatureError,
+    store::{CryptoStoreError as InnerStoreError, DehydrationError as InnerDehydrationError},
 };
 use matrix_sdk_sqlite::OpenStoreError;
 use ruma::{IdParseError, OwnedUserId};

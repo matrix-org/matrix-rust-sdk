@@ -6,44 +6,44 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use futures_util::pin_mut;
-#[cfg(not(target_family = "wasm"))]
-use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
+        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
             discovery::{
                 discover_homeserver::RtcFocusInfo,
                 get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
             },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
-            room::{create_room, Visibility},
+            room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
         },
         events::{
+            AnyInitialStateEvent, InitialStateEvent,
             room::{
                 avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent,
                 message::MessageType,
             },
-            AnyInitialStateEvent, InitialStateEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
-use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -55,6 +55,7 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
+    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::client::{
         alias::get_alias,
         error::ErrorKind,
@@ -63,6 +64,9 @@ use ruma::{
         uiaa::UserIdentifier,
     },
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -82,26 +86,23 @@ use ruma::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
         tag::TagEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
     room_version_rules::AuthorizationRules,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
 use super::{
-    room::{room_info::RoomInfo, Room},
+    room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
 use crate::{
+    ClientError,
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
@@ -124,7 +125,6 @@ use crate::{
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
-    ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -2907,7 +2907,7 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
 #[cfg(test)]
 mod tests {
     use ruma::{
-        api::client::room::{create_room, Visibility},
+        api::client::room::{Visibility, create_room},
         events::StateEventType,
         room::RoomType,
     };
@@ -2952,9 +2952,9 @@ mod tests {
         assert_eq!(request.invite.len(), 1);
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomAvatar));
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomJoinRules));
-        assert!(initial_state
-            .iter()
-            .any(|e| e.event_type() == StateEventType::RoomHistoryVisibility));
+        assert!(
+            initial_state.iter().any(|e| e.event_type() == StateEventType::RoomHistoryVisibility)
+        );
         assert_eq!(request.room_alias_name, Some("#a-room:example.com".to_owned()));
 
         let room_type = request
