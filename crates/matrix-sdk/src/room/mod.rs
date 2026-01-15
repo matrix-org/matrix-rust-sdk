@@ -4199,7 +4199,7 @@ impl Room {
                 // Immediately save the result into the database.
                 self.client
                     .state_store()
-                    .upsert_thread_subscription(
+                    .upsert_thread_subscriptions(vec![(
                         self.room_id(),
                         &thread_root,
                         StoredThreadSubscription {
@@ -4208,7 +4208,7 @@ impl Room {
                             },
                             bump_stamp: None,
                         },
-                    )
+                    )])
                     .await?;
 
                 Ok(())
@@ -4277,14 +4277,14 @@ impl Room {
         // Immediately save the result into the database.
         self.client
             .state_store()
-            .upsert_thread_subscription(
+            .upsert_thread_subscriptions(vec![(
                 self.room_id(),
                 &thread_root,
                 StoredThreadSubscription {
                     status: ThreadSubscriptionStatus::Unsubscribed,
                     bump_stamp: None,
                 },
-            )
+            )])
             .await?;
 
         Ok(())
@@ -4331,14 +4331,14 @@ impl Room {
         if let Some(sub) = &subscription {
             self.client
                 .state_store()
-                .upsert_thread_subscription(
+                .upsert_thread_subscriptions(vec![(
                     self.room_id(),
                     &thread_root,
                     StoredThreadSubscription {
                         status: ThreadSubscriptionStatus::Subscribed { automatic: sub.automatic },
                         bump_stamp: None,
                     },
-                )
+                )])
                 .await?;
         } else {
             // If the subscription was not found, remove it from the database.

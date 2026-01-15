@@ -993,30 +993,6 @@ impl StateStore for MemoryStore {
             .unwrap_or_default())
     }
 
-    async fn upsert_thread_subscription(
-        &self,
-        room: &RoomId,
-        thread_id: &EventId,
-        mut new: StoredThreadSubscription,
-    ) -> Result<(), Self::Error> {
-        let mut inner = self.inner.write().unwrap();
-        let room_subs = inner.thread_subscriptions.entry(room.to_owned()).or_default();
-
-        if let Some(previous) = room_subs.get(thread_id) {
-            // Nothing to do.
-            if *previous == new {
-                return Ok(());
-            }
-            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
-                return Ok(());
-            }
-        }
-
-        room_subs.insert(thread_id.to_owned(), new);
-
-        Ok(())
-    }
-
     async fn upsert_thread_subscriptions(
         &self,
         updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
