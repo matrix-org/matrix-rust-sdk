@@ -300,6 +300,11 @@ async fn test_extract_bundled_thread_summary() {
     // We get the count from the bundled thread summary.
     assert_eq!(summary.num_replies, 42);
 
+    // The read receipts haven't been filled, because we didn't have such
+    // information for the current user.
+    assert_eq!(summary.public_read_receipt_event_id, None);
+    assert_eq!(summary.private_read_receipt_event_id, None);
+
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     assert!(value.is_date_divider());
 }
@@ -397,6 +402,11 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     // The thread summary contains the number of replies.
     assert_eq!(summary.num_replies, 1);
 
+    // The read receipts haven't been filled, because we didn't have such
+    // information for the current user.
+    assert_eq!(summary.public_read_receipt_event_id, None);
+    assert_eq!(summary.private_read_receipt_event_id, None);
+
     assert_pending!(stream);
 
     // A new thread reply updates the number of replies in the thread.
@@ -454,6 +464,11 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
 
     // The number of replies has been updated.
     assert_eq!(summary.num_replies, 2);
+
+    // The read receipts haven't been filled, because we didn't have such
+    // information for the current user.
+    assert_eq!(summary.public_read_receipt_event_id, None);
+    assert_eq!(summary.private_read_receipt_event_id, None);
 }
 
 #[async_test]
@@ -2078,4 +2093,87 @@ async fn test_redaction_affects_thread_summary() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(thread_root));
     assert!(event_item.content().as_msglike().unwrap().thread_summary.is_none());
+}
+
+#[async_test]
+async fn test_main_timeline_has_receipts_in_thread_summaries() {
+    // The initial read receipts for thread events are filled, as part of the
+    // `ThreadSummary`, for main timeline:
+    // - at start
+    // - upon update of the read receipts events
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+    client.event_cache().subscribe().unwrap();
+
+    let own_user = client.user_id().unwrap();
+
+    // Sync some initial read receipts, one for the main timeline (that won't be
+    // used) and another one for a threaded timeline, that will be used later.
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let thread_event_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    // Add a receipt for the latest event of the thread.
+                    f.read_receipts()
+                        .add(
+                            latest_event_id,
+                            own_user,
+                            ReceiptType::Read,
+                            ReceiptThread::Thread(thread_event_id.to_owned()),
+                        )
+                        .into_event(),
+                )
+                .add_timeline_event(
+                    // And the thread root itself.
+                    f.text_msg("thready thread mcthreadface")
+                        .with_bundled_thread_summary(
+                            f.text_msg("the last one!").event_id(latest_event_id).into(),
+                            42,
+                            false,
+                        )
+                        .event_id(thread_event_id),
+                ),
+        )
+        .await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (mut initial_items, mut stream) = timeline.subscribe().await;
+
+    // Wait for the initial items.
+    if initial_items.is_empty() {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        for up in timeline_updates {
+            up.apply(&mut initial_items);
+        }
+    }
+
+    // Let's take a look at the items, now that they've been loaded: there will be
+    // the day divider and the thread root itself.
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 2);
+
+    // First, the day divider.
+    let value = &items[0];
+    assert!(value.is_date_divider());
+
+    // Second, the event with the thread summary that has some read receipts.
+    let value = &items[1];
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+
+    // We get the latest event from the bundled thread summary, and it's loaded.
+    assert!(summary.latest_event.is_ready());
+
+    // The public read receipt event id is filled (but the private isn't).
+    assert_eq!(summary.public_read_receipt_event_id.as_deref(), Some(latest_event_id));
+    assert_eq!(summary.private_read_receipt_event_id, None);
 }

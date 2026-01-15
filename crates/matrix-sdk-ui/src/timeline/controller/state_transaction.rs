@@ -21,7 +21,9 @@ use matrix_sdk::deserialized_responses::{
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
-    events::AnySyncTimelineEvent, push::Action, serde::Raw,
+    events::{AnySyncTimelineEvent, receipt::{ReceiptThread, ReceiptType}},
+    push::Action,
+    serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -692,9 +694,47 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             } else {
                 None
             };
+
+            // Load the public and private read receipts for the user, in the thread. In the
+            // future, we might move this code in the event cache, so that read receipt
+            // handling happens there instead.
+
+            // As an exception to handle the "implicit" read receipt (which is the latest event
+            // sent by the user): if the latest event has been sent by the current user, then we
+            // consider that as a read receipt.
+            let (own_thread_public_receipt, own_thread_private_receipt) = if settings.track_read_receipts.is_enabled() {
+if let Some(ref latest_reply) = summary.latest_reply && 
+                let Some(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
+                    .await
+                    .inspect_err(|err| {
+                        warn!("Failed to load thread latest event: {err}");
+                    })
+                    .ok() &&
+                // Parse the sender.
+                let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender") &&
+                sender == self.meta.own_user_id {
+                let latest = Some(latest_reply.clone());
+                (latest.clone(), latest)
+            } else {
+                let own_thread_public_receipt = 
+                if let Some(event_id) = event.event_id() {
+                    room_data_provider.load_user_receipt(ReceiptType::Read, ReceiptThread::Thread(event_id), &self.meta.own_user_id).await
+                        .map(|(event_id, _receipt)| event_id) } else { None };
+
+                let own_thread_private_receipt = 
+                if let Some(event_id) = event.event_id() {
+                    room_data_provider.load_user_receipt(ReceiptType::ReadPrivate, ReceiptThread::Thread(event_id), &self.meta.own_user_id).await
+                        .map(|(event_id, _receipt)| event_id) } else { None };
+
+                (own_thread_public_receipt, own_thread_private_receipt)
+            }
+            } else { Default::default() };
+
             Some(ThreadSummary {
                 latest_event: TimelineDetails::from_initial_value(latest_reply_item),
                 num_replies: summary.num_replies,
+                public_read_receipt_event_id: own_thread_public_receipt,
+                private_read_receipt_event_id: own_thread_private_receipt,
             })
         } else {
             None
