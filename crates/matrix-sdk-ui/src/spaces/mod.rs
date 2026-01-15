@@ -318,8 +318,6 @@ impl SpaceService {
     ) -> Result<(), Error> {
         let space_room =
             self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
-        let child_room =
-            self.client.get_room(&child_id).ok_or(Error::RoomNotFound(child_id.to_owned()))?;
 
         if let Ok(Some(_)) =
             space_room.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child_id).await
@@ -338,16 +336,25 @@ impl SpaceService {
             warn!("A space child event wasn't found on the parent, ignoring.");
         }
 
-        if let Ok(Some(_)) =
-            child_room.get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id).await
-        {
-            // Same as the comment above.
-            child_room
-                .send_state_event_raw("m.space.parent", space_id.as_str(), serde_json::json!({}))
+        if let Some(child_room) = self.client.get_room(&child_id) {
+            if let Ok(Some(_)) = child_room
+                .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
                 .await
-                .map_err(Error::UpdateRelationship)?;
+            {
+                // Same as the comment above.
+                child_room
+                    .send_state_event_raw(
+                        "m.space.parent",
+                        space_id.as_str(),
+                        serde_json::json!({}),
+                    )
+                    .await
+                    .map_err(Error::UpdateRelationship)?;
+            } else {
+                warn!("A space parent event wasn't found on the child, ignoring.");
+            }
         } else {
-            warn!("A space parent event wasn't found on the child, ignoring.");
+            warn!("The child room is unknown, skipping m.space.parent removal.");
         }
 
         Ok(())
@@ -1251,6 +1258,55 @@ mod tests {
 
         // Then the parent event is removed successfully and the child event removal is
         // not attempted.
+        assert!(result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_remove_unknown_child_from_space() {
+        // Given a space with a child room that is unknown (not in the client store).
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_child_event_id = event_id!("$1");
+        server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
+        // The parent event should not be attempted since the child room is unknown.
+        server.mock_set_space_parent().unauthorized().expect(0).mount().await;
+
+        let parent_id = room_id!("!parent_space:example.org");
+        let unknown_child_id = room_id!("!unknown_child:example.org");
+
+        // Only add the parent space, not the child room.
+        add_space_rooms(
+            vec![MockSpaceRoomParameters {
+                room_id: parent_id,
+                order: None,
+                parents: vec![],
+                children: vec![unknown_child_id],
+                power_level: None,
+            }],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        // Verify that the child room is indeed unknown.
+        assert!(client.get_room(unknown_child_id).is_none());
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        // When removing the unknown child from the space.
+        let result = space_service
+            .remove_child_from_space(unknown_child_id.to_owned(), parent_id.to_owned())
+            .await;
+
+        // Then the operation succeeds: the child event is removed from the space,
+        // and the parent event removal is skipped since the child room is unknown.
         assert!(result.is_ok());
     }
 
