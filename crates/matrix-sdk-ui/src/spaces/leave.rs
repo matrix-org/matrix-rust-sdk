@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk::{Client, RoomState, room::RoomMemberRole};
-use ruma::{Int, OwnedRoomId};
+use ruma::{Int, OwnedRoomId, events::room::member::MembershipState};
 
 use crate::spaces::{Error, SpaceRoom};
 
@@ -26,6 +26,8 @@ pub struct LeaveSpaceRoom {
     /// Whether the user is the last admin in the room. This helps clients
     /// better inform the user about the consequences of leaving the room.
     pub is_last_admin: bool,
+    /// The amount of joined members in the room.
+    pub joined_members_count: u64,
 }
 
 /// The `LeaveSpaceHandle` processes rooms to be left in the order they were
@@ -53,9 +55,12 @@ impl LeaveSpaceHandle {
                 continue;
             }
 
-            let users_to_power_levels = room.users_with_power_levels().await;
+            if !room.are_members_synced() {
+                _ = room.sync_members().await.ok();
+            }
 
-            let is_last_admin = users_to_power_levels
+            let users_to_power_levels = room.users_with_power_levels().await;
+            let admin_ids = users_to_power_levels
                 .iter()
                 .filter(|(_, power_level)| {
                     let Some(power_level) = Int::new(**power_level) else {
@@ -66,12 +71,22 @@ impl LeaveSpaceHandle {
                         == RoomMemberRole::Administrator
                 })
                 .map(|p| p.0)
-                .collect::<Vec<_>>()
-                == vec![room.own_user_id()];
+                .collect::<Vec<_>>();
+
+            let mut joined_admin_ids = Vec::new();
+            for admin_id in admin_ids {
+                if let Ok(Some(member)) = room.get_member_no_sync(admin_id).await
+                    && *member.membership() == MembershipState::Join
+                {
+                    joined_admin_ids.push(admin_id);
+                }
+            }
+            let is_last_admin = joined_admin_ids == vec![room.own_user_id()];
 
             rooms.push(LeaveSpaceRoom {
                 space_room: SpaceRoom::new_from_known(&room, 0),
                 is_last_admin,
+                joined_members_count: room.joined_members_count(),
             });
         }
 
