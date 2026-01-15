@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `StateStore::upsert_thread_subscription` method has been removed in favor of a
+  bulk method `StateStore::upsert_thread_subscriptions`.
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
   been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))

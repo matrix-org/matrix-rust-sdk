@@ -480,22 +480,6 @@ pub trait StateStore: AsyncTraitDeps {
         room: &RoomId,
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 
-    /// Insert or update a thread subscription for a given room and thread.
-    ///
-    /// If the new thread subscription hasn't set a bumpstamp, and there was a
-    /// previous subscription in the database with a bumpstamp, the existing
-    /// bumpstamp is kept.
-    ///
-    /// If the new thread subscription has a bumpstamp that's lower than or
-    /// equal to a previous one, the existing subscription is kept, i.e.
-    /// this method must have no effect.
-    async fn upsert_thread_subscription(
-        &self,
-        room: &RoomId,
-        thread_id: &EventId,
-        subscription: StoredThreadSubscription,
-    ) -> Result<(), Self::Error>;
-
     /// Inserts or updates multiple thread subscriptions.
     ///
     /// If the new thread subscription hasn't set a bumpstamp, and there was a
@@ -831,15 +815,6 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .update_dependent_queued_request(room_id, own_transaction_id, new_content)
             .await
             .map_err(Into::into)
-    }
-
-    async fn upsert_thread_subscription(
-        &self,
-        room: &RoomId,
-        thread_id: &EventId,
-        subscription: StoredThreadSubscription,
-    ) -> Result<(), Self::Error> {
-        self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
     }
 
     async fn upsert_thread_subscriptions(

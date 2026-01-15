@@ -15,8 +15,7 @@ use matrix_sdk_base::{
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        StoredThreadSubscription, ThreadSubscriptionStatus,
-        compare_thread_subscription_bump_stamps, migration_helpers::RoomInfoV1,
+        StoredThreadSubscription, ThreadSubscriptionStatus, migration_helpers::RoomInfoV1,
     },
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -42,7 +41,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, instrument, warn};
 
 use crate::{
     OpenStoreError, Secret, SqliteStoreConfig,
@@ -2193,43 +2192,6 @@ impl StateStore for SqliteStateStore {
         }
 
         Ok(dependent_events)
-    }
-
-    async fn upsert_thread_subscription(
-        &self,
-        room_id: &RoomId,
-        thread_id: &EventId,
-        mut new: StoredThreadSubscription,
-    ) -> Result<(), Self::Error> {
-        if let Some(previous) = self.load_thread_subscription(room_id, thread_id).await? {
-            if previous == new {
-                // No need to update anything.
-                trace!("not saving thread subscription because the subscription is the same");
-                return Ok(());
-            }
-
-            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
-                trace!("not saving thread subscription because we have a newer bump stamp");
-                return Ok(());
-            }
-        }
-
-        let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
-        let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
-        let status = new.status.as_str();
-
-        self.write()
-            .await
-            .with_transaction(move |txn| {
-                // Try to find a previous value.
-                txn.prepare_cached(
-                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
-                         VALUES (?, ?, ?, ?)",
-                )?
-                .execute((room_id, thread_id, status, new.bump_stamp))
-            })
-            .await?;
-        Ok(())
     }
 
     async fn upsert_thread_subscriptions(
