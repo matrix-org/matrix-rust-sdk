@@ -2176,4 +2176,37 @@ async fn test_main_timeline_has_receipts_in_thread_summaries() {
     // The public read receipt event id is filled (but the private isn't).
     assert_eq!(summary.public_read_receipt_event_id.as_deref(), Some(latest_event_id));
     assert_eq!(summary.private_read_receipt_event_id, None);
+
+    // Now, a new read receipt is received for the same thread (we haven't received
+    // the thread event yet).
+    let new_latest_event_id = event_id!("$new_latest_event_id");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                // Add a receipt for the latest event of the thread.
+                f.read_receipts()
+                    .add(
+                        new_latest_event_id,
+                        own_user,
+                        ReceiptType::ReadPrivate,
+                        ReceiptThread::Thread(thread_event_id.to_owned()),
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+
+    // Now, the private read receipt is *also* filled.
+    assert_eq!(summary.public_read_receipt_event_id.as_deref(), Some(latest_event_id));
+    assert_eq!(summary.private_read_receipt_event_id.as_deref(), Some(new_latest_event_id));
 }
