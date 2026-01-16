@@ -466,7 +466,7 @@ mod test {
     use super::*;
     use crate::{
         authentication::oauth::qrcode::{
-            LoginFailureReason, QrAuthMessage,
+            LoginFailureReason, MessageDecodeError, QrAuthMessage,
             messages::{AuthorizationGrant, LoginProtocolType},
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
@@ -3134,7 +3134,9 @@ mod test {
         // Wait for all tasks to finish / fail.
         assert_matches!(
             grant.await,
-            Err(QRCodeGrantLoginError::SecureChannel(SecureChannelError::Json(_))),
+            Err(QRCodeGrantLoginError::SecureChannel(SecureChannelError::MessageDecode(
+                MessageDecodeError::Json(_)
+            ))),
             "Alice should abort the login with a SecureChannel error"
         );
         updates_task.await.expect("Alice should run through all progress states");
@@ -3243,7 +3245,9 @@ mod test {
         // Wait for all tasks to finish / fail.
         assert_matches!(
             grant.await,
-            Err(QRCodeGrantLoginError::SecureChannel(SecureChannelError::Json(_))),
+            Err(QRCodeGrantLoginError::SecureChannel(SecureChannelError::MessageDecode(
+                MessageDecodeError::Json(_)
+            ))),
             "Alice should abort the login with a SecureChannel error"
         );
         updates_task.await.expect("Alice should run through all progress states");
