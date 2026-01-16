@@ -34,7 +34,9 @@ use vodozemac::{
     hpke::{self, EstablishedHpkeChannel, HpkeRecipientChannel, RecipientCreationResult},
 };
 
-use crate::authentication::oauth::qrcode::SecureChannelError as Error;
+use crate::authentication::oauth::qrcode::{
+    DecryptionError, MessageDecodeError, SecureChannelError as Error,
+};
 
 /// A cryptographic communication channel.
 pub(super) enum CryptoChannel {
@@ -68,13 +70,16 @@ impl CryptoChannel {
     ) -> Result<CryptoChannelCreationResult, Error> {
         match self {
             CryptoChannel::Ecies(ecies) => {
-                let message = InitialMessage::decode(message)?;
-                Ok(CryptoChannelCreationResult::Ecies(ecies.establish_inbound_channel(&message)?))
+                let message = InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
+                Ok(CryptoChannelCreationResult::Ecies(
+                    ecies.establish_inbound_channel(&message).map_err(DecryptionError::from)?,
+                ))
             }
             CryptoChannel::Hpke(hpke) => {
-                let message = hpke::InitialMessage::decode(message).unwrap();
+                let message =
+                    hpke::InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
                 Ok(CryptoChannelCreationResult::Hpke(
-                    hpke.establish_channel(&message, &[]).unwrap(),
+                    hpke.establish_channel(&message, &[]).map_err(DecryptionError::from)?,
                 ))
             }
         }
@@ -136,12 +141,12 @@ impl EstablishedCryptoChannel {
     pub(super) fn open(&mut self, message: &str, aad: &[u8]) -> Result<String, Error> {
         let plaintext = match self {
             EstablishedCryptoChannel::Ecies(channel) => {
-                let message = Message::decode(message)?;
-                channel.decrypt(&message)?
+                let message = Message::decode(message).map_err(MessageDecodeError::from)?;
+                channel.decrypt(&message).map_err(DecryptionError::from)?
             }
             EstablishedCryptoChannel::Hpke(channel) => {
-                let message = hpke::Message::decode(message).unwrap();
-                channel.open(&message, aad).unwrap()
+                let message = hpke::Message::decode(message).map_err(MessageDecodeError::from)?;
+                channel.open(&message, aad).map_err(DecryptionError::from)?
             }
         };
 
