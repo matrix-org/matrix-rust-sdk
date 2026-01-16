@@ -25,7 +25,10 @@ use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
-use crate::{config::RequestConfig, http_client::HttpClient};
+use crate::{
+    authentication::oauth::qrcode::MessageDecodeError, config::RequestConfig,
+    http_client::HttpClient,
+};
 mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
@@ -97,7 +100,7 @@ impl SecureChannel {
         let message = self.channel.receive().await?;
         let result = self.crypto_channel.establish_inbound_channel(&message)?;
 
-        let message = std::str::from_utf8(result.plaintext())?;
+        let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
         trace!("Received the initial secure channel message");
 
@@ -171,9 +174,10 @@ impl EstablishedSecureChannel {
             let client = HttpClient::new(client, RequestConfig::short_retry());
 
             // Let's establish an outbound ECIES channel, the other side won't
-            // know that it's talking to us, the device that scanned the QR
-            // code, until it receives and successfully decrypts the initial
-            // message. We're here encrypting the `LOGIN_INITIATE_MESSAGE`.
+            // know that it's talking to us, the device that scanned
+            // the QR code, until it receives and successfully
+            // decrypts the initial message. We're here encrypting
+            // the `LOGIN_INITIATE_MESSAGE`.
             let (crypto_channel, encoded_message) = {
                 let ecies = Ecies::new();
 
@@ -185,9 +189,10 @@ impl EstablishedSecureChannel {
             };
 
             // The other side has crated a rendezvous channel, we're going to
-            // connect to it and send this initial encrypted message through it.
-            // The initial message on the rendezvous channel will have an empty
-            // body, so we can just drop it.
+            // connect to it and send this initial encrypted message
+            // through it. The initial message on the rendezvous
+            // channel will have an empty body, so we can just
+            // drop it.
             let mut channel = match qr_code_data.intent_data() {
                 QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
                     let InboundChannelCreationResult { channel, .. } =
@@ -246,7 +251,7 @@ impl EstablishedSecureChannel {
     /// The message will be encrypted before it is sent over the rendezvous
     /// channel.
     pub(super) async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
-        let message = serde_json::to_string(&message)?;
+        let message = serde_json::to_string(&message).map_err(MessageDecodeError::from)?;
         self.send(&message).await
     }
 
@@ -256,7 +261,7 @@ impl EstablishedSecureChannel {
     /// rendezvous channel.
     pub(super) async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let message = self.receive().await?;
-        Ok(serde_json::from_str(&message)?)
+        Ok(serde_json::from_str(&message).map_err(MessageDecodeError::from)?)
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {

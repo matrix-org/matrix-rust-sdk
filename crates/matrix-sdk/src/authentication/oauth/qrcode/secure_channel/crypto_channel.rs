@@ -34,7 +34,10 @@ use vodozemac::{
     hpke::DigitMode,
 };
 
-use crate::authentication::oauth::qrcode::SecureChannelError as Error;
+use crate::authentication::oauth::qrcode::{
+    MessageDecodeError,
+    SecureChannelError::{self as Error},
+};
 
 /// A cryptographic communication channel.
 pub(super) enum CryptoChannel {
@@ -61,7 +64,7 @@ impl CryptoChannel {
     ) -> Result<CryptoChannelCreationResult, Error> {
         match self {
             CryptoChannel::Ecies(ecies) => {
-                let message = InitialMessage::decode(message)?;
+                let message = InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
                 Ok(CryptoChannelCreationResult::Ecies(ecies.establish_inbound_channel(&message)?))
             }
         }
@@ -115,11 +118,11 @@ impl EstablishedCryptoChannel {
     pub(super) fn open(&mut self, message: &str) -> Result<String, Error> {
         let plaintext = match self {
             EstablishedCryptoChannel::Ecies(channel) => {
-                let message = Message::decode(message)?;
+                let message = Message::decode(message).map_err(MessageDecodeError::from)?;
                 channel.decrypt(&message)?
             }
         };
 
-        Ok(String::from_utf8(plaintext).map_err(|e| e.utf8_error())?)
+        Ok(String::from_utf8(plaintext).map_err(|e| MessageDecodeError::from(e.utf8_error()))?)
     }
 }
