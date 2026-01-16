@@ -31,7 +31,11 @@ use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
-use crate::{config::RequestConfig, http_client::HttpClient};
+use crate::{
+    authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
+    config::RequestConfig,
+    http_client::HttpClient,
+};
 mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
@@ -193,10 +197,12 @@ impl EstablishedSecureChannel {
             let (crypto_channel, encoded_message) = if true {
                 let ecies = Ecies::new();
 
-                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key(),
-                    LOGIN_INITIATE_MESSAGE.as_bytes(),
-                )?;
+                let OutboundCreationResult { ecies, message } = ecies
+                    .establish_outbound_channel(
+                        qr_code_data.public_key(),
+                        LOGIN_INITIATE_MESSAGE.as_bytes(),
+                    )
+                    .map_err(DecryptionError::from)?;
                 (ChannelType::Ecies(ecies), message.encode())
             } else {
                 let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
@@ -247,11 +253,14 @@ impl EstablishedSecureChannel {
                 }
                 ChannelType::Hpke(crypto_channel) => {
                     let response = channel.receive().await?;
-                    let response = InitialResponse::decode(&response).unwrap();
+                    let response =
+                        InitialResponse::decode(&response).map_err(MessageDecodeError::from)?;
 
                     let BidirectionalCreationResult { channel: crypto_channel, message } =
-                        crypto_channel.establish_bidirectional_channel(&response, &[]).unwrap();
-                    let response = String::from_utf8(message).unwrap();
+                        crypto_channel
+                            .establish_bidirectional_channel(&response, &[])
+                            .map_err(DecryptionError::from)?;
+                    let response = String::from_utf8(message).map_err(|e| e.utf8_error())?;
                     let crypto_channel = EstablishedCryptoChannel::Hpke(crypto_channel);
 
                     // We can create our EstablishedSecureChannel struct now and use the
