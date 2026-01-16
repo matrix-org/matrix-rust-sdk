@@ -701,11 +701,18 @@ fn filter_any_sync_state_event(
                     filter_continue()
                 }
 
-                MembershipState::Invite => {
-                    // The current _is_ invited (not someone else).
+                // A member is joining or is being invited…
+                MembershipState::Join | MembershipState::Invite => {
+                    // This member _is_ the current user, not someone else! This is a valid state
+                    // event:
+                    //
+                    // - the user is joining a room: we want a `LatestEventValue` to get a first
+                    //   value!
+                    // - the user is being invited: we want a `LatestEventValue` to represent the
+                    //   invitation!
                     match member {
-                        // We can only decide whether the user is invited if the event isn't
-                        // redacted.
+                        // We can only decide whether the user is joining or is being invited if the
+                        // event isn't redacted.
                         SyncStateEvent::Original(state) => {
                             if state.state_key.deref() == own_user_id {
                                 filter_break()
@@ -1082,6 +1089,38 @@ mod filter_tests {
                 "cannot accept, can decline, at least same user levels",
             );
         }
+    }
+
+    #[test]
+    fn test_join_state_event() {
+        use ruma::events::room::member::MembershipState;
+
+        // The current user is joining the room.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_join_state_event_for_someone_else() {
+        use ruma::events::room::member::MembershipState;
+
+        // The current user sees a join but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Join)
+                    .into_event()
+            }
+            is not a candidate
+        );
     }
 
     #[test]
