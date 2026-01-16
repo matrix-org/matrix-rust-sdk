@@ -364,10 +364,9 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             }
 
             QRCodeLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::MessageDecode(_) | SecureChannelError::RendezvousChannel(_) => {
+                    HumanQrLoginError::Unknown
+                }
                 SecureChannelError::UnsupportedQrCodeType => {
                     HumanQrLoginError::UnsupportedQrCodeType
                 }
@@ -471,10 +470,9 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             }
             QRCodeGrantLoginError::NotFound => Self::NotFound,
             QRCodeGrantLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::MessageDecode(_) | SecureChannelError::RendezvousChannel(_) => {
+                    Self::Unknown(e.to_string())
+                }
                 SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Decryption(_)

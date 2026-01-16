@@ -107,7 +107,7 @@ impl SecureChannel {
         let message = self.channel.receive().await?;
         let result = self.crypto_channel.establish_inbound_channel(&message)?;
 
-        let message = std::str::from_utf8(result.plaintext())?;
+        let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
         trace!("Received the initial secure channel message");
 
@@ -260,7 +260,8 @@ impl EstablishedSecureChannel {
                         crypto_channel
                             .establish_bidirectional_channel(&response, &[])
                             .map_err(DecryptionError::from)?;
-                    let response = String::from_utf8(message).map_err(|e| e.utf8_error())?;
+                    let response = String::from_utf8(message)
+                        .map_err(|e| MessageDecodeError::from(e.utf8_error()))?;
                     let crypto_channel = EstablishedCryptoChannel::Hpke(crypto_channel);
 
                     // We can create our EstablishedSecureChannel struct now and use the
@@ -295,7 +296,7 @@ impl EstablishedSecureChannel {
     /// The message will be encrypted before it is sent over the rendezvous
     /// channel.
     pub(super) async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
-        let message = serde_json::to_string(&message)?;
+        let message = serde_json::to_string(&message).map_err(MessageDecodeError::from)?;
         self.send(&message).await
     }
 
@@ -305,7 +306,7 @@ impl EstablishedSecureChannel {
     /// rendezvous channel.
     pub(super) async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let message = self.receive().await?;
-        Ok(serde_json::from_str(&message)?)
+        Ok(serde_json::from_str(&message).map_err(MessageDecodeError::from)?)
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
