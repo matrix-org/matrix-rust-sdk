@@ -1009,6 +1009,30 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         })
         .await
     }
+    
+    async fn get_active_display_names(
+        &self,
+        room_id: Key,
+        names: Vec<Key>,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let names_length = names.len();
+
+        self.chunk_large_query_over(names, Some(names_length), move |txn, names| {
+            let sql_params = repeat_vars(names.len());
+            let sql = format!(
+                "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params}) AND membership = ?"
+            );
+
+            let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(names).chain(iter::once(RoomMemberships::ACTIVE)));
+
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
+        })
+        .await
+    }
 
     async fn get_user_receipt(
         &self,
@@ -1673,7 +1697,7 @@ impl StateStore for SqliteStateStore {
             .transpose()?
             .unwrap_or_default())
     }
-
+    
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
@@ -1710,6 +1734,76 @@ impl StateStore for SqliteStateStore {
         let names = names_map.keys().cloned().collect();
 
         for (name, data) in self.read().await?.get_display_names(room_id, names).await?.into_iter()
+        {
+            let display_name =
+                names_map.remove(name.as_slice()).expect("returned display names were requested");
+            let user_ids: BTreeSet<_> = self.deserialize_json(&data)?;
+
+            result.entry(display_name).or_insert_with(BTreeSet::new).extend(user_ids);
+        }
+
+        Ok(result)
+    }
+
+    async fn get_active_users_with_display_name(
+        &self,
+        room_id: &RoomId,
+        display_name: &DisplayName,
+    ) -> Result<BTreeSet<OwnedUserId>> {
+        let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
+        let names = vec![self.encode_key(
+            keys::DISPLAY_NAME,
+            display_name.as_normalized_str().unwrap_or_else(|| display_name.as_raw_str()),
+        )];
+
+        Ok(self
+            .read()
+            .await?
+            .get_active_display_names(room_id, names)
+            .await?
+            .into_iter()
+            .next()
+            .map(|(_, data)| self.deserialize_json(&data))
+            .transpose()?
+            .unwrap_or_default())
+    }
+
+    async fn get_active_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+        let mut result = HashMap::new();
+
+        if display_names.is_empty() {
+            return Ok(result);
+        }
+
+        let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
+        let mut names_map = display_names
+            .iter()
+            .flat_map(|display_name| {
+                // We encode the display name as the `raw_str()` and the normalized string.
+                //
+                // This is for compatibility reasons since:
+                //  1. Previously "Alice" and "alice" were considered to be distinct display
+                //     names, while we now consider them to be the same so we need to merge the
+                //     previously distinct buckets of user IDs.
+                //  2. We can't do a migration to merge the previously distinct buckets of user
+                //     IDs since the display names itself are hashed before they are persisted
+                //     in the store.
+                let raw =
+                    (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
+                let normalized = display_name.as_normalized_str().map(|normalized| {
+                    (self.encode_key(keys::DISPLAY_NAME, normalized), display_name)
+                });
+
+                iter::once(raw).chain(normalized)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let names = names_map.keys().cloned().collect();
+
+        for (name, data) in self.read().await?.get_active_display_names(room_id, names).await?.into_iter()
         {
             let display_name =
                 names_map.remove(name.as_slice()).expect("returned display names were requested");
