@@ -19,12 +19,12 @@ use std::{
 
 use byteorder::{BigEndian, ReadBytesExt};
 use url::Url;
-use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
+use vodozemac::Curve25519PublicKey;
 
 use super::{LoginQrCodeDecodeError, VERSION};
 
 /// The prefix that is used in the QR code data.
-const PREFIX: &[u8] = b"MATRIX";
+pub(super) const PREFIX: &[u8] = b"MATRIX";
 
 /// The mode-specific data for the QR code.
 ///
@@ -98,7 +98,7 @@ impl From<&QrCodeModeData> for QrCodeMode {
 /// The [`QrCodeData`] can be serialized and encoded as a QR code or it can be
 /// decoded from a QR code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QrCodeData {
+pub(super) struct QrCodeData {
     /// The ephemeral Curve25519 public key. Can be used to establish a shared
     /// secret using the Diffie-Hellman key agreement.
     pub public_key: Curve25519PublicKey,
@@ -205,19 +205,6 @@ impl QrCodeData {
         }
     }
 
-    /// Attempt to decode a base64 encoded string into a [`QrCodeData`] object.
-    pub fn from_base64(data: &str) -> Result<Self, LoginQrCodeDecodeError> {
-        Self::from_bytes(&base64_decode(data)?)
-    }
-
-    /// Encode the [`QrCodeData`] into a list of bytes.
-    ///
-    /// The list of bytes can be used by a QR code generator to create an image
-    /// containing a QR code.
-    pub fn to_base64(&self) -> String {
-        base64_encode(self.to_bytes())
-    }
-
     /// Get the mode of this [`QrCodeData`] instance.
     pub fn mode(&self) -> QrCodeMode {
         self.mode_data.mode()
@@ -225,14 +212,14 @@ impl QrCodeData {
 }
 
 #[cfg(test)]
-mod test {
+pub(super) mod test {
     use assert_matches2::assert_let;
     use similar_asserts::assert_eq;
 
     use super::*;
 
     // Test vector for the QR code data, copied from the MSC.
-    const QR_CODE_DATA: &[u8] = &[
+    pub const QR_CODE_DATA: &[u8] = &[
         0x4D, 0x41, 0x54, 0x52, 0x49, 0x58, 0x02, 0x03, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b,
         0x78, 0x0e, 0x30, 0x0a, 0x9d, 0x4a, 0x21, 0x47, 0x48, 0x07, 0x00, 0xd7, 0x92, 0x9f, 0x39,
         0xab, 0x31, 0xb9, 0xe5, 0x14, 0x37, 0x02, 0x48, 0xed, 0x6b, 0x00, 0x47, 0x68, 0x74, 0x74,
@@ -258,7 +245,7 @@ mod test {
     ];
 
     // Test vector for the QR code data in base64 format, self-generated.
-    const QR_CODE_DATA_BASE64: &str = "\
+    pub const QR_CODE_DATA_BASE64: &str = "\
         TUFUUklYAgS0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN7pz9y+3PABaaHR0\
         cHM6Ly9zeW5hcHNlLW9pZGMubGFiLmVsZW1lbnQuZGV2L19zeW5hcHNlL2Ns\
         aWVudC9yZW5kZXp2b3VzLzAxSFg5SzAwUTFINktQRDQ3RUc0RzFUM1hHACVo\
@@ -352,11 +339,12 @@ mod test {
 
         let expected_server_name = "https://synapse-oidc.lab.element.dev/";
 
-        let data = QrCodeData::from_base64(QR_CODE_DATA_BASE64)
+        let data = crate::types::qr_login::QrCodeData::from_base64(QR_CODE_DATA_BASE64)
             .expect("We should be able to parse the QR code data");
 
         assert_eq!(
-            expected_curve_key, data.public_key,
+            expected_curve_key,
+            data.public_key(),
             "The parsed public key should match the expected one"
         );
 
@@ -367,11 +355,12 @@ mod test {
         );
 
         assert_eq!(
-            expected_rendezvous, data.rendezvous_url,
+            &expected_rendezvous,
+            data.rendezvous_url(),
             "The parsed rendezvous URL should match the expected one",
         );
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = data.mode_data);
+        assert_let!(QrCodeModeData::Reciprocate { server_name } = data.mode_data());
 
         assert_eq!(
             server_name, expected_server_name,
@@ -391,7 +380,7 @@ mod test {
             "Decoding and re-encoding the QR code data should yield the same bytes"
         );
 
-        let data = QrCodeData::from_base64(QR_CODE_DATA_BASE64)
+        let data = crate::types::qr_login::QrCodeData::from_base64(QR_CODE_DATA_BASE64)
             .expect("We should be able to parse the QR code data");
 
         let encoded = data.to_base64();

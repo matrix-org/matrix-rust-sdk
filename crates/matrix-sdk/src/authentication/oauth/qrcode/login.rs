@@ -612,7 +612,9 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)
@@ -787,7 +789,7 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_eq!(&QrCodeModeData::Login, secure_channel.qr_code_data().mode_data());
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -892,7 +894,7 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_eq!(&QrCodeModeData::Login, secure_channel.qr_code_data().mode_data());
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -1005,7 +1007,9 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)
@@ -1119,7 +1123,7 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_eq!(&QrCodeModeData::Login, secure_channel.qr_code_data().mode_data());
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -1334,7 +1338,9 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)
