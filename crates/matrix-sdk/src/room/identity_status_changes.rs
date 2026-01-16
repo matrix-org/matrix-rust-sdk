@@ -94,12 +94,16 @@ impl IdentityStatusChanges {
         let mut unprocessed_stream = combine_streams(identity_updates, room_member_events);
         let own_user_id = room.client.user_id().ok_or(Error::InsufficientData)?.to_owned();
 
-        let mut state = IdentityStatusChanges {
+        let state = IdentityStatusChanges {
             room_identity_state: RoomIdentityState::new(room).await,
             _drop_guard: drop_guard,
         };
 
         Ok(stream!({
+            // Force enclosing stream to take ownership of state, so that
+            // _drop_guard does not get dropped.
+            let mut state = state;
+
             let mut current_state =
                 filter_for_initial_update(state.room_identity_state.current_state(), &own_user_id);
 

@@ -31,7 +31,7 @@ async-once-cell = "0.5.4"
 async-rx = "0.1.3"
 # Bumping this to 0.3.6 produces a test failure because the semantic between the
 # versions changed subtly: https://github.com/matrix-org/matrix-rust-sdk/issues/4599
-async-stream = "0.3.5"
+async-stream = "0.3.6"
 async-trait = "0.1.89"
 base64 = "0.22.1"
 bitflags = "2.10.0"
