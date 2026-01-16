@@ -248,9 +248,9 @@ impl QrCodeData {
     /// a logged in client. The mode where the new client shows the QR code
     /// will return `None`.
     pub fn server_name(&self) -> Option<String> {
-        match &self.inner.mode_data() {
-            qrcode::QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
-            qrcode::QrCodeModeData::Login => None,
+        match &self.inner.intent_data() {
+            qrcode::QrCodeIntentData::Reciprocate { server_name } => Some(server_name.to_owned()),
+            qrcode::QrCodeIntentData::Login => None,
         }
     }
 }

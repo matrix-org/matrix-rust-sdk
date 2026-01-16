@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crypto_channel::*;
-use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeIntent, QrCodeModeData};
+use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeIntent, QrCodeIntentData};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
@@ -45,7 +45,7 @@ impl SecureChannel {
     ) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
         let rendezvous_url = channel.rendezvous_url().to_owned();
-        let mode_data = QrCodeModeData::Login;
+        let mode_data = QrCodeIntentData::Login;
 
         let crypto_channel = CryptoChannel::new_ecies();
 
@@ -61,7 +61,7 @@ impl SecureChannel {
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
         let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
-        let mode_data = QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
+        let mode_data = QrCodeIntentData::Reciprocate { server_name: homeserver_url.to_string() };
 
         channel.qr_code_data = QrCodeData::new_msc4108(
             channel.crypto_channel.public_key(),

@@ -36,7 +36,7 @@ pub(super) const PREFIX: &[u8] = b"MATRIX";
 /// Depending on which device is displaying the QR code, additional data will be
 /// attached to the QR code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QrCodeModeData {
+pub enum QrCodeIntentData {
     /// Enum variant for the case where the new device is displaying the QR
     /// code.
     Login,
@@ -78,11 +78,11 @@ impl TryFrom<u8> for QrCodeIntent {
     }
 }
 
-impl From<&QrCodeModeData> for QrCodeIntent {
-    fn from(value: &QrCodeModeData) -> Self {
+impl From<&QrCodeIntentData> for QrCodeIntent {
+    fn from(value: &QrCodeIntentData) -> Self {
         match value {
-            QrCodeModeData::Login => Self::Login,
-            QrCodeModeData::Reciprocate { .. } => Self::Reciprocate,
+            QrCodeIntentData::Login => Self::Login,
+            QrCodeIntentData::Reciprocate { .. } => Self::Reciprocate,
         }
     }
 }
@@ -100,7 +100,7 @@ pub(super) struct QrCodeData {
     /// the other device.
     pub rendezvous_url: Url,
     /// Mode specific data, may contain the homeserver URL.
-    pub mode_data: QrCodeModeData,
+    pub mode_data: QrCodeIntentData,
 }
 
 impl QrCodeData {
@@ -152,7 +152,7 @@ impl QrCodeData {
             let rendezvous_url = Url::parse(str::from_utf8(&rendezvous_url)?)?;
 
             let mode_data = match mode {
-                QrCodeIntent::Login => QrCodeModeData::Login,
+                QrCodeIntent::Login => QrCodeIntentData::Login,
                 QrCodeIntent::Reciprocate => {
                     // 7. If the mode is 0x04, we attempt to read the two bytes for the length of
                     //    the homeserver URL.
@@ -163,7 +163,7 @@ impl QrCodeData {
                     reader.read_exact(&mut server_name)?;
                     let server_name = String::from_utf8(server_name).map_err(|e| e.utf8_error())?;
 
-                    QrCodeModeData::Reciprocate { server_name }
+                    QrCodeIntentData::Reciprocate { server_name }
                 }
             };
 
@@ -190,7 +190,7 @@ impl QrCodeData {
         ]
         .concat();
 
-        if let QrCodeModeData::Reciprocate { server_name } = &self.mode_data {
+        if let QrCodeIntentData::Reciprocate { server_name } = &self.mode_data {
             let server_name_len = (server_name.as_str().len() as u16).to_be_bytes();
 
             [encoded.as_slice(), &server_name_len, server_name.as_str().as_bytes()].concat()
@@ -275,7 +275,7 @@ pub(super) mod test {
         );
 
         assert_eq!(
-            QrCodeModeData::Login,
+            QrCodeIntentData::Login,
             data.mode_data,
             "The parsed QR code mode should match expected one",
         );
@@ -311,7 +311,7 @@ pub(super) mod test {
         );
 
         assert_let!(
-            QrCodeModeData::Reciprocate { server_name } = data.mode_data,
+            QrCodeIntentData::Reciprocate { server_name } = data.mode_data,
             "The parsed QR code mode should match the expected one",
         );
 
@@ -354,7 +354,7 @@ pub(super) mod test {
             "The parsed rendezvous URL should match the expected one",
         );
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = data.mode_data());
+        assert_let!(QrCodeIntentData::Reciprocate { server_name } = data.intent_data());
 
         assert_eq!(
             server_name, expected_server_name,
