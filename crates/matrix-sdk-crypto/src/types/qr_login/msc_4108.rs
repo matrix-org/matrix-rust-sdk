@@ -49,23 +49,15 @@ pub enum QrCodeModeData {
     },
 }
 
-impl QrCodeModeData {
-    /// Get the [`QrCodeMode`] which is associated to this [`QrCodeModeData`]
-    /// instance.
-    pub fn mode(&self) -> QrCodeMode {
-        self.into()
-    }
-}
-
-/// The mode of the QR code login.
+/// The intent of the device that generated/displayed the QR code.
 ///
 /// The QR code login mechanism supports both, the new device, as well as the
 /// existing device to display the QR code.
 ///
-/// The different modes have an explicit one-byte identifier which gets added to
-/// the QR code data.
+/// The different intents have an explicit one-byte identifier which gets added
+/// to the QR code data.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QrCodeMode {
+pub enum QrCodeIntent {
     /// Enum variant for the case where the new device is displaying the QR
     /// code.
     Login = 0x03,
@@ -74,7 +66,7 @@ pub enum QrCodeMode {
     Reciprocate = 0x04,
 }
 
-impl TryFrom<u8> for QrCodeMode {
+impl TryFrom<u8> for QrCodeIntent {
     type Error = LoginQrCodeDecodeError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -86,7 +78,7 @@ impl TryFrom<u8> for QrCodeMode {
     }
 }
 
-impl From<&QrCodeModeData> for QrCodeMode {
+impl From<&QrCodeModeData> for QrCodeIntent {
     fn from(value: &QrCodeModeData) -> Self {
         match value {
             QrCodeModeData::Login => Self::Login,
@@ -144,7 +136,7 @@ impl QrCodeData {
         if version == VERSION {
             // 3. The intent/mode is the next one to parse, we return an error imediatelly
             //    the intent isn't 0x03 or 0x04.
-            let mode = QrCodeMode::try_from(reader.read_u8()?)?;
+            let mode = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed
             // Curve25519PublicKey type.
@@ -160,8 +152,8 @@ impl QrCodeData {
             let rendezvous_url = Url::parse(str::from_utf8(&rendezvous_url)?)?;
 
             let mode_data = match mode {
-                QrCodeMode::Login => QrCodeModeData::Login,
-                QrCodeMode::Reciprocate => {
+                QrCodeIntent::Login => QrCodeModeData::Login,
+                QrCodeIntent::Reciprocate => {
                     // 7. If the mode is 0x04, we attempt to read the two bytes for the length of
                     //    the homeserver URL.
                     let server_name_len = reader.read_u16::<BigEndian>()?;
@@ -191,7 +183,7 @@ impl QrCodeData {
         let encoded = [
             PREFIX,
             &[VERSION],
-            &[self.mode_data.mode() as u8],
+            &[self.intent() as u8],
             self.public_key.as_bytes().as_slice(),
             &rendezvous_url_len,
             self.rendezvous_url.as_str().as_bytes(),
@@ -207,9 +199,9 @@ impl QrCodeData {
         }
     }
 
-    /// Get the mode of this [`QrCodeData`] instance.
-    pub fn mode(&self) -> QrCodeMode {
-        self.mode_data.mode()
+    /// Get the intent of this [`QrCodeData`] instance.
+    pub fn intent(&self) -> QrCodeIntent {
+        (&self.mode_data).into()
     }
 }
 
@@ -277,8 +269,8 @@ pub(super) mod test {
         );
 
         assert_eq!(
-            data.mode(),
-            QrCodeMode::Login,
+            data.intent(),
+            QrCodeIntent::Login,
             "The mode in the test bytes vector should be Login"
         );
 
@@ -313,8 +305,8 @@ pub(super) mod test {
         );
 
         assert_eq!(
-            data.mode(),
-            QrCodeMode::Reciprocate,
+            data.intent(),
+            QrCodeIntent::Reciprocate,
             "The mode in the test bytes vector should be Reciprocate"
         );
 
@@ -351,8 +343,8 @@ pub(super) mod test {
         );
 
         assert_eq!(
-            data.mode(),
-            QrCodeMode::Reciprocate,
+            data.intent(),
+            QrCodeIntent::Reciprocate,
             "The mode in the test bytes vector should be Reciprocate"
         );
 

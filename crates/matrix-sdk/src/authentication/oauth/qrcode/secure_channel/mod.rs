@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crypto_channel::*;
-use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
+use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeIntent, QrCodeModeData};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
@@ -143,13 +143,13 @@ impl EstablishedSecureChannel {
     pub(super) async fn from_qr_code(
         client: reqwest::Client,
         qr_code_data: &QrCodeData,
-        expected_mode: QrCodeMode,
+        expected_mode: QrCodeIntent,
     ) -> Result<Self, Error> {
         enum ChannelType {
             Ecies(EstablishedEcies),
         }
 
-        if qr_code_data.mode() == expected_mode {
+        if qr_code_data.intent() == expected_mode {
             Err(Error::InvalidIntent)
         } else {
             trace!("Attempting to create a new inbound secure channel from a QR code.");
@@ -259,7 +259,7 @@ pub(super) mod test {
         time::Duration,
     };
 
-    use matrix_sdk_base::crypto::types::qr_login::QrCodeMode;
+    use matrix_sdk_base::crypto::types::qr_login::QrCodeIntent;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use ruma::time::Instant;
@@ -424,7 +424,7 @@ pub(super) mod test {
             EstablishedSecureChannel::from_qr_code(
                 reqwest::Client::new(),
                 &qr_code_data,
-                QrCodeMode::Login,
+                QrCodeIntent::Login,
             )
             .await
             .expect("Bob should be able to fully establish the secure channel.")
