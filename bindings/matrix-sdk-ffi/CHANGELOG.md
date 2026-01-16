@@ -54,6 +54,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
+  account also for v12 rooms, where creators and users with PL 150 matter.
+  ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
 - [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the 
   actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the 
   event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
