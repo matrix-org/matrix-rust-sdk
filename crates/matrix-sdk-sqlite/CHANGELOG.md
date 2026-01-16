@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Implement new method `CryptoStore::has_downloaded_all_room_keys`.
+  ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

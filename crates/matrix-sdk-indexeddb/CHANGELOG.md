@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the
   stores to be used independent of and in combination with the others.
   ([#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946))
+- Implement new method `CyptoStore::has_downloaded_all_room_keys`.
+  ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
 
 ### Bug Fixes
 
