@@ -12,6 +12,7 @@ mod client;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod event_cache;
+mod latest_event;
 mod matrix_auth;
 mod media;
 mod notification;
