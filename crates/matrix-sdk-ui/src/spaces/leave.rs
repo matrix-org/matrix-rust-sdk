@@ -160,11 +160,13 @@ mod tests {
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                    ),
+                    )
+                    .add_state_event(factory.member(user_id).state_key(user_id.to_string())),
             )
             .await;
 
-        power_levels.insert(owned_user_id!("@some_other_admin:a.b"), 100.into());
+        let other_admin_user_id = owned_user_id!("@some_other_admin:a.b");
+        power_levels.insert(other_admin_user_id.clone(), 100.into());
 
         server
             .sync_room(
@@ -177,6 +179,12 @@ mod tests {
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                    )
+                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
+                    .add_state_event(
+                        factory
+                            .member(&other_admin_user_id)
+                            .state_key(other_admin_user_id.to_string()),
                     ),
             )
             .await;
