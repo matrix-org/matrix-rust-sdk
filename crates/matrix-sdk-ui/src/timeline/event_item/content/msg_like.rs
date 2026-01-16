@@ -53,6 +53,13 @@ pub struct ThreadSummary {
     /// thread-focused timeline with the same timeline filter may result in
     /// *fewer* events than this number.
     pub num_replies: u32,
+
+    /// The user's own public read receipt event id, for this particular thread.
+    pub public_read_receipt_event_id: Option<OwnedEventId>,
+
+    /// The user's own private read receipt event id, for this particular
+    /// thread.
+    pub private_read_receipt_event_id: Option<OwnedEventId>,
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together

@@ -1061,6 +1061,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     ) {
+        // Don't even take the lock if there are no events to process.
+        if events.is_empty() {
+            return;
+        }
         let mut state = self.state.write().await;
         state.handle_ephemeral_events(events, &self.room_data_provider).await;
     }
