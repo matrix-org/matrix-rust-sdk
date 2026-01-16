@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
   `Option` was redundant. The `message` field has also been removed: since there
   was no way to localise the returned string, applications should not be using it.
   ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
+- Add `Room::list_threads` to list all the threads in a room.
+  ([#5953](https://github.com/matrix-org/matrix-rust-sdk/pull/5953))
 - Add `SpaceService::get_space_room` to get a space given its id from the space graph if available.
 [#5944](https://github.com/matrix-org/matrix-rust-sdk/pull/5944)
 - Add `QrCodeData::to_bytes()` to allow generation of a QR code.
