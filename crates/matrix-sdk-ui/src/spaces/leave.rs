@@ -144,9 +144,10 @@ mod tests {
         let left_room_id = room_id!("!left_room:example.org");
         let invited_room_id = room_id!("!invited_room:example.org");
 
+        let some_non_admin_id = owned_user_id!("@some_non_admin:a.b");
         let mut power_levels = BTreeMap::from([
             (user_id.to_owned(), 100.into()),
-            (owned_user_id!("@some_non_admin:a.b"), 50.into()),
+            (some_non_admin_id.clone(), 50.into()),
         ]);
 
         server
@@ -161,7 +162,11 @@ mod tests {
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
                     )
-                    .add_state_event(factory.member(user_id).state_key(user_id.to_string())),
+                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
+                    .add_state_event(
+                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
+                    )
+                    .set_joined_members_count(2),
             )
             .await;
 
@@ -182,10 +187,14 @@ mod tests {
                     )
                     .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
                     .add_state_event(
+                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
+                    )
+                    .add_state_event(
                         factory
                             .member(&other_admin_user_id)
                             .state_key(other_admin_user_id.to_string()),
-                    ),
+                    )
+                    .set_joined_members_count(3),
             )
             .await;
 
@@ -224,9 +233,11 @@ mod tests {
 
         let child_room_1 = &rooms[0];
         assert!(child_room_1.is_last_admin);
+        assert_eq!(child_room_1.joined_members_count, 2);
 
         let child_room_2 = &rooms[1];
         assert!(!child_room_2.is_last_admin);
+        assert_eq!(child_room_2.joined_members_count, 3);
 
         let room_ids = rooms.iter().map(|r| r.space_room.room_id.clone()).collect::<Vec<_>>();
         assert_eq!(room_ids, vec![child_space_id_1, child_space_id_2, parent_space_id]);
