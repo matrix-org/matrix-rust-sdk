@@ -440,11 +440,11 @@ impl Deref for BaseStateStore {
 /// (SQLite in this example), thus protecting original data.
 ///
 /// From a higher-level point of view, this is what
-/// [`BaseClient::clone_with_in_memory_state_store`] does.
+/// [`BaseClient::derive_states_for_notification_client`] does.
 ///
 /// </div>
 ///
-/// [`BaseClient::clone_with_in_memory_state_store`]: crate::BaseClient::clone_with_in_memory_state_store
+/// [`BaseClient::derive_states_for_notification_client`]: crate::BaseClient::derive_states_for_notification_client
 #[derive(Clone, Debug, Default)]
 pub enum RoomLoadSettings {
     /// Load all rooms from the [`StateStore`] into the in-memory state store

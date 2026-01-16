@@ -292,7 +292,7 @@ impl BaseClient {
     /// different, in-memory store config, and resets transient state.
     #[cfg(not(feature = "e2e-encryption"))]
     #[allow(clippy::unused_async)]
-    pub async fn clone_with_in_memory_state_store(
+    pub async fn derive_states_for_notification_client(
         &self,
         cross_process_store_locks_holder: &str,
         _handle_verification_events: bool,

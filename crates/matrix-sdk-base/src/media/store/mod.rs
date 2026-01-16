@@ -158,11 +158,13 @@ impl MediaStoreLock {
     /// This method is useful when you want to build a new client with another
     /// lock holder name for example. But the lock is fully by-passed in this
     /// method. Be extremely careful!
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) unsafe fn clone_store(&self) -> Arc<DynMediaStore> {
         self.store.clone()
     }
 
     /// Get the lock holder name.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) fn lock_holder(&self) -> &str {
         self.cross_process_lock.lock_holder()
     }
