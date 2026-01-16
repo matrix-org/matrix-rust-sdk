@@ -59,7 +59,7 @@ use ruma::{
         alias::get_alias,
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
-        room::create_room::v3::CreationContent,
+        room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
         uiaa::UserIdentifier,
     },
     events::{
@@ -76,7 +76,6 @@ use ruma::{
                 AllowRule as RumaAllowRule, JoinRule as RumaJoinRule, RoomJoinRulesEventContent,
             },
             message::{OriginalSyncRoomMessageEvent, Relation},
-            power_levels::RoomPowerLevelsEventContent,
         },
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
@@ -88,7 +87,6 @@ use ruma::{
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    room_version_rules::AuthorizationRules,
     OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
@@ -2232,34 +2230,17 @@ pub struct PowerLevels {
     pub events: HashMap<String, i32>,
 }
 
-impl From<PowerLevels> for RoomPowerLevelsEventContent {
+impl From<PowerLevels> for RoomPowerLevelsContentOverride {
     fn from(value: PowerLevels) -> Self {
-        let mut power_levels = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-
-        if let Some(users_default) = value.users_default {
-            power_levels.users_default = users_default.into();
-        }
-        if let Some(state_default) = value.state_default {
-            power_levels.state_default = state_default.into();
-        }
-        if let Some(events_default) = value.events_default {
-            power_levels.events_default = events_default.into();
-        }
-        if let Some(ban) = value.ban {
-            power_levels.ban = ban.into();
-        }
-        if let Some(kick) = value.kick {
-            power_levels.kick = kick.into();
-        }
-        if let Some(redact) = value.redact {
-            power_levels.redact = redact.into();
-        }
-        if let Some(invite) = value.invite {
-            power_levels.invite = invite.into();
-        }
-        if let Some(notifications) = value.notifications {
-            power_levels.notifications = notifications.into()
-        }
+        let mut power_levels = RoomPowerLevelsContentOverride::default();
+        power_levels.users_default = value.users_default.map(Into::into);
+        power_levels.state_default = value.state_default.map(Into::into);
+        power_levels.events_default = value.events_default.map(Into::into);
+        power_levels.ban = value.ban.map(Into::into);
+        power_levels.kick = value.kick.map(Into::into);
+        power_levels.redact = value.redact.map(Into::into);
+        power_levels.invite = value.invite.map(Into::into);
+        power_levels.notifications = value.notifications.map(Into::into).unwrap_or_default();
         power_levels.users = value
             .users
             .iter()
@@ -2271,7 +2252,6 @@ impl From<PowerLevels> for RoomPowerLevelsEventContent {
                 }
             })
             .collect();
-
         power_levels.events = value
             .events
             .iter()
@@ -2280,7 +2260,6 @@ impl From<PowerLevels> for RoomPowerLevelsEventContent {
                 (event_type, (*power_level).into())
             })
             .collect();
-
         power_levels
     }
 }
@@ -2370,9 +2349,9 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         }
 
         if let Some(power_levels) = value.power_level_content_override {
-            match Raw::new(&power_levels.into()) {
+            match Raw::<RoomPowerLevelsContentOverride>::new(&power_levels.into()) {
                 Ok(power_levels) => {
-                    request.power_level_content_override = Some(power_levels);
+                    request.power_level_content_override = Some(power_levels.cast());
                 }
                 Err(e) => {
                     return Err(ClientError::Generic {
