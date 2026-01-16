@@ -22,7 +22,7 @@ use thiserror::Error;
 
 mod msc_4108;
 
-pub use msc_4108::{QrCodeIntent, QrCodeModeData};
+pub use msc_4108::{QrCodeIntent, QrCodeIntentData};
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
@@ -82,7 +82,7 @@ impl QrCodeData {
     pub fn new_msc4108(
         public_key: Curve25519PublicKey,
         rendezvous_url: Url,
-        mode_data: QrCodeModeData,
+        mode_data: QrCodeIntentData,
     ) -> Self {
         Self(QrCodeDataInner::Msc4108(msc_4108::QrCodeData {
             public_key,
@@ -148,8 +148,8 @@ impl QrCodeData {
         }
     }
 
-    /// The mode-specific data for the QR code.
-    pub fn mode_data(&self) -> &QrCodeModeData {
+    /// The intent-specific data for the QR code.
+    pub fn intent_data(&self) -> &QrCodeIntentData {
         match &self.0 {
             QrCodeDataInner::Msc4108(qr_code_data) => &qr_code_data.mode_data,
         }
