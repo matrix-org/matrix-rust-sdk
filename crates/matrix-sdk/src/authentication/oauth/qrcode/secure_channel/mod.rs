@@ -48,9 +48,9 @@ impl SecureChannel {
         let mode_data = QrCodeModeData::Login;
 
         let crypto_channel = CryptoChannel::new_ecies();
-        let public_key = crypto_channel.public_key();
 
-        let qr_code_data = QrCodeData { public_key, rendezvous_url, mode_data };
+        let public_key = crypto_channel.public_key();
+        let qr_code_data = QrCodeData::new_msc4108(public_key, rendezvous_url, mode_data);
 
         Ok(Self { channel, qr_code_data, crypto_channel })
     }
@@ -61,8 +61,14 @@ impl SecureChannel {
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
         let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
-        channel.qr_code_data.mode_data =
-            QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
+        let mode_data = QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
+
+        channel.qr_code_data = QrCodeData::new_msc4108(
+            channel.crypto_channel.public_key(),
+            channel.channel.rendezvous_url().clone(),
+            mode_data,
+        );
+
         Ok(channel)
     }
 
@@ -158,7 +164,7 @@ impl EstablishedSecureChannel {
                 let ecies = Ecies::new();
 
                 let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key,
+                    qr_code_data.public_key(),
                     LOGIN_INITIATE_MESSAGE.as_bytes(),
                 )?;
                 (ChannelType::Ecies(ecies), message.encode().as_bytes().to_vec())
@@ -169,7 +175,7 @@ impl EstablishedSecureChannel {
             // the rendezvous channel will have an empty body, so we can just
             // drop it.
             let InboundChannelCreationResult { mut channel, .. } =
-                RendezvousChannel::create_inbound(client, &qr_code_data.rendezvous_url).await?;
+                RendezvousChannel::create_inbound(client, &qr_code_data.rendezvous_url()).await?;
 
             trace!(
                 "Received the initial message from the rendezvous channel, sending the LOGIN \

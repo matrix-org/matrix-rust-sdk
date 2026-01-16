@@ -1388,7 +1388,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
     ///
     /// // Fetch the homeserver out of the parsed QR code data.
-    /// let QrCodeModeData::Reciprocate{ server_name } = qr_code_data.mode_data else {
+    /// let QrCodeModeData::Reciprocate{ server_name } = qr_code_data.mode_data() else {
     ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
     /// };
     ///
