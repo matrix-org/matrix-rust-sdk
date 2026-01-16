@@ -133,6 +133,12 @@ impl JoinedRoomBuilder {
         self.inner.unread_notifications = from_json_value(unread_notifications).unwrap();
         self
     }
+
+    /// Set the joined members count in the room summary.
+    pub fn set_joined_members_count(mut self, count: u32) -> Self {
+        self.inner.summary.joined_member_count = Some(count.into());
+        self
+    }
 }
 
 impl Default for JoinedRoomBuilder {
