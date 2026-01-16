@@ -47,10 +47,21 @@ impl Builder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
+        // If we are computing a value from the Event Cache, it's because we have
+        // received an update from the Event Cache. This update falls in two categories:
+        // either an event has been added or updated, or the room has been emptied (via
+        // `EventCache::clear_all_rooms` for example).
+        //
+        // We consider the room has been emptied by default. If we are able to scan at
+        // least one in-memory event, we consider the room has not been emptied.
+        let mut room_has_been_emptied = true;
         let mut current_value_must_be_erased = false;
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event, previous_event| {
+                // At least one event lives in-memory: we consider the room is not empty.
+                room_has_been_emptied = false;
+
                 match filter_timeline_event(
                     event,
                     previous_event,
@@ -75,6 +86,11 @@ impl Builder {
         {
             Some(LatestEventValue::Remote(event))
         } else {
+            // When the room has been emptied, we must erase any previous value.
+            if room_has_been_emptied {
+                current_value_must_be_erased = true;
+            }
+
             current_value_must_be_erased.then(LatestEventValue::default)
         }
     }
@@ -1622,8 +1638,34 @@ mod builder_tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
 
         let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert an non-suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.room_topic("new room topic").into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
@@ -1880,6 +1922,74 @@ mod builder_tests {
         );
     }
 
+    #[async_test]
+    async fn test_remote_when_room_has_been_emptied() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Insert a suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![
+                            event_factory.text_msg("hello").event_id(event_id!("$ev0")).into(),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // Check initial state.
+        let current_value = {
+            let value = room.latest_event();
+
+            assert_matches!(value, LatestEventValue::None);
+
+            value
+        };
+
+        // Compute a new remote value: will be able to find a relevant
+        // candidate.
+        let current_value = assert_remote_value_matches_room_message_with_body!(
+            Builder::new_remote(&room_event_cache, current_value.event_id(), user_id, None).await => with body = "hello"
+        );
+
+        // Now, let's clear all rooms.
+        event_cache.clear_all_rooms().await.unwrap();
+
+        // The latest event has been erased!
+        assert_matches!(
+            Builder::new_remote(&room_event_cache, current_value.event_id(), user_id, None).await,
+            Some(LatestEventValue::None)
+        );
+    }
+
     async fn local_prelude() -> (Client, OwnedRoomId, RoomSendQueue, RoomEventCache) {
         let room_id = room_id!("!r0").to_owned();
 
@@ -1887,6 +1997,33 @@ mod builder_tests {
         let client = server.client_builder().build().await;
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
         let room = client.get_room(&room_id).unwrap();
+        let user_id = client.user_id().unwrap();
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        // Insert a non-suitable candidate.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.room_topic("new room topic").into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
