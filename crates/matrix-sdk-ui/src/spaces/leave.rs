@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk::{Client, RoomState, room::RoomMemberRole};
-use ruma::{Int, OwnedRoomId};
+use ruma::{Int, OwnedRoomId, events::room::member::MembershipState};
 
 use crate::spaces::{Error, SpaceRoom};
 
@@ -26,6 +26,8 @@ pub struct LeaveSpaceRoom {
     /// Whether the user is the last admin in the room. This helps clients
     /// better inform the user about the consequences of leaving the room.
     pub is_last_admin: bool,
+    /// The amount of joined members in the room.
+    pub joined_members_count: u64,
 }
 
 /// The `LeaveSpaceHandle` processes rooms to be left in the order they were
@@ -53,9 +55,12 @@ impl LeaveSpaceHandle {
                 continue;
             }
 
-            let users_to_power_levels = room.users_with_power_levels().await;
+            if !room.are_members_synced() {
+                _ = room.sync_members().await.ok();
+            }
 
-            let is_last_admin = users_to_power_levels
+            let users_to_power_levels = room.users_with_power_levels().await;
+            let admin_ids = users_to_power_levels
                 .iter()
                 .filter(|(_, power_level)| {
                     let Some(power_level) = Int::new(**power_level) else {
@@ -66,12 +71,22 @@ impl LeaveSpaceHandle {
                         == RoomMemberRole::Administrator
                 })
                 .map(|p| p.0)
-                .collect::<Vec<_>>()
-                == vec![room.own_user_id()];
+                .collect::<Vec<_>>();
+
+            let mut joined_admin_ids = Vec::new();
+            for admin_id in admin_ids {
+                if let Ok(Some(member)) = room.get_member_no_sync(admin_id).await
+                    && *member.membership() == MembershipState::Join
+                {
+                    joined_admin_ids.push(admin_id);
+                }
+            }
+            let is_last_admin = joined_admin_ids == vec![room.own_user_id()];
 
             rooms.push(LeaveSpaceRoom {
                 space_room: SpaceRoom::new_from_known(&room, 0),
                 is_last_admin,
+                joined_members_count: room.joined_members_count(),
             });
         }
 
@@ -129,9 +144,10 @@ mod tests {
         let left_room_id = room_id!("!left_room:example.org");
         let invited_room_id = room_id!("!invited_room:example.org");
 
+        let some_non_admin_id = owned_user_id!("@some_non_admin:a.b");
         let mut power_levels = BTreeMap::from([
             (user_id.to_owned(), 100.into()),
-            (owned_user_id!("@some_non_admin:a.b"), 50.into()),
+            (some_non_admin_id.clone(), 50.into()),
         ]);
 
         server
@@ -145,11 +161,17 @@ mod tests {
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                    ),
+                    )
+                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
+                    .add_state_event(
+                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
+                    )
+                    .set_joined_members_count(2),
             )
             .await;
 
-        power_levels.insert(owned_user_id!("@some_other_admin:a.b"), 100.into());
+        let other_admin_user_id = owned_user_id!("@some_other_admin:a.b");
+        power_levels.insert(other_admin_user_id.clone(), 100.into());
 
         server
             .sync_room(
@@ -162,7 +184,17 @@ mod tests {
                     )
                     .add_state_event(
                         factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                    ),
+                    )
+                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
+                    .add_state_event(
+                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
+                    )
+                    .add_state_event(
+                        factory
+                            .member(&other_admin_user_id)
+                            .state_key(other_admin_user_id.to_string()),
+                    )
+                    .set_joined_members_count(3),
             )
             .await;
 
@@ -201,9 +233,11 @@ mod tests {
 
         let child_room_1 = &rooms[0];
         assert!(child_room_1.is_last_admin);
+        assert_eq!(child_room_1.joined_members_count, 2);
 
         let child_room_2 = &rooms[1];
         assert!(!child_room_2.is_last_admin);
+        assert_eq!(child_room_2.joined_members_count, 3);
 
         let room_ids = rooms.iter().map(|r| r.space_room.room_id.clone()).collect::<Vec<_>>();
         assert_eq!(room_ids, vec![child_space_id_1, child_space_id_2, parent_space_id]);
