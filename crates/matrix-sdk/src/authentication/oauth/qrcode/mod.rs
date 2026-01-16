@@ -246,6 +246,13 @@ pub enum MessageDecodeError {
     /// A received message has failed to be decoded.
     #[error(transparent)]
     Hpke(#[from] HpkeMessageDecodeError),
+    /// A message we received over the secure channel was not a valid UTF-8
+    /// encoded string.
+    #[error(transparent)]
+    Utf8(#[from] std::str::Utf8Error),
+    /// A message couldn't be deserialized from JSON.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
 }
 
 /// Error type for decryption failures of the secure channel.
@@ -263,11 +270,6 @@ pub enum DecryptionError {
 /// secure channel.
 #[derive(Debug, Error)]
 pub enum SecureChannelError {
-    /// A message we received over the secure channel was not a valid UTF-8
-    /// encoded string.
-    #[error(transparent)]
-    Utf8(#[from] std::str::Utf8Error),
-
     /// A message has failed to be decrypted.
     #[error(transparent)]
     Decryption(#[from] DecryptionError),
@@ -275,10 +277,6 @@ pub enum SecureChannelError {
     /// A received message has failed to be decoded.
     #[error(transparent)]
     MessageDecode(#[from] MessageDecodeError),
-
-    /// A message couldn't be deserialized from JSON.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
 
     /// The secure channel failed to be established because it received an
     /// unexpected message.

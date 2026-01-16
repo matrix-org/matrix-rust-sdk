@@ -150,6 +150,6 @@ impl EstablishedCryptoChannel {
             }
         };
 
-        Ok(String::from_utf8(plaintext).map_err(|e| e.utf8_error())?)
+        Ok(String::from_utf8(plaintext).map_err(|e| MessageDecodeError::from(e.utf8_error()))?)
     }
 }

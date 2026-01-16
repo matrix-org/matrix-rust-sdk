@@ -16,7 +16,9 @@ use tracing::instrument;
 use url::Url;
 
 use crate::{
-    HttpError, authentication::oauth::qrcode::SecureChannelError, http_client::HttpClient,
+    HttpError,
+    authentication::oauth::qrcode::{MessageDecodeError, SecureChannelError},
+    http_client::HttpClient,
 };
 
 mod msc_4108;
@@ -103,6 +105,6 @@ impl RendezvousChannel {
             RendezvousChannel::Msc4108(channel) => channel.receive().await?,
         };
 
-        Ok(String::from_utf8(message).map_err(|e| e.utf8_error())?)
+        Ok(String::from_utf8(message).map_err(|e| MessageDecodeError::from(e.utf8_error()))?)
     }
 }
