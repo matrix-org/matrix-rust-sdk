@@ -68,7 +68,7 @@ rand = "0.8.5"
 regex = "1.12.2"
 reqwest = { version = "0.12.24", default-features = false }
 rmp-serde = "1.3.0"
-ruma = { version = "0.14.1", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a5e8208d76d5fd7f82b04b7c86f877651d228b9a", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-arbitrary-length-ids",
@@ -203,7 +203,6 @@ lto = false
 [patch.crates-io]
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "22d288096e963b4973ecf2d7ffe8d63359f56f47" }
 # Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
 tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
