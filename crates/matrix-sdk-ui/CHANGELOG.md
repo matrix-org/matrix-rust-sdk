@@ -46,6 +46,8 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- Refactored `is_last_admin` to `is_last_owner` the check will now account
+  also for v12 rooms, where creators and users with PL 150 matter.
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
   client events when invoking the `subscribe_to_joined_spaces` but instead do it
   through its, now async, constructor.
