@@ -38,7 +38,10 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
 use vodozemac::ecies::CheckCode;
-pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
+pub use vodozemac::{
+    ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError},
+    hpke::{Error as HpkeError, MessageDecodeError as HpkeMessageDecodeError},
+};
 
 mod grant;
 mod login;
@@ -233,6 +236,29 @@ impl DeviceAuthorizationOAuthError {
     }
 }
 
+/// Error type which describes failures when messages which are received over
+/// the secure channel fail to be decoded.
+#[derive(Debug, Error)]
+pub enum MessageDecodeError {
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Ecies(#[from] EciesMessageDecodeError),
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Hpke(#[from] HpkeMessageDecodeError),
+}
+
+/// Error type for decryption failures of the secure channel.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// A ECIES message failed to be decrypted.
+    #[error(transparent)]
+    Ecies(#[from] EciesError),
+    /// A HPKE message failed to be decrypted.
+    #[error(transparent)]
+    Hpke(#[from] HpkeError),
+}
+
 /// Error type for failures in when receiving or sending messages over the
 /// secure channel.
 #[derive(Debug, Error)]
@@ -244,7 +270,7 @@ pub enum SecureChannelError {
 
     /// A message has failed to be decrypted.
     #[error(transparent)]
-    Ecies(#[from] EciesError),
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]
