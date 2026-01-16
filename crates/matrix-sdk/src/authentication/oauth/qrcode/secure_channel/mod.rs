@@ -25,7 +25,10 @@ use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
-use crate::{config::RequestConfig, http_client::HttpClient};
+use crate::{
+    authentication::oauth::qrcode::MessageDecodeError, config::RequestConfig,
+    http_client::HttpClient,
+};
 mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
@@ -97,7 +100,7 @@ impl SecureChannel {
         let message = self.channel.receive().await?;
         let result = self.crypto_channel.establish_inbound_channel(&message)?;
 
-        let message = std::str::from_utf8(result.plaintext())?;
+        let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
         trace!("Received the initial secure channel message");
 
@@ -246,7 +249,7 @@ impl EstablishedSecureChannel {
     /// The message will be encrypted before it is sent over the rendezvous
     /// channel.
     pub(super) async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
-        let message = serde_json::to_string(&message)?;
+        let message = serde_json::to_string(&message).map_err(MessageDecodeError::from)?;
         self.send(&message).await
     }
 
@@ -256,7 +259,7 @@ impl EstablishedSecureChannel {
     /// rendezvous channel.
     pub(super) async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let message = self.receive().await?;
-        Ok(serde_json::from_str(&message)?)
+        Ok(serde_json::from_str(&message).map_err(MessageDecodeError::from)?)
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
