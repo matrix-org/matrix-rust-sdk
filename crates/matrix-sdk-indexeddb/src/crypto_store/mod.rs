@@ -102,6 +102,8 @@ mod keys {
 
     pub const LEASE_LOCKS: &str = "lease_locks";
 
+    pub const ROOM_KEY_BACKUPS_FULLY_DOWNLOADED: &str = "room_key_backups_fully_downloaded";
+
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
     pub const ACCOUNT: &str = "account";
@@ -735,6 +737,15 @@ impl IndexeddbCryptoStore {
                 );
                 let value = self.serializer.serialize_value(&bundle)?;
                 bundle_store.put(key, value);
+            }
+        }
+
+        if !changes.room_key_backups_fully_downloaded.is_empty() {
+            let mut room_store = indexeddb_changes.get(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED);
+            for room_id in &changes.room_key_backups_fully_downloaded {
+                let key =
+                    self.serializer.encode_key(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED, room_id);
+                room_store.put(key, JsValue::from_bool(true));
             }
         }
 
@@ -1547,6 +1558,23 @@ impl_crypto_store! {
             .await?
             .map(|v| self.serializer.deserialize_value(v))
             .transpose()?;
+
+        Ok(result)
+    }
+
+    async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
+        let key = self.serializer.encode_key(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED, room_id);
+        let result = self
+            .inner
+            .transaction(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED)?
+            .get(&key)
+            .await?
+            .map(|v| self.serializer.deserialize_value(v))
+            .transpose()?
+            .unwrap_or_default();
 
         Ok(result)
     }

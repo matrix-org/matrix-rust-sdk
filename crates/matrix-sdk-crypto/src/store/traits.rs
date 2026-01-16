@@ -356,6 +356,10 @@ pub trait CryptoStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>, Self::Error>;
 
+    /// Get whether we have previously downloaded all room keys for a particular
+    /// room from the key backup in advance of building a room key bundle.
+    async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error>;
+
     /// Get arbitrary data from the store
     ///
     /// # Arguments
@@ -625,6 +629,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         user_id: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>> {
         self.0.get_received_room_key_bundle_data(room_id, user_id).await.map_err(Into::into)
+    }
+
+    async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error> {
+        self.0.has_downloaded_all_room_keys(room_id).await.map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

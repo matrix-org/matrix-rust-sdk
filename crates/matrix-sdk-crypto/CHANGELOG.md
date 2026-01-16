@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 - The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
   used when encrypting raw events.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
+- Expose a new method `CryptoStore::has_downloaded_all_room_keys`, used to track whether the
+  client has previously downloaded historical room keys for a given room from key backup prior
+  to building an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
+  key bundle.
+  ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+
 
 ### Refactor
 
