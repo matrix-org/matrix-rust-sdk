@@ -3092,7 +3092,10 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
+                    .derive_states_for_notification_client(
+                        &cross_process_store_locks_holder_name,
+                        false,
+                    )
                     .await?,
                 self.inner.caches.supported_versions.read().await.clone(),
                 self.inner.caches.well_known.read().await.clone(),
