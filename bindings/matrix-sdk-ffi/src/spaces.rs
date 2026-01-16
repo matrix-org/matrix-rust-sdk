@@ -421,13 +421,22 @@ impl From<UILeaveSpaceHandle> for LeaveSpaceHandle {
 pub struct LeaveSpaceRoom {
     /// The underlying [`SpaceRoom`]
     space_room: SpaceRoom,
-    /// Whether the user is the last admin in the room. This helps clients
+    /// Whether the user is the last owner in the room. This helps clients
     /// better inform the user about the consequences of leaving the room.
-    is_last_admin: bool,
+    is_last_owner: bool,
+    /// The amount of joined members in the room.
+    joined_members_count: u64,
+    /// If the room creators have infinite PL.
+    pub are_creators_privileged: bool,
 }
 
 impl From<UILeaveSpaceRoom> for LeaveSpaceRoom {
     fn from(room: UILeaveSpaceRoom) -> Self {
-        LeaveSpaceRoom { space_room: room.space_room.into(), is_last_admin: room.is_last_admin }
+        LeaveSpaceRoom {
+            space_room: room.space_room.into(),
+            is_last_owner: room.is_last_owner,
+            joined_members_count: room.joined_members_count,
+            are_creators_privileged: room.are_creators_privileged,
+        }
     }
 }
