@@ -18,7 +18,7 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use matrix_sdk_base::{
     SessionMeta, boxed_into_future,
-    crypto::types::qr_login::{QrCodeData, QrCodeMode},
+    crypto::types::qr_login::{QrCodeData, QrCodeIntent},
     store::RoomLoadSettings,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
@@ -339,7 +339,7 @@ impl<'a> LoginWithQrCode<'a> {
         let channel = EstablishedSecureChannel::from_qr_code(
             http_client,
             self.qr_code_data,
-            QrCodeMode::Login,
+            QrCodeIntent::Login,
         )
         .await?;
 
@@ -673,7 +673,7 @@ mod test {
         let mut channel = EstablishedSecureChannel::from_qr_code(
             alice.inner.http_client.inner.clone(),
             &qr_code_data,
-            QrCodeMode::Reciprocate,
+            QrCodeIntent::Reciprocate,
         )
         .await
         .expect("Alice should be able to establish the secure channel");

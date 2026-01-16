@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::{
         SecretsBundle,
-        qr_login::{QrCodeData, QrCodeMode},
+        qr_login::{QrCodeData, QrCodeIntent},
     },
 };
 use oauth2::VerificationUriComplete;
@@ -245,7 +245,7 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             let mut channel = EstablishedSecureChannel::from_qr_code(
                 self.client.inner.http_client.inner.clone(),
                 self.qr_code_data,
-                QrCodeMode::Reciprocate,
+                QrCodeIntent::Reciprocate,
             )
             .await?;
 
@@ -423,7 +423,7 @@ mod test {
         let mut bob = EstablishedSecureChannel::from_qr_code(
             reqwest::Client::new(),
             &qr_code_data,
-            QrCodeMode::Login,
+            QrCodeIntent::Login,
         )
         .await
         .expect("Bob should be able to connect the secure channel");

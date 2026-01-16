@@ -22,7 +22,7 @@ use thiserror::Error;
 
 mod msc_4108;
 
-pub use msc_4108::{QrCodeMode, QrCodeModeData};
+pub use msc_4108::{QrCodeIntent, QrCodeModeData};
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
@@ -138,13 +138,13 @@ impl QrCodeData {
         }
     }
 
-    /// Get the [`QrCodeMode`] of this [`QrCodeData`] object.
+    /// Get the [`QrCodeIntent`] of this [`QrCodeData`] object.
     ///
     /// This tells us if the creator of the QR code wants to log in or if they
     /// want to log another device in.
-    pub fn mode(&self) -> QrCodeMode {
+    pub fn intent(&self) -> QrCodeIntent {
         match &self.0 {
-            QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.mode(),
+            QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.intent(),
         }
     }
 
