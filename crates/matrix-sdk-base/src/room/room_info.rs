@@ -28,7 +28,6 @@ use ruma::{
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
         SyncStateEvent,
-        beacon_info::BeaconInfoEventContent,
         call::member::{CallMemberEventContent, CallMemberStateKey, MembershipData},
         direct::OwnedDirectUserIdentifier,
         room::{
@@ -123,9 +122,6 @@ impl Room {
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
     pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
-    /// All shared live location beacons of this room.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
-    pub(crate) beacons: BTreeMap<OwnedUserId, MinimalStateEvent<BeaconInfoEventContent>>,
     /// The canonical alias of this room.
     pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
@@ -192,9 +188,6 @@ impl BaseRoomInfo {
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
         match ev {
-            AnySyncStateEvent::BeaconInfo(b) => {
-                self.beacons.insert(b.state_key().clone(), b.into());
-            }
             // No redacted branch - enabling encryption cannot be undone.
             AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
                 self.encryption = Some(encryption.content.clone());
@@ -404,7 +397,6 @@ impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
             avatar: None,
-            beacons: BTreeMap::new(),
             canonical_alias: None,
             create: None,
             dm_targets: Default::default(),
