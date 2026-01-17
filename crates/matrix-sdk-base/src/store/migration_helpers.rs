@@ -14,10 +14,7 @@
 
 //! Data migration helpers for StateStore implementations.
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
@@ -200,7 +197,6 @@ impl BaseRoomInfoV1 {
 
         Box::new(BaseRoomInfo {
             avatar,
-            beacons: BTreeMap::new(),
             canonical_alias,
             create,
             dm_targets: converted_dm_targets,
