@@ -37,6 +37,11 @@ If you still see C++ compilation failures such as `changes meaning of 'Network'
 set to `g++` (the GNU toolchain). The bundled WebRTC headers expect GCC-style
 diagnostics and may not compile with `clang` in some environments.
 
+Also avoid mixing GNU `g++` with libc++ headers (for example, `CXX=g++` combined
+with `-isystem /usr/include/c++/v1`), which can trigger template errors inside
+`cxx` and the standard library. Prefer the default libstdc++ headers when using
+`g++` (i.e., drop the libc++ include path and let `g++` pick its own headers).
+
 ## What this example does
 
 1. Logs into Matrix.
