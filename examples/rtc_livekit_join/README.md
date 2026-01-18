@@ -33,14 +33,20 @@ cargo build -p example-rtc-livekit-join
 ```
 
 If you still see C++ compilation failures such as `changes meaning of 'Network'
-[-fpermissive]` or `-Wno-changes-meaning` being rejected, ensure your `CXX` is
-set to `g++` (the GNU toolchain). The bundled WebRTC headers expect GCC-style
-diagnostics and may not compile with `clang` in some environments.
+[-fpermissive]` or `-Wno-changes-meaning` being rejected, ensure both `CC` and
+`CXX` point to the GNU toolchain (`gcc`/`g++`). The bundled WebRTC headers expect
+GCC-style diagnostics and may not compile with `clang` in some environments.
 
 Also avoid mixing GNU `g++` with libc++ headers (for example, `CXX=g++` combined
 with `-isystem /usr/include/c++/v1`), which can trigger template errors inside
 `cxx` and the standard library. Prefer the default libstdc++ headers when using
 `g++` (i.e., drop the libc++ include path and let `g++` pick its own headers).
+
+If you're currently building with `CC=clang`, switch to GCC for both:
+
+```bash
+CC=gcc CXX=g++ cargo build -p example-rtc-livekit-join
+```
 
 ## What this example does
 
