@@ -67,11 +67,11 @@ pub async fn update_joined_room(
     let mut new_user_ids = BTreeSet::new();
 
     let state = State::from_sync_v2(joined_room.state);
-    let (raw_state_events, state_events) = state.collect(&joined_room.timeline.events);
+    let raw_state_events = state.collect(&joined_room.timeline.events);
 
     state_events::sync::dispatch(
         context,
-        (&raw_state_events, &state_events),
+        raw_state_events,
         &mut room_info,
         ambiguity_cache,
         &mut new_user_ids,
@@ -173,11 +173,11 @@ pub async fn update_left_room(
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
     let state = State::from_sync_v2(left_room.state);
-    let (raw_state_events, state_events) = state.collect(&left_room.timeline.events);
+    let raw_state_events = state.collect(&left_room.timeline.events);
 
     state_events::sync::dispatch(
         context,
-        (&raw_state_events, &state_events),
+        raw_state_events,
         &mut room_info,
         ambiguity_cache,
         &mut (),

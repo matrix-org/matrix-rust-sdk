@@ -49,6 +49,7 @@ use crate::{
         ChildTransactionId, QueueWedgeError, SerializableEventContent, StateStoreExt,
         StoredThreadSubscription, ThreadSubscriptionStatus,
     },
+    utils::RawSyncStateEventWithKeys,
 };
 
 /// `StateStore` integration tests.
@@ -146,13 +147,19 @@ impl StateStoreIntegrationTests for DynStateStore {
         let name_json: &JsonValue = &test_json::NAME;
         let name_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(name_json.clone())?;
         let name_event = name_raw.deserialize()?;
-        room.handle_state_event(&name_event);
+        room.handle_state_event(
+            &mut RawSyncStateEventWithKeys::try_from_raw_state_event(name_raw.clone())
+                .expect("generated state event should be valid"),
+        );
         changes.add_state_event(room_id, name_event, name_raw);
 
         let topic_json: &JsonValue = &test_json::TOPIC;
         let topic_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone())?;
         let topic_event = topic_raw.deserialize()?;
-        room.handle_state_event(&topic_event);
+        room.handle_state_event(
+            &mut RawSyncStateEventWithKeys::try_from_raw_state_event(topic_raw.clone())
+                .expect("generated state event should be valid"),
+        );
         changes.add_state_event(room_id, topic_event, topic_raw);
 
         let mut room_ambiguity_map = HashMap::new();

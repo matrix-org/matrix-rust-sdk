@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+use as_variant::as_variant;
 use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
@@ -64,7 +65,11 @@ use crate::{
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
+    utils::RawSyncStateEventWithKeys,
 };
+
+/// The default value of the maximum power level.
+const DEFAULT_MAX_POWER_LEVEL: i64 = 100;
 
 /// A struct remembering details of an invite and if the invite has been
 /// accepted on this particular client.
@@ -186,76 +191,198 @@ impl BaseRoomInfo {
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
-        match ev {
-            // No redacted branch - enabling encryption cannot be undone.
-            AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
-                self.encryption = Some(encryption.content.clone());
+    pub fn handle_state_event(&mut self, raw_event: &mut RawSyncStateEventWithKeys) -> bool {
+        match (&raw_event.event_type, raw_event.state_key.as_str()) {
+            (StateEventType::RoomEncryption, "") => {
+                // No redacted or failed deserialization branch - enabling encryption cannot be
+                // undone.
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::RoomEncryption)
+                    })
+                {
+                    self.encryption = Some(event.content.clone());
+                    true
+                } else {
+                    false
+                }
             }
-            AnySyncStateEvent::RoomAvatar(a) => {
-                self.avatar = Some(a.into());
+            (StateEventType::RoomAvatar, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomAvatar)
+                }) {
+                    self.avatar = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.avatar.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomName(n) => {
-                self.name = Some(n.into());
+            (StateEventType::RoomName, "") => {
+                if let Some(event) = raw_event
+                    .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomName))
+                {
+                    self.name = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.name.take().is_some()
+                }
             }
-            // `m.room.create` can NOT be overwritten.
-            AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.into());
+            // `m.room.create` CANNOT be overwritten.
+            (StateEventType::RoomCreate, "") if self.create.is_none() => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomCreate)
+                }) {
+                    self.create = Some(event.into());
+                    true
+                } else {
+                    false
+                }
             }
-            AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = Some(h.into());
+            (StateEventType::RoomHistoryVisibility, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomHistoryVisibility)
+                }) {
+                    self.history_visibility = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.history_visibility.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = Some(g.into());
+            (StateEventType::RoomGuestAccess, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomGuestAccess)
+                }) {
+                    self.guest_access = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.guest_access.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomJoinRules(c) => match c.join_rule() {
-                JoinRule::Invite
-                | JoinRule::Knock
-                | JoinRule::Private
-                | JoinRule::Restricted(_)
-                | JoinRule::KnockRestricted(_)
-                | JoinRule::Public => self.join_rules = Some(c.into()),
-                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
-            },
-            AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = Some(a.into());
+            (StateEventType::RoomJoinRules, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomJoinRules)
+                }) {
+                    match event.join_rule() {
+                        JoinRule::Invite
+                        | JoinRule::Knock
+                        | JoinRule::Private
+                        | JoinRule::Restricted(_)
+                        | JoinRule::KnockRestricted(_)
+                        | JoinRule::Public => {
+                            self.join_rules = Some(event.into());
+                            true
+                        }
+                        r => {
+                            warn!("Encountered a custom join rule {}, skipping", r.as_str());
+                            // Remove the previous content if the new content is unsupported.
+                            self.join_rules.take().is_some()
+                        }
+                    }
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.join_rules.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.into());
+            (StateEventType::RoomCanonicalAlias, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomCanonicalAlias)
+                }) {
+                    self.canonical_alias = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.canonical_alias.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomTombstone(t) => {
-                self.tombstone = Some(t.into());
+            (StateEventType::RoomTopic, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomTopic)
+                }) {
+                    self.topic = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.topic.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomPowerLevels(p) => {
-                // The rules and creators do not affect the max power level.
-                self.max_power_level = p.power_levels(&AuthorizationRules::V1, vec![]).max().into();
+            (StateEventType::RoomTombstone, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomTombstone)
+                }) {
+                    self.tombstone = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.tombstone.take().is_some()
+                }
             }
-            AnySyncStateEvent::CallMember(m) => {
-                let Some(o_ev) = m.as_original() else {
-                    return false;
-                };
+            (StateEventType::RoomPowerLevels, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomPowerLevels)
+                }) {
+                    // The rules and creators do not affect the max power level.
+                    self.max_power_level =
+                        event.power_levels(&AuthorizationRules::V1, vec![]).max().into();
+                    true
+                } else if self.max_power_level != DEFAULT_MAX_POWER_LEVEL {
+                    // Reset the previous value if the new value is unknown.
+                    self.max_power_level = DEFAULT_MAX_POWER_LEVEL;
+                    true
+                } else {
+                    false
+                }
+            }
+            (StateEventType::CallMember, _) => {
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::CallMember)
+                    })
+                {
+                    // we modify the event so that `origin_server_ts` gets copied into
+                    // `content.created_ts`
+                    let mut event = event.clone();
+                    event.content.set_created_ts_if_none(event.origin_server_ts);
 
-                // we modify the event so that `origin_sever_ts` gets copied into
-                // `content.created_ts`
-                let mut o_ev = o_ev.clone();
-                o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
+                    // Add the new event.
+                    self.rtc_member_events
+                        .insert(event.state_key.clone(), SyncStateEvent::Original(event).into());
 
-                // Add the new event.
-                self.rtc_member_events
-                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+                    // Remove all events that don't contain any memberships anymore.
+                    self.rtc_member_events.retain(|_, ev| {
+                        ev.as_original()
+                            .is_some_and(|o| !o.content.active_memberships(None).is_empty())
+                    });
 
-                // Remove all events that don't contain any memberships anymore.
-                self.rtc_member_events.retain(|_, ev| {
-                    ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
-                });
+                    true
+                } else if let Ok(call_member_key) =
+                    raw_event.state_key.parse::<CallMemberStateKey>()
+                {
+                    // Remove the previous content with the same state key if the new content is
+                    // unknown.
+                    self.rtc_member_events.remove(&call_member_key).is_some()
+                } else {
+                    false
+                }
             }
-            AnySyncStateEvent::RoomPinnedEvents(p) => {
-                self.pinned_events = p.as_original().map(|p| p.content.clone());
+            (StateEventType::RoomPinnedEvents, "") => {
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::RoomPinnedEvents)
+                    })
+                {
+                    self.pinned_events = Some(event.content.clone());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.pinned_events.take().is_some()
+                }
             }
-            _ => return false,
+            _ => false,
         }
-
-        true
     }
 
     /// Handle a stripped state event for this room and update our info
@@ -404,7 +531,7 @@ impl Default for BaseRoomInfo {
             guest_access: None,
             history_visibility: None,
             join_rules: None,
-            max_power_level: 100,
+            max_power_level: DEFAULT_MAX_POWER_LEVEL,
             name: None,
             tombstone: None,
             topic: None,
@@ -686,11 +813,12 @@ impl RoomInfo {
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
+    pub fn handle_state_event(&mut self, raw_event: &mut RawSyncStateEventWithKeys) -> bool {
         // Store the state event in the `BaseRoomInfo` first.
-        let base_info_has_been_modified = self.base_info.handle_state_event(event);
+        let base_info_has_been_modified = self.base_info.handle_state_event(raw_event);
 
-        if let AnySyncStateEvent::RoomEncryption(_) = event {
+        if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
+        {
             // The `m.room.encryption` event was or wasn't explicitly requested, we don't
             // know here (see `Self::handle_encryption_state`) but we got one in
             // return! In this case, we can deduce the room _is_ encrypted, but we cannot
@@ -1091,13 +1219,10 @@ impl RoomInfo {
             {
                 // Pinned events are never in stripped state.
                 Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) => {
-                    match raw_event.deserialize() {
-                        Ok(event) => {
-                            self.handle_state_event(&event.into());
-                        }
-                        Err(error) => {
-                            warn!("Failed to deserialize room pinned events: {error}");
-                        }
+                    if let Some(mut raw_event) =
+                        RawSyncStateEventWithKeys::try_from_raw_state_event(raw_event.cast())
+                    {
+                        self.handle_state_event(&mut raw_event);
                     }
                 }
                 Ok(_) => {
