@@ -147,50 +147,17 @@ pub mod sync {
 
                 #[cfg(feature = "experimental-encrypted-state-events")]
                 AnySyncStateEvent::RoomEncrypted(SyncStateEvent::Original(outer)) => {
-                    use matrix_sdk_crypto::RoomEventDecryptionResult;
-                    use tracing::{trace, warn};
-
-                    trace!(event_id = ?outer.event_id, "Received encrypted state event, attempting decryption...");
-
-                    let Some(olm_machine) = e2ee.olm_machine else {
-                        continue;
-                    };
-
-                    let decrypted_event = olm_machine
-                        .try_decrypt_room_event(
-                            raw_event.cast_ref_unchecked(),
-                            &room_info.room_id,
-                            e2ee.decryption_settings,
-                        )
-                        .await
-                        .expect("OlmMachine was not started");
-
-                    // Skip state events that failed to decrypt.
-                    let RoomEventDecryptionResult::Decrypted(decrypted_event) = decrypted_event
+                    let Some(event) = super::decrypt_state_event(
+                        raw_event,
+                        &outer.event_id,
+                        &room_info.room_id,
+                        &e2ee,
+                    )
+                    .await
                     else {
-                        warn!(event_id = ?outer.event_id, "Failed to decrypt state event");
                         continue;
                     };
 
-                    // Cast to `AnySyncTimelineEvent`, safe since this is a supertype of
-                    // `AnyTimelineEvent`.
-                    let deserialized_event = match decrypted_event
-                        .event
-                        .deserialize_as::<AnySyncTimelineEvent>()
-                    {
-                        Ok(event) => event,
-                        Err(err) => {
-                            warn!(event_id = ?outer.event_id, "Failed to decrypt state event: {err}");
-                            continue;
-                        }
-                    };
-
-                    // Ensure decrypted event is actually a state event.
-                    let AnySyncTimelineEvent::State(event) = deserialized_event else {
-                        continue;
-                    };
-
-                    trace!(event_id = ?outer.event_id, "Decrypted state event successfully.");
                     room_info.handle_state_event(&event);
                 }
 
@@ -466,6 +433,49 @@ pub fn is_tombstone_event_valid(
     }
 
     true
+}
+
+/// Attempt to decrypt the given state event.
+///
+/// Returns `Some(_)` if the state event was successfully decrypted and
+/// deserialized.
+#[cfg(feature = "experimental-encrypted-state-events")]
+async fn decrypt_state_event(
+    raw_event: &Raw<AnySyncStateEvent>,
+    event_id: &ruma::EventId,
+    room_id: &RoomId,
+    e2ee: &super::e2ee::E2EE<'_>,
+) -> Option<AnySyncStateEvent> {
+    use matrix_sdk_crypto::RoomEventDecryptionResult;
+    use tracing::{trace, warn};
+
+    trace!(?event_id, "Received encrypted state event, attempting decryption...");
+
+    let olm_machine = e2ee.olm_machine?;
+
+    let decrypted_event = olm_machine
+        .try_decrypt_room_event(raw_event.cast_ref_unchecked(), room_id, e2ee.decryption_settings)
+        .await
+        .expect("OlmMachine was not started");
+
+    // Skip state events that failed to decrypt.
+    let RoomEventDecryptionResult::Decrypted(decrypted_event) = decrypted_event else {
+        warn!(?event_id, "Failed to decrypt state event");
+        return None;
+    };
+
+    // Cast to `AnySync*Event`, safe since this is a supertype of
+    // `AnyTimelineEvent`.
+    match decrypted_event.event.deserialize_as_unchecked::<AnySyncStateEvent>() {
+        Ok(event) => {
+            trace!(?event_id, "Decrypted state event successfully.");
+            Some(event)
+        }
+        Err(err) => {
+            warn!(?event_id, "Failed to decrypt state event: {err}");
+            None
+        }
+    }
 }
 
 #[cfg(test)]
