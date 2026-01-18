@@ -48,6 +48,14 @@ If you're currently building with `CC=clang`, switch to GCC for both:
 CC=gcc CXX=g++ cargo build -p example-rtc-livekit-join
 ```
 
+If `g++` reports `unrecognized command-line option '-Wno-changes-meaning'`, your
+GCC is too old for the flags expected by the bundled WebRTC build. Use a newer
+GCC (e.g., `g++-13` or later) and point both `CC` and `CXX` at that version:
+
+```bash
+CC=gcc-13 CXX=g++-13 cargo build -p example-rtc-livekit-join
+```
+
 ## What this example does
 
 1. Logs into Matrix.
