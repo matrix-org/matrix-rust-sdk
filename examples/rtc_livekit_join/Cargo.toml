@@ -1,0 +1,25 @@
+[package]
+name = "example-rtc-livekit-join"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata.release]
+release = false
+
+[[bin]]
+name = "example-rtc-livekit-join"
+test = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+matrix-sdk = { path = "../../crates/matrix-sdk" }
+matrix-sdk-rtc = { path = "../../crates/matrix-sdk-rtc" }
+matrix-sdk-rtc-livekit = { path = "../../crates/matrix-sdk-rtc-livekit" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
