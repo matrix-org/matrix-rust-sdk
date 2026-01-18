@@ -90,12 +90,13 @@ mod tests {
         EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, event_id,
         events::{AnySyncStateEvent, room::encryption::RoomEncryptionEventContent},
         room_id,
+        serde::Raw,
         time::SystemTime,
         user_id,
     };
 
     use super::{EncryptionState, Room};
-    use crate::{RoomState, store::MemoryStore};
+    use crate::{RoomState, store::MemoryStore, utils::RawSyncStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -113,11 +114,14 @@ mod tests {
         .expect("date out of range")
     }
 
-    fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
+    fn receive_state_events(room: &Room, events: Vec<Raw<AnySyncStateEvent>>) {
         room.info.update_if(|info| {
             let mut res = false;
             for ev in events {
-                res |= info.handle_state_event(ev);
+                res |= info.handle_state_event(
+                    &mut RawSyncStateEventWithKeys::try_from_raw_state_event(ev)
+                        .expect("generated state event should be valid"),
+                );
             }
             res
         });
@@ -140,7 +144,7 @@ mod tests {
             // in the roomInfo
             .server_ts(timestamp(0))
             .into();
-        receive_state_events(&room, vec![&encryption_event]);
+        receive_state_events(&room, vec![encryption_event]);
 
         assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
     }

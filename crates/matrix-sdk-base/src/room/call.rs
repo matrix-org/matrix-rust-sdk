@@ -53,13 +53,14 @@ mod tests {
             },
         },
         room_id,
+        serde::Raw,
         time::SystemTime,
         user_id,
     };
     use similar_asserts::assert_eq;
 
     use super::super::{Room, RoomState};
-    use crate::store::MemoryStore;
+    use crate::{store::MemoryStore, utils::RawSyncStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -99,7 +100,7 @@ mod tests {
         memberships: Vec<LegacyMembershipData>,
         ev_id: &EventId,
         user_id: &UserId,
-    ) -> AnySyncStateEvent {
+    ) -> Raw<AnySyncStateEvent> {
         let content = CallMemberEventContent::new_legacy(memberships);
         EventFactory::new()
             .sender(user_id)
@@ -121,7 +122,7 @@ mod tests {
         ev_id: &EventId,
         user_id: &UserId,
         init_data: Option<InitData<'_>>,
-    ) -> AnySyncStateEvent {
+    ) -> Raw<AnySyncStateEvent> {
         let application = Application::Call(CallApplicationContent::new(
             "my_call_id_1".to_owned(),
             ruma::events::call::member::CallScope::Room,
@@ -178,11 +179,14 @@ mod tests {
         )
     }
 
-    fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
+    fn receive_state_events(room: &Room, events: Vec<Raw<AnySyncStateEvent>>) {
         room.info.update_if(|info| {
             let mut res = false;
             for ev in events {
-                res |= info.handle_state_event(ev);
+                res |= info.handle_state_event(
+                    &mut RawSyncStateEventWithKeys::try_from_raw_state_event(ev)
+                        .expect("generated state event should be valid"),
+                );
             }
             res
         });
@@ -207,7 +211,7 @@ mod tests {
         let c_two = legacy_member_state_event(vec![m_init_c1, m_init_c2], event_id!("$123456"), c);
 
         // Intentionally use a non time sorted receive order.
-        receive_state_events(&room, vec![&c_two, &a_empty, &b_one]);
+        receive_state_events(&room, vec![c_two, a_empty, b_one]);
 
         room
     }
@@ -238,7 +242,7 @@ mod tests {
             Some(InitData { device_id: "DEVICE_1".into(), minutes_ago: 20 }),
         );
         // Intentionally use a non time sorted receive order1
-        receive_state_events(&room, vec![&m_c1, &m_c2, &a_empty, &b_one]);
+        receive_state_events(&room, vec![m_c1, m_c2, a_empty, b_one]);
 
         room
     }
@@ -272,7 +276,7 @@ mod tests {
         let c_empty_membership =
             legacy_member_state_event(Vec::new(), event_id!("$12345_1"), &CAROL);
 
-        receive_state_events(&room, vec![&b_empty_membership, &c_empty_membership]);
+        receive_state_events(&room, vec![b_empty_membership, c_empty_membership]);
 
         // We have no active call anymore after emptying the memberships
         assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());

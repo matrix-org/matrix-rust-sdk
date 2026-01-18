@@ -69,7 +69,8 @@ pub use store::{
     ThreadSubscriptionCatchupToken,
 };
 pub use utils::{
-    MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
+    MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent,
+    RawSyncStateEventWithKeys, RedactedMinimalStateEvent,
 };
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
 
+use as_variant::as_variant;
 use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -27,7 +28,7 @@ use ruma::{
     },
     assign,
     events::{
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
         room::member::{MembershipState, RoomMemberEventContent},
     },
     serde::Raw,
@@ -45,6 +46,7 @@ use crate::{
     RoomState,
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
+    utils::RawSyncStateEventWithKeys,
 };
 
 /// Represent any kind of room updates.
@@ -79,7 +81,7 @@ pub async fn update_any_room(
     // incomplete or staled already. We must only read state events from
     // `required_state`.
     let state = State::from_msc4186(room_response.required_state.clone());
-    let (raw_state_events, state_events) = state.collect(&[]);
+    let mut raw_state_events = state.collect(&[]);
 
     let state_store = notification.state_store;
 
@@ -92,7 +94,7 @@ pub async fn update_any_room(
     #[allow(unused_mut)] // Required for some feature flag combinations
     let (mut room, mut room_info, maybe_room_update_kind) = membership(
         context,
-        &state_events,
+        &mut raw_state_events,
         &invite_state_events,
         state_store,
         user_id,
@@ -111,7 +113,7 @@ pub async fn update_any_room(
 
     state_events::sync::dispatch(
         context,
-        (&raw_state_events, &state_events),
+        raw_state_events,
         &mut room_info,
         ambiguity_cache,
         &mut new_user_ids,
@@ -213,7 +215,7 @@ pub async fn update_any_room(
 /// or knocked room, depending of the membership event (if any).
 fn membership(
     context: &mut Context,
-    state_events: &[AnySyncStateEvent],
+    state_events: &mut [RawSyncStateEventWithKeys],
     invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
     store: &BaseStateStore,
     user_id: &UserId,
@@ -304,31 +306,33 @@ fn membership(
 fn own_membership(
     context: &mut Context,
     user_id: &UserId,
-    state_events: &[AnySyncStateEvent],
+    state_events: &mut [RawSyncStateEventWithKeys],
     room_info: &mut RoomInfo,
 ) {
     // Start from the last event; the first membership event we see in that order is
     // the last in the regular order, so that's the only one we need to
     // consider.
-    for event in state_events.iter().rev() {
-        if let AnySyncStateEvent::RoomMember(member) = &event {
-            // If this event updates the current user's membership, record that in the
-            // room_info.
-            if member.state_key() == user_id.as_str() {
-                let new_state: RoomState = member.membership().into();
+    for event in state_events.iter_mut().rev() {
+        // If this event updates the current user's membership, record that in the
+        // room_info.
+        if event.event_type == StateEventType::RoomMember
+            && event.state_key.as_str() == user_id
+            && let Some(member) = event
+                .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomMember))
+        {
+            let new_state: RoomState = member.membership().into();
 
-                if new_state != room_info.state() {
-                    room_info.set_state(new_state);
-                    // Update an existing notable update entry or create a new one
-                    context
-                        .room_info_notable_updates
-                        .entry(room_info.room_id.to_owned())
-                        .or_default()
-                        .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
-                }
-
-                break;
+            if new_state != room_info.state() {
+                room_info.set_state(new_state);
+                // Update an existing notable update entry or create a new one
+                context
+                    .room_info_notable_updates
+                    .entry(room_info.room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
             }
+
+            break;
         }
     }
 }
