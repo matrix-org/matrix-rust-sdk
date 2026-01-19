@@ -697,13 +697,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // As an exception to handle the latest "implicit" read receipt (which is the
         // latest event sent by the user): if the latest event has been sent by
         // the current user, then we consider that as a read receipt.
+        #[allow(clippy::collapsible_if)] // clippy has poor taste
         if let Some(ref latest_reply) = summary.latest_reply {
-            if let Some(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
+            if let Ok(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
                 .await
                 .inspect_err(|err| {
                     warn!("Failed to load thread latest event: {err}");
                 })
-                .ok()
             {
                 // Parse the sender.
                 if let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender")
