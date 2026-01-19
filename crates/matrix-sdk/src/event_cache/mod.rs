@@ -985,7 +985,10 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let room = self.for_room(&room_id).await?;
+            let Ok(room) = self.for_room(&room_id).await else {
+                error!(?room_id, "Room must exist");
+                continue;
+            };
 
             if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
@@ -997,7 +1000,10 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let room = self.for_room(&room_id).await?;
+            let Ok(room) = self.for_room(&room_id).await else {
+                error!(?room_id, "Room must exist");
+                continue;
+            };
 
             if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
