@@ -17,7 +17,6 @@ MATRIX_PASSWORD=secret \
 ROOM_ID=!roomid:example.org \
 VIA_SERVERS=example.org,otherserver.org \
 LIVEKIT_SFU_GET_URL=https://demo.call.bundesmessenger.info/sfu/get \
-LIVEKIT_SFU_GET_TOKEN=example-token \
 LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 RUST_LOG=info \
@@ -76,10 +75,11 @@ correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
 endpoint that supports the `/rtc` signal path.
 
 If your deployment exposes a separate endpoint (for example, Element Call's
-`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL` and optionally
-`LIVEKIT_SFU_GET_TOKEN` to fetch both the `service_url` and a LiveKit access
-token. When `LIVEKIT_SFU_GET_URL` is set, the example uses the response values
-instead of `LIVEKIT_SERVICE_URL` and `LIVEKIT_TOKEN`.
+`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL` and the example will request an
+OpenID token for the logged-in Matrix user, then use it to fetch both the
+`service_url` and a LiveKit access token. When `LIVEKIT_SFU_GET_URL` is set, the
+example uses the response values instead of `LIVEKIT_SERVICE_URL` and
+`LIVEKIT_TOKEN`.
 
 ## What this example does
 

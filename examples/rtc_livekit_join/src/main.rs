@@ -14,6 +14,7 @@ use matrix_sdk_rtc::{LiveKitConnection, LiveKitResult, livekit_service_url};
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions,
 };
+use ruma::api::client::account::request_openid_token;
 use serde_json::Value as JsonValue;
 use tracing::info;
 
@@ -46,7 +47,6 @@ async fn main() -> anyhow::Result<()> {
     let room_id_or_alias = required_env("ROOM_ID")?;
     let livekit_service_url_override = optional_env("LIVEKIT_SERVICE_URL");
     let livekit_sfu_get_url = optional_env("LIVEKIT_SFU_GET_URL");
-    let livekit_sfu_get_token = optional_env("LIVEKIT_SFU_GET_TOKEN");
 
     let client = Client::builder()
         .homeserver_url(homeserver_url)
@@ -87,7 +87,10 @@ async fn main() -> anyhow::Result<()> {
     // contains active call memberships.
 
     let (service_url, livekit_token) = if let Some(sfu_url) = livekit_sfu_get_url {
-        fetch_sfu_token(&sfu_url, livekit_sfu_get_token.as_deref())
+        let openid_token = request_openid_token(&client)
+            .await
+            .context("request OpenID token")?;
+        fetch_sfu_token(&sfu_url, &openid_token)
             .await
             .context("fetch LiveKit token from /sfu/get")?
     } else {
@@ -136,16 +139,18 @@ fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
         .collect()
 }
 
-async fn fetch_sfu_token(
-    url: &str,
-    bearer_token: Option<&str>,
-) -> anyhow::Result<(String, String)> {
-    let client = reqwest::Client::new();
-    let mut request = client.get(url);
+async fn request_openid_token(client: &Client) -> anyhow::Result<String> {
+    let user_id = client
+        .user_id()
+        .context("missing user id for OpenID token request")?;
+    let request = request_openid_token::v3::Request::new(user_id.to_owned());
+    let response = client.send(request).await?;
+    Ok(response.access_token)
+}
 
-    if let Some(token) = bearer_token {
-        request = request.bearer_auth(token);
-    }
+async fn fetch_sfu_token(url: &str, bearer_token: &str) -> anyhow::Result<(String, String)> {
+    let client = reqwest::Client::new();
+    let request = client.get(url).bearer_auth(bearer_token);
 
     let response = request.send().await?.error_for_status()?;
     let payload: JsonValue = response.json().await?;
