@@ -74,6 +74,7 @@ pub use self::{
 use super::ReactionsByKeyBySender;
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
     MsgLike(MsgLikeContent),
