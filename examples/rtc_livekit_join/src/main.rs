@@ -9,7 +9,7 @@ use matrix_sdk::{
     config::SyncSettings,
     ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
-use matrix_sdk_rtc::{LiveKitResult, livekit_service_url};
+use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc_livekit::{
