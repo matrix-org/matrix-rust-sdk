@@ -291,7 +291,7 @@ pub enum OtherState {
         events: HashMap<TimelineEventType, i64>,
         previous_events: Option<HashMap<TimelineEventType, i64>>,
         users: HashMap<String, i64>,
-        previous: Option<HashMap<String, i64>>,
+        previous_users: Option<HashMap<String, i64>>,
         thresholds: Option<PowerLevelChanges>,
         previous_thresholds: Option<PowerLevelChanges>,
     },
@@ -411,7 +411,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                         .iter()
                         .map(|(k, v)| (k.to_string(), *v))
                         .collect(),
-                    previous: prev_content.as_ref().map(|prev_content| {
+                    previous_users: prev_content.as_ref().map(|prev_content| {
                         prev_content.users.iter().map(|(k, &v)| (k.to_string(), v.into())).collect()
                     }),
                 },
@@ -419,7 +419,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                     events: Default::default(),
                     previous_events: None,
                     users: Default::default(),
-                    previous: None,
+                    previous_users: None,
                     thresholds: None,
                     previous_thresholds: None,
                 },
