@@ -75,11 +75,11 @@ correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
 endpoint that supports the `/rtc` signal path.
 
 If your deployment exposes a separate endpoint (for example, Element Call's
-`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL` and the example will request an
-OpenID token for the logged-in Matrix user, then use it to fetch both the
-`service_url` and a LiveKit access token. When `LIVEKIT_SFU_GET_URL` is set, the
-example uses the response values instead of `LIVEKIT_SERVICE_URL` and
-`LIVEKIT_TOKEN`.
+`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL`. The example will request an
+OpenID token for the logged-in Matrix user, then POST `{ room, openid_token,
+device_id }` to `/sfu/get` to obtain both the `service_url` and a LiveKit access
+token. When `LIVEKIT_SFU_GET_URL` is set, the example uses the response values
+instead of `LIVEKIT_SERVICE_URL` and `LIVEKIT_TOKEN`.
 
 ## What this example does
 

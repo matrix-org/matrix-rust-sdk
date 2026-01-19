@@ -89,7 +89,11 @@ async fn main() -> anyhow::Result<()> {
         let openid_token = request_openid_token(&client)
             .await
             .context("request OpenID token")?;
-        fetch_sfu_token(&sfu_url, &openid_token)
+        let device_id = client
+            .device_id()
+            .context("missing device id for /sfu/get request")?
+            .to_string();
+        fetch_sfu_token(&sfu_url, room.room_id().to_owned(), device_id, &openid_token)
             .await
             .context("fetch LiveKit token from /sfu/get")?
     } else {
@@ -138,18 +142,50 @@ fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
         .collect()
 }
 
-async fn request_openid_token(client: &Client) -> anyhow::Result<String> {
+async fn request_openid_token(
+    client: &Client,
+) -> anyhow::Result<request_openid_token::v3::Response> {
     let user_id = client
         .user_id()
         .context("missing user id for OpenID token request")?;
     let request = request_openid_token::v3::Request::new(user_id.to_owned());
     let response = client.send(request).await?;
-    Ok(response.access_token)
+    Ok(response)
 }
 
-async fn fetch_sfu_token(url: &str, bearer_token: &str) -> anyhow::Result<(String, String)> {
+#[derive(serde::Serialize)]
+struct SfuGetRequest {
+    room: String,
+    openid_token: OpenIdToken,
+    device_id: String,
+}
+
+#[derive(serde::Serialize)]
+struct OpenIdToken {
+    access_token: String,
+    expires_in: u64,
+    matrix_server_name: String,
+    token_type: String,
+}
+
+async fn fetch_sfu_token(
+    url: &str,
+    room_id: matrix_sdk::ruma::OwnedRoomId,
+    device_id: String,
+    openid_token: &request_openid_token::v3::Response,
+) -> anyhow::Result<(String, String)> {
+    let request_body = SfuGetRequest {
+        room: room_id.to_string(),
+        openid_token: OpenIdToken {
+            access_token: openid_token.access_token.clone(),
+            expires_in: openid_token.expires_in,
+            matrix_server_name: openid_token.matrix_server_name.to_string(),
+            token_type: openid_token.token_type.to_string(),
+        },
+        device_id,
+    };
     let client = reqwest::Client::new();
-    let request = client.get(url).bearer_auth(bearer_token);
+    let request = client.post(url).json(&request_body);
 
     let response = request.send().await?.error_for_status()?;
     let payload: JsonValue = response.json().await?;
