@@ -178,7 +178,7 @@ async fn fetch_sfu_token(
         room: room_id.to_string(),
         openid_token: OpenIdToken {
             access_token: openid_token.access_token.clone(),
-            expires_in: openid_token.expires_in,
+            expires_in: openid_token.expires_in.as_secs(),
             matrix_server_name: openid_token.matrix_server_name.to_string(),
             token_type: openid_token.token_type.to_string(),
         },
