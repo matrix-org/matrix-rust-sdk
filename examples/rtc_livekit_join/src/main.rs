@@ -151,7 +151,7 @@ fn configure_v4l2_device(
         format.height = height;
     }
     let format = set_format_with_fallback(&mut device, format)?;
-    let pixel_format = match format.fourcc.repr {
+    let pixel_format = match &format.fourcc.repr {
         b"NV12" => V4l2PixelFormat::Nv12,
         b"YUYV" => V4l2PixelFormat::Yuyv,
         _ => {
