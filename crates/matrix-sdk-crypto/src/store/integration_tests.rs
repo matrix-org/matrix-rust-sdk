@@ -33,7 +33,7 @@
 macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
-            use std::collections::{BTreeMap, HashMap};
+            use std::collections::{BTreeMap, HashMap, HashSet};
             use std::time::Duration;
 
             use assert_matches::assert_matches;
@@ -1398,6 +1398,20 @@ macro_rules! cryptostore_integration_tests {
                     test_room, user_id!("@alice:example.com")
                 ).await.unwrap().expect("Did not get any bundle data");
                 assert_eq!(bundle.bundle_data.file.url.to_string(), "alice2");
+            }
+
+            #[async_test]
+            async fn test_set_has_downloaded_all_room_keys() {
+                let store = get_store("room_key_backups_fully_downloaded", None, true).await;
+                let test_room = room_id!("!room:example.org");
+
+                let changes = Changes {
+                    room_key_backups_fully_downloaded: HashSet::from_iter([test_room.to_owned()]),
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.unwrap();
+
+                assert!(store.has_downloaded_all_room_keys(test_room).await.unwrap());
             }
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
