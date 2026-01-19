@@ -15,11 +15,18 @@ test = false
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+futures-util.workspace = true
 matrix-sdk = { path = "../../crates/matrix-sdk" }
 matrix-sdk-rtc = { path = "../../crates/matrix-sdk-rtc" }
 matrix-sdk-rtc-livekit = { path = "../../crates/matrix-sdk-rtc-livekit" }
+reqwest.workspace = true
+ruma.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

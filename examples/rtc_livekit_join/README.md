@@ -15,6 +15,9 @@ HOMESERVER_URL=https://matrix.example.org \
 MATRIX_USERNAME=@alice:example.org \
 MATRIX_PASSWORD=secret \
 ROOM_ID=!roomid:example.org \
+VIA_SERVERS=example.org,otherserver.org \
+LIVEKIT_SFU_GET_URL=https://demo.call.bundesmessenger.info/sfu/get \
+LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 RUST_LOG=info \
 cargo run -p example-rtc-livekit-join
@@ -56,6 +59,45 @@ GCC (e.g., `g++-13` or later) and point both `CC` and `CXX` at that version:
 CC=gcc-13 CXX=g++-13 cargo build -p example-rtc-livekit-join
 ```
 
+If you see `TLS support not compiled in` when connecting to `wss://...`, ensure
+the LiveKit crate is built with TLS enabled. You can force a TLS backend with
+either of these:
+
+```bash
+cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/native-tls
+# or
+cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/rustls-tls
+```
+
+Only enable one TLS backend at a time; `native-tls` and `rustls-tls` are
+mutually exclusive.
+
+### Room identifier
+
+`ROOM_ID` can be either a room id (`!roomid:example.org`) or a room alias
+(`#alias:example.org`). If you provide an alias, set `VIA_SERVERS` to a
+comma-separated list of server names to help the homeserver resolve the alias.
+
+### LiveKit service URL
+
+The example relies on the LiveKit service URL advertised by the homeserver's
+`.well-known` discovery. If you see `Signal ... 404 Not Found` errors while
+connecting to `wss://<homeserver>/rtc`, the homeserver is likely missing a
+LiveKit focus or advertising the wrong URL. Ensure the server advertises a
+correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
+endpoint that supports the `/rtc` signal path.
+
+If your deployment exposes a separate endpoint (for example, Element Call's
+`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL`. The example will request an
+OpenID token for the logged-in Matrix user, then POST `{ room, openid_token,
+device_id }` to `/sfu/get` to obtain both the `service_url` and a LiveKit access
+token. When `LIVEKIT_SFU_GET_URL` is set, the example uses the response values
+instead of `LIVEKIT_SERVICE_URL` and `LIVEKIT_TOKEN`.
+
+The LiveKit access token is appended to the `service_url` as the
+`access_token` query parameter (matching Element Call's WebSocket usage) when
+the URL does not already include one.
+
 ## What this example does
 
 1. Logs into Matrix.
@@ -70,20 +112,18 @@ CC=gcc-13 CXX=g++-13 cargo build -p example-rtc-livekit-join
 flowchart TD
     A[main()] --> B[Client::builder().build()]
     B --> C[login_username()]
-    C --> D[get_room()/join_room_by_id()]
+    C --> D[get_room()/join_room_by_id_or_alias()]
     D --> E[tokio::spawn sync()]
-    D --> F[LiveKitSdkConnector::new()]
-    F --> G[LiveKitRoomDriver::new()]
-    G --> H[LiveKitRoomDriver::run()]
-    H --> I[Room::subscribe_info()]
-    H --> J[livekit_service_url()]
-    J --> K[Client::rtc_foci()]
-    H --> L[update_connection()]
-    L --> M{has_active_room_call?}
-    M -->|yes| N[LiveKitConnector::connect()]
-    N --> O[LiveKitSdkConnector::connect()]
-    O --> P[LiveKitTokenProvider::token()]
-    O --> Q[RoomOptions::default()]
-    O --> R[Room::connect (LiveKit SDK)]
-    M -->|no| S[LiveKitConnection::disconnect()]
+    D --> F[resolve service url/token (env, /sfu/get, or .well-known)]
+    F --> G[Room::subscribe_info()]
+    F --> H[livekit_service_url()]
+    H --> I[Client::rtc_foci()]
+    F --> J[update_connection()]
+    J --> K{has_active_room_call?}
+    K -->|yes| L[LiveKitConnector::connect()]
+    L --> M[LiveKitSdkConnector::connect()]
+    M --> N[LiveKitTokenProvider::token()]
+    M --> O[RoomOptions::default()]
+    M --> P[Room::connect (LiveKit SDK)]
+    K -->|no| Q[LiveKitConnection::disconnect()]
 ```
