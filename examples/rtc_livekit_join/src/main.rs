@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
         (service_url, token)
     };
 
-    let token_provider = EnvLiveKitTokenProvider { token: livekit_token };
+    let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
     let connector = LiveKitSdkConnector::new(token_provider, DefaultRoomOptionsProvider);
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
