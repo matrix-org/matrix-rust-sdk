@@ -256,6 +256,7 @@ impl QrCodeData {
                     Some(server_name.to_owned())
                 }
             },
+            qr_login::QrCodeIntentData::Msc4388 { .. } => None,
         }
     }
 }
@@ -327,7 +328,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                | SecureChannelError::RendezvousChannel(_)
+                | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode

@@ -290,6 +290,10 @@ pub enum SecureChannelError {
          the check code cannot be received"
     )]
     CannotReceiveCheckCode,
+
+    #[error("The QR code specifies an unsupported protocol version")]
+    /// The QR code specifies an unsupported protocol version.
+    UnsupportedQrCodeType,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]
