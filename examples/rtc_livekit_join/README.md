@@ -16,6 +16,8 @@ MATRIX_USERNAME=@alice:example.org \
 MATRIX_PASSWORD=secret \
 ROOM_ID=!roomid:example.org \
 VIA_SERVERS=example.org,otherserver.org \
+LIVEKIT_SFU_GET_URL=https://demo.call.bundesmessenger.info/sfu/get \
+LIVEKIT_SFU_GET_TOKEN=example-token \
 LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 RUST_LOG=info \
@@ -74,8 +76,10 @@ correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
 endpoint that supports the `/rtc` signal path.
 
 If your deployment exposes a separate endpoint (for example, Element Call's
-`/sfu/get`), you can set `LIVEKIT_SERVICE_URL` to the `service_url` value from
-that response to override `.well-known`.
+`/sfu/get`), you can set `LIVEKIT_SFU_GET_URL` and optionally
+`LIVEKIT_SFU_GET_TOKEN` to fetch both the `service_url` and a LiveKit access
+token. When `LIVEKIT_SFU_GET_URL` is set, the example uses the response values
+instead of `LIVEKIT_SERVICE_URL` and `LIVEKIT_TOKEN`.
 
 ## What this example does
 
@@ -93,17 +97,16 @@ flowchart TD
     B --> C[login_username()]
     C --> D[get_room()/join_room_by_id_or_alias()]
     D --> E[tokio::spawn sync()]
-    D --> F[LiveKitSdkConnector::new()]
-    F --> G[resolve service url (env or .well-known)]
-    G --> H[Room::subscribe_info()]
-    G --> I[livekit_service_url()]
-    I --> J[Client::rtc_foci()]
-    G --> K[update_connection()]
-    K --> L{has_active_room_call?}
-    L -->|yes| M[LiveKitConnector::connect()]
-    M --> N[LiveKitSdkConnector::connect()]
-    N --> O[LiveKitTokenProvider::token()]
-    N --> P[RoomOptions::default()]
-    N --> Q[Room::connect (LiveKit SDK)]
-    L -->|no| R[LiveKitConnection::disconnect()]
+    D --> F[resolve service url/token (env, /sfu/get, or .well-known)]
+    F --> G[Room::subscribe_info()]
+    F --> H[livekit_service_url()]
+    H --> I[Client::rtc_foci()]
+    F --> J[update_connection()]
+    J --> K{has_active_room_call?}
+    K -->|yes| L[LiveKitConnector::connect()]
+    L --> M[LiveKitSdkConnector::connect()]
+    M --> N[LiveKitTokenProvider::token()]
+    M --> O[RoomOptions::default()]
+    M --> P[Room::connect (LiveKit SDK)]
+    K -->|no| Q[LiveKitConnection::disconnect()]
 ```
