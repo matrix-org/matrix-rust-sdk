@@ -10,7 +10,7 @@ use matrix_sdk::{
     config::SyncSettings,
     ruma::{OwnedServerName, RoomOrAliasId, ServerName},
 };
-use matrix_sdk_rtc::{LiveKitResult, livekit_service_url};
+use matrix_sdk_rtc::{LiveKitConnection, LiveKitResult, livekit_service_url};
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions,
 };
@@ -60,15 +60,15 @@ async fn main() -> anyhow::Result<()> {
 
     let room_id_or_alias = RoomOrAliasId::parse(room_id_or_alias).context("parse ROOM_ID")?;
     let via_servers = via_servers_from_env().context("parse VIA_SERVERS")?;
-    let room = match room_id_or_alias.as_room_id() {
-        Some(room_id) => match client.get_room(room_id) {
+    let room = match room_id_or_alias.clone().try_into() {
+        Ok(room_id) => match client.get_room(&room_id) {
             Some(room) if room.state() == RoomState::Joined => room,
             _ => client
-                .join_room_by_id(room_id)
+                .join_room_by_id(&room_id)
                 .await
                 .context("join room")?,
         },
-        None => client
+        Err(_) => client
             .join_room_by_id_or_alias(&room_id_or_alias, &via_servers)
             .await
             .context("join room")?,
