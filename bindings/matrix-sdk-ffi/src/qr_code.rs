@@ -7,6 +7,7 @@ use matrix_sdk::authentication::oauth::{
     },
     OAuth,
 };
+use matrix_sdk_base::crypto::types::qr_login;
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 
 use crate::{
@@ -249,8 +250,12 @@ impl QrCodeData {
     /// will return `None`.
     pub fn server_name(&self) -> Option<String> {
         match &self.inner.intent_data() {
-            qrcode::QrCodeIntentData::Reciprocate { server_name } => Some(server_name.to_owned()),
-            qrcode::QrCodeIntentData::Login => None,
+            qr_login::QrCodeIntentData::Msc4108 { data, .. } => match data {
+                qrcode::Msc4108IntentData::Login => None,
+                qrcode::Msc4108IntentData::Reciprocate { server_name } => {
+                    Some(server_name.to_owned())
+                }
+            },
         }
     }
 }

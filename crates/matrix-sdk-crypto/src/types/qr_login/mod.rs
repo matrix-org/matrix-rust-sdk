@@ -22,7 +22,7 @@ use thiserror::Error;
 
 mod msc_4108;
 
-pub use msc_4108::{QrCodeIntent, QrCodeIntentData};
+pub use msc_4108::{Msc4108IntentData, QrCodeIntent};
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
@@ -74,6 +74,22 @@ pub enum LoginQrCodeDecodeError {
     },
 }
 
+/// Intent-specific data of the [`QrCodeData`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QrCodeIntentData<'a> {
+    /// Intent-specific data in the case the QR code adheres to [MSC4108] of the
+    /// QR code data format.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    Msc4108 {
+        /// Intent specific data for the MSC4108 variant.
+        data: &'a Msc4108IntentData,
+        /// The rendezvous URL for the MSC4108 variant of the rendezvous
+        /// channel.
+        rendezvous_url: &'a Url,
+    },
+}
+
 /// Data for the QR code login mechanism.
 ///
 /// The [`QrCodeData`] can be serialized and encoded as a QR code or it can be
@@ -89,7 +105,7 @@ impl QrCodeData {
     pub fn new_msc4108(
         public_key: Curve25519PublicKey,
         rendezvous_url: Url,
-        intent_data: QrCodeIntentData,
+        intent_data: Msc4108IntentData,
     ) -> Self {
         Self(QrCodeDataInner::Msc4108(msc_4108::QrCodeData {
             public_key,
@@ -156,9 +172,12 @@ impl QrCodeData {
     }
 
     /// The intent-specific data for the QR code.
-    pub fn intent_data(&self) -> &QrCodeIntentData {
+    pub fn intent_data(&self) -> QrCodeIntentData<'_> {
         match &self.0 {
-            QrCodeDataInner::Msc4108(qr_code_data) => &qr_code_data.intent_data,
+            QrCodeDataInner::Msc4108(qr_code_data) => QrCodeIntentData::Msc4108 {
+                data: &qr_code_data.intent_data,
+                rendezvous_url: &qr_code_data.rendezvous_url,
+            },
         }
     }
 }

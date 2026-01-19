@@ -36,7 +36,7 @@ pub(super) const PREFIX: &[u8] = b"MATRIX";
 /// Depending on which device is displaying the QR code, additional data will be
 /// attached to the QR code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QrCodeIntentData {
+pub enum Msc4108IntentData {
     /// Enum variant for the case where the new device is displaying the QR
     /// code.
     Login,
@@ -82,11 +82,11 @@ impl TryFrom<u8> for QrCodeIntent {
     }
 }
 
-impl From<&QrCodeIntentData> for QrCodeIntent {
-    fn from(value: &QrCodeIntentData) -> Self {
+impl From<&Msc4108IntentData> for QrCodeIntent {
+    fn from(value: &Msc4108IntentData) -> Self {
         match value {
-            QrCodeIntentData::Login => Self::Login,
-            QrCodeIntentData::Reciprocate { .. } => Self::Reciprocate,
+            Msc4108IntentData::Login => Self::Login,
+            Msc4108IntentData::Reciprocate { .. } => Self::Reciprocate,
         }
     }
 }
@@ -104,7 +104,7 @@ pub(super) struct QrCodeData {
     /// the other device.
     pub rendezvous_url: Url,
     /// Intent specific data, may contain the homeserver URL.
-    pub intent_data: QrCodeIntentData,
+    pub intent_data: Msc4108IntentData,
 }
 
 impl QrCodeData {
@@ -159,7 +159,7 @@ impl QrCodeData {
             let rendezvous_url = Url::parse(str::from_utf8(&rendezvous_url)?)?;
 
             let intent_data = match intent {
-                QrCodeIntent::Login => QrCodeIntentData::Login,
+                QrCodeIntent::Login => Msc4108IntentData::Login,
                 QrCodeIntent::Reciprocate => {
                     // 7. If the intent is 0x04, we attempt to read the two bytes for the length of
                     //    the homeserver URL.
@@ -170,7 +170,7 @@ impl QrCodeData {
                     reader.read_exact(&mut server_name)?;
                     let server_name = String::from_utf8(server_name).map_err(|e| e.utf8_error())?;
 
-                    QrCodeIntentData::Reciprocate { server_name }
+                    Msc4108IntentData::Reciprocate { server_name }
                 }
             };
 
@@ -197,7 +197,7 @@ impl QrCodeData {
         ]
         .concat();
 
-        if let QrCodeIntentData::Reciprocate { server_name } = &self.intent_data {
+        if let Msc4108IntentData::Reciprocate { server_name } = &self.intent_data {
             let server_name_len = (server_name.as_str().len() as u16).to_be_bytes();
 
             [encoded.as_slice(), &server_name_len, server_name.as_str().as_bytes()].concat()
@@ -218,6 +218,7 @@ pub(super) mod test {
     use similar_asserts::assert_eq;
 
     use super::*;
+    use crate::types::qr_login::QrCodeIntentData;
 
     // Test vector for the QR code data, copied from the MSC.
     pub const QR_CODE_DATA: &[u8] = &[
@@ -282,7 +283,7 @@ pub(super) mod test {
         );
 
         assert_eq!(
-            QrCodeIntentData::Login,
+            Msc4108IntentData::Login,
             data.intent_data,
             "The parsed QR code intent should match expected one",
         );
@@ -318,7 +319,7 @@ pub(super) mod test {
         );
 
         assert_let!(
-            QrCodeIntentData::Reciprocate { server_name } = data.intent_data,
+            Msc4108IntentData::Reciprocate { server_name } = data.intent_data,
             "The parsed QR code intent should match the expected one",
         );
 
@@ -355,13 +356,17 @@ pub(super) mod test {
             "The intent in the test bytes vector should be Reciprocate"
         );
 
-        assert_eq!(
-            &expected_rendezvous,
-            data.rendezvous_url(),
-            "The parsed rendezvous URL should match the expected one",
+        assert_let!(
+            QrCodeIntentData::Msc4108 {
+                data: Msc4108IntentData::Reciprocate { server_name },
+                rendezvous_url
+            } = data.intent_data()
         );
 
-        assert_let!(QrCodeIntentData::Reciprocate { server_name } = data.intent_data());
+        assert_eq!(
+            &expected_rendezvous, rendezvous_url,
+            "The parsed rendezvous URL should match the expected one",
+        );
 
         assert_eq!(
             server_name, expected_server_name,
