@@ -59,6 +59,16 @@ GCC (e.g., `g++-13` or later) and point both `CC` and `CXX` at that version:
 CC=gcc-13 CXX=g++-13 cargo build -p example-rtc-livekit-join
 ```
 
+If you see `TLS support not compiled in` when connecting to `wss://...`, ensure
+the LiveKit crate is built with TLS enabled. You can force a TLS backend with
+either of these:
+
+```bash
+cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/native-tls
+# or
+cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/rustls-tls
+```
+
 ### Room identifier
 
 `ROOM_ID` can be either a room id (`!roomid:example.org`) or a room alias
