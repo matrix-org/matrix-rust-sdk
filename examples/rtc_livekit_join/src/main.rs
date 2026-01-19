@@ -50,9 +50,23 @@ struct V4l2Config {
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
+#[derive(Debug)]
+struct V4l2PublishError(anyhow::Error);
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+impl std::fmt::Display for V4l2PublishError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+impl std::error::Error for V4l2PublishError {}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
 struct V4l2CameraPublisher {
     room: std::sync::Arc<Room>,
-    track: livekit::track::LocalVideoTrack,
+    track: matrix_sdk_rtc_livekit::livekit::track::LocalVideoTrack,
     stop_tx: std::sync::mpsc::Sender<()>,
     task: tokio::task::JoinHandle<anyhow::Result<()>>,
 }
@@ -60,16 +74,16 @@ struct V4l2CameraPublisher {
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 impl V4l2CameraPublisher {
     async fn start(room: std::sync::Arc<Room>, config: V4l2Config) -> anyhow::Result<Self> {
-        use livekit::options::{TrackPublishOptions, VideoCodec};
-        use livekit::prelude::*;
-        use livekit::track::{LocalTrack, TrackSource};
-        use livekit::webrtc::prelude::{RtcVideoSource, VideoResolution};
-        use livekit::webrtc::video_source::native::NativeVideoSource;
+        use matrix_sdk_rtc_livekit::livekit::options::{TrackPublishOptions, VideoCodec};
+        use matrix_sdk_rtc_livekit::livekit::prelude::*;
+        use matrix_sdk_rtc_livekit::livekit::track::{LocalTrack, TrackSource};
+        use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::{RtcVideoSource, VideoResolution};
+        use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
 
         let (resolution, rtc_source, mut device) =
             configure_v4l2_device(&config).context("configure V4L2 device")?;
 
-        let track = livekit::track::LocalVideoTrack::create_video_track(
+        let track = matrix_sdk_rtc_livekit::livekit::track::LocalVideoTrack::create_video_track(
             "v4l2_camera",
             RtcVideoSource::Native(rtc_source.clone()),
         );
@@ -109,9 +123,14 @@ impl V4l2CameraPublisher {
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 fn configure_v4l2_device(
     config: &V4l2Config,
-) -> anyhow::Result<(livekit::webrtc::prelude::VideoResolution, livekit::webrtc::video_source::native::NativeVideoSource, v4l::Device)> {
-    use livekit::webrtc::prelude::VideoResolution;
-    use livekit::webrtc::video_source::native::NativeVideoSource;
+) -> anyhow::Result<(
+    matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
+    matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
+    v4l::Device,
+)> {
+    use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
+    use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
+    use v4l::video::Capture;
     use v4l::{Device, FourCC};
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
@@ -142,14 +161,16 @@ fn configure_v4l2_device(
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 fn run_v4l2_capture_loop(
     device: &mut v4l::Device,
-    resolution: livekit::webrtc::prelude::VideoResolution,
-    rtc_source: livekit::webrtc::video_source::native::NativeVideoSource,
+    resolution: matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
+    rtc_source: matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
     stop_rx: std::sync::mpsc::Receiver<()>,
 ) -> anyhow::Result<()> {
-    use livekit::webrtc::native::yuv_helper;
-    use livekit::webrtc::prelude::{I420Buffer, VideoFrame, VideoRotation};
+    use matrix_sdk_rtc_livekit::livekit::webrtc::native::yuv_helper;
+    use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::{I420Buffer, VideoFrame, VideoRotation};
     use v4l::buffer::Type;
+    use v4l::io::traits::CaptureStream;
     use v4l::io::mmap::Stream;
+    use v4l::video::Capture;
 
     let format = device.format().context("re-read V4L2 format")?;
     let stride = format.width as usize;
@@ -471,7 +492,10 @@ async fn run_livekit_driver(
     if connection.take().is_some() {
         #[cfg(all(feature = "v4l2", target_os = "linux"))]
         if let Some(publisher) = v4l2_publisher.take() {
-            publisher.stop().await.map_err(LiveKitError::connector)?;
+            publisher
+                .stop()
+                .await
+                .map_err(|err| LiveKitError::connector(V4l2PublishError(err)))?;
         }
     }
 
@@ -506,7 +530,7 @@ async fn update_connection(
                         config,
                     )
                     .await
-                    .map_err(LiveKitError::connector)?;
+                    .map_err(|err| LiveKitError::connector(V4l2PublishError(err)))?;
                     *v4l2_publisher = Some(publisher);
                 }
             }
@@ -516,7 +540,10 @@ async fn update_connection(
         info!(room_id = ?room.room_id(), "leaving LiveKit room because the call ended");
         #[cfg(all(feature = "v4l2", target_os = "linux"))]
         if let Some(publisher) = v4l2_publisher.take() {
-            publisher.stop().await.map_err(LiveKitError::connector)?;
+            publisher
+                .stop()
+                .await
+                .map_err(|err| LiveKitError::connector(V4l2PublishError(err)))?;
         }
     }
 
