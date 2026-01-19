@@ -1116,8 +1116,8 @@ impl TimelineReadReceiptTracking {
     /// Whether or not read receipt tracking is enabled.
     pub fn is_enabled(&self) -> bool {
         match self {
-            TimelineReadReceiptTracking::AllEvents => true,
-            TimelineReadReceiptTracking::MessageLikeEvents => true,
+            TimelineReadReceiptTracking::AllEvents
+            | TimelineReadReceiptTracking::MessageLikeEvents => true,
             TimelineReadReceiptTracking::Disabled => false,
         }
     }
