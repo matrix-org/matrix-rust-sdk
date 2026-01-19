@@ -16,6 +16,7 @@ test = false
 anyhow.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
+livekit = { git = "https://github.com/livekit/rust-sdks", rev = "3c6ff16cc860db85af991cf5fca3ac2bd913ac80", optional = true }
 matrix-sdk = { path = "../../crates/matrix-sdk" }
 matrix-sdk-rtc = { path = "../../crates/matrix-sdk-rtc" }
 matrix-sdk-rtc-livekit = { path = "../../crates/matrix-sdk-rtc-livekit" }
@@ -27,6 +28,10 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
+v4l = { version = "0.14", optional = true }
 
 [lints]
 workspace = true
+
+[features]
+v4l2 = ["dep:livekit", "dep:v4l"]

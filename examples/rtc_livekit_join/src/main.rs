@@ -9,13 +9,17 @@ use matrix_sdk::{
     config::SyncSettings,
     ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
-use matrix_sdk_rtc::{LiveKitConnection, LiveKitResult, livekit_service_url};
+use matrix_sdk_rtc::{LiveKitResult, livekit_service_url};
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc_livekit::{
-    LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions,
+    LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions, Room,
 };
 use ruma::api::client::account::request_openid_token;
 use serde_json::Value as JsonValue;
 use tracing::info;
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+use tracing::warn;
 use url::Url;
 
 struct EnvLiveKitTokenProvider {
@@ -37,6 +41,200 @@ impl LiveKitRoomOptionsProvider for DefaultRoomOptionsProvider {
     }
 }
 
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+#[derive(Clone, Debug)]
+struct V4l2Config {
+    device: String,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+struct V4l2CameraPublisher {
+    room: std::sync::Arc<Room>,
+    track: livekit::track::LocalVideoTrack,
+    stop_tx: std::sync::mpsc::Sender<()>,
+    task: tokio::task::JoinHandle<anyhow::Result<()>>,
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+impl V4l2CameraPublisher {
+    async fn start(room: std::sync::Arc<Room>, config: V4l2Config) -> anyhow::Result<Self> {
+        use livekit::options::{TrackPublishOptions, VideoCodec};
+        use livekit::prelude::*;
+        use livekit::track::{LocalTrack, TrackSource};
+        use livekit::webrtc::prelude::{RtcVideoSource, VideoResolution};
+        use livekit::webrtc::video_source::native::NativeVideoSource;
+
+        let (resolution, rtc_source, mut device) =
+            configure_v4l2_device(&config).context("configure V4L2 device")?;
+
+        let track = livekit::track::LocalVideoTrack::create_video_track(
+            "v4l2_camera",
+            RtcVideoSource::Native(rtc_source.clone()),
+        );
+
+        room.local_participant()
+            .publish_track(
+                LocalTrack::Video(track.clone()),
+                TrackPublishOptions {
+                    source: TrackSource::Camera,
+                    video_codec: VideoCodec::VP8,
+                    ..Default::default()
+                },
+            )
+            .await
+            .context("publish V4L2 camera track")?;
+
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let task = tokio::task::spawn_blocking(move || {
+            run_v4l2_capture_loop(&mut device, resolution, rtc_source, stop_rx)
+        });
+
+        Ok(Self { room, track, stop_tx, task })
+    }
+
+    async fn stop(self) -> anyhow::Result<()> {
+        let _ = self.stop_tx.send(());
+        let _ = self.task.await?;
+        self.room
+            .local_participant()
+            .unpublish_track(&self.track.sid())
+            .await
+            .context("unpublish V4L2 camera track")?;
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn configure_v4l2_device(
+    config: &V4l2Config,
+) -> anyhow::Result<(livekit::webrtc::prelude::VideoResolution, livekit::webrtc::video_source::native::NativeVideoSource, v4l::Device)> {
+    use livekit::webrtc::prelude::VideoResolution;
+    use livekit::webrtc::video_source::native::NativeVideoSource;
+    use v4l::{Device, FourCC};
+
+    let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
+    let mut format = device.format().context("read V4L2 format")?;
+
+    if let Some(width) = config.width {
+        format.width = width;
+    }
+    if let Some(height) = config.height {
+        format.height = height;
+    }
+    format.fourcc = FourCC::new(b"NV12");
+
+    let format = device.set_format(&format).context("set V4L2 format")?;
+    let requested = FourCC::new(b"NV12");
+    if format.fourcc != requested {
+        return Err(anyhow!(
+            "V4L2 device did not accept NV12; got {:?} instead",
+            format.fourcc
+        ));
+    }
+
+    let resolution = VideoResolution { width: format.width, height: format.height };
+    let rtc_source = NativeVideoSource::new(resolution.clone());
+    Ok((resolution, rtc_source, device))
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn run_v4l2_capture_loop(
+    device: &mut v4l::Device,
+    resolution: livekit::webrtc::prelude::VideoResolution,
+    rtc_source: livekit::webrtc::video_source::native::NativeVideoSource,
+    stop_rx: std::sync::mpsc::Receiver<()>,
+) -> anyhow::Result<()> {
+    use livekit::webrtc::native::yuv_helper;
+    use livekit::webrtc::prelude::{I420Buffer, VideoFrame, VideoRotation};
+    use v4l::buffer::Type;
+    use v4l::io::mmap::Stream;
+
+    let format = device.format().context("re-read V4L2 format")?;
+    let stride = format.width as usize;
+    let height = format.height as usize;
+    let expected_size = stride * height + (stride * height / 2);
+
+    let mut stream =
+        Stream::with_buffers(device, Type::VideoCapture, 4).context("start V4L2 stream")?;
+    let start = std::time::Instant::now();
+
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        buffer: I420Buffer::new(resolution.width, resolution.height),
+        timestamp_us: 0,
+    };
+
+    loop {
+        if stop_rx.try_recv().is_ok() {
+            break;
+        }
+
+        let (data, _meta) = stream.next().context("read V4L2 frame")?;
+        if data.len() < expected_size {
+            warn!(
+                data_len = data.len(),
+                expected = expected_size,
+                "V4L2 frame shorter than expected"
+            );
+            continue;
+        }
+
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let (dst_y, dst_u, dst_v) = frame.buffer.data_mut();
+
+        let y_plane_len = stride * height;
+        let (src_y, src_uv) = data.split_at(y_plane_len);
+
+        yuv_helper::nv12_to_i420(
+            src_y,
+            stride as u32,
+            src_uv,
+            stride as u32,
+            dst_y,
+            stride_y,
+            dst_u,
+            stride_u,
+            dst_v,
+            stride_v,
+            resolution.width as i32,
+            resolution.height as i32,
+        );
+
+        frame.timestamp_us = start.elapsed().as_micros() as i64;
+        rtc_source.capture_frame(&frame);
+    }
+
+    Ok(())
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn v4l2_config_from_env() -> anyhow::Result<Option<V4l2Config>> {
+    let device = match optional_env("V4L2_DEVICE") {
+        Some(device) => device,
+        None => return Ok(None),
+    };
+
+    let width = optional_env("V4L2_WIDTH")
+        .as_deref()
+        .map(str::parse::<u32>)
+        .transpose()
+        .context("parse V4L2_WIDTH")?;
+    let height = optional_env("V4L2_HEIGHT")
+        .as_deref()
+        .map(str::parse::<u32>)
+        .transpose()
+        .context("parse V4L2_HEIGHT")?;
+
+    Ok(Some(V4l2Config { device, width, height }))
+}
+
+#[cfg(not(all(feature = "v4l2", target_os = "linux")))]
+fn v4l2_config_from_env() -> anyhow::Result<()> {
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -47,6 +245,7 @@ async fn main() -> anyhow::Result<()> {
     let room_id_or_alias = required_env("ROOM_ID")?;
     let livekit_service_url_override = optional_env("LIVEKIT_SERVICE_URL");
     let livekit_sfu_get_url = optional_env("LIVEKIT_SFU_GET_URL");
+    let v4l2_config = v4l2_config_from_env().context("read V4L2 config")?;
 
     let client = Client::builder()
         .homeserver_url(homeserver_url)
@@ -113,7 +312,7 @@ async fn main() -> anyhow::Result<()> {
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
-    run_livekit_driver(room, connector, service_url)
+    run_livekit_driver(room, connector, service_url, v4l2_config)
         .await
         .context("run LiveKit room driver")?;
 
@@ -231,39 +430,65 @@ fn ensure_access_token_query(service_url: &str, token: &str) -> anyhow::Result<S
     Ok(url.into())
 }
 
-async fn run_livekit_driver<C>(
+async fn run_livekit_driver(
     room: matrix_sdk::Room,
-    connector: C,
+    connector: LiveKitSdkConnector<EnvLiveKitTokenProvider, DefaultRoomOptionsProvider>,
     service_url: String,
+    v4l2_config: impl V4l2ConfigOption,
 ) -> LiveKitResult<()>
-where
-    C: matrix_sdk_rtc::LiveKitConnector,
 {
-    let mut connection = None;
+    let mut connection: Option<std::sync::Arc<Room>> = None;
     let mut info_stream = room.subscribe_info();
+    #[cfg(all(feature = "v4l2", target_os = "linux"))]
+    let mut v4l2_publisher: Option<V4l2CameraPublisher> = None;
 
-    update_connection(&room, &connector, &service_url, &room.clone_info(), &mut connection).await?;
+    update_connection(
+        &room,
+        &connector,
+        &service_url,
+        &room.clone_info(),
+        &mut connection,
+        &v4l2_config,
+        #[cfg(all(feature = "v4l2", target_os = "linux"))]
+        &mut v4l2_publisher,
+    )
+    .await?;
 
     while let Some(room_info) = info_stream.next().await {
-        update_connection(&room, &connector, &service_url, &room_info, &mut connection).await?;
+        update_connection(
+            &room,
+            &connector,
+            &service_url,
+            &room_info,
+            &mut connection,
+            &v4l2_config,
+            #[cfg(all(feature = "v4l2", target_os = "linux"))]
+            &mut v4l2_publisher,
+        )
+        .await?;
     }
 
-    if let Some(connection) = connection.take() {
-        connection.disconnect().await?;
+    if connection.take().is_some() {
+        #[cfg(all(feature = "v4l2", target_os = "linux"))]
+        if let Some(publisher) = v4l2_publisher.take() {
+            publisher.stop().await.map_err(LiveKitError::connector)?;
+        }
     }
 
     Ok(())
 }
 
-async fn update_connection<C>(
+async fn update_connection(
     room: &matrix_sdk::Room,
-    connector: &C,
+    connector: &LiveKitSdkConnector<EnvLiveKitTokenProvider, DefaultRoomOptionsProvider>,
     service_url: &str,
     room_info: &matrix_sdk::RoomInfo,
-    connection: &mut Option<C::Connection>,
+    connection: &mut Option<std::sync::Arc<Room>>,
+    v4l2_config: &impl V4l2ConfigOption,
+    #[cfg(all(feature = "v4l2", target_os = "linux"))] v4l2_publisher: &mut Option<
+        V4l2CameraPublisher,
+    >,
 ) -> LiveKitResult<()>
-where
-    C: matrix_sdk_rtc::LiveKitConnector,
 {
     let has_memberships = room_info.has_active_room_call();
 
@@ -271,12 +496,44 @@ where
         if connection.is_none() {
             info!(room_id = ?room.room_id(), "joining LiveKit room for active call");
             let new_connection = connector.connect(service_url, room).await?;
-            *connection = Some(new_connection);
+            let room_handle = std::sync::Arc::new(new_connection.into_room());
+            #[cfg(all(feature = "v4l2", target_os = "linux"))]
+            if v4l2_publisher.is_none() {
+                if let Some(config) = v4l2_config.as_option().cloned() {
+                    info!(device = %config.device, "starting V4L2 camera publisher");
+                    let publisher = V4l2CameraPublisher::start(
+                        std::sync::Arc::clone(&room_handle),
+                        config,
+                    )
+                    .await
+                    .map_err(LiveKitError::connector)?;
+                    *v4l2_publisher = Some(publisher);
+                }
+            }
+            *connection = Some(room_handle);
         }
-    } else if let Some(existing) = connection.take() {
+    } else if connection.take().is_some() {
         info!(room_id = ?room.room_id(), "leaving LiveKit room because the call ended");
-        existing.disconnect().await?;
+        #[cfg(all(feature = "v4l2", target_os = "linux"))]
+        if let Some(publisher) = v4l2_publisher.take() {
+            publisher.stop().await.map_err(LiveKitError::connector)?;
+        }
     }
 
     Ok(())
 }
+
+trait V4l2ConfigOption {
+    #[cfg(all(feature = "v4l2", target_os = "linux"))]
+    fn as_option(&self) -> Option<&V4l2Config>;
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+impl V4l2ConfigOption for Option<V4l2Config> {
+    fn as_option(&self) -> Option<&V4l2Config> {
+        self.as_ref()
+    }
+}
+
+#[cfg(not(all(feature = "v4l2", target_os = "linux")))]
+impl V4l2ConfigOption for () {}
