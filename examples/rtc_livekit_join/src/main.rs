@@ -3,12 +3,11 @@
 use std::env;
 
 use anyhow::{Context, anyhow};
-use futures_util::StreamExt;
 use matrix_sdk::{
     Client,
     RoomState,
     config::SyncSettings,
-    ruma::{OwnedServerName, RoomOrAliasId, ServerName},
+    ruma::{OwnedRoomId, OwnedServerName, RoomOrAliasId, ServerName},
 };
 use matrix_sdk_rtc::{LiveKitConnection, LiveKitResult, livekit_service_url};
 use matrix_sdk_rtc_livekit::{
@@ -26,7 +25,7 @@ struct DefaultRoomOptionsProvider;
 
 #[async_trait::async_trait]
 impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
-    async fn token(&self, _room: &matrix_sdk::Room) -> matrix_sdk_rtc::LiveKitResult<String> {
+    async fn token(&self, _room: &matrix_sdk::Room) -> LiveKitResult<String> {
         Ok(self.token.clone())
     }
 }
@@ -62,15 +61,15 @@ async fn main() -> anyhow::Result<()> {
 
     let room_id_or_alias = RoomOrAliasId::parse(room_id_or_alias).context("parse ROOM_ID")?;
     let via_servers = via_servers_from_env().context("parse VIA_SERVERS")?;
-    let room = match room_id_or_alias.clone().try_into() {
-        Ok(room_id) => match client.get_room(&room_id) {
+    let room = match room_id_or_alias.clone().try_into().ok().map(OwnedRoomId::from) {
+        Some(room_id) => match client.get_room(&room_id) {
             Some(room) if room.state() == RoomState::Joined => room,
             _ => client
                 .join_room_by_id(&room_id)
                 .await
                 .context("join room")?,
         },
-        Err(_) => client
+        None => client
             .join_room_by_id_or_alias(&room_id_or_alias, &via_servers)
             .await
             .context("join room")?,
