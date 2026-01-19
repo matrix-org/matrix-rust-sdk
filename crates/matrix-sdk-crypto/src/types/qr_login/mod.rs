@@ -39,12 +39,19 @@ pub enum LoginQrCodeDecodeError {
     /// One of the URLs in the QR code data could not be parsed.
     #[error("One of the URLs in the QR code data could not be parsed: {0:?}")]
     UrlParse(#[from] url::ParseError),
-    /// The QR code data contains an invalid mode, we expect the login (0x03)
-    /// mode or the reciprocate mode (0x04).
+    /// The QR code data contains an invalid intent, we expect the login
+    /// intent or the reciprocate intent.
     #[error(
-        "The QR code data contains an invalid QR code login mode, expected 0x03 or 0x04, got {0}"
+        "The QR code data contains an invalid QR code intent, expected {expected_login} or {expected_reciprocate}, got {got}"
     )]
-    InvalidMode(u8),
+    InvalidIntent {
+        /// The constant we expect for the login intent.
+        expected_login: u8,
+        /// The constant we expect for the reciprocate intent.
+        expected_reciprocate: u8,
+        /// The intent we received.
+        got: u8,
+    },
     /// The QR code data contains an unsupported type.
     #[error("The QR code data contains an unsupported type, expected {expected}, got {got}")]
     InvalidType {
@@ -63,7 +70,7 @@ pub enum LoginQrCodeDecodeError {
         /// The expected prefix.
         expected: &'static [u8],
         /// The prefix we received.
-        got: [u8; 6],
+        got: Vec<u8>,
     },
 }
 

@@ -73,7 +73,11 @@ impl TryFrom<u8> for QrCodeIntent {
         match value {
             0x03 => Ok(Self::Login),
             0x04 => Ok(Self::Reciprocate),
-            mode => Err(LoginQrCodeDecodeError::InvalidMode(mode)),
+            intent => Err(LoginQrCodeDecodeError::InvalidIntent {
+                expected_login: QrCodeIntent::Login as u8,
+                expected_reciprocate: QrCodeIntent::Reciprocate as u8,
+                got: intent,
+            }),
         }
     }
 }
@@ -128,7 +132,10 @@ impl QrCodeData {
         reader.read_exact(&mut prefix)?;
 
         if PREFIX != prefix {
-            return Err(LoginQrCodeDecodeError::InvalidPrefix { expected: PREFIX, got: prefix });
+            return Err(LoginQrCodeDecodeError::InvalidPrefix {
+                expected: PREFIX,
+                got: prefix.to_vec(),
+            });
         }
 
         // 2. Next up is the version, we continue only if the version matches.
