@@ -16,6 +16,7 @@ use matrix_sdk_rtc_livekit::{
 use ruma::api::client::account::request_openid_token;
 use serde_json::Value as JsonValue;
 use tracing::info;
+use url::Url;
 
 struct EnvLiveKitTokenProvider {
     token: String,
@@ -110,6 +111,8 @@ async fn main() -> anyhow::Result<()> {
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token };
     let connector = LiveKitSdkConnector::new(token_provider, DefaultRoomOptionsProvider);
 
+    let service_url = ensure_access_token_query(&service_url, &livekit_token)
+        .context("attach access_token to LiveKit service url")?;
     run_livekit_driver(room, connector, service_url)
         .await
         .context("run LiveKit room driver")?;
@@ -215,6 +218,17 @@ fn extract_string(payload: &JsonValue, keys: &[&str]) -> Option<String> {
             .and_then(|value| value.as_str())
             .map(|value| value.to_owned())
     })
+}
+
+fn ensure_access_token_query(service_url: &str, token: &str) -> anyhow::Result<String> {
+    let mut url = Url::parse(service_url)?;
+    let has_access_token = url
+        .query_pairs()
+        .any(|(key, _)| key == "access_token");
+    if !has_access_token {
+        url.query_pairs_mut().append_pair("access_token", token);
+    }
+    Ok(url.into())
 }
 
 async fn run_livekit_driver<C>(

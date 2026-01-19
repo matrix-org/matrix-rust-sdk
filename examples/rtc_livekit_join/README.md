@@ -81,6 +81,10 @@ device_id }` to `/sfu/get` to obtain both the `service_url` and a LiveKit access
 token. When `LIVEKIT_SFU_GET_URL` is set, the example uses the response values
 instead of `LIVEKIT_SERVICE_URL` and `LIVEKIT_TOKEN`.
 
+The LiveKit access token is appended to the `service_url` as the
+`access_token` query parameter (matching Element Call's WebSocket usage) when
+the URL does not already include one.
+
 ## What this example does
 
 1. Logs into Matrix.
