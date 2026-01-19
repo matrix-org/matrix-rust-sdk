@@ -156,7 +156,7 @@ impl SpaceService {
     }
 }
 
-/// The `SpaceRoomList`represents a paginated list of direct rooms
+/// The `SpaceRoomList` represents a paginated list of direct rooms
 /// that belong to a particular space.
 ///
 /// It can be used to paginate through the list (and have live updates on the
@@ -248,6 +248,18 @@ impl SpaceRoomList {
     /// yet. Otherwise it no-ops.
     pub async fn paginate(&self) -> Result<(), ClientError> {
         self.inner.paginate().await.map_err(ClientError::from)
+    }
+
+    /// Clears the room list back to its initial state so that any new changes
+    /// to the hierarchy will be included the next time [`Self::paginate`] is
+    /// called.
+    ///
+    /// This is useful when you've added or removed children from the space as
+    /// the list is based on a cached state that lives server-side, meaning
+    /// the /hierarchy request needs to be restarted from scratch to pick up
+    /// the changes.
+    pub async fn reset(&self) {
+        self.inner.reset().await;
     }
 }
 
