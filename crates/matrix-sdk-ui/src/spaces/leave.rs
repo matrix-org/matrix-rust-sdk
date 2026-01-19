@@ -14,6 +14,7 @@
 
 use matrix_sdk::{Client, RoomState, room::RoomMemberRole};
 use ruma::{Int, OwnedRoomId, events::room::member::MembershipState};
+use tracing::info;
 
 use crate::spaces::{Error, SpaceRoom};
 
@@ -56,32 +57,33 @@ impl LeaveSpaceHandle {
             }
 
             if !room.are_members_synced() {
+                info!("Syncing members for room {} to check if can leave", room.room_id());
                 _ = room.sync_members().await.ok();
             }
 
-            let users_to_power_levels = room.users_with_power_levels().await;
-            let admin_ids = users_to_power_levels
-                .iter()
+            let admin_ids = room
+                .users_with_power_levels()
+                .await
+                .into_iter()
                 .filter(|(_, power_level)| {
-                    let Some(power_level) = Int::new(**power_level) else {
+                    let Some(power_level) = Int::new(*power_level) else {
                         return false;
                     };
 
                     RoomMemberRole::suggested_role_for_power_level(power_level.into())
                         == RoomMemberRole::Administrator
                 })
-                .map(|p| p.0)
-                .collect::<Vec<_>>();
+                .map(|p: (ruma::OwnedUserId, i64)| p.0);
 
             let mut joined_admin_ids = Vec::new();
             for admin_id in admin_ids {
-                if let Ok(Some(member)) = room.get_member_no_sync(admin_id).await
+                if let Ok(Some(member)) = room.get_member_no_sync(&admin_id).await
                     && *member.membership() == MembershipState::Join
                 {
                     joined_admin_ids.push(admin_id);
                 }
             }
-            let is_last_admin = joined_admin_ids == vec![room.own_user_id()];
+            let is_last_admin = joined_admin_ids == [room.own_user_id()];
 
             rooms.push(LeaveSpaceRoom {
                 space_room: SpaceRoom::new_from_known(&room, 0),
