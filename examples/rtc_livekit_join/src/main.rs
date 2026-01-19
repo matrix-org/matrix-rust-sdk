@@ -95,6 +95,10 @@ impl V4l2CameraPublisher {
             RtcVideoSource::Native(rtc_source.clone()),
         );
 
+        info!(
+            room_name = %room.name(),
+            "publishing V4L2 camera track"
+        );
         room.local_participant()
             .publish_track(
                 LocalTrack::Video(track.clone()),
@@ -116,6 +120,7 @@ impl V4l2CameraPublisher {
     }
 
     async fn stop(self) -> anyhow::Result<()> {
+        info!(room_name = %self.room.name(), "stopping V4L2 camera track");
         let _ = self.stop_tx.send(());
         let _ = self.task.await?;
         self.room
@@ -163,6 +168,13 @@ fn configure_v4l2_device(
     };
 
     let resolution = VideoResolution { width: format.width, height: format.height };
+    info!(
+        device = %config.device,
+        width = format.width,
+        height = format.height,
+        fourcc = ?format.fourcc,
+        "configured V4L2 device format"
+    );
     let rtc_source = NativeVideoSource::new(resolution.clone());
     Ok((resolution, pixel_format, rtc_source, device))
 }
@@ -431,6 +443,12 @@ async fn main() -> anyhow::Result<()> {
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
+    info!(
+        room_id = ?room.room_id(),
+        service_url = %service_url,
+        token_len = livekit_token.len(),
+        "starting LiveKit driver"
+    );
     run_livekit_driver(room, connector, service_url, v4l2_config)
         .await
         .context("run LiveKit room driver")?;
@@ -613,12 +631,22 @@ async fn update_connection(
 ) -> LiveKitResult<()>
 {
     let has_memberships = room_info.has_active_room_call();
+    info!(
+        room_id = ?room.room_id(),
+        has_memberships,
+        participants = room_info.active_room_call_participants().len(),
+        "observed call membership state"
+    );
 
     if has_memberships {
         if connection.is_none() {
             info!(room_id = ?room.room_id(), "joining LiveKit room for active call");
             let new_connection = connector.connect(service_url, room).await?;
             let room_handle = std::sync::Arc::new(new_connection.into_room());
+            info!(
+                room_name = %room_handle.name(),
+                "LiveKit room connected"
+            );
             #[cfg(all(feature = "v4l2", target_os = "linux"))]
             if v4l2_publisher.is_none() {
                 if let Some(config) = v4l2_config.as_option().cloned() {
