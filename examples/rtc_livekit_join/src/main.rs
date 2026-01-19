@@ -72,6 +72,13 @@ struct V4l2CameraPublisher {
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
+#[derive(Copy, Clone, Debug)]
+enum V4l2PixelFormat {
+    Nv12,
+    Yuyv,
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
 impl V4l2CameraPublisher {
     async fn start(room: std::sync::Arc<Room>, config: V4l2Config) -> anyhow::Result<Self> {
         use matrix_sdk_rtc_livekit::livekit::options::{TrackPublishOptions, VideoCodec};
@@ -80,7 +87,7 @@ impl V4l2CameraPublisher {
         use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::{RtcVideoSource, VideoResolution};
         use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
 
-        let (resolution, rtc_source, mut device) =
+        let (resolution, pixel_format, rtc_source, mut device) =
             configure_v4l2_device(&config).context("configure V4L2 device")?;
 
         let track = matrix_sdk_rtc_livekit::livekit::track::LocalVideoTrack::create_video_track(
@@ -102,7 +109,7 @@ impl V4l2CameraPublisher {
 
         let (stop_tx, stop_rx) = std::sync::mpsc::channel();
         let task = tokio::task::spawn_blocking(move || {
-            run_v4l2_capture_loop(&mut device, resolution, rtc_source, stop_rx)
+            run_v4l2_capture_loop(&mut device, resolution, pixel_format, rtc_source, stop_rx)
         });
 
         Ok(Self { room, track, stop_tx, task })
@@ -125,6 +132,7 @@ fn configure_v4l2_device(
     config: &V4l2Config,
 ) -> anyhow::Result<(
     matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
+    V4l2PixelFormat,
     matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
     v4l::Device,
 )> {
@@ -142,26 +150,28 @@ fn configure_v4l2_device(
     if let Some(height) = config.height {
         format.height = height;
     }
-    format.fourcc = FourCC::new(b"NV12");
-
-    let format = device.set_format(&format).context("set V4L2 format")?;
-    let requested = FourCC::new(b"NV12");
-    if format.fourcc != requested {
-        return Err(anyhow!(
-            "V4L2 device did not accept NV12; got {:?} instead",
-            format.fourcc
-        ));
-    }
+    let format = set_format_with_fallback(&mut device, format)?;
+    let pixel_format = match format.fourcc.repr {
+        *b"NV12" => V4l2PixelFormat::Nv12,
+        *b"YUYV" => V4l2PixelFormat::Yuyv,
+        _ => {
+            return Err(anyhow!(
+                "V4L2 device did not accept NV12 or YUYV; got {:?} instead",
+                format.fourcc
+            ));
+        }
+    };
 
     let resolution = VideoResolution { width: format.width, height: format.height };
     let rtc_source = NativeVideoSource::new(resolution.clone());
-    Ok((resolution, rtc_source, device))
+    Ok((resolution, pixel_format, rtc_source, device))
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 fn run_v4l2_capture_loop(
     device: &mut v4l::Device,
     resolution: matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
+    pixel_format: V4l2PixelFormat,
     rtc_source: matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
     stop_rx: std::sync::mpsc::Receiver<()>,
 ) -> anyhow::Result<()> {
@@ -205,29 +215,117 @@ fn run_v4l2_capture_loop(
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (dst_y, dst_u, dst_v) = frame.buffer.data_mut();
 
-        let y_plane_len = stride * height;
-        let (src_y, src_uv) = data.split_at(y_plane_len);
+        match pixel_format {
+            V4l2PixelFormat::Nv12 => {
+                let y_plane_len = stride * height;
+                let (src_y, src_uv) = data.split_at(y_plane_len);
 
-        yuv_helper::nv12_to_i420(
-            src_y,
-            stride as u32,
-            src_uv,
-            stride as u32,
-            dst_y,
-            stride_y,
-            dst_u,
-            stride_u,
-            dst_v,
-            stride_v,
-            resolution.width as i32,
-            resolution.height as i32,
-        );
+                yuv_helper::nv12_to_i420(
+                    src_y,
+                    stride as u32,
+                    src_uv,
+                    stride as u32,
+                    dst_y,
+                    stride_y,
+                    dst_u,
+                    stride_u,
+                    dst_v,
+                    stride_v,
+                    resolution.width as i32,
+                    resolution.height as i32,
+                );
+            }
+            V4l2PixelFormat::Yuyv => {
+                yuyv_to_i420(
+                    data,
+                    stride,
+                    height,
+                    dst_y,
+                    stride_y,
+                    dst_u,
+                    stride_u,
+                    dst_v,
+                    stride_v,
+                );
+            }
+        }
 
         frame.timestamp_us = start.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&frame);
     }
 
     Ok(())
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn set_format_with_fallback(device: &mut v4l::Device, mut format: v4l::format::Format) -> anyhow::Result<v4l::format::Format> {
+    use v4l::video::Capture;
+    use v4l::FourCC;
+
+    let nv12 = FourCC::new(b"NV12");
+    let yuyv = FourCC::new(b"YUYV");
+
+    format.fourcc = nv12;
+    let format = device.set_format(&format).context("set V4L2 format")?;
+    if format.fourcc == nv12 {
+        return Ok(format);
+    }
+
+    let mut format = format;
+    format.fourcc = yuyv;
+    let format = device.set_format(&format).context("set V4L2 format (YUYV)")?;
+    Ok(format)
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn yuyv_to_i420(
+    src: &[u8],
+    src_stride: usize,
+    height: usize,
+    dst_y: &mut [u8],
+    dst_stride_y: u32,
+    dst_u: &mut [u8],
+    dst_stride_u: u32,
+    dst_v: &mut [u8],
+    dst_stride_v: u32,
+) {
+    let width = (src_stride / 2) as usize;
+    let dst_stride_y = dst_stride_y as usize;
+    let dst_stride_u = dst_stride_u as usize;
+    let dst_stride_v = dst_stride_v as usize;
+
+    for y in 0..height {
+        let src_row = &src[y * src_stride..(y + 1) * src_stride];
+        let dst_y_row = &mut dst_y[y * dst_stride_y..(y + 1) * dst_stride_y];
+        for x in 0..width {
+            let pair = x & !1;
+            let base = pair * 2;
+            let y_offset = if x % 2 == 0 { 0 } else { 2 };
+            dst_y_row[x] = src_row[base + y_offset];
+        }
+    }
+
+    let chroma_height = height / 2;
+    for y in 0..chroma_height {
+        let src_row0 = &src[(y * 2) * src_stride..(y * 2 + 1) * src_stride];
+        let src_row1 = if y * 2 + 1 < height {
+            &src[(y * 2 + 1) * src_stride..(y * 2 + 2) * src_stride]
+        } else {
+            src_row0
+        };
+        let dst_u_row = &mut dst_u[y * dst_stride_u..(y + 1) * dst_stride_u];
+        let dst_v_row = &mut dst_v[y * dst_stride_v..(y + 1) * dst_stride_v];
+
+        for x in 0..(width / 2) {
+            let base = x * 4;
+            let u0 = src_row0[base + 1] as u16;
+            let v0 = src_row0[base + 3] as u16;
+            let u1 = src_row1[base + 1] as u16;
+            let v1 = src_row1[base + 3] as u16;
+            dst_u_row[x] = ((u0 + u1) / 2) as u8;
+            dst_v_row[x] = ((v0 + v1) / 2) as u8;
+        }
+    }
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]

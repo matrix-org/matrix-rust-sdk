@@ -45,8 +45,9 @@ cargo run -p example-rtc-livekit-join --features v4l2
 
 Notes:
 
-- The capture path expects NV12 input; if your camera defaults to MJPEG or
-  another format, use `v4l2-ctl` to switch it:
+- The capture path prefers NV12, but will fall back to YUYV if NV12 is not
+  supported. If your camera defaults to MJPEG or another format, use `v4l2-ctl`
+  to switch it:
 
   ```bash
   v4l2-ctl -d /dev/video0 --set-fmt-video=width=1280,height=720,pixelformat=NV12
