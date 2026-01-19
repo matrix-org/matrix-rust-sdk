@@ -152,8 +152,8 @@ fn configure_v4l2_device(
     }
     let format = set_format_with_fallback(&mut device, format)?;
     let pixel_format = match format.fourcc.repr {
-        *b"NV12" => V4l2PixelFormat::Nv12,
-        *b"YUYV" => V4l2PixelFormat::Yuyv,
+        b"NV12" => V4l2PixelFormat::Nv12,
+        b"YUYV" => V4l2PixelFormat::Yuyv,
         _ => {
             return Err(anyhow!(
                 "V4L2 device did not accept NV12 or YUYV; got {:?} instead",
