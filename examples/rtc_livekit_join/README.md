@@ -63,6 +63,15 @@ CC=gcc-13 CXX=g++-13 cargo build -p example-rtc-livekit-join
 (`#alias:example.org`). If you provide an alias, set `VIA_SERVERS` to a
 comma-separated list of server names to help the homeserver resolve the alias.
 
+### LiveKit service URL
+
+The example relies on the LiveKit service URL advertised by the homeserver's
+`.well-known` discovery. If you see `Signal ... 404 Not Found` errors while
+connecting to `wss://<homeserver>/rtc`, the homeserver is likely missing a
+LiveKit focus or advertising the wrong URL. Ensure the server advertises a
+correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
+endpoint that supports the `/rtc` signal path.
+
 ## What this example does
 
 1. Logs into Matrix.
