@@ -16,6 +16,7 @@ MATRIX_USERNAME=@alice:example.org \
 MATRIX_PASSWORD=secret \
 ROOM_ID=!roomid:example.org \
 VIA_SERVERS=example.org,otherserver.org \
+LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 RUST_LOG=info \
 cargo run -p example-rtc-livekit-join
@@ -72,6 +73,10 @@ LiveKit focus or advertising the wrong URL. Ensure the server advertises a
 correct LiveKit `service_url`, or use a homeserver that provides a LiveKit
 endpoint that supports the `/rtc` signal path.
 
+If your deployment exposes a separate endpoint (for example, Element Call's
+`/sfu/get`), you can set `LIVEKIT_SERVICE_URL` to the `service_url` value from
+that response to override `.well-known`.
+
 ## What this example does
 
 1. Logs into Matrix.
@@ -89,17 +94,16 @@ flowchart TD
     C --> D[get_room()/join_room_by_id_or_alias()]
     D --> E[tokio::spawn sync()]
     D --> F[LiveKitSdkConnector::new()]
-    F --> G[LiveKitRoomDriver::new()]
-    G --> H[LiveKitRoomDriver::run()]
-    H --> I[Room::subscribe_info()]
-    H --> J[livekit_service_url()]
-    J --> K[Client::rtc_foci()]
-    H --> L[update_connection()]
-    L --> M{has_active_room_call?}
-    M -->|yes| N[LiveKitConnector::connect()]
-    N --> O[LiveKitSdkConnector::connect()]
-    O --> P[LiveKitTokenProvider::token()]
-    O --> Q[RoomOptions::default()]
-    O --> R[Room::connect (LiveKit SDK)]
-    M -->|no| S[LiveKitConnection::disconnect()]
+    F --> G[resolve service url (env or .well-known)]
+    G --> H[Room::subscribe_info()]
+    G --> I[livekit_service_url()]
+    I --> J[Client::rtc_foci()]
+    G --> K[update_connection()]
+    K --> L{has_active_room_call?}
+    L -->|yes| M[LiveKitConnector::connect()]
+    M --> N[LiveKitSdkConnector::connect()]
+    N --> O[LiveKitTokenProvider::token()]
+    N --> P[RoomOptions::default()]
+    N --> Q[Room::connect (LiveKit SDK)]
+    L -->|no| R[LiveKitConnection::disconnect()]
 ```

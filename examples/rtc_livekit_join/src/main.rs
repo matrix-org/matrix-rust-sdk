@@ -3,16 +3,18 @@
 use std::env;
 
 use anyhow::{Context, anyhow};
+use futures_util::StreamExt;
 use matrix_sdk::{
     Client,
     RoomState,
     config::SyncSettings,
     ruma::{OwnedServerName, RoomOrAliasId, ServerName},
 };
-use matrix_sdk_rtc::LiveKitRoomDriver;
+use matrix_sdk_rtc::{LiveKitResult, livekit_service_url};
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions,
 };
+use tracing::info;
 
 struct EnvLiveKitTokenProvider {
     token: String,
@@ -42,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let password = required_env("MATRIX_PASSWORD")?;
     let room_id_or_alias = required_env("ROOM_ID")?;
     let livekit_token = required_env("LIVEKIT_TOKEN")?;
+    let livekit_service_url_override = optional_env("LIVEKIT_SERVICE_URL");
 
     let client = Client::builder()
         .homeserver_url(homeserver_url)
@@ -84,8 +87,15 @@ async fn main() -> anyhow::Result<()> {
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token };
     let connector = LiveKitSdkConnector::new(token_provider, DefaultRoomOptionsProvider);
 
-    let driver = LiveKitRoomDriver::new(room, connector);
-    driver.run().await.context("run LiveKit room driver")?;
+    let service_url = match livekit_service_url_override {
+        Some(url) => url,
+        None => livekit_service_url(&client)
+            .await
+            .context("fetch LiveKit service url")?,
+    };
+    run_livekit_driver(room, connector, service_url)
+        .await
+        .context("run LiveKit room driver")?;
 
     sync_handle.abort();
 
@@ -94,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn required_env(name: &str) -> anyhow::Result<String> {
     env::var(name).with_context(|| anyhow!("missing required env var: {name}"))
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
@@ -109,4 +123,54 @@ fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
         .filter(|entry| !entry.is_empty())
         .map(|entry| ServerName::parse(entry).context("parse server name"))
         .collect()
+}
+
+async fn run_livekit_driver<C>(
+    room: matrix_sdk::Room,
+    connector: C,
+    service_url: String,
+) -> LiveKitResult<()>
+where
+    C: matrix_sdk_rtc::LiveKitConnector,
+{
+    let mut connection = None;
+    let mut info_stream = room.subscribe_info();
+
+    update_connection(&room, &connector, &service_url, &room.clone_info(), &mut connection).await?;
+
+    while let Some(room_info) = info_stream.next().await {
+        update_connection(&room, &connector, &service_url, &room_info, &mut connection).await?;
+    }
+
+    if let Some(connection) = connection.take() {
+        connection.disconnect().await?;
+    }
+
+    Ok(())
+}
+
+async fn update_connection<C>(
+    room: &matrix_sdk::Room,
+    connector: &C,
+    service_url: &str,
+    room_info: &matrix_sdk::RoomInfo,
+    connection: &mut Option<C::Connection>,
+) -> LiveKitResult<()>
+where
+    C: matrix_sdk_rtc::LiveKitConnector,
+{
+    let has_memberships = room_info.has_active_room_call();
+
+    if has_memberships {
+        if connection.is_none() {
+            info!(room_id = ?room.room_id(), "joining LiveKit room for active call");
+            let new_connection = connector.connect(service_url, room).await?;
+            *connection = Some(new_connection);
+        }
+    } else if let Some(existing) = connection.take() {
+        info!(room_id = ?room.room_id(), "leaving LiveKit room because the call ended");
+        existing.disconnect().await?;
+    }
+
+    Ok(())
 }
