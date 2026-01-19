@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
-    LoginQrCodeDecodeError, QrCodeData, QrCodeIntent, QrCodeIntentData,
+    LoginQrCodeDecodeError, Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
 use matrix_sdk_base::crypto::{SecretImportError, store::SecretsBundleExportError};
 pub use oauth2::{

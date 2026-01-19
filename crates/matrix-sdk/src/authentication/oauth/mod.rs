@@ -1375,7 +1375,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// use matrix_sdk::{
     ///     authentication::oauth::{
     ///         registration::ClientMetadata,
-    ///         qrcode::{LoginProgress, QrCodeData, QrCodeIntentData, QrProgress},
+    ///         qrcode::{LoginProgress, Msc4108IntentData, QrCodeData, QrCodeIntentData, QrProgress},
     ///     },
     ///     ruma::serde::Raw,
     ///     Client,
@@ -1388,7 +1388,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
     ///
     /// // Fetch the homeserver out of the parsed QR code data.
-    /// let QrCodeIntentData::Reciprocate{ server_name } = qr_code_data.intent_data() else {
+    /// let QrCodeIntentData::Msc4108 { data: Msc4108IntentData::Reciprocate { server_name }, ..} = qr_code_data.intent_data() else {
     ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
     /// };
     ///
