@@ -180,9 +180,11 @@ impl EstablishedSecureChannel {
                 QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
                     let InboundChannelCreationResult { channel, .. } =
                         RendezvousChannel::create_inbound(client, rendezvous_url).await?;
-
                     channel
                 }
+                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
+                // channel when we encounter this QR code variant.
+                QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
             };
 
             trace!(

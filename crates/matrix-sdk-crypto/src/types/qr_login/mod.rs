@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Data types for the QR code login mechanism described in [MSC4108]
+//! Data types for the QR code login mechanism described in [MSC4108] and
+//! [MSC4388].
 //!
 //! [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+//! [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
 
 use std::str::Utf8Error;
 
 use thiserror::Error;
 
 mod msc_4108;
+mod msc_4388;
 
 pub use msc_4108::Msc4108IntentData;
 use url::Url;
@@ -88,6 +91,18 @@ pub enum QrCodeIntentData<'a> {
         /// channel.
         rendezvous_url: &'a Url,
     },
+    /// Intent-specific data in the case the QR code adheres to [MSC4388] of the
+    /// QR code data format.
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    Msc4388 {
+        /// The ID of the rendezvous session, can be used to exchange messages
+        /// with the other device.
+        rendezvous_id: &'a str,
+        /// The base URL of the homeserver that the device generating the QR is
+        /// using.
+        base_url: &'a Url,
+    },
 }
 
 /// The intent of the device that generated/displayed the QR code.
@@ -112,6 +127,15 @@ impl From<msc_4108::QrCodeIntent> for QrCodeIntent {
         match value {
             msc_4108::QrCodeIntent::Login => Self::Login,
             msc_4108::QrCodeIntent::Reciprocate => Self::Reciprocate,
+        }
+    }
+}
+
+impl From<msc_4388::QrCodeIntent> for QrCodeIntent {
+    fn from(value: msc_4388::QrCodeIntent) -> Self {
+        match value {
+            msc_4388::QrCodeIntent::Login => Self::Login,
+            msc_4388::QrCodeIntent::Reciprocate => Self::Reciprocate,
         }
     }
 }
@@ -148,7 +172,11 @@ impl QrCodeData {
     ///
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
-        let inner = msc_4108::QrCodeData::from_bytes(bytes).map(QrCodeDataInner::Msc4108)?;
+        let inner = if bytes.starts_with(msc_4108::PREFIX) {
+            msc_4108::QrCodeData::from_bytes(bytes).map(QrCodeDataInner::Msc4108)?
+        } else {
+            msc_4388::QrCodeData::from_bytes(bytes).map(QrCodeDataInner::Msc4388)?
+        };
 
         Ok(QrCodeData { inner })
     }
@@ -160,6 +188,7 @@ impl QrCodeData {
     pub fn to_bytes(&self) -> Vec<u8> {
         match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.to_bytes(),
+            QrCodeDataInner::Msc4388(qr_code_data) => qr_code_data.to_bytes(),
         }
     }
 
@@ -180,6 +209,7 @@ impl QrCodeData {
     pub fn public_key(&self) -> Curve25519PublicKey {
         match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.public_key,
+            QrCodeDataInner::Msc4388(qr_code_data) => qr_code_data.public_key,
         }
     }
 
@@ -190,6 +220,7 @@ impl QrCodeData {
     pub fn intent(&self) -> QrCodeIntent {
         match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.intent().into(),
+            QrCodeDataInner::Msc4388(qr_code_data) => qr_code_data.intent.clone().into(),
         }
     }
 
@@ -200,6 +231,10 @@ impl QrCodeData {
                 data: &qr_code_data.intent_data,
                 rendezvous_url: &qr_code_data.rendezvous_url,
             },
+            QrCodeDataInner::Msc4388(qr_code_data) => QrCodeIntentData::Msc4388 {
+                rendezvous_id: &qr_code_data.rendezvous_id,
+                base_url: &qr_code_data.base_url,
+            },
         }
     }
 }
@@ -207,4 +242,5 @@ impl QrCodeData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum QrCodeDataInner {
     Msc4108(msc_4108::QrCodeData),
+    Msc4388(msc_4388::QrCodeData),
 }

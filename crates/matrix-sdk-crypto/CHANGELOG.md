@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add MSC4388 support to the QrcodeData struct.
+  ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
+
 - Improved logging when we are sending secrets in `GossipMachine`.
   ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
   ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
