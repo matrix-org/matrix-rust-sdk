@@ -69,6 +69,9 @@ cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/native-t
 cargo run -p example-rtc-livekit-join --features matrix-sdk-rtc-livekit/rustls-tls
 ```
 
+Only enable one TLS backend at a time; `native-tls` and `rustls-tls` are
+mutually exclusive.
+
 ### Room identifier
 
 `ROOM_ID` can be either a room id (`!roomid:example.org`) or a room alias
