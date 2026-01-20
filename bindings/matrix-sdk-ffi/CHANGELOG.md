@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
+  event as the root of a thread.
+  [#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050)
 - [**breaking**] Remove `TimelineFilter::EventTypeFilter` which has been replaced by
   the more generic `TimelineFilter::EventFilter`. Users of `TimelineEventTypeFilter::include`
   and `TimelineEventTypeFilter::exclude` can switch to `TimelineEventFilter::include_event_types`

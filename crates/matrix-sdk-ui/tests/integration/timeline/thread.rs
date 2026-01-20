@@ -29,8 +29,8 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
-    RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventItemId, TimelineFocus,
-    VirtualTimelineItem,
+    RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
+    TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch,
@@ -1875,7 +1875,7 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
         .with_focus(TimelineFocus::Event {
             target: owned_event_id!("$target"),
             num_context_events: 2,
-            hide_threaded_events: true,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
         })
         .build()
         .await
