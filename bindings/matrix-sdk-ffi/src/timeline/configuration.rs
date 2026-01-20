@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
     event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
-    TimelineReadReceiptTracking,
+    TimelineEventFocusThreadMode, TimelineReadReceiptTracking,
 };
 use ruma::{
     events::{AnySyncTimelineEvent, TimelineEventType},
@@ -120,8 +120,8 @@ pub enum TimelineFocus {
         event_id: String,
         /// The number of context events to load around the focused event.
         num_context_events: u16,
-        /// Whether to hide in-thread replies from the live timeline.
-        hide_threaded_events: bool,
+        /// How to handle threaded events.
+        thread_mode: TimelineEventFocusThreadMode,
     },
     Thread {
         /// The thread root event ID to focus on.
@@ -141,18 +141,14 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
     ) -> Result<matrix_sdk_ui::timeline::TimelineFocus, Self::Error> {
         match value {
             TimelineFocus::Live { hide_threaded_events } => Ok(Self::Live { hide_threaded_events }),
-            TimelineFocus::Event { event_id, num_context_events, hide_threaded_events } => {
+            TimelineFocus::Event { event_id, num_context_events, thread_mode } => {
                 let parsed_event_id =
                     EventId::parse(&event_id).map_err(|err| FocusEventError::InvalidEventId {
                         event_id: event_id.clone(),
                         err: err.to_string(),
                     })?;
 
-                Ok(Self::Event {
-                    target: parsed_event_id,
-                    num_context_events,
-                    hide_threaded_events,
-                })
+                Ok(Self::Event { target: parsed_event_id, num_context_events, thread_mode })
             }
             TimelineFocus::Thread { root_event_id } => {
                 let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {

@@ -72,7 +72,7 @@ use super::{
 };
 use crate::{
     timeline::{
-        MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
+        MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn, TimelineEventFocusThreadMode,
         algorithms::rfind_event_by_item_id,
         controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
@@ -462,7 +462,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
 
-            TimelineFocus::Event { target: event_id, num_context_events, hide_threaded_events } => {
+            TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
                 let TimelineFocusKind::Event { paginator, .. } = &*self.focus else {
                     // NOTE: this is sync'd with code in the ctor.
                     unreachable!();
@@ -509,7 +509,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 };
 
                 // Find the target event, and see if it's part of a thread.
-                let thread_root_event_id = events
+                let extracted_thread_root = events
                     .iter()
                     .find(
                         |event| {
@@ -517,6 +517,18 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         },
                     )
                     .and_then(|event| extract_thread_root(event.raw()));
+
+                // Determine the timeline's threading behavior.
+                let (thread_root_event_id, hide_threaded_events) = match thread_mode {
+                    TimelineEventFocusThreadMode::ForceThread => {
+                        // If the event is part of a thread, use its thread root. Otherwise,
+                        // assume the event itself is the thread root.
+                        (extracted_thread_root.or_else(|| Some(event_id.clone())), false)
+                    }
+                    TimelineEventFocusThreadMode::Automatic { hide_threaded_events } => {
+                        (extracted_thread_root, *hide_threaded_events)
+                    }
+                };
 
                 let _ = paginator.set(match thread_root_event_id {
                     Some(root_id) => {
@@ -544,7 +556,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                     None => AnyPaginator::Unthreaded {
                         paginator: event_paginator,
-                        hide_threaded_events: *hide_threaded_events,
+                        hide_threaded_events,
                     },
                 });
 
