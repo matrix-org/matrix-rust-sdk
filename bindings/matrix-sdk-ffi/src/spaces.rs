@@ -512,17 +512,11 @@ pub struct LeaveSpaceRoom {
     /// Whether the user is the last admin in the room. This helps clients
     /// better inform the user about the consequences of leaving the room.
     is_last_admin: bool,
-    /// The amount of joined members in the room.
-    joined_members_count: u64,
 }
 
 impl From<UILeaveSpaceRoom> for LeaveSpaceRoom {
     fn from(room: UILeaveSpaceRoom) -> Self {
-        LeaveSpaceRoom {
-            space_room: room.space_room.into(),
-            is_last_admin: room.is_last_admin,
-            joined_members_count: room.joined_members_count,
-        }
+        LeaveSpaceRoom { space_room: room.space_room.into(), is_last_admin: room.is_last_admin }
     }
 }
 
