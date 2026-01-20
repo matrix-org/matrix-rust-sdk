@@ -43,6 +43,13 @@ RUST_LOG=info \
 cargo run -p example-rtc-livekit-join --features v4l2
 ```
 
+To enable per-participant E2EE (MSC4268 key bundles), add the
+`e2ee-per-participant` feature:
+
+```bash
+cargo run -p example-rtc-livekit-join --features v4l2,e2ee-per-participant
+```
+
 Notes:
 
 - The capture path prefers NV12, but will fall back to YUYV if NV12 is not

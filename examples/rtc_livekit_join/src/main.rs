@@ -15,8 +15,15 @@ use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions, Room,
 };
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::e2ee::{
+    E2eeOptions, EncryptionType,
+    key_provider::{KeyProvider, KeyProviderOptions},
+};
 use ruma::api::client::account::request_openid_token;
 use serde_json::Value as JsonValue;
+#[cfg(feature = "e2ee-per-participant")]
+use sha2::{Digest, Sha256};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -38,6 +45,34 @@ impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
 impl LiveKitRoomOptionsProvider for DefaultRoomOptionsProvider {
     fn room_options(&self, _room: &matrix_sdk::Room) -> RoomOptions {
         RoomOptions::default()
+    }
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+#[derive(Clone)]
+struct PerParticipantE2eeContext {
+    key_provider: KeyProvider,
+    key_index: i32,
+    local_key: Vec<u8>,
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+#[derive(Clone)]
+struct E2eeRoomOptionsProvider {
+    e2ee: Option<PerParticipantE2eeContext>,
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+impl LiveKitRoomOptionsProvider for E2eeRoomOptionsProvider {
+    fn room_options(&self, _room: &matrix_sdk::Room) -> RoomOptions {
+        let mut options = RoomOptions::default();
+        if let Some(context) = &self.e2ee {
+            options.encryption = Some(E2eeOptions {
+                encryption_type: EncryptionType::Gcm,
+                key_provider: context.key_provider.clone(),
+            });
+        }
+        options
     }
 }
 
@@ -439,7 +474,13 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
-    let connector = LiveKitSdkConnector::new(token_provider, DefaultRoomOptionsProvider);
+    #[cfg(feature = "e2ee-per-participant")]
+    let e2ee_context = build_per_participant_e2ee(&room).await?;
+    #[cfg(feature = "e2ee-per-participant")]
+    let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
+    #[cfg(not(feature = "e2ee-per-participant"))]
+    let room_options_provider = DefaultRoomOptionsProvider;
+    let connector = LiveKitSdkConnector::new(token_provider, room_options_provider);
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
@@ -449,7 +490,14 @@ async fn main() -> anyhow::Result<()> {
         token_len = livekit_token.len(),
         "starting LiveKit driver"
     );
-    run_livekit_driver(room, connector, service_url, v4l2_config)
+    run_livekit_driver(
+        room,
+        connector,
+        service_url,
+        v4l2_config,
+        #[cfg(feature = "e2ee-per-participant")]
+        e2ee_context,
+    )
         .await
         .context("run LiveKit room driver")?;
 
@@ -567,12 +615,52 @@ fn ensure_access_token_query(service_url: &str, token: &str) -> anyhow::Result<S
     Ok(url.into())
 }
 
-async fn run_livekit_driver(
+#[cfg(feature = "e2ee-per-participant")]
+async fn build_per_participant_e2ee(
+    room: &matrix_sdk::Room,
+) -> anyhow::Result<Option<PerParticipantE2eeContext>> {
+    use matrix_sdk_rtc_livekit::matrix_keys::{
+        OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
+    };
+
+    let olm_machine = match room_olm_machine(room).await {
+        Ok(machine) => machine,
+        Err(err) => {
+            info!(?err, "no olm machine available; per-participant E2EE disabled");
+            return Ok(None);
+        }
+    };
+    let provider = OlmMachineKeyMaterialProvider::new(olm_machine);
+    let bundle = provider
+        .per_participant_key_bundle(room.room_id())
+        .await
+        .context("build per-participant key bundle")?;
+    if bundle.is_empty() {
+        info!("per-participant key bundle is empty; E2EE disabled");
+        return Ok(None);
+    }
+
+    let bundle_bytes =
+        serde_json::to_vec(&bundle).context("serialize per-participant key bundle")?;
+    let digest = Sha256::digest(bundle_bytes);
+    let key_provider = KeyProvider::new(KeyProviderOptions::default());
+
+    Ok(Some(PerParticipantE2eeContext {
+        key_provider,
+        key_index: 0,
+        local_key: digest.to_vec(),
+    }))
+}
+
+async fn run_livekit_driver<O>(
     room: matrix_sdk::Room,
-    connector: LiveKitSdkConnector<EnvLiveKitTokenProvider, DefaultRoomOptionsProvider>,
+    connector: LiveKitSdkConnector<EnvLiveKitTokenProvider, O>,
     service_url: String,
     v4l2_config: impl V4l2ConfigOption,
+    #[cfg(feature = "e2ee-per-participant")] e2ee_context: Option<PerParticipantE2eeContext>,
 ) -> LiveKitResult<()>
+where
+    O: LiveKitRoomOptionsProvider,
 {
     let mut connection: Option<std::sync::Arc<Room>> = None;
     let mut info_stream = room.subscribe_info();
@@ -588,6 +676,8 @@ async fn run_livekit_driver(
         &v4l2_config,
         #[cfg(all(feature = "v4l2", target_os = "linux"))]
         &mut v4l2_publisher,
+        #[cfg(feature = "e2ee-per-participant")]
+        &e2ee_context,
     )
     .await?;
 
@@ -601,6 +691,8 @@ async fn run_livekit_driver(
             &v4l2_config,
             #[cfg(all(feature = "v4l2", target_os = "linux"))]
             &mut v4l2_publisher,
+            #[cfg(feature = "e2ee-per-participant")]
+            &e2ee_context,
         )
         .await?;
     }
@@ -618,9 +710,9 @@ async fn run_livekit_driver(
     Ok(())
 }
 
-async fn update_connection(
+async fn update_connection<O>(
     room: &matrix_sdk::Room,
-    connector: &LiveKitSdkConnector<EnvLiveKitTokenProvider, DefaultRoomOptionsProvider>,
+    connector: &LiveKitSdkConnector<EnvLiveKitTokenProvider, O>,
     service_url: &str,
     room_info: &matrix_sdk::RoomInfo,
     connection: &mut Option<std::sync::Arc<Room>>,
@@ -628,7 +720,10 @@ async fn update_connection(
     #[cfg(all(feature = "v4l2", target_os = "linux"))] v4l2_publisher: &mut Option<
         V4l2CameraPublisher,
     >,
+    #[cfg(feature = "e2ee-per-participant")] e2ee_context: &Option<PerParticipantE2eeContext>,
 ) -> LiveKitResult<()>
+where
+    O: LiveKitRoomOptionsProvider,
 {
     let has_memberships = room_info.has_active_room_call();
     info!(
@@ -647,6 +742,20 @@ async fn update_connection(
                 room_name = %room_handle.name(),
                 "LiveKit room connected"
             );
+            #[cfg(feature = "e2ee-per-participant")]
+            if let Some(context) = e2ee_context.as_ref() {
+                let identity = room_handle.local_participant().identity();
+                let key_set = context
+                    .key_provider
+                    .set_key(&identity, context.key_index, context.local_key.clone());
+                room_handle.e2ee_manager().set_enabled(true);
+                info!(
+                    %identity,
+                    key_index = context.key_index,
+                    key_set,
+                    "enabled per-participant E2EE for local participant"
+                );
+            }
             #[cfg(all(feature = "v4l2", target_os = "linux"))]
             if v4l2_publisher.is_none() {
                 if let Some(config) = v4l2_config.as_option().cloned() {
