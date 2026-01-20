@@ -15,6 +15,7 @@ test = false
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 futures-util.workspace = true
 matrix-sdk = { path = "../../crates/matrix-sdk" }
 matrix-sdk-rtc = { path = "../../crates/matrix-sdk-rtc" }
@@ -35,4 +36,4 @@ workspace = true
 
 [features]
 v4l2 = ["dep:v4l"]
-e2ee-per-participant = ["matrix-sdk-rtc-livekit/crypto"]
+e2ee-per-participant = ["matrix-sdk-rtc-livekit/crypto", "matrix-sdk/experimental-send-custom-to-device"]

@@ -6,6 +6,7 @@ use anyhow::{Context, anyhow};
 use matrix_sdk::{
     Client,
     RoomState,
+    RoomMemberships,
     config::SyncSettings,
     ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
@@ -21,7 +22,13 @@ use matrix_sdk_rtc_livekit::livekit::e2ee::{
     key_provider::{KeyProvider, KeyProviderOptions},
 };
 use ruma::api::client::account::request_openid_token;
+#[cfg(feature = "e2ee-per-participant")]
+use ruma::serde::Raw;
 use serde_json::Value as JsonValue;
+#[cfg(feature = "e2ee-per-participant")]
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -644,12 +651,80 @@ async fn build_per_participant_e2ee(
         serde_json::to_vec(&bundle).context("serialize per-participant key bundle")?;
     let digest = Sha256::digest(bundle_bytes);
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
+    send_per_participant_keys(room, 0, &digest).await?;
 
     Ok(Some(PerParticipantE2eeContext {
         key_provider,
         key_index: 0,
         local_key: digest.to_vec(),
     }))
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+async fn send_per_participant_keys(
+    room: &matrix_sdk::Room,
+    key_index: i32,
+    key: &[u8],
+) -> anyhow::Result<()> {
+    let client = room.client();
+    let own_device_id = client
+        .device_id()
+        .context("missing device id for per-participant E2EE")?
+        .to_owned();
+    let own_user_id = client.user_id().map(|id| id.to_owned());
+    let members = room.members(RoomMemberships::JOIN).await?;
+    let mut recipients = Vec::new();
+
+    for member in members {
+        let user_id = member.user_id();
+        let devices = client.encryption().get_user_devices(user_id).await?;
+        for device in devices.devices() {
+            if let Some(own_user_id) = own_user_id.as_ref() {
+                if device.user_id() == own_user_id && device.device_id() == &own_device_id {
+                    continue;
+                }
+            }
+            recipients.push(device);
+        }
+    }
+
+    if recipients.is_empty() {
+        info!("no recipient devices for per-participant E2EE to-device");
+        return Ok(());
+    }
+
+    let key_b64 = STANDARD_NO_PAD.encode(key);
+    let sent_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let content_raw = Raw::new(&serde_json::json!({
+        "keys": [{ "index": key_index, "key": key_b64 }],
+        "device_id": own_device_id.as_str(),
+        "call_id": room.room_id().to_string(),
+        "room_id": room.room_id().to_string(),
+        "sent_ts": sent_ts,
+    }))
+    .context("serialize per-participant to-device payload")?
+    .cast_unchecked();
+
+    let failures = client
+        .encryption()
+        .encrypt_and_send_raw_to_device(
+            recipients.iter().collect(),
+            "io.element.call.encryption_keys",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
+        .await?;
+
+    if failures.is_empty() {
+        info!("sent per-participant E2EE keys to device recipients");
+    } else {
+        info!(failures = failures.len(), "failed to send per-participant E2EE keys");
+    }
+
+    Ok(())
 }
 
 async fn run_livekit_driver<O>(
