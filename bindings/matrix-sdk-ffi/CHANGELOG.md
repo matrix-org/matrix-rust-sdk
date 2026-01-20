@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
+  events defaults, per-event overrides, notifications), so clients can compute the required power level
+  for actions and compare with previous values. ([#5931](https://github.com/matrix-org/matrix-rust-sdk/pull/5931))
 - Add `RoomCreationParameters::is_space` parameter to be able to create spaces. ([#6010](https://github.com/matrix-org/matrix-rust-sdk/pull/6010/))
 - [**breaking**] `LazyTimelineItemProvider::get_shields` no longer returns an
   an `Option`: the `ShieldState` type contains a `None` variant, so the

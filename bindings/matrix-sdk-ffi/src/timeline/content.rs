@@ -20,7 +20,10 @@ use ruma::events::{
     room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
 };
 
-use crate::{client::JoinRule, timeline::msg_like::MsgLikeContent, utils::Timestamp};
+use crate::{
+    client::JoinRule, event::TimelineEventType, timeline::msg_like::MsgLikeContent,
+    utils::Timestamp,
+};
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
@@ -242,29 +245,69 @@ impl From<matrix_sdk_ui::timeline::MembershipChange> for MembershipChange {
     }
 }
 
+#[derive(Clone, uniffi::Record)]
+pub struct PowerLevelChanges {
+    ban: i64,
+    kick: i64,
+    events_default: i64,
+    invite: i64,
+    redact: i64,
+    state_default: i64,
+    users_default: i64,
+    notifications: i64,
+}
+
 #[derive(Clone, uniffi::Enum)]
+#[allow(clippy::large_enum_variant)]
+// Added because the RoomPowerLevels variant is quite large.
+// This is the same issue than for TimelineItemContent.
 pub enum OtherState {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
     RoomAliases,
-    RoomAvatar { url: Option<String> },
+    RoomAvatar {
+        url: Option<String>,
+    },
     RoomCanonicalAlias,
-    RoomCreate { federate: Option<bool> },
+    RoomCreate {
+        federate: Option<bool>,
+    },
     RoomEncryption,
     RoomGuestAccess,
-    RoomHistoryVisibility { history_visibility: Option<HistoryVisibility> },
-    RoomJoinRules { join_rule: Option<JoinRule> },
-    RoomName { name: Option<String> },
-    RoomPinnedEvents { change: RoomPinnedEventsChange },
-    RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
+    RoomHistoryVisibility {
+        history_visibility: Option<HistoryVisibility>,
+    },
+    RoomJoinRules {
+        join_rule: Option<JoinRule>,
+    },
+    RoomName {
+        name: Option<String>,
+    },
+    RoomPinnedEvents {
+        change: RoomPinnedEventsChange,
+    },
+    RoomPowerLevels {
+        events: HashMap<TimelineEventType, i64>,
+        previous_events: Option<HashMap<TimelineEventType, i64>>,
+        users: HashMap<String, i64>,
+        previous_users: Option<HashMap<String, i64>>,
+        thresholds: Option<PowerLevelChanges>,
+        previous_thresholds: Option<PowerLevelChanges>,
+    },
     RoomServerAcl,
-    RoomThirdPartyInvite { display_name: Option<String> },
+    RoomThirdPartyInvite {
+        display_name: Option<String>,
+    },
     RoomTombstone,
-    RoomTopic { topic: Option<String> },
+    RoomTopic {
+        topic: Option<String>,
+    },
     SpaceChild,
     SpaceParent,
-    Custom { event_type: String },
+    Custom {
+        event_type: String,
+    },
 }
 
 impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
@@ -330,17 +373,56 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::RoomPinnedEvents(c) => Self::RoomPinnedEvents { change: c.into() },
             Content::RoomPowerLevels(c) => match c {
                 FullContent::Original { content, prev_content } => Self::RoomPowerLevels {
+                    events: content
+                        .events
+                        .iter()
+                        .map(|(k, &v)| (k.clone().into(), v.into()))
+                        .collect(),
+                    previous_events: prev_content.as_ref().map(|prev_content| {
+                        prev_content
+                            .events
+                            .iter()
+                            .map(|(k, &v)| (k.clone().into(), v.into()))
+                            .collect()
+                    }),
+                    thresholds: Some(PowerLevelChanges {
+                        ban: content.ban.into(),
+                        kick: content.kick.into(),
+                        events_default: content.events_default.into(),
+                        invite: content.invite.into(),
+                        redact: content.redact.into(),
+                        state_default: content.state_default.into(),
+                        users_default: content.users_default.into(),
+                        notifications: content.notifications.room.into(),
+                    }),
+                    previous_thresholds: prev_content.as_ref().map(|prev_content| {
+                        PowerLevelChanges {
+                            ban: prev_content.ban.into(),
+                            kick: prev_content.kick.into(),
+                            events_default: prev_content.events_default.into(),
+                            invite: prev_content.invite.into(),
+                            redact: prev_content.redact.into(),
+                            state_default: prev_content.state_default.into(),
+                            users_default: prev_content.users_default.into(),
+                            notifications: prev_content.notifications.room.into(),
+                        }
+                    }),
                     users: power_level_user_changes(content, prev_content)
                         .iter()
                         .map(|(k, v)| (k.to_string(), *v))
                         .collect(),
-                    previous: prev_content.as_ref().map(|prev_content| {
+                    previous_users: prev_content.as_ref().map(|prev_content| {
                         prev_content.users.iter().map(|(k, &v)| (k.to_string(), v.into())).collect()
                     }),
                 },
-                FullContent::Redacted(_) => {
-                    Self::RoomPowerLevels { users: Default::default(), previous: None }
-                }
+                FullContent::Redacted(_) => Self::RoomPowerLevels {
+                    events: Default::default(),
+                    previous_events: None,
+                    users: Default::default(),
+                    previous_users: None,
+                    thresholds: None,
+                    previous_thresholds: None,
+                },
             },
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {

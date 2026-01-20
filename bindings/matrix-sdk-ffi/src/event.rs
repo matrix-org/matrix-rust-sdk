@@ -74,7 +74,7 @@ impl From<AnyTimelineEvent> for TimelineEvent {
 }
 
 /// The timeline event type.
-#[derive(uniffi::Enum, PartialEq, Eq, Hash)]
+#[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
 pub enum TimelineEventType {
     /// The event is a message-like one and should be displayed as such.
     MessageLike { value: MessageLikeEventType },
