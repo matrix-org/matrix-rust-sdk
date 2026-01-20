@@ -81,8 +81,12 @@ impl LeaveSpaceHandle {
                         return false;
                     };
 
-                    RoomMemberRole::suggested_role_for_power_level(power_level.into())
-                        == RoomMemberRole::Administrator
+                    if are_creators_privileged {
+                        i64::from(power_level) >= 150
+                    } else {
+                        RoomMemberRole::suggested_role_for_power_level(power_level.into())
+                            == RoomMemberRole::Administrator
+                    }
                 })
                 .map(|p: (ruma::OwnedUserId, i64)| p.0);
 
@@ -214,6 +218,11 @@ mod tests {
             )
             .await;
 
+        // The creator is not supposed to be in the power levels on v12
+        let mut power_levels = BTreeMap::from([
+            (some_non_admin_id.clone(), 50.into()),
+            (other_admin_user_id.clone(), 100.into()),
+        ]);
         server
             .sync_room(
                 &client,
