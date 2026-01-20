@@ -605,6 +605,12 @@ impl BaseClient {
 
         let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
 
+        let user_id = self
+            .session_meta()
+            .expect("Sync shouldn't run without an authenticated user")
+            .user_id
+            .to_owned();
+
         #[cfg(feature = "e2e-encryption")]
         let olm_machine = self.olm_machine().await;
 
@@ -720,6 +726,7 @@ impl BaseClient {
             let invited_room_update = processors::room::sync_v2::update_invited_room(
                 &mut context,
                 &room_id,
+                &user_id,
                 invited_room,
                 self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
@@ -737,6 +744,7 @@ impl BaseClient {
             let knocked_room_update = processors::room::sync_v2::update_knocked_room(
                 &mut context,
                 &room_id,
+                &user_id,
                 knocked_room,
                 self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
