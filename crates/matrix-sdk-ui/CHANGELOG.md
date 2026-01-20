@@ -8,8 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
-- Fix the `is_last_admin` check in `LeaveSpaceRoom` since it was not 
-  accounting for the membership state. Also added the `joined_members_count`.
+- Fix the `is_last_admin` check in `LeaveSpaceRoom` since it was not
+  accounting for the membership state.
   [#6032](https://github.com/matrix-org/matrix-rust-sdk/pull/6032)
 - [**breaking**] `LatestEventValue::Local { is_sending: bool }` is replaced
   by [`state: LatestEventValueLocalState`] to represent 3 states: `IsSending`,

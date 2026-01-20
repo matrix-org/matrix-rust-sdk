@@ -27,8 +27,6 @@ pub struct LeaveSpaceRoom {
     /// Whether the user is the last admin in the room. This helps clients
     /// better inform the user about the consequences of leaving the room.
     pub is_last_admin: bool,
-    /// The amount of joined members in the room.
-    pub joined_members_count: u64,
 }
 
 /// The `LeaveSpaceHandle` processes rooms to be left in the order they were
@@ -88,7 +86,6 @@ impl LeaveSpaceHandle {
             rooms.push(LeaveSpaceRoom {
                 space_room: SpaceRoom::new_from_known(&room, 0),
                 is_last_admin,
-                joined_members_count: room.joined_members_count(),
             });
         }
 
@@ -235,11 +232,11 @@ mod tests {
 
         let child_room_1 = &rooms[0];
         assert!(child_room_1.is_last_admin);
-        assert_eq!(child_room_1.joined_members_count, 2);
+        assert_eq!(child_room_1.space_room.num_joined_members, 2);
 
         let child_room_2 = &rooms[1];
         assert!(!child_room_2.is_last_admin);
-        assert_eq!(child_room_2.joined_members_count, 3);
+        assert_eq!(child_room_2.space_room.num_joined_members, 3);
 
         let room_ids = rooms.iter().map(|r| r.space_room.room_id.clone()).collect::<Vec<_>>();
         assert_eq!(room_ids, vec![child_space_id_1, child_space_id_2, parent_space_id]);
