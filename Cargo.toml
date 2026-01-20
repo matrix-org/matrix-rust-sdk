@@ -46,7 +46,7 @@ eyeball-im-util = "0.10.0"
 futures-core = "0.3.31"
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-getrandom = { version = "0.2.15", default-features = false }
+getrandom = { version = "0.3.4", default-features = false }
 gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"
@@ -59,14 +59,14 @@ insta = { version = "1.44.1", features = ["json", "redactions"] }
 itertools = "0.14.0"
 js-sys = "0.3.82"
 mime = "0.3.17"
-oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
+oauth2 = { version = "5.1.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
 once_cell = "1.21.3"
 pbkdf2 = { version = "0.12.2" }
 pin-project-lite = "0.2.16"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 regex = "1.12.2"
-reqwest = { version = "0.12.24", default-features = false }
+reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = "1.3.0"
 ruma = { git = "https://github.com/ruma/ruma", rev = "a5e8208d76d5fd7f82b04b7c86f877651d228b9a", features = [
     "client-api-c",
@@ -208,3 +208,14 @@ tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba05
 tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-appender = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
+
+##################################################
+# TODO: REMOVE THIS!
+#
+# This patch is only here temporarily. Once the following pull request is merged,
+# the line below can be removed.
+#
+# https://github.com/ramosbugs/oauth2-rs/pull/334
+##################################################
+oauth2 = { git = "https://github.com/ramosbugs/oauth2-rs.git", rev = "ffcdb1d6f7226e1391393a83e713e095d06bac0b" }
+##################################################
