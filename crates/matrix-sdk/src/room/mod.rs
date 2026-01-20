@@ -3549,9 +3549,11 @@ impl Room {
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
-        let inviter_id = event.sender();
-        let inviter = self.get_member_no_sync(inviter_id).await?;
-        Ok(Invite { invitee, inviter })
+
+        let inviter_id = event.sender().to_owned();
+        let inviter = self.get_member_no_sync(&inviter_id).await?;
+
+        Ok(Invite { invitee, inviter_id, inviter })
     }
 
     /// Get the membership details for the current user.
@@ -4448,7 +4450,15 @@ impl WeakRoom {
 pub struct Invite {
     /// Who has been invited.
     pub invitee: RoomMember,
+
+    /// The user ID of who sent the invite.
+    ///
+    /// This is useful if `Self::inviter` is `None`.
+    pub inviter_id: OwnedUserId,
+
     /// Who sent the invite.
+    ///
+    /// If `None`, check `Self::inviter_id`, it might be useful as a fallback.
     pub inviter: Option<RoomMember>,
 }
 

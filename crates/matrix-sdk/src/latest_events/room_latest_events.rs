@@ -15,6 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_once_cell::OnceCell;
+use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use ruma::{EventId, OwnedEventId};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::error;
@@ -254,5 +255,17 @@ impl RoomLatestEventsWriteGuard {
                 )
                 .await;
         }
+    }
+
+    /// Update the latest events for the room and its threads, based on the room
+    /// info.
+    pub async fn update_with_room_info(&mut self, reasons: RoomInfoNotableUpdateReasons) {
+        // Get the state of the current room if the `WeakRoom` is still valid.
+        let Some(room) = self.inner.weak_room.get() else {
+            // No room? Let's stop the update.
+            return;
+        };
+
+        self.inner.for_the_room.update_with_room_info(room, reasons).await;
     }
 }
