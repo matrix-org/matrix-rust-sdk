@@ -21,6 +21,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `TimelineEventFilter` for filtering events based on their type or
+  content. For content filtering, only membership and profile change filters
+  are available as of now.
+  ([#6048](https://github.com/matrix-org/matrix-rust-sdk/pull/6048/))
 - Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
   the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Utilize the cache and include common relations when focusing a timeline on an event without

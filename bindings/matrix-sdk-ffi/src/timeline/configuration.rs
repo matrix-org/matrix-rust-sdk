@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
+    event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
     event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter,
     TimelineReadReceiptTracking,
 };
@@ -45,6 +46,37 @@ impl TimelineEventTypeFilter {
     }
 }
 
+/// A timeline filter that in- or excludes events based on their type or
+/// content.
+#[derive(uniffi::Object)]
+pub struct TimelineEventFilter {
+    inner: InnerTimelineEventFilter,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl TimelineEventFilter {
+    #[uniffi::constructor]
+    pub fn include(conditions: Vec<FilterTimelineEventCondition>) -> Arc<Self> {
+        let conditions: Vec<TimelineEventCondition> =
+            conditions.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventFilter::Include(conditions) })
+    }
+
+    #[uniffi::constructor]
+    pub fn exclude(conditions: Vec<FilterTimelineEventCondition>) -> Arc<Self> {
+        let conditions: Vec<TimelineEventCondition> =
+            conditions.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventFilter::Exclude(conditions) })
+    }
+}
+
+impl TimelineEventFilter {
+    /// Filters an `event` to decide whether it should be part of the timeline.
+    pub(crate) fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
+        self.inner.filter(event)
+    }
+}
+
 #[derive(uniffi::Enum, Clone)]
 pub enum FilterTimelineEventType {
     MessageLike { event_type: MessageLikeEventType },
@@ -60,6 +92,31 @@ impl From<FilterTimelineEventType> for TimelineEventType {
             FilterTimelineEventType::State { event_type } => {
                 ruma::events::StateEventType::from(event_type).into()
             }
+        }
+    }
+}
+
+/// A condition that matches on an event's type or content.
+#[derive(uniffi::Enum, Clone)]
+pub enum FilterTimelineEventCondition {
+    /// The event has the specified event type.
+    EventType { event_type: FilterTimelineEventType },
+    /// The event is an `m.room.member` event that represents a membership
+    /// change (join, leave, etc.).
+    MembershipChange,
+    /// The event is an `m.room.member` event that represents a profile
+    /// change (displayname or avatar URL).
+    ProfileChange,
+}
+
+impl From<FilterTimelineEventCondition> for TimelineEventCondition {
+    fn from(value: FilterTimelineEventCondition) -> Self {
+        match value {
+            FilterTimelineEventCondition::EventType { event_type } => {
+                Self::EventType(event_type.into())
+            }
+            FilterTimelineEventCondition::MembershipChange => Self::MembershipChange,
+            FilterTimelineEventCondition::ProfileChange => Self::ProfileChange,
         }
     }
 }
@@ -156,6 +213,8 @@ pub enum TimelineFilter {
     },
     /// Show only events which match this filter.
     EventTypeFilter { filter: Arc<TimelineEventTypeFilter> },
+    /// Show only events which match this event filter.
+    EventFilter { filter: Arc<TimelineEventFilter> },
 }
 
 /// Various options used to configure the timeline's behavior.
