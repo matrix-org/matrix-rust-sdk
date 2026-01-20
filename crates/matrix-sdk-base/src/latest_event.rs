@@ -1,7 +1,7 @@
 //! The Latest Event basic types.
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 
 use crate::store::SerializableEventContent;
@@ -15,6 +15,19 @@ pub enum LatestEventValue {
 
     /// The latest event represents a remote event.
     Remote(RemoteLatestEventValue),
+
+    /// The latest event represents an invite, i.e. the current user has been
+    /// invited to join a room.
+    RemoteInvite {
+        /// The ID of the invite event.
+        event_id: Option<OwnedEventId>,
+
+        /// The timestamp of the invite event.
+        timestamp: MilliSecondsSinceUnixEpoch,
+
+        /// The user ID of the inviter.
+        inviter: Option<OwnedUserId>,
+    },
 
     /// The latest event represents a local event that is sending.
     LocalIsSending(LocalLatestEventValue),
@@ -37,20 +50,26 @@ pub enum LatestEventValue {
 impl LatestEventValue {
     /// Get the timestamp of the [`LatestEventValue`].
     ///
-    /// If it's [`None`], it returns `None`. If it's [`Remote`], it returns the
-    /// [`TimelineEvent::timestamp`]. If it's [`LocalIsSending`],
-    /// [`LocalHasBeenSent`] or [`LocalCannotBeSent`], it returns the
-    /// [`LocalLatestEventValue::timestamp`] value.
+    /// - If it's [`None`], it returns `None`.
+    /// - If it's [`Remote`], it returns the [`TimelineEvent::timestamp`].
+    /// - If it's [`RemoteInvite`], it returns the
+    ///   [`SyncOrStrippedState::timestamp`].
+    /// - If it's [`LocalIsSending`],[`LocalHasBeenSent`] or
+    ///   [`LocalCannotBeSent`], it returns the
+    ///   [`LocalLatestEventValue::timestamp`] value.
     ///
     /// [`None`]: LatestEventValue::None
     /// [`Remote`]: LatestEventValue::Remote
+    /// [`RemoteInvite`]: LatestEventValue::RemoteInvite
     /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
     /// [`LocalHasBeenSent`]: LatestEventValue::LocalHasBeenSent
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    /// [`SyncOrStrippedState::timestamp`]: crate::deserialized_responses::SyncOrStrippedState::timestamp
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             Self::None => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
+            Self::RemoteInvite { timestamp, .. } => Some(*timestamp),
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
             | Self::LocalHasBeenSent { value: LocalLatestEventValue { timestamp, .. }, .. }
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
@@ -67,7 +86,7 @@ impl LatestEventValue {
             Self::LocalIsSending(_)
             | Self::LocalHasBeenSent { .. }
             | Self::LocalCannotBeSent(_) => true,
-            Self::None | Self::Remote(_) => false,
+            Self::None | Self::Remote(_) | Self::RemoteInvite { .. } => false,
         }
     }
 
@@ -79,7 +98,10 @@ impl LatestEventValue {
     pub fn is_unsent(&self) -> bool {
         match self {
             Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
-            Self::LocalHasBeenSent { .. } | Self::Remote(_) | Self::None => false,
+            Self::LocalHasBeenSent { .. }
+            | Self::Remote(_)
+            | Self::RemoteInvite { .. }
+            | Self::None => false,
         }
     }
 
@@ -95,6 +117,7 @@ impl LatestEventValue {
     pub fn event_id(&self) -> Option<OwnedEventId> {
         match self {
             Self::Remote(event) => event.event_id(),
+            Self::RemoteInvite { event_id, .. } => event_id.clone(),
             Self::LocalHasBeenSent { event_id, .. } => Some(event_id.clone()),
             Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) | Self::None => None,
         }
