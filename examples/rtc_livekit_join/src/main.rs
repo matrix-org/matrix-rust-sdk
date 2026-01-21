@@ -5,6 +5,7 @@ use std::env;
 use anyhow::{Context, anyhow};
 use matrix_sdk::{
     Client,
+    event_handler::EventHandlerDropGuard,
     RoomState,
     RoomMemberships,
     config::SyncSettings,
@@ -21,12 +22,16 @@ use matrix_sdk_rtc_livekit::livekit::e2ee::{
     E2eeOptions, EncryptionType,
     key_provider::{KeyProvider, KeyProviderOptions},
 };
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
 use ruma::api::client::account::request_openid_token;
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
+#[cfg(feature = "e2ee-per-participant")]
+use ruma::events::AnyToDeviceEvent;
 use serde_json::Value as JsonValue;
 #[cfg(feature = "e2ee-per-participant")]
-use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
+use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
@@ -484,6 +489,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
     #[cfg(feature = "e2ee-per-participant")]
+    let _e2ee_to_device_guard = e2ee_context
+        .as_ref()
+        .map(|context| register_e2ee_to_device_handler(&client, room.room_id().to_owned(), context.key_provider.clone()));
+    #[cfg(feature = "e2ee-per-participant")]
     let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
     #[cfg(not(feature = "e2ee-per-participant"))]
     let room_options_provider = DefaultRoomOptionsProvider;
@@ -725,6 +734,73 @@ async fn send_per_participant_keys(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn register_e2ee_to_device_handler(
+    client: &Client,
+    room_id: matrix_sdk::ruma::OwnedRoomId,
+    key_provider: KeyProvider,
+) -> EventHandlerDropGuard {
+    let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| {
+        let key_provider = key_provider.clone();
+        let room_id = room_id.clone();
+        async move {
+            let Ok(value) = raw.deserialize_as::<serde_json::Value>() else {
+                return;
+            };
+            let Some(event_type) = value.get("type").and_then(|v| v.as_str()) else {
+                return;
+            };
+            if event_type != "io.element.call.encryption_keys" {
+                return;
+            }
+
+            let Some(sender) = value.get("sender").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(content) = value.get("content").and_then(|v| v.as_object()) else {
+                return;
+            };
+            let Some(content_room_id) = content.get("room_id").and_then(|v| v.as_str()) else {
+                return;
+            };
+            if content_room_id != room_id.as_str() {
+                return;
+            }
+            let Some(device_id) = content.get("device_id").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(keys) = content.get("keys").and_then(|v| v.as_array()) else {
+                return;
+            };
+
+            let identity = ParticipantIdentity(format!("{sender}:{device_id}"));
+            for key_entry in keys {
+                let Some(index) = key_entry.get("index").and_then(|v| v.as_i64()) else {
+                    continue;
+                };
+                let Some(key_b64) = key_entry.get("key").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let key_bytes = STANDARD_NO_PAD
+                    .decode(key_b64)
+                    .or_else(|_| STANDARD.decode(key_b64));
+                let Ok(key_bytes) = key_bytes else {
+                    continue;
+                };
+                let key_set = key_provider.set_key(&identity, index as i32, key_bytes);
+                info!(
+                    %identity,
+                    key_index = index,
+                    key_set,
+                    "applied per-participant E2EE key from to-device"
+                );
+            }
+        }
+    });
+
+    client.event_handler_drop_guard(handle)
 }
 
 async fn run_livekit_driver<O>(
