@@ -22,9 +22,6 @@ use thiserror::Error;
 
 mod msc_4108;
 
-/// The version of the QR code data, currently only one version is specified.
-const VERSION: u8 = 0x02;
-
 pub use msc_4108::{QrCodeMode, QrCodeModeData};
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
@@ -48,9 +45,14 @@ pub enum LoginQrCodeDecodeError {
         "The QR code data contains an invalid QR code login mode, expected 0x03 or 0x04, got {0}"
     )]
     InvalidMode(u8),
-    /// The QR code data contains an unsupported version.
-    #[error("The QR code data contains an unsupported version, expected {VERSION}, got {0}")]
-    InvalidVersion(u8),
+    /// The QR code data contains an unsupported type.
+    #[error("The QR code data contains an unsupported type, expected {expected}, got {got}")]
+    InvalidType {
+        /// The type we expected.
+        expected: u8,
+        /// The type we received.
+        got: u8,
+    },
     /// The base64 encoded variant of the QR code data is not a valid base64
     /// string.
     #[error("The QR code data could not have been decoded from a base64 string: {0:?}")]
