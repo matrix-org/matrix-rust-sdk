@@ -21,8 +21,10 @@ use byteorder::{BigEndian, ReadBytesExt};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
-use super::{LoginQrCodeDecodeError, VERSION};
+use super::LoginQrCodeDecodeError;
 
+/// The version of the QR code data, currently only one version is specified.
+const VERSION: u8 = 0x02;
 /// The prefix that is used in the QR code data.
 pub(super) const PREFIX: &[u8] = b"MATRIX";
 
@@ -175,7 +177,7 @@ impl QrCodeData {
 
             Ok(Self { public_key, rendezvous_url, mode_data })
         } else {
-            Err(LoginQrCodeDecodeError::InvalidVersion(version))
+            Err(LoginQrCodeDecodeError::InvalidType { expected: VERSION, got: version })
         }
     }
 
