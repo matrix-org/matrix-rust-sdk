@@ -61,18 +61,18 @@ impl LeaveSpaceHandle {
                 _ = room.sync_members().await.ok();
             }
 
-            let mut owner_ids = Vec::new();
+            let mut privileged_creator_ids = Vec::new();
             let mut are_creators_privileged = false;
-            if let Some(create) = room.create_content() {
+            if let Some(mut create) = room.create_content() {
                 let rules = create.room_version.rules().unwrap_or(ROOM_VERSION_RULES_FALLBACK);
                 if rules.authorization.explicitly_privilege_room_creators {
                     are_creators_privileged = true;
-                    owner_ids.push(create.creator);
-                    owner_ids.append(&mut create.additional_creators.clone());
+                    privileged_creator_ids.push(create.creator);
+                    privileged_creator_ids.append(&mut create.additional_creators);
                 }
             }
 
-            let non_creator_owner_ids = room
+            let owner_ids = room
                 .users_with_power_levels()
                 .await
                 .into_iter()
@@ -88,9 +88,9 @@ impl LeaveSpaceHandle {
                             == RoomMemberRole::Administrator
                     }
                 })
-                .map(|p: (ruma::OwnedUserId, i64)| p.0);
+                .map(|p: (ruma::OwnedUserId, i64)| p.0)
+                .chain(privileged_creator_ids.into_iter());
 
-            owner_ids.extend(non_creator_owner_ids);
             let mut joined_owner_ids = Vec::new();
             for owner_id in owner_ids {
                 if let Ok(Some(member)) = room.get_member_no_sync(&owner_id).await
