@@ -682,6 +682,16 @@ async fn send_per_participant_keys(
         .to_owned();
     let own_user_id = client.user_id().map(|id| id.to_owned());
     let members = room.members(RoomMemberships::JOIN).await?;
+    let member_user_ids: Vec<_> = members.iter().map(|member| member.user_id().to_owned()).collect();
+    if let Some(olm_machine) = client.olm_machine().await {
+        let (request_id, request) =
+            olm_machine.query_keys_for_users(member_user_ids.iter().map(|id| id.as_ref()));
+        if !request.device_keys.is_empty() {
+            client.keys_query(&request_id, request.device_keys).await?;
+        }
+    } else {
+        info!("olm machine unavailable; device list may be incomplete");
+    }
     let mut recipients = Vec::new();
 
     for member in members {
