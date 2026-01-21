@@ -352,7 +352,7 @@ pub(super) mod test {
 
         assert_eq!(
             data.intent(),
-            QrCodeIntent::Reciprocate,
+            QrCodeIntent::Reciprocate.into(),
             "The intent in the test bytes vector should be Reciprocate"
         );
 

@@ -22,7 +22,7 @@ use thiserror::Error;
 
 mod msc_4108;
 
-pub use msc_4108::{Msc4108IntentData, QrCodeIntent};
+pub use msc_4108::Msc4108IntentData;
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
@@ -88,6 +88,32 @@ pub enum QrCodeIntentData<'a> {
         /// channel.
         rendezvous_url: &'a Url,
     },
+}
+
+/// The intent of the device that generated/displayed the QR code.
+///
+/// The QR code login mechanism supports both, the new device, as well as the
+/// existing device to display the QR code.
+///
+/// The different intents have an explicit one-byte identifier which gets added
+/// to the QR code data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QrCodeIntent {
+    /// Enum variant for the case where the new device is displaying the QR
+    /// code.
+    Login,
+    /// Enum variant for the case where the existing device is displaying the QR
+    /// code.
+    Reciprocate,
+}
+
+impl From<msc_4108::QrCodeIntent> for QrCodeIntent {
+    fn from(value: msc_4108::QrCodeIntent) -> Self {
+        match value {
+            msc_4108::QrCodeIntent::Login => Self::Login,
+            msc_4108::QrCodeIntent::Reciprocate => Self::Reciprocate,
+        }
+    }
 }
 
 /// Data for the QR code login mechanism.
@@ -167,7 +193,7 @@ impl QrCodeData {
     /// want to log another device in.
     pub fn intent(&self) -> QrCodeIntent {
         match &self.0 {
-            QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.intent(),
+            QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.intent().into(),
         }
     }
 
