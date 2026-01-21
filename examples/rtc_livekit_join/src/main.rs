@@ -28,7 +28,7 @@ use serde_json::Value as JsonValue;
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 #[cfg(feature = "e2ee-per-participant")]
-use matrix_sdk::encryption::CollectStrategy;
+use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
 use sha2::{Digest, Sha256};
 use tracing::info;
