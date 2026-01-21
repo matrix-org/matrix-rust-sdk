@@ -89,12 +89,12 @@ impl QrCodeData {
     pub fn new_msc4108(
         public_key: Curve25519PublicKey,
         rendezvous_url: Url,
-        mode_data: QrCodeIntentData,
+        intent_data: QrCodeIntentData,
     ) -> Self {
         Self(QrCodeDataInner::Msc4108(msc_4108::QrCodeData {
             public_key,
             rendezvous_url,
-            mode_data,
+            intent_data,
         }))
     }
 
@@ -158,7 +158,7 @@ impl QrCodeData {
     /// The intent-specific data for the QR code.
     pub fn intent_data(&self) -> &QrCodeIntentData {
         match &self.0 {
-            QrCodeDataInner::Msc4108(qr_code_data) => &qr_code_data.mode_data,
+            QrCodeDataInner::Msc4108(qr_code_data) => &qr_code_data.intent_data,
         }
     }
 }

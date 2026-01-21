@@ -28,7 +28,7 @@ const VERSION: u8 = 0x02;
 /// The prefix that is used in the QR code data.
 pub(super) const PREFIX: &[u8] = b"MATRIX";
 
-/// The mode-specific data for the QR code.
+/// The intent-specific data for the QR code.
 ///
 /// The QR code login mechanism supports both, the new device, as well as the
 /// existing device to display the QR code.
@@ -103,8 +103,8 @@ pub(super) struct QrCodeData {
     /// The URL of the rendezvous session, can be used to exchange messages with
     /// the other device.
     pub rendezvous_url: Url,
-    /// Mode specific data, may contain the homeserver URL.
-    pub mode_data: QrCodeIntentData,
+    /// Intent specific data, may contain the homeserver URL.
+    pub intent_data: QrCodeIntentData,
 }
 
 impl QrCodeData {
@@ -115,14 +115,14 @@ impl QrCodeData {
         // The QR data consists of the following values:
         // 1. The ASCII string MATRIX.
         // 2. One byte version, only 0x02 is supported.
-        // 3. One byte intent/mode, either 0x03 or 0x04.
+        // 3. One byte intent, either 0x03 or 0x04.
         // 4. 32 bytes for the ephemeral Curve25519 key.
         // 5. Two bytes for the length of the rendezvous URL, a u16 in big-endian
         //    encoding.
         // 6. The UTF-8 encoded string containing the rendezvous URL.
-        // 7. If the intent/mode from point 3. is 0x04, then two bytes for the length of
-        //    the homeserver URL, a u16 in big-endian encoding.
-        // 8. If the intent/mode from point 3. is 0x04, then the UTF-8 encoded string
+        // 7. If the intent from point 3. is 0x04, then two bytes for the length of the
+        //    homeserver URL, a u16 in big-endian encoding.
+        // 8. If the intent from point 3. is 0x04, then the UTF-8 encoded string
         //    containing the homeserver URL.
         let mut reader = Cursor::new(bytes);
 
@@ -141,9 +141,9 @@ impl QrCodeData {
         // 2. Next up is the version, we continue only if the version matches.
         let version = reader.read_u8()?;
         if version == VERSION {
-            // 3. The intent/mode is the next one to parse, we return an error imediatelly
-            //    the intent isn't 0x03 or 0x04.
-            let mode = QrCodeIntent::try_from(reader.read_u8()?)?;
+            // 3. The intent is the next one to parse, we return an error imediatelly the
+            //    intent isn't 0x03 or 0x04.
+            let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed
             // Curve25519PublicKey type.
@@ -158,10 +158,10 @@ impl QrCodeData {
             reader.read_exact(&mut rendezvous_url)?;
             let rendezvous_url = Url::parse(str::from_utf8(&rendezvous_url)?)?;
 
-            let mode_data = match mode {
+            let intent_data = match intent {
                 QrCodeIntent::Login => QrCodeIntentData::Login,
                 QrCodeIntent::Reciprocate => {
-                    // 7. If the mode is 0x04, we attempt to read the two bytes for the length of
+                    // 7. If the intent is 0x04, we attempt to read the two bytes for the length of
                     //    the homeserver URL.
                     let server_name_len = reader.read_u16::<BigEndian>()?;
 
@@ -174,7 +174,7 @@ impl QrCodeData {
                 }
             };
 
-            Ok(Self { public_key, rendezvous_url, mode_data })
+            Ok(Self { public_key, rendezvous_url, intent_data })
         } else {
             Err(LoginQrCodeDecodeError::InvalidType { expected: VERSION, got: version })
         }
@@ -197,7 +197,7 @@ impl QrCodeData {
         ]
         .concat();
 
-        if let QrCodeIntentData::Reciprocate { server_name } = &self.mode_data {
+        if let QrCodeIntentData::Reciprocate { server_name } = &self.intent_data {
             let server_name_len = (server_name.as_str().len() as u16).to_be_bytes();
 
             [encoded.as_slice(), &server_name_len, server_name.as_str().as_bytes()].concat()
@@ -208,7 +208,7 @@ impl QrCodeData {
 
     /// Get the intent of this [`QrCodeData`] instance.
     pub fn intent(&self) -> QrCodeIntent {
-        (&self.mode_data).into()
+        (&self.intent_data).into()
     }
 }
 
@@ -231,7 +231,7 @@ pub(super) mod test {
         0x64, 0x39, 0x38, 0x33, 0x30, 0x36, 0x36, 0x38,
     ];
 
-    // Test vector for the QR code data, copied from the MSC, with the mode set to
+    // Test vector for the QR code data, copied from the MSC, with the intent set to
     // reciprocate.
     const QR_CODE_DATA_RECIPROCATE: &[u8] = &[
         0x4D, 0x41, 0x54, 0x52, 0x49, 0x58, 0x02, 0x04, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b,
@@ -278,13 +278,13 @@ pub(super) mod test {
         assert_eq!(
             data.intent(),
             QrCodeIntent::Login,
-            "The mode in the test bytes vector should be Login"
+            "The intent in the test bytes vector should be Login"
         );
 
         assert_eq!(
             QrCodeIntentData::Login,
-            data.mode_data,
-            "The parsed QR code mode should match expected one",
+            data.intent_data,
+            "The parsed QR code intent should match expected one",
         );
     }
 
@@ -314,12 +314,12 @@ pub(super) mod test {
         assert_eq!(
             data.intent(),
             QrCodeIntent::Reciprocate,
-            "The mode in the test bytes vector should be Reciprocate"
+            "The intent in the test bytes vector should be Reciprocate"
         );
 
         assert_let!(
-            QrCodeIntentData::Reciprocate { server_name } = data.mode_data,
-            "The parsed QR code mode should match the expected one",
+            QrCodeIntentData::Reciprocate { server_name } = data.intent_data,
+            "The parsed QR code intent should match the expected one",
         );
 
         assert_eq!(
@@ -352,7 +352,7 @@ pub(super) mod test {
         assert_eq!(
             data.intent(),
             QrCodeIntent::Reciprocate,
-            "The mode in the test bytes vector should be Reciprocate"
+            "The intent in the test bytes vector should be Reciprocate"
         );
 
         assert_eq!(
