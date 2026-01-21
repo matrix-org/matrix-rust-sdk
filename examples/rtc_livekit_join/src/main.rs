@@ -710,7 +710,7 @@ async fn send_per_participant_keys(
     let content_raw = Raw::new(&serde_json::json!({
         "keys": [{ "index": key_index, "key": key_b64 }],
         "device_id": own_device_id.as_str(),
-        "call_id": room.room_id().to_string(),
+        "call_id": "",
         "room_id": room.room_id().to_string(),
         "sent_ts": sent_ts,
     }))
