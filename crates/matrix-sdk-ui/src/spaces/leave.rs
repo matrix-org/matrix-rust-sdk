@@ -82,7 +82,7 @@ impl LeaveSpaceHandle {
                     };
 
                     if are_creators_privileged {
-                        i64::from(power_level) >= 150
+                        power_level >= ruma::int!(150)
                     } else {
                         RoomMemberRole::suggested_role_for_power_level(power_level.into())
                             == RoomMemberRole::Administrator
