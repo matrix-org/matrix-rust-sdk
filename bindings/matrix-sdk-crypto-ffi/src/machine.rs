@@ -17,7 +17,7 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::types::{BackupDecryptionKey, Changes},
-    types::requests::ToDeviceRequest,
+    types::{requests::ToDeviceRequest, SecretsBundle},
     CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine,
     UserIdentity as SdkUserIdentity,
 };
@@ -53,7 +53,10 @@ use zeroize::Zeroize;
 
 use crate::{
     dehydrated_devices::DehydratedDevices,
-    error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
+    error::{
+        CryptoStoreError, DecryptionError, SecretImportError, SecretsBundleExportError,
+        SignatureError,
+    },
     parse_user_id,
     responses::{response_from_string, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
@@ -1407,6 +1410,21 @@ impl OlmMachine {
         self.runtime.block_on(self.inner.import_cross_signing_keys(export.into()))?;
 
         Ok(())
+    }
+
+    /// Export all the secrets we have in the store into a [`SecretsBundle`].
+    ///
+    /// This method will export all the private cross-signing keys and, if
+    /// available, the private part of a backup key and its accompanying
+    /// version.
+    ///
+    /// The method will fail if we don't have all three private cross-signing
+    /// keys available.
+    ///
+    /// **Warning**: Only export this and share it with a trusted recipient,
+    /// i.e. if an existing device is sharing this with a new device.
+    pub fn export_secrets_bundle(&self) -> Result<SecretsBundle, SecretsBundleExportError> {
+        Ok(self.runtime.block_on(self.inner.store().export_secrets_bundle())?)
     }
 
     /// Request missing local secrets from our devices (cross signing private
