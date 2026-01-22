@@ -165,6 +165,12 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that start reattach and end reattach items does nothing.
     async fn test_linked_chunk_start_end_reattach_items(&self);
 
+    /// Test clearing a linked chunk.
+    async fn test_linked_chunk_clear(&self);
+
+    /// Test clearing a linked chunk and re-inserting a past event.
+    async fn test_linked_chunk_clear_and_reinsert(&self);
+
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
@@ -907,6 +913,79 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             check_test_event(&events[1], "world");
             check_test_event(&events[2], "howdy");
         });
+    }
+
+    async fn test_linked_chunk_clear(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event_0 = make_test_event(room_id, "hello");
+        let event_1 = make_test_event(room_id, "world");
+        let event_2 = make_test_event(room_id, "howdy");
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(42)),
+                    new: CId::new(54),
+                    next: None,
+                    gap: Gap { prev_token: "fondue".to_owned() },
+                },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![event_0.clone(), event_1, event_2],
+                },
+                Update::Clear,
+            ],
+        )
+        .await
+        .unwrap();
+
+        let chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        assert!(chunks.is_empty());
+    }
+
+    async fn test_linked_chunk_clear_and_reinsert(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event_0 = make_test_event(room_id, "hello");
+        let event_1 = make_test_event(room_id, "world");
+        let event_2 = make_test_event(room_id, "howdy");
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(42)),
+                    new: CId::new(54),
+                    next: None,
+                    gap: Gap { prev_token: "fondue".to_owned() },
+                },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![event_0.clone(), event_1, event_2],
+                },
+                Update::Clear,
+            ],
+        )
+        .await
+        .unwrap();
+
+        let chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        assert!(chunks.is_empty());
+
+        // It's okay to re-insert a past event.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems { at: Position::new(CId::new(42), 0), items: vec![event_0] },
+            ],
+        )
+        .await
+        .unwrap();
     }
 
     async fn test_rebuild_empty_linked_chunk(&self) {
@@ -1728,6 +1807,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_start_end_reattach_items().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_clear() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_clear().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_clear_and_reinsert() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_clear_and_reinsert().await;
             }
 
             #[async_test]

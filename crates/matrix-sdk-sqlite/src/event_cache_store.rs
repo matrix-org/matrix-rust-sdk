@@ -1631,13 +1631,10 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        event_cache::{
-            Gap,
-            store::{
-                EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-                integration_tests::{
-                    EventCacheStoreIntegrationTests, check_test_event, make_test_event,
-                },
+        event_cache::store::{
+            EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
+            integration_tests::{
+                EventCacheStoreIntegrationTests, check_test_event, make_test_event,
             },
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
@@ -1745,39 +1742,8 @@ mod tests {
     async fn test_linked_chunk_clear() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event_0 = make_test_event(room_id, "hello");
-        let event_1 = make_test_event(room_id, "world");
-        let event_2 = make_test_event(room_id, "howdy");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::NewGapChunk {
-                        previous: Some(ChunkIdentifier::new(42)),
-                        new: ChunkIdentifier::new(54),
-                        next: None,
-                        gap: Gap { prev_token: "fondue".to_owned() },
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![event_0.clone(), event_1, event_2],
-                    },
-                    Update::Clear,
-                ],
-            )
-            .await
-            .unwrap();
-
-        let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-        assert!(chunks.is_empty());
+        // Run corresponding integration test
+        store.clone().into_event_cache_store().test_linked_chunk_clear().await;
 
         // Check that cascading worked. Yes, SQLite, I doubt you.
         store
@@ -1797,25 +1763,6 @@ mod tests {
 
                 Ok(())
             })
-            .await
-            .unwrap();
-
-        // It's okay to re-insert a past event.
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![event_0],
-                    },
-                ],
-            )
             .await
             .unwrap();
     }
