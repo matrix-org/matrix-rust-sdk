@@ -24,6 +24,8 @@ use matrix_sdk_rtc_livekit::livekit::e2ee::{
 };
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk::ruma::CanonicalJsonValue;
 use ruma::api::client::account::request_openid_token;
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
@@ -655,18 +657,29 @@ async fn build_per_participant_e2ee(
         info!("per-participant key bundle is empty; E2EE disabled");
         return Ok(None);
     }
-
-    let bundle_bytes =
-        serde_json::to_vec(&bundle).context("serialize per-participant key bundle")?;
-    let digest = Sha256::digest(bundle_bytes);
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
-    send_per_participant_keys(room, 0, &digest).await?;
+    let local_key = derive_per_participant_key(&bundle)?;
+    send_per_participant_keys(room, 0, &local_key).await?;
 
     Ok(Some(PerParticipantE2eeContext {
         key_provider,
         key_index: 0,
-        local_key: digest.to_vec(),
+        local_key,
     }))
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn derive_per_participant_key<T: serde::Serialize>(bundle: &T) -> anyhow::Result<Vec<u8>> {
+    let bundle_value =
+        serde_json::to_value(bundle).context("serialize per-participant key bundle")?;
+    let canonical: CanonicalJsonValue = bundle_value
+        .try_into()
+        .context("canonicalize per-participant key bundle")?;
+    let canonical_bytes = serde_json::to_vec(&canonical)
+        .context("serialize canonical per-participant key bundle")?;
+    let digest = Sha256::digest(canonical_bytes);
+
+    Ok(digest.to_vec())
 }
 
 #[cfg(feature = "e2ee-per-participant")]
