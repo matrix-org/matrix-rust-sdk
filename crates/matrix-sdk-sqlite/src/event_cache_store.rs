@@ -1718,53 +1718,11 @@ mod tests {
     async fn test_linked_chunk_remove_item() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
+        // Run corresponding integration test
+        store.clone().into_event_cache_store().test_linked_chunk_remove_item().await;
+
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "one"),
-                            make_test_event(room_id, "two"),
-                            make_test_event(room_id, "three"),
-                            make_test_event(room_id, "four"),
-                            make_test_event(room_id, "five"),
-                            make_test_event(room_id, "six"),
-                        ],
-                    },
-                    Update::RemoveItem {
-                        at: Position::new(ChunkIdentifier::new(42), 2), /* "three" */
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 5);
-            check_test_event(&events[0], "one");
-            check_test_event(&events[1], "two");
-            check_test_event(&events[2], "four");
-            check_test_event(&events[3], "five");
-            check_test_event(&events[4], "six");
-        });
 
         // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store

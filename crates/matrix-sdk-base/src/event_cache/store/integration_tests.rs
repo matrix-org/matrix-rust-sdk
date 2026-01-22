@@ -156,6 +156,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test replacing an item in a linked chunk.
     async fn test_linked_chunk_replace_item(&self);
 
+    /// Test remove an item from a linked chunk.
+    async fn test_linked_chunk_remove_item(&self);
+
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
@@ -776,6 +779,49 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             assert_eq!(events.len(), 2);
             check_test_event(&events[0], "hello");
             check_test_event(&events[1], "yolo");
+        });
+    }
+
+    async fn test_linked_chunk_remove_item(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![
+                        make_test_event(room_id, "one"),
+                        make_test_event(room_id, "two"),
+                        make_test_event(room_id, "three"),
+                        make_test_event(room_id, "four"),
+                        make_test_event(room_id, "five"),
+                        make_test_event(room_id, "six"),
+                    ],
+                },
+                Update::RemoveItem { at: Position::new(CId::new(42), 2) /* "three" */ },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 5);
+            check_test_event(&events[0], "one");
+            check_test_event(&events[1], "two");
+            check_test_event(&events[2], "four");
+            check_test_event(&events[3], "five");
+            check_test_event(&events[4], "six");
         });
     }
 
@@ -1577,6 +1623,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_replace_item().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_remove_item() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_remove_item().await;
             }
 
             #[async_test]
