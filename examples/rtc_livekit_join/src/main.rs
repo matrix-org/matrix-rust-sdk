@@ -26,6 +26,8 @@ use matrix_sdk_rtc_livekit::livekit::e2ee::{
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk::ruma::CanonicalJsonValue;
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_crypto::types::room_history::RoomKeyBundle;
 use ruma::api::client::account::request_openid_token;
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
@@ -669,9 +671,15 @@ async fn build_per_participant_e2ee(
 }
 
 #[cfg(feature = "e2ee-per-participant")]
-fn derive_per_participant_key<T: serde::Serialize>(bundle: &T) -> anyhow::Result<Vec<u8>> {
-    let bundle_value =
-        serde_json::to_value(bundle).context("serialize per-participant key bundle")?;
+fn derive_per_participant_key(bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>> {
+    let room_keys = canonicalize_bundle_entries(&bundle.room_keys)
+        .context("canonicalize per-participant room keys")?;
+    let withheld =
+        canonicalize_bundle_entries(&bundle.withheld).context("canonicalize withheld keys")?;
+    let bundle_value = serde_json::json!({
+        "room_keys": room_keys,
+        "withheld": withheld,
+    });
     let canonical: CanonicalJsonValue = bundle_value
         .try_into()
         .context("canonicalize per-participant key bundle")?;
@@ -680,6 +688,30 @@ fn derive_per_participant_key<T: serde::Serialize>(bundle: &T) -> anyhow::Result
     let digest = Sha256::digest(canonical_bytes);
 
     Ok(digest.to_vec())
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn canonicalize_bundle_entries<T: serde::Serialize>(
+    entries: &[T],
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut canonical_entries = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+        let value = serde_json::to_value(entry).context("serialize bundle entry")?;
+        let canonical: CanonicalJsonValue = value
+            .clone()
+            .try_into()
+            .context("canonicalize bundle entry")?;
+        let sort_key = serde_json::to_string(&canonical).context("serialize bundle entry")?;
+        canonical_entries.push((sort_key, value));
+    }
+
+    canonical_entries.sort_by(|left, right| left.0.cmp(&right.0));
+
+    Ok(canonical_entries
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect())
 }
 
 #[cfg(feature = "e2ee-per-participant")]
