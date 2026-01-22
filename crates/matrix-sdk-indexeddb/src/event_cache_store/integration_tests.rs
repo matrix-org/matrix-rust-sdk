@@ -24,7 +24,6 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
 };
 use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
-use ruma::room_id;
 
 use crate::{
     event_cache_store::{IndexeddbEventCacheStore, IndexeddbEventCacheStoreError},
@@ -55,56 +54,6 @@ pub async fn test_add_gap_chunk_and_delete_it_immediately(store: IndexeddbEventC
 
     let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
     assert_eq!(chunks.len(), 1);
-}
-
-pub async fn test_linked_chunk_multiple_rooms(store: IndexeddbEventCacheStore) {
-    // Check that applying updates to one room doesn't affect the others.
-    // Use the same chunk identifier in both rooms to battle-test search.
-    let room_id1 = room_id!("!realcheeselovers:raclette.fr");
-    let linked_chunk_id1 = LinkedChunkId::Room(room_id1);
-    let updates1 = vec![
-        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
-        Update::PushItems {
-            at: Position::new(ChunkIdentifier::new(42), 0),
-            items: vec![
-                make_test_event(room_id1, "best cheese is raclette"),
-                make_test_event(room_id1, "obviously"),
-            ],
-        },
-    ];
-    store.handle_linked_chunk_updates(linked_chunk_id1, updates1).await.unwrap();
-
-    let room_id2 = room_id!("!realcheeselovers:fondue.ch");
-    let linked_chunk_id2 = LinkedChunkId::Room(room_id2);
-    let updates2 = vec![
-        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
-        Update::PushItems {
-            at: Position::new(ChunkIdentifier::new(42), 0),
-            items: vec![make_test_event(room_id2, "beaufort is the best")],
-        },
-    ];
-    store.handle_linked_chunk_updates(linked_chunk_id2, updates2).await.unwrap();
-
-    // Check chunks from room 1.
-    let mut chunks1 = store.load_all_chunks(linked_chunk_id1).await.unwrap();
-    assert_eq!(chunks1.len(), 1);
-
-    let c = chunks1.remove(0);
-    assert_matches!(c.content, ChunkContent::Items(events) => {
-        assert_eq!(events.len(), 2);
-        check_test_event(&events[0], "best cheese is raclette");
-        check_test_event(&events[1], "obviously");
-    });
-
-    // Check chunks from room 2.
-    let mut chunks2 = store.load_all_chunks(linked_chunk_id2).await.unwrap();
-    assert_eq!(chunks2.len(), 1);
-
-    let c = chunks2.remove(0);
-    assert_matches!(c.content, ChunkContent::Items(events) => {
-        assert_eq!(events.len(), 1);
-        check_test_event(&events[0], "beaufort is the best");
-    });
 }
 
 pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCacheStore) {
@@ -293,12 +242,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
                     store,
                 )
                 .await
-            }
-
-            #[async_test]
-            async fn test_linked_chunk_multiple_rooms() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_linked_chunk_multiple_rooms(store).await
             }
 
             #[async_test]

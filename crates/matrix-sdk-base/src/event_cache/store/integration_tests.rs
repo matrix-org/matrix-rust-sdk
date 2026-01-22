@@ -175,6 +175,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
 
+    /// Test that linked chunks are only accessible through their enclosing
+    /// room.
+    async fn test_linked_chunk_multiple_rooms(&self);
+
     /// Test that loading a linked chunk's metadata works as intended.
     async fn test_load_all_chunks_metadata(&self);
 
@@ -995,6 +999,66 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         )
         .unwrap();
         assert!(linked_chunk.is_none());
+    }
+
+    async fn test_linked_chunk_multiple_rooms(&self) {
+        let room1 = room_id!("!realcheeselovers:raclette.fr");
+        let linked_chunk_id1 = LinkedChunkId::Room(room1);
+        let room2 = room_id!("!realcheeselovers:fondue.ch");
+        let linked_chunk_id2 = LinkedChunkId::Room(room2);
+
+        // Check that applying updates to one room doesn't affect the others.
+        // Use the same chunk identifier in both rooms to battle-test search.
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id1,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![
+                        make_test_event(room1, "best cheese is raclette"),
+                        make_test_event(room1, "obviously"),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id2,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![make_test_event(room1, "beaufort is the best")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Check chunks from room 1.
+        let mut chunks_room1 = self.load_all_chunks(linked_chunk_id1).await.unwrap();
+        assert_eq!(chunks_room1.len(), 1);
+
+        let c = chunks_room1.remove(0);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 2);
+            check_test_event(&events[0], "best cheese is raclette");
+            check_test_event(&events[1], "obviously");
+        });
+
+        // Check chunks from room 2.
+        let mut chunks_room2 = self.load_all_chunks(linked_chunk_id2).await.unwrap();
+        assert_eq!(chunks_room2.len(), 1);
+
+        let c = chunks_room2.remove(0);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_test_event(&events[0], "beaufort is the best");
+        });
     }
 
     async fn test_clear_all_linked_chunks(&self) {
@@ -1828,6 +1892,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_rebuild_empty_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_multiple_rooms() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_multiple_rooms().await;
             }
 
             #[async_test]
