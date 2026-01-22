@@ -53,6 +53,18 @@ pub enum LatestEventValue {
         content: TimelineItemContent,
     },
 
+    /// The latest event represents an invite to a room.
+    RemoteInvite {
+        /// The timestamp of the invite.
+        timestamp: MilliSecondsSinceUnixEpoch,
+
+        /// The inviter (can be unknown).
+        inviter: Option<OwnedUserId>,
+
+        /// The inviter's profile (can be unknown).
+        inviter_profile: TimelineDetails<Profile>,
+    },
+
     /// The latest event represents a local event that is sending, or that
     /// cannot be sent, either because a previous local event, or this local
     /// event cannot be sent.
@@ -160,6 +172,18 @@ impl LatestEventValue {
                     _ => Self::None,
                 }
             }
+            BaseLatestEventValue::RemoteInvite { timestamp, inviter, .. } => {
+                let inviter_profile = if let Some(inviter_id) = &inviter {
+                    room.profile_from_user_id(inviter_id)
+                        .await
+                        .map(TimelineDetails::Ready)
+                        .unwrap_or(TimelineDetails::Unavailable)
+                } else {
+                    TimelineDetails::Unavailable
+                };
+
+                Self::RemoteInvite { timestamp, inviter, inviter_profile }
+            }
             BaseLatestEventValue::LocalIsSending(ref local_value)
             | BaseLatestEventValue::LocalHasBeenSent { value: ref local_value, .. }
             | BaseLatestEventValue::LocalCannotBeSent(ref local_value) => {
@@ -193,7 +217,9 @@ impl LatestEventValue {
                             BaseLatestEventValue::LocalCannotBeSent(_) => {
                                 LatestEventValueLocalState::CannotBeSent
                             }
-                            BaseLatestEventValue::Remote(_) | BaseLatestEventValue::None => {
+                            BaseLatestEventValue::Remote(_)
+                            | BaseLatestEventValue::RemoteInvite { .. }
+                            | BaseLatestEventValue::None => {
                                 unreachable!("Only local latest events are supposed to be handled");
                             }
                         },
@@ -276,6 +302,28 @@ mod tests {
                     assert_eq!(message.body(), "raclette");
                 }
             );
+        })
+    }
+
+    #[async_test]
+    async fn test_remote_invite() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+        let user_id = user_id!("@mnt_io:matrix.org");
+
+        let base_value = BaseLatestEventValue::RemoteInvite {
+            event_id: None,
+            timestamp: MilliSecondsSinceUnixEpoch(42u32.into()),
+            inviter: Some(user_id.to_owned()),
+        };
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        assert_matches!(value, LatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile} => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(inviter.as_deref(), Some(user_id));
+            assert_matches!(inviter_profile, TimelineDetails::Unavailable);
         })
     }
 
