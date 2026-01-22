@@ -23,6 +23,46 @@ RUST_LOG=info \
 cargo run -p example-rtc-livekit-join
 ```
 
+## V4L2 camera publishing (Linux)
+
+This example can publish a local V4L2 camera (e.g. `/dev/video0`) into the
+LiveKit room using the LiveKit Rust SDK. Enable the feature and provide the
+device path:
+
+```bash
+HOMESERVER_URL=https://matrix.example.org \
+MATRIX_USERNAME=@alice:example.org \
+MATRIX_PASSWORD=secret \
+ROOM_ID=!roomid:example.org \
+LIVEKIT_SERVICE_URL=wss://livekit.example.org \
+LIVEKIT_TOKEN=your-token \
+V4L2_DEVICE=/dev/video0 \
+V4L2_WIDTH=1280 \
+V4L2_HEIGHT=720 \
+RUST_LOG=info \
+cargo run -p example-rtc-livekit-join --features v4l2
+```
+
+To enable per-participant E2EE (MSC4268 key bundles), add the
+`e2ee-per-participant` feature:
+
+```bash
+cargo run -p example-rtc-livekit-join --features v4l2,e2ee-per-participant
+```
+
+Notes:
+
+- The capture path prefers NV12, but will fall back to YUYV if NV12 is not
+  supported. If your camera defaults to MJPEG or another format, use `v4l2-ctl`
+  to switch it:
+
+  ```bash
+  v4l2-ctl -d /dev/video0 --set-fmt-video=width=1280,height=720,pixelformat=NV12
+  ```
+
+- `V4L2_WIDTH` and `V4L2_HEIGHT` are optional; when omitted, the current device
+  format is used.
+
 ## Build notes (Linux)
 
 The LiveKit/WebRTC dependency currently links against libstdc++. If you build

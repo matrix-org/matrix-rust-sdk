@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitResult};
 
+pub use livekit;
 pub use livekit::e2ee;
 pub use livekit::{ConnectionState, Room, RoomOptions};
 
