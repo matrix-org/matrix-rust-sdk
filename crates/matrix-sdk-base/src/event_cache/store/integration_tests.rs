@@ -162,6 +162,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test detaching last items from a linked chunk.
     async fn test_linked_chunk_detach_last_items(&self);
 
+    /// Test that start reattach and end reattach items does nothing.
+    async fn test_linked_chunk_start_end_reattach_items(&self);
+
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
@@ -861,6 +864,48 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
             check_test_event(&events[0], "hello");
+        });
+    }
+
+    async fn test_linked_chunk_start_end_reattach_items(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        // Same updates and checks as test_linked_chunk_push_items, but with extra
+        // `StartReattachItems` and `EndReattachItems` updates, which must have no
+        // effects.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![
+                        make_test_event(room_id, "hello"),
+                        make_test_event(room_id, "world"),
+                        make_test_event(room_id, "howdy"),
+                    ],
+                },
+                Update::StartReattachItems,
+                Update::EndReattachItems,
+            ],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 3);
+            check_test_event(&events[0], "hello");
+            check_test_event(&events[1], "world");
+            check_test_event(&events[2], "howdy");
         });
     }
 
@@ -1676,6 +1721,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_detach_last_items().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_start_end_reattach_items() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_start_end_reattach_items().await;
             }
 
             #[async_test]

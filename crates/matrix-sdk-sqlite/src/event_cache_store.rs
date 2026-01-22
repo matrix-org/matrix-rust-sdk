@@ -1742,56 +1742,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_linked_chunk_start_end_reattach_items() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        // Same updates and checks as test_linked_chunk_push_items, but with extra
-        // `StartReattachItems` and `EndReattachItems` updates, which must have no
-        // effects.
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
-                    },
-                    Update::StartReattachItems,
-                    Update::EndReattachItems,
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 3);
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "world");
-            check_test_event(&events[2], "howdy");
-        });
-    }
-
-    #[async_test]
     async fn test_linked_chunk_clear() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
