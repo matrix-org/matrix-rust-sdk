@@ -1683,40 +1683,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_linked_chunk_new_gap_chunk() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewGapChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(42),
-                    next: None,
-                    gap: Gap { prev_token: "raclette".to_owned() },
-                }],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        // Chunks are ordered from smaller to bigger IDs.
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "raclette");
-        });
-    }
-
-    #[async_test]
     async fn test_linked_chunk_remove_chunk() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 

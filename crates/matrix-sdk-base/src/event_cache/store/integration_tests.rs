@@ -144,6 +144,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test adding a new items chunk.
     async fn test_linked_chunk_new_items_chunk(&self);
 
+    /// Test adding new gap chunk.
+    async fn test_linked_chunk_new_gap_chunk(&self);
+
     /// Test replacing an item in a linked chunk.
     async fn test_linked_chunk_replace_item(&self);
 
@@ -604,6 +607,36 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert!(events.is_empty());
             });
         }
+    }
+
+    async fn test_linked_chunk_new_gap_chunk(&self) {
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::NewGapChunk {
+                previous: None,
+                new: CId::new(42),
+                next: None,
+                gap: Gap { prev_token: "raclette".to_owned() },
+            }],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        // Chunks are ordered from smaller to bigger IDs.
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Gap(gap) => {
+            assert_eq!(gap.prev_token, "raclette");
+        });
     }
 
     async fn test_linked_chunk_replace_item(&self) {
@@ -1416,6 +1449,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_new_items_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_new_gap_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_new_gap_chunk().await;
             }
 
             #[async_test]
