@@ -574,7 +574,7 @@ async fn test_send_media_with_thumbnail() -> TestResult {
             .media()
             .get_media_content(
                 &MediaRequestParameters {
-                    source: content.source.clone(),
+                    source: MediaSource::Plain(thumbnail_uri.clone()),
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                         uint!(37),
                         uint!(13),

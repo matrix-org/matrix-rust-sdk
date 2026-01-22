@@ -2148,13 +2148,13 @@ async fn test_media_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media_as_file, b"thumbnail");
 
-    // The thumbnail can be retrieved as a thumbnail of the original media, using
+    // The thumbnail can be retrieved as a thumbnail of itself, using
     // the sent media MXC URI:
     let thumbnail_media_as_thumbnail = client
         .media()
         .get_media_content(
             &MediaRequestParameters {
-                source: new_content.source,
+                source: new_thumbnail_source.clone(),
                 format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(37), uint!(13))),
             },
             true,

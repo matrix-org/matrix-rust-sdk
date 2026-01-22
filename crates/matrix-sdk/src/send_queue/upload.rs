@@ -978,11 +978,12 @@ async fn update_media_cache_keys_after_upload(
                 .await
             {
                 Ok(Some(thumbnail_content)) => {
-                    // Cache this as a thumbnail for the original source, in the media store.
+                    // Also cache this as a thumbnail for the thumbnail, in the media store; the
+                    // ElementX apps expect that specific format for thumbnails.
                     media_store
                         .add_media_content(
                             &MediaRequestParameters {
-                                source: sent_media.file.clone(),
+                                source: remote_thumbnail_source.clone(),
                                 format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                                     width, height,
                                 )),
