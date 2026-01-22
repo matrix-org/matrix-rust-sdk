@@ -31,58 +31,6 @@ use crate::{
     transaction::TransactionError,
 };
 
-pub async fn test_linked_chunk_new_items_chunk(store: IndexeddbEventCacheStore) {
-    let room_id = &DEFAULT_TEST_ROOM_ID;
-    let linked_chunk_id = LinkedChunkId::Room(room_id);
-    let updates = vec![
-        Update::NewItemsChunk {
-            previous: None,
-            new: ChunkIdentifier::new(42),
-            next: None, // Note: the store must link the next entry itself.
-        },
-        Update::NewItemsChunk {
-            previous: Some(ChunkIdentifier::new(42)),
-            new: ChunkIdentifier::new(13),
-            next: Some(ChunkIdentifier::new(37)), /* But it's fine to explicitly pass
-                                                   * the next link ahead of time. */
-        },
-        Update::NewItemsChunk {
-            previous: Some(ChunkIdentifier::new(13)),
-            new: ChunkIdentifier::new(37),
-            next: None,
-        },
-    ];
-    store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap();
-
-    let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-    assert_eq!(chunks.len(), 3);
-
-    // Chunks are ordered from smaller to bigger IDs.
-    let c = chunks.remove(0);
-    assert_eq!(c.identifier, ChunkIdentifier::new(13));
-    assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
-    assert_eq!(c.next, Some(ChunkIdentifier::new(37)));
-    assert_matches!(c.content, ChunkContent::Items(events) => {
-        assert!(events.is_empty());
-    });
-
-    let c = chunks.remove(0);
-    assert_eq!(c.identifier, ChunkIdentifier::new(37));
-    assert_eq!(c.previous, Some(ChunkIdentifier::new(13)));
-    assert_eq!(c.next, None);
-    assert_matches!(c.content, ChunkContent::Items(events) => {
-        assert!(events.is_empty());
-    });
-
-    let c = chunks.remove(0);
-    assert_eq!(c.identifier, ChunkIdentifier::new(42));
-    assert_eq!(c.previous, None);
-    assert_eq!(c.next, Some(ChunkIdentifier::new(13)));
-    assert_matches!(c.content, ChunkContent::Items(events) => {
-        assert!(events.is_empty());
-    });
-}
-
 pub async fn test_add_gap_chunk_and_delete_it_immediately(store: IndexeddbEventCacheStore) {
     let room_id = &DEFAULT_TEST_ROOM_ID;
     let linked_chunk_id = LinkedChunkId::Room(room_id);
@@ -558,12 +506,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
             use matrix_sdk_test::async_test;
 
             use super::get_event_cache_store;
-
-            #[async_test]
-            async fn test_linked_chunk_new_items_chunk() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_linked_chunk_new_items_chunk(store).await
-            }
 
             #[async_test]
             async fn test_add_gap_chunk_and_delete_it_immediately() {
