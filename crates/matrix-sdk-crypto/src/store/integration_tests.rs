@@ -1409,9 +1409,17 @@ macro_rules! cryptostore_integration_tests {
                     room_key_backups_fully_downloaded: HashSet::from_iter([test_room.to_owned()]),
                     ..Default::default()
                 };
-                store.save_changes(changes).await.unwrap();
+                store
+                    .save_changes(changes)
+                    .await
+                    .expect("We should be able to save the changes to the store");
 
-                assert!(store.has_downloaded_all_room_keys(test_room).await.unwrap());
+                assert!(
+                    store
+                    .has_downloaded_all_room_keys(test_room)
+                    .await
+                    .expect("We should be able to check if we have downloaded room keys")
+                );
             }
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {

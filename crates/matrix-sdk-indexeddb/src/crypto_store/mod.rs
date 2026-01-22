@@ -745,7 +745,8 @@ impl IndexeddbCryptoStore {
             for room_id in &changes.room_key_backups_fully_downloaded {
                 let key =
                     self.serializer.encode_key(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED, room_id);
-                room_store.put(key, JsValue::from_bool(true));
+                let value = self.serializer.serialize_value(&true)?;
+                room_store.put(key, value);
             }
         }
 
