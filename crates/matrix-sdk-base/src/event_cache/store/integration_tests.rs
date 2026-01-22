@@ -150,6 +150,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test removing a chunk.
     async fn test_linked_chunk_remove_chunk(&self);
 
+    /// Test pushing items into a linked chunk.
+    async fn test_linked_chunk_push_items(&self);
+
     /// Test replacing an item in a linked chunk.
     async fn test_linked_chunk_replace_item(&self);
 
@@ -692,6 +695,47 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
             assert_eq!(gap.prev_token, "tartiflette");
+        });
+    }
+
+    async fn test_linked_chunk_push_items(&self) {
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![
+                        make_test_event(room_id, "hello"),
+                        make_test_event(room_id, "world"),
+                    ],
+                },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 2),
+                    items: vec![make_test_event(room_id, "who?")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 3);
+
+            check_test_event(&events[0], "hello");
+            check_test_event(&events[1], "world");
+            check_test_event(&events[2], "who?");
         });
     }
 
@@ -1519,6 +1563,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_remove_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_push_items() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_push_items().await;
             }
 
             #[async_test]
