@@ -1635,9 +1635,7 @@ mod tests {
             Gap,
             store::{
                 EventCacheStore, EventCacheStoreError,
-                integration_tests::{
-                    check_test_event, make_test_event, make_test_event_with_event_id,
-                },
+                integration_tests::{check_test_event, make_test_event},
             },
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
@@ -1645,7 +1643,7 @@ mod tests {
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
-    use ruma::{event_id, room_id};
+    use ruma::room_id;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1779,54 +1777,6 @@ mod tests {
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
             assert_eq!(gap.prev_token, "raclette");
-        });
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_replace_item() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event_id = event_id!("$world");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event_with_event_id(room_id, "world", Some(event_id)),
-                        ],
-                    },
-                    Update::ReplaceItem {
-                        at: Position::new(ChunkIdentifier::new(42), 1),
-                        item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 2);
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "yolo");
         });
     }
 

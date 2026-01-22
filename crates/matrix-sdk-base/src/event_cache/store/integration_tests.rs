@@ -141,6 +141,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// store.
     async fn test_linked_chunk_incremental_loading(&self);
 
+    /// Test replacing an item in a linked chunk.
+    async fn test_linked_chunk_replace_item(&self);
+
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
@@ -539,6 +542,46 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
             assert!(chunks.next().is_none());
         }
+    }
+
+    async fn test_linked_chunk_replace_item(&self) {
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event_id = event_id!("$world");
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 0),
+                    items: vec![
+                        make_test_event(room_id, "hello"),
+                        make_test_event_with_event_id(room_id, "world", Some(event_id)),
+                    ],
+                },
+                Update::ReplaceItem {
+                    at: Position::new(CId::new(42), 1),
+                    item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 2);
+            check_test_event(&events[0], "hello");
+            check_test_event(&events[1], "yolo");
+        });
     }
 
     async fn test_rebuild_empty_linked_chunk(&self) {
@@ -1304,6 +1347,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_incremental_loading().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_replace_item() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_replace_item().await;
             }
 
             #[async_test]
