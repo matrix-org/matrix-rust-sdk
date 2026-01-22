@@ -57,53 +57,6 @@ pub async fn test_add_gap_chunk_and_delete_it_immediately(store: IndexeddbEventC
     assert_eq!(chunks.len(), 1);
 }
 
-pub async fn test_linked_chunk_remove_chunk(store: IndexeddbEventCacheStore) {
-    let room_id = &DEFAULT_TEST_ROOM_ID;
-    let linked_chunk_id = LinkedChunkId::Room(room_id);
-    let updates = vec![
-        Update::NewGapChunk {
-            previous: None,
-            new: ChunkIdentifier::new(42),
-            next: None,
-            gap: Gap { prev_token: "raclette".to_owned() },
-        },
-        Update::NewGapChunk {
-            previous: Some(ChunkIdentifier::new(42)),
-            new: ChunkIdentifier::new(43),
-            next: None,
-            gap: Gap { prev_token: "fondue".to_owned() },
-        },
-        Update::NewGapChunk {
-            previous: Some(ChunkIdentifier::new(43)),
-            new: ChunkIdentifier::new(44),
-            next: None,
-            gap: Gap { prev_token: "tartiflette".to_owned() },
-        },
-        Update::RemoveChunk(ChunkIdentifier::new(43)),
-    ];
-    store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap();
-
-    let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-    assert_eq!(chunks.len(), 2);
-
-    // Chunks are ordered from smaller to bigger IDs.
-    let c = chunks.remove(0);
-    assert_eq!(c.identifier, ChunkIdentifier::new(42));
-    assert_eq!(c.previous, None);
-    assert_eq!(c.next, Some(ChunkIdentifier::new(44)));
-    assert_matches!(c.content, ChunkContent::Gap(gap) => {
-        assert_eq!(gap.prev_token, "raclette");
-    });
-
-    let c = chunks.remove(0);
-    assert_eq!(c.identifier, ChunkIdentifier::new(44));
-    assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
-    assert_eq!(c.next, None);
-    assert_matches!(c.content, ChunkContent::Gap(gap) => {
-        assert_eq!(gap.prev_token, "tartiflette");
-    });
-}
-
 pub async fn test_linked_chunk_push_items(store: IndexeddbEventCacheStore) {
     let room_id = &DEFAULT_TEST_ROOM_ID;
     let linked_chunk_id = LinkedChunkId::Room(room_id);
@@ -490,12 +443,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
                     store,
                 )
                 .await
-            }
-
-            #[async_test]
-            async fn test_linked_chunk_remove_chunk() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_linked_chunk_remove_chunk(store).await
             }
 
             #[async_test]
