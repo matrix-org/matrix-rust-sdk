@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
-    OwnedRoomId, OwnedUserId, RoomId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::sync::sync_events::v3::{
         InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, State as RumaState,
     },
@@ -212,6 +212,7 @@ pub async fn update_left_room(
 pub async fn update_invited_room(
     context: &mut Context,
     room_id: &RoomId,
+    user_id: &UserId,
     invited_room: InvitedRoom,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
@@ -235,6 +236,7 @@ pub async fn update_invited_room(
         (&raw_events, &events),
         &room,
         &mut room_info,
+        user_id,
         notification,
     )
     .await?;
@@ -248,6 +250,7 @@ pub async fn update_invited_room(
 pub async fn update_knocked_room(
     context: &mut Context,
     room_id: &RoomId,
+    user_id: &UserId,
     knocked_room: KnockedRoom,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
@@ -271,6 +274,7 @@ pub async fn update_knocked_room(
         (&raw_events, &events),
         &room,
         &mut room_info,
+        user_id,
         notification,
     )
     .await?;
