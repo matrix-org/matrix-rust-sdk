@@ -114,7 +114,7 @@ impl Channel {
 
         use ruma::api::{SupportedVersions, client::rendezvous::create_rendezvous_session};
 
-        let request = create_rendezvous_session::unstable::Request::default();
+        let request = create_rendezvous_session::unstable_msc4108::Request::default();
         let response = client
             .send(
                 request,
