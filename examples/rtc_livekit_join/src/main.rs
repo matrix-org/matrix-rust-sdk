@@ -1043,6 +1043,11 @@ async fn send_per_participant_keys(
     for member in members {
         let user_id = member.user_id();
         let devices = client.encryption().get_user_devices(user_id).await?;
+        info!(
+            user_id = %user_id,
+            device_count = devices.devices().len(),
+            "per-participant E2EE device discovery"
+        );
         for device in devices.devices() {
             if let Some(own_user_id) = own_user_id.as_ref() {
                 if device.user_id() == own_user_id && device.device_id() == &own_device_id {
@@ -1057,6 +1062,12 @@ async fn send_per_participant_keys(
         info!("no recipient devices for per-participant E2EE to-device");
         return Ok(());
     }
+    info!(
+        recipients = recipients.len(),
+        key_index,
+        room_id = %room.room_id(),
+        "sending per-participant E2EE keys to devices"
+    );
 
     let key_b64 = STANDARD_NO_PAD.encode(key);
     let sent_ts = std::time::SystemTime::now()
