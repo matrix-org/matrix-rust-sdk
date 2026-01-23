@@ -68,6 +68,9 @@ impl SecureChannel {
 
                 (crypto_channel, qr_code_data)
             }
+            RendezvousInfo::Msc4388 { .. } => {
+                unreachable!("We don't create an MSC4388 conforming channel as of yet")
+            }
         };
 
         Ok(Self { channel, qr_code_data, crypto_channel })
@@ -90,6 +93,9 @@ impl SecureChannel {
                     rendezvous_url.clone(),
                     mode_data,
                 );
+            }
+            RendezvousInfo::Msc4388 { .. } => {
+                unreachable!("We don't create an MSC4388 conforming channel as of yet")
             }
         }
 

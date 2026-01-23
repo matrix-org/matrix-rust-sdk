@@ -92,6 +92,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "289bee87974bd3c2ad14a6c158
     "unstable-msc4306",
     "unstable-msc4308",
     "unstable-msc4310",
+    "unstable-msc4388",
 ] }
 sentry = { version = "0.46.0", default-features = false }
 sentry-tracing = { version = "0.46.0", default-features = false }
