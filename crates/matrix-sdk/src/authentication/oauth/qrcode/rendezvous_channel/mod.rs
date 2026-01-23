@@ -22,6 +22,8 @@ use crate::{
 };
 
 mod msc_4108;
+#[cfg(feature = "unstable-msc4388")]
+mod msc_4388;
 
 /// The result of the [`RendezvousChannel::create_inbound()`] method.
 pub(super) struct InboundChannelCreationResult {
@@ -37,11 +39,20 @@ pub(super) struct InboundChannelCreationResult {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum RendezvousInfo<'a> {
-    Msc4108 { rendezvous_url: &'a Url },
+    Msc4108 {
+        rendezvous_url: &'a Url,
+    },
+    #[cfg(feature = "unstable-msc4388")]
+    Msc4388 {
+        rendezvous_id: &'a str,
+    },
 }
 
 pub(super) enum RendezvousChannel {
     Msc4108(msc_4108::Channel),
+    #[cfg(feature = "unstable-msc4388")]
+    #[allow(dead_code)]
+    Msc4388(msc_4388::Channel),
 }
 
 impl RendezvousChannel {
@@ -78,6 +89,10 @@ impl RendezvousChannel {
             RendezvousChannel::Msc4108(channel) => {
                 RendezvousInfo::Msc4108 { rendezvous_url: channel.rendezvous_url() }
             }
+            #[cfg(feature = "unstable-msc4388")]
+            RendezvousChannel::Msc4388(channel) => {
+                RendezvousInfo::Msc4388 { rendezvous_id: &channel.rendezvous_id() }
+            }
         }
     }
 
@@ -89,6 +104,8 @@ impl RendezvousChannel {
     pub(super) async fn send(&mut self, message: String) -> Result<(), HttpError> {
         match self {
             RendezvousChannel::Msc4108(channel) => channel.send(message.into_bytes()).await,
+            #[cfg(feature = "unstable-msc4388")]
+            RendezvousChannel::Msc4388(channel) => channel.send(message).await,
         }
     }
 
@@ -101,10 +118,14 @@ impl RendezvousChannel {
     /// This method will wait in a loop for the channel to give us a new
     /// message.
     pub(super) async fn receive(&mut self) -> Result<String, SecureChannelError> {
-        let message = match self {
-            RendezvousChannel::Msc4108(channel) => channel.receive().await?,
-        };
-
-        Ok(String::from_utf8(message).map_err(|e| MessageDecodeError::from(e.utf8_error()))?)
+        match self {
+            RendezvousChannel::Msc4108(channel) => {
+                let message = channel.receive().await?;
+                Ok(String::from_utf8(message)
+                    .map_err(|e| MessageDecodeError::from(e.utf8_error()))?)
+            }
+            #[cfg(feature = "unstable-msc4388")]
+            RendezvousChannel::Msc4388(channel) => Ok(channel.receive().await?),
+        }
     }
 }
