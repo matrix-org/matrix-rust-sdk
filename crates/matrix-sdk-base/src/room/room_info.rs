@@ -277,7 +277,7 @@ impl BaseRoomInfo {
                             true
                         }
                         r => {
-                            warn!("Encountered a custom join rule {}, skipping", r.as_str());
+                            warn!(join_rule = ?r.as_str(), "Encountered a custom join rule, skipping");
                             // Remove the previous content if the new content is unsupported.
                             self.join_rules.take().is_some()
                         }

@@ -344,7 +344,7 @@ impl RawSyncStateEventWithKeys {
             match raw.deserialize_as_unchecked() {
                 Ok(fields) => fields,
                 Err(error) => {
-                    warn!("Couldn't deserialize type and state key of state event: {error}");
+                    warn!(?error, "Couldn't deserialize type and state key of state event");
                     return None;
                 }
             };
@@ -372,9 +372,7 @@ impl RawSyncStateEventWithKeys {
         {
             Ok(fields) => fields,
             Err(error) => {
-                warn!(
-                    "Couldn't deserialize type and optional state key of timeline event: {error}"
-                );
+                warn!(?error, "Couldn't deserialize type and optional state key of timeline event");
                 return None;
             }
         };
@@ -411,7 +409,7 @@ impl RawSyncStateEventWithKeys {
             .cached_event
             .get_or_insert_with(|| {
                 self.raw.deserialize().map_err(|error| {
-                    warn!("Couldn't deserialize `{}` state event: {error}", C::TYPE);
+                    warn!(event_type = ?C::TYPE, ?error, "Couldn't deserialize state event");
                 })
             })
             .as_ref()
@@ -422,9 +420,9 @@ impl RawSyncStateEventWithKeys {
         if event.is_none() {
             // This should be a developer error, or an upstream error.
             error!(
-                "Couldn't deserialize `{}` state event: got `{}` event type",
-                C::TYPE,
-                any_event.event_type()
+                expected_event_type = ?C::TYPE,
+                actual_event_type = ?any_event.event_type().to_string(),
+                "Couldn't deserialize state event: unexpected type",
             );
         }
 
