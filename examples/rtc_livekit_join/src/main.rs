@@ -1043,12 +1043,13 @@ async fn send_per_participant_keys(
     for member in members {
         let user_id = member.user_id();
         let devices = client.encryption().get_user_devices(user_id).await?;
+        let device_list: Vec<_> = devices.devices().collect();
         info!(
             user_id = %user_id,
-            device_count = devices.devices().len(),
+            device_count = device_list.len(),
             "per-participant E2EE device discovery"
         );
-        for device in devices.devices() {
+        for device in device_list {
             if let Some(own_user_id) = own_user_id.as_ref() {
                 if device.user_id() == own_user_id && device.device_id() == &own_device_id {
                     continue;
