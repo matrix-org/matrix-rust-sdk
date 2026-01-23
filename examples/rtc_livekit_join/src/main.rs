@@ -11,6 +11,8 @@ use matrix_sdk::{
     config::SyncSettings,
     ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk::encryption::secret_storage::SecretStore;
 #[cfg(feature = "experimental-widgets")]
 use matrix_sdk::{
     ruma::{DeviceId, UserId},
@@ -467,6 +469,9 @@ async fn main() -> anyhow::Result<()> {
         .login_username(&username, &password)
         .await
         .context("login Matrix user")?;
+    import_recovery_key_if_set(&client)
+        .await
+        .context("import recovery key")?;
 
     let room_id_or_alias = RoomOrAliasId::parse(room_id_or_alias).context("parse ROOM_ID")?;
     let via_servers = via_servers_from_env().context("parse VIA_SERVERS")?;
@@ -579,6 +584,34 @@ fn required_env(name: &str) -> anyhow::Result<String> {
 
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+#[cfg(feature = "e2e-encryption")]
+async fn import_recovery_key_if_set(client: &Client) -> anyhow::Result<()> {
+    let Some(recovery_key) = optional_env("MATRIX_RECOVERY_KEY") else {
+        return Ok(());
+    };
+    info!("MATRIX_RECOVERY_KEY set; attempting to import secrets from secret storage");
+    let secret_store: SecretStore = client
+        .encryption()
+        .secret_storage()
+        .open_secret_store(&recovery_key)
+        .await
+        .context("open secret storage with recovery key")?;
+    secret_store
+        .import_secrets()
+        .await
+        .context("import secrets from secret storage")?;
+    info!("recovery key import finished");
+    Ok(())
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
+    if optional_env("MATRIX_RECOVERY_KEY").is_some() {
+        info!("MATRIX_RECOVERY_KEY set but e2e-encryption feature is disabled");
+    }
+    Ok(())
 }
 
 #[cfg(feature = "experimental-widgets")]
@@ -901,6 +934,11 @@ async fn build_per_participant_e2ee(
         info!("per-participant key bundle is empty; E2EE disabled");
         return Ok(None);
     }
+    info!(
+        room_keys = bundle.room_keys.len(),
+        withheld_keys = bundle.withheld.len(),
+        "per-participant key bundle details"
+    );
     info!("per-participant key bundle available; enabling E2EE");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
     let local_key = derive_per_participant_key(&bundle)?;
