@@ -124,7 +124,6 @@ rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
-    "unstable-msc4191",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
     "unstable-msc4230",
