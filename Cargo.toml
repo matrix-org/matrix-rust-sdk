@@ -94,6 +94,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "03ca65151f40304e044f89d8e9
     "unstable-msc4306",
     "unstable-msc4308",
     "unstable-msc4310",
+    "unstable-msc4388",
 ] }
 rustls = { version = "0.23.37", default-features = false, features = ["ring"] }
 rustls-pki-types = { version = "1.14.0", default-features = false }
