@@ -94,6 +94,7 @@ ruma = { version = "0.15.1", features = [
     "unstable-msc4306",
     "unstable-msc4308",
     "unstable-msc4310",
+    "unstable-msc4388",
 ] }
 sentry = { version = "0.47.0", default-features = false }
 sentry-tracing = { version = "0.47.0", default-features = false }
