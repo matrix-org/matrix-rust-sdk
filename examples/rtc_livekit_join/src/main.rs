@@ -592,6 +592,11 @@ async fn import_recovery_key_if_set(client: &Client) -> anyhow::Result<()> {
     let Some(recovery_key) = optional_env("MATRIX_RECOVERY_KEY") else {
         return Ok(());
     };
+    if recovery_key.trim_start().starts_with('{') {
+        info!(
+            "MATRIX_RECOVERY_KEY looks like JSON; provide the secret storage recovery key string instead"
+        );
+    }
     info!("MATRIX_RECOVERY_KEY set; attempting to import secrets from secret storage");
     let secret_store: SecretStore = client
         .encryption()
