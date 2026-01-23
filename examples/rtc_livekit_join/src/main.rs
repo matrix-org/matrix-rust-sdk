@@ -483,11 +483,15 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("join room")?,
     };
-    if let Some(element_call_url) = optional_env("ELEMENT_CALL_URL") {
-        info!(%element_call_url, "ELEMENT_CALL_URL set; starting widget bridge");
+    let element_call_url = optional_env("ELEMENT_CALL_URL")
+        .or_else(|| optional_env("ELEMENT_CALL_WIDGET"));
+    if let Some(element_call_url) = element_call_url {
+        info!(%element_call_url, "Element Call widget URL set; starting widget bridge");
         start_element_call_widget(room.clone(), element_call_url)
             .await
             .context("start element call widget")?;
+    } else if optional_env("ELEMENT_CALL_WIDGET_ID").is_some() {
+        info!("ELEMENT_CALL_WIDGET_ID set but no Element Call URL provided");
     }
 
     let sync_client = client.clone();
