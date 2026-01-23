@@ -9,7 +9,15 @@ use matrix_sdk::{
     RoomState,
     RoomMemberships,
     config::SyncSettings,
-    ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+    ruma::{DeviceId, OwnedServerName, RoomId, RoomOrAliasId, ServerName, UserId},
+    widget::{
+        Capabilities, CapabilitiesProvider, ClientProperties, Filter, MessageLikeEventFilter,
+        StateEventFilter, ToDeviceEventFilter, WidgetDriver, WidgetSettings,
+        settings::{
+            EncryptionSystem, Intent, VirtualElementCallWidgetConfig,
+            VirtualElementCallWidgetProperties,
+        },
+    },
 };
 use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -40,6 +48,7 @@ use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -50,6 +59,17 @@ struct EnvLiveKitTokenProvider {
 }
 
 struct DefaultRoomOptionsProvider;
+
+#[derive(Clone)]
+struct StaticCapabilitiesProvider {
+    capabilities: Capabilities,
+}
+
+impl CapabilitiesProvider for StaticCapabilitiesProvider {
+    async fn acquire_capabilities(&self, _capabilities: Capabilities) -> Capabilities {
+        self.capabilities.clone()
+    }
+}
 
 #[async_trait::async_trait]
 impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
@@ -456,6 +476,11 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("join room")?,
     };
+    if let Some(element_call_url) = optional_env("ELEMENT_CALL_URL") {
+        start_element_call_widget(room.clone(), element_call_url)
+            .await
+            .context("start element call widget")?;
+    }
 
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move {
@@ -532,6 +557,170 @@ fn required_env(name: &str) -> anyhow::Result<String> {
 
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
+    use ruma::events::{MessageLikeEventType, StateEventType};
+
+    let read_send = vec![
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "org.matrix.rageshake_request",
+        ))),
+        Filter::ToDevice(ToDeviceEventFilter::new(
+            "io.element.call.encryption_keys".into(),
+        )),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "io.element.call.encryption_keys",
+        ))),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "io.element.call.reaction",
+        ))),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::Reaction)),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(
+            MessageLikeEventType::RoomRedaction,
+        )),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(
+            MessageLikeEventType::RtcDecline,
+        )),
+    ];
+
+    let user_id = own_user_id.as_str();
+    let device_id = own_device_id.as_str();
+
+    Capabilities {
+        read: vec![
+            Filter::State(StateEventFilter::WithType(StateEventType::CallMember)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomName)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomEncryption)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomCreate)),
+        ]
+        .into_iter()
+        .chain(read_send.clone())
+        .collect(),
+        send: vec![
+            Filter::MessageLike(MessageLikeEventFilter::WithType(
+                MessageLikeEventType::RtcNotification,
+            )),
+            Filter::MessageLike(MessageLikeEventFilter::WithType(
+                MessageLikeEventType::CallNotify,
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                user_id.to_owned(),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("{user_id}_{device_id}"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("{user_id}_{device_id}_m.call"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("_{user_id}_{device_id}"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("_{user_id}_{device_id}_m.call"),
+            )),
+        ]
+        .into_iter()
+        .chain(read_send)
+        .collect(),
+        requires_client: true,
+        update_delayed_event: true,
+        send_delayed_event: true,
+    }
+}
+
+async fn start_element_call_widget(
+    room: matrix_sdk::Room,
+    element_call_url: String,
+) -> anyhow::Result<()> {
+    let own_user_id = room
+        .client()
+        .user_id()
+        .context("missing user id for element call widget")?
+        .to_owned();
+    let own_device_id = room
+        .client()
+        .device_id()
+        .context("missing device id for element call widget")?
+        .to_owned();
+
+    let encryption_state = room
+        .latest_encryption_state()
+        .await
+        .context("load room encryption state for element call")?;
+    let encryption = if encryption_state.is_encrypted() {
+        #[cfg(feature = "e2ee-per-participant")]
+        {
+            EncryptionSystem::PerParticipantKeys
+        }
+        #[cfg(not(feature = "e2ee-per-participant"))]
+        {
+            info!("room is encrypted but per-participant E2EE is disabled at compile time");
+            EncryptionSystem::Unencrypted
+        }
+    } else {
+        EncryptionSystem::Unencrypted
+    };
+
+    let widget_id = optional_env("ELEMENT_CALL_WIDGET_ID")
+        .unwrap_or_else(|| "element-call".to_owned());
+    let props = VirtualElementCallWidgetProperties {
+        element_call_url,
+        widget_id,
+        parent_url: optional_env("ELEMENT_CALL_PARENT_URL"),
+        encryption,
+        ..Default::default()
+    };
+    let config = VirtualElementCallWidgetConfig {
+        intent: Some(Intent::JoinExisting),
+        ..Default::default()
+    };
+
+    let widget_settings = WidgetSettings::new_virtual_element_call_widget(props, config)
+        .context("build element call widget settings")?;
+    let widget_url = widget_settings
+        .generate_webview_url(
+            room,
+            ClientProperties::new("matrix-sdk-rtc-livekit-join", None, None),
+        )
+        .await
+        .context("generate element call widget url")?;
+    info!(%widget_url, "element call widget url");
+
+    let (driver, handle) = WidgetDriver::new(widget_settings);
+    let capabilities = element_call_capabilities(&own_user_id, &own_device_id);
+    let capabilities_provider = StaticCapabilitiesProvider { capabilities };
+    tokio::spawn(async move {
+        if driver.run(room, capabilities_provider).await.is_err() {
+            info!("element call widget driver stopped");
+        }
+    });
+
+    let outbound_handle = handle.clone();
+    tokio::spawn(async move {
+        while let Some(message) = outbound_handle.recv().await {
+            println!("{message}");
+        }
+    });
+
+    let inbound_handle = handle.clone();
+    tokio::spawn(async move {
+        let stdin = BufReader::new(tokio::io::stdin());
+        let mut lines = stdin.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !inbound_handle.send(line).await {
+                break;
+            }
+        }
+    });
+
+    Ok(())
 }
 
 fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
@@ -642,6 +831,15 @@ async fn build_per_participant_e2ee(
     use matrix_sdk_rtc_livekit::matrix_keys::{
         OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
     };
+
+    let encryption_state = room
+        .latest_encryption_state()
+        .await
+        .context("load room encryption state")?;
+    if !encryption_state.is_encrypted() {
+        info!("room is not encrypted; per-participant E2EE disabled");
+        return Ok(None);
+    }
 
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
