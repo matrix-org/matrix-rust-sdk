@@ -491,6 +491,13 @@ async fn main() -> anyhow::Result<()> {
     // this device. This example does not implement that step; you can integrate your own
     // membership publisher (or Element Call) before starting the driver so that the room
     // contains active call memberships.
+    //
+    // The optional Element Call widget wiring below is how a Rust client can integrate
+    // with the Element Call webapp:
+    // - The widget driver bridges postMessage traffic to/from the webview/iframe.
+    // - Capabilities allow Element Call to send/receive to-device encryption keys
+    //   (io.element.call.encryption_keys), which the Rust SDK consumes for per-participant
+    //   E2EE when enabled.
 
     let (service_url, livekit_token) = if let Some(sfu_url) = livekit_sfu_get_url {
         let openid_token = request_openid_token(&client)
