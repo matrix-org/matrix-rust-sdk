@@ -510,6 +510,9 @@ async fn main() -> anyhow::Result<()> {
     // - Capabilities allow Element Call to send/receive to-device encryption keys
     //   (io.element.call.encryption_keys), which the Rust SDK consumes for per-participant
     //   E2EE when enabled.
+    // - When running Element Call inside element-web directly (not embedded), the widget
+    //   bridge logs below will not appear because the Rust SDK is not connected to that
+    //   webview's postMessage channel.
 
     let (service_url, livekit_token) = if let Some(sfu_url) = livekit_sfu_get_url {
         let openid_token = request_openid_token(&client)
@@ -676,6 +679,7 @@ async fn start_element_call_widget(
         .await
         .context("load room encryption state for element call")?;
     let encryption = if encryption_state.is_encrypted() {
+        info!("room is encrypted; Element Call will be configured for E2EE");
         #[cfg(feature = "e2ee-per-participant")]
         {
             EncryptionSystem::PerParticipantKeys
@@ -686,6 +690,7 @@ async fn start_element_call_widget(
             EncryptionSystem::Unencrypted
         }
     } else {
+        info!("room is not encrypted; Element Call will be configured unencrypted");
         EncryptionSystem::Unencrypted
     };
 
@@ -878,6 +883,7 @@ async fn build_per_participant_e2ee(
         info!("room is not encrypted; per-participant E2EE disabled");
         return Ok(None);
     }
+    info!("room encryption enabled; attempting per-participant E2EE setup");
 
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
@@ -895,6 +901,7 @@ async fn build_per_participant_e2ee(
         info!("per-participant key bundle is empty; E2EE disabled");
         return Ok(None);
     }
+    info!("per-participant key bundle available; enabling E2EE");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
     let local_key = derive_per_participant_key(&bundle)?;
     send_per_participant_keys(room, 0, &local_key).await?;
