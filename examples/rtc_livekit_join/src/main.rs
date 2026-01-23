@@ -9,7 +9,11 @@ use matrix_sdk::{
     RoomState,
     RoomMemberships,
     config::SyncSettings,
-    ruma::{DeviceId, OwnedServerName, RoomId, RoomOrAliasId, ServerName, UserId},
+    ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+};
+#[cfg(feature = "experimental-widgets")]
+use matrix_sdk::{
+    ruma::{DeviceId, UserId},
     widget::{
         Capabilities, CapabilitiesProvider, ClientProperties, Filter, MessageLikeEventFilter,
         StateEventFilter, ToDeviceEventFilter, WidgetDriver, WidgetSettings,
@@ -48,6 +52,7 @@ use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
 use sha2::{Digest, Sha256};
+#[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -60,11 +65,13 @@ struct EnvLiveKitTokenProvider {
 
 struct DefaultRoomOptionsProvider;
 
+#[cfg(feature = "experimental-widgets")]
 #[derive(Clone)]
 struct StaticCapabilitiesProvider {
     capabilities: Capabilities,
 }
 
+#[cfg(feature = "experimental-widgets")]
 impl CapabilitiesProvider for StaticCapabilitiesProvider {
     async fn acquire_capabilities(&self, _capabilities: Capabilities) -> Capabilities {
         self.capabilities.clone()
@@ -566,6 +573,7 @@ fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
+#[cfg(feature = "experimental-widgets")]
 fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
     use ruma::events::{MessageLikeEventType, StateEventType};
 
@@ -642,6 +650,7 @@ fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> 
     }
 }
 
+#[cfg(feature = "experimental-widgets")]
 async fn start_element_call_widget(
     room: matrix_sdk::Room,
     element_call_url: String,
@@ -727,6 +736,15 @@ async fn start_element_call_widget(
         }
     });
 
+    Ok(())
+}
+
+#[cfg(not(feature = "experimental-widgets"))]
+async fn start_element_call_widget(
+    _room: matrix_sdk::Room,
+    _element_call_url: String,
+) -> anyhow::Result<()> {
+    info!("ELEMENT_CALL_URL set but experimental-widgets feature is disabled");
     Ok(())
 }
 
