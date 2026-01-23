@@ -824,7 +824,7 @@ struct EventCacheInner {
     multiple_room_updates_lock: Mutex<()>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
-    by_room: RwLock<BTreeMap<OwnedRoomId, RoomEventCache>>,
+    by_room: RwLock<HashMap<OwnedRoomId, RoomEventCache>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
