@@ -629,7 +629,9 @@ async fn log_backup_state(client: &Client) {
 #[cfg(not(feature = "e2e-encryption"))]
 async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
     if optional_env("MATRIX_RECOVERY_KEY").is_some() {
-        info!("MATRIX_RECOVERY_KEY set but e2e-encryption feature is disabled");
+        info!(
+            "MATRIX_RECOVERY_KEY set but e2e-encryption feature is disabled; enable the example's e2e-encryption feature"
+        );
     }
     Ok(())
 }
