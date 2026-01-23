@@ -472,6 +472,7 @@ async fn main() -> anyhow::Result<()> {
     import_recovery_key_if_set(&client)
         .await
         .context("import recovery key")?;
+    log_backup_state(&client).await;
 
     let room_id_or_alias = RoomOrAliasId::parse(room_id_or_alias).context("parse ROOM_ID")?;
     let via_servers = via_servers_from_env().context("parse VIA_SERVERS")?;
@@ -606,6 +607,25 @@ async fn import_recovery_key_if_set(client: &Client) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "e2e-encryption")]
+async fn log_backup_state(client: &Client) {
+    let backups = client.encryption().backups();
+    let state = backups.state();
+    let enabled = backups.are_enabled().await;
+    let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
+    info!(
+        ?state,
+        enabled,
+        exists_on_server = exists,
+        "backup state summary"
+    );
+    if exists && !enabled {
+        info!(
+            "backup exists on the server but backups are not enabled; ensure the recovery key is available"
+        );
+    }
+}
+
 #[cfg(not(feature = "e2e-encryption"))]
 async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
     if optional_env("MATRIX_RECOVERY_KEY").is_some() {
@@ -613,6 +633,9 @@ async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(not(feature = "e2e-encryption"))]
+async fn log_backup_state(_client: &Client) {}
 
 #[cfg(feature = "experimental-widgets")]
 fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
