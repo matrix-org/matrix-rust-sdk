@@ -484,6 +484,7 @@ async fn main() -> anyhow::Result<()> {
             .context("join room")?,
     };
     if let Some(element_call_url) = optional_env("ELEMENT_CALL_URL") {
+        info!(%element_call_url, "ELEMENT_CALL_URL set; starting widget bridge");
         start_element_call_widget(room.clone(), element_call_url)
             .await
             .context("start element call widget")?;
@@ -708,6 +709,10 @@ async fn start_element_call_widget(
         .await
         .context("generate element call widget url")?;
     info!(%widget_url, "element call widget url");
+    info!(
+        widget_id = %widget_settings.widget_id(),
+        "starting Element Call widget driver"
+    );
 
     let (driver, handle) = WidgetDriver::new(widget_settings);
     let capabilities = element_call_capabilities(&own_user_id, &own_device_id);
@@ -721,8 +726,10 @@ async fn start_element_call_widget(
     let outbound_handle = handle.clone();
     tokio::spawn(async move {
         while let Some(message) = outbound_handle.recv().await {
+            info!("widget -> rust-sdk message forwarded to stdout");
             println!("{message}");
         }
+        info!("widget -> rust-sdk message stream closed");
     });
 
     let inbound_handle = handle.clone();
@@ -733,7 +740,9 @@ async fn start_element_call_widget(
             if !inbound_handle.send(line).await {
                 break;
             }
+            info!("stdin -> widget message forwarded");
         }
+        info!("stdin -> widget message stream closed");
     });
 
     Ok(())
