@@ -465,7 +465,7 @@ async fn decrypt_state_event(
             return None;
         }
         Err(error) => {
-            warn!("Couldn't deserialize encrypted state event's ID: {error}");
+            warn!(?error, "Couldn't deserialize encrypted state event's ID");
             return None;
         }
     };
