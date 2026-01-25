@@ -1808,37 +1808,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_load_last_chunk_with_a_cycle() {
-        let room_id = room_id!("!r0:matrix.org");
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::NewItemsChunk {
-                        // Because `previous` connects to chunk #0, it will create a cycle.
-                        // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
-                        // **does not exist**. We have to detect this cycle.
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: Some(ChunkIdentifier::new(0)),
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        store.load_last_chunk(linked_chunk_id).await.unwrap_err();
-    }
-
-    #[async_test]
     async fn test_load_previous_chunk() {
         let room_id = room_id!("!r0:matrix.org");
         let linked_chunk_id = LinkedChunkId::Room(room_id);

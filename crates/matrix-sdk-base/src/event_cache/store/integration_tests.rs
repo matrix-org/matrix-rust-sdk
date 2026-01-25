@@ -140,6 +140,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test loading the last chunk in a linked chunk from the store.
     async fn test_load_last_chunk(&self);
 
+    /// Test that cycles are detected when loading the last chunk in a linked
+    /// chunk from the store.
+    async fn test_load_last_chunk_with_a_cycle(&self);
+
     /// Test loading a linked chunk incrementally (chunk by chunk) from the
     /// store.
     async fn test_linked_chunk_incremental_loading(&self);
@@ -450,6 +454,30 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             });
             assert_eq!(chunk_identifier_generator.current(), 42);
         }
+    }
+
+    async fn test_load_last_chunk_with_a_cycle(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::NewItemsChunk {
+                    // Because `previous` connects to chunk #0, it will create a cycle.
+                    // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                    // **does not exist**. We have to detect this cycle.
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: Some(CId::new(0)),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.load_last_chunk(linked_chunk_id).await.unwrap_err();
     }
 
     async fn test_linked_chunk_incremental_loading(&self) {
@@ -1939,6 +1967,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_load_last_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_load_last_chunk_with_a_cycle() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_last_chunk_with_a_cycle().await;
             }
 
             #[async_test]
