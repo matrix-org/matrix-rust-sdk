@@ -1633,16 +1633,13 @@ mod tests {
     use matrix_sdk_base::{
         event_cache::store::{
             EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-            integration_tests::{
-                EventCacheStoreIntegrationTests, check_test_event, make_test_event,
-            },
+            integration_tests::EventCacheStoreIntegrationTests,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
-        linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
-    use ruma::room_id;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1805,84 +1802,6 @@ mod tests {
         // rolled back.
         let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
-    }
-
-    #[async_test]
-    async fn test_load_previous_chunk() {
-        let room_id = room_id!("!r0:matrix.org");
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event = |msg: &str| make_test_event(room_id, msg);
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        // Case #1: no chunk at all, equivalent to having an nonexistent
-        // `before_chunk_identifier`.
-        {
-            let previous_chunk = store
-                .load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(153))
-                .await
-                .unwrap();
-
-            assert!(previous_chunk.is_none());
-        }
-
-        // Case #2: there is one chunk only: we request the previous on this
-        // one, it doesn't exist.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    }],
-                )
-                .await
-                .unwrap();
-
-            let previous_chunk =
-                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
-
-            assert!(previous_chunk.is_none());
-        }
-
-        // Case #3: there are two chunks.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![
-                        // new chunk before the one that exists.
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(7),
-                            next: Some(ChunkIdentifier::new(42)),
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(7), 0),
-                            items: vec![event("brigand du jorat"), event("morbier")],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-
-            let previous_chunk =
-                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
-
-            assert_matches!(previous_chunk, Some(previous_chunk) => {
-                assert_eq!(previous_chunk.identifier, 7);
-                assert!(previous_chunk.previous.is_none());
-                assert_matches!(previous_chunk.next, Some(next) => {
-                    assert_eq!(next, 42);
-                });
-                assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
-                    assert_eq!(items.len(), 2);
-                    check_test_event(&items[0], "brigand du jorat");
-                    check_test_event(&items[1], "morbier");
-                });
-            });
-        }
     }
 }
 

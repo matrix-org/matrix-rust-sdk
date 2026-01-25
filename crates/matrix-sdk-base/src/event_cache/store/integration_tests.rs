@@ -144,6 +144,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// chunk from the store.
     async fn test_load_last_chunk_with_a_cycle(&self);
 
+    /// Test loading the previous chunk in a linked chunk from the store.
+    async fn test_load_previous_chunk(&self);
+
     /// Test loading a linked chunk incrementally (chunk by chunk) from the
     /// store.
     async fn test_linked_chunk_incremental_loading(&self);
@@ -478,6 +481,74 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         self.load_last_chunk(linked_chunk_id).await.unwrap_err();
+    }
+
+    async fn test_load_previous_chunk(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        // Case #1: no chunk at all, equivalent to having an nonexistent
+        // `before_chunk_identifier`.
+        {
+            let previous_chunk =
+                self.load_previous_chunk(linked_chunk_id, CId::new(153)).await.unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #2: there is one chunk only: we request the previous on this
+        // one, it doesn't exist.
+        {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![Update::NewItemsChunk { previous: None, new: CId::new(42), next: None }],
+            )
+            .await
+            .unwrap();
+
+            let previous_chunk =
+                self.load_previous_chunk(linked_chunk_id, CId::new(42)).await.unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #3: there are two chunks.
+        {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![
+                    // new chunk before the one that exists.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: CId::new(7),
+                        next: Some(CId::new(42)),
+                    },
+                    Update::PushItems {
+                        at: Position::new(CId::new(7), 0),
+                        items: vec![event("brigand du jorat"), event("morbier")],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            let previous_chunk =
+                self.load_previous_chunk(linked_chunk_id, CId::new(42)).await.unwrap();
+
+            assert_matches!(previous_chunk, Some(previous_chunk) => {
+                assert_eq!(previous_chunk.identifier, 7);
+                assert!(previous_chunk.previous.is_none());
+                assert_matches!(previous_chunk.next, Some(next) => {
+                    assert_eq!(next, 42);
+                });
+                assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 2);
+                    check_test_event(&items[0], "brigand du jorat");
+                    check_test_event(&items[1], "morbier");
+                });
+            });
+        }
     }
 
     async fn test_linked_chunk_incremental_loading(&self) {
@@ -1974,6 +2045,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_load_last_chunk_with_a_cycle().await;
+            }
+
+            #[async_test]
+            async fn test_load_previous_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_previous_chunk().await;
             }
 
             #[async_test]
