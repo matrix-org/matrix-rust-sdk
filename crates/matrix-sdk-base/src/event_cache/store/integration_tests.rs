@@ -195,6 +195,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that filtering duplicated events works as expected.
     async fn test_filter_duplicated_events(&self);
 
+    /// Test that filtering duplicated events works with an empty filter.
+    async fn test_filter_duplicate_events_no_events(&self);
+
     /// Test that an event can be found or not.
     async fn test_find_event(&self);
 
@@ -1307,6 +1310,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
+    async fn test_filter_duplicate_events_no_events(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let duplicates = self.filter_duplicated_events(linked_chunk_id, Vec::new()).await.unwrap();
+        assert!(duplicates.is_empty());
+    }
+
     async fn test_find_event(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -1961,6 +1971,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_filter_duplicated_events().await;
+            }
+
+            #[async_test]
+            async fn test_filter_duplicate_events_no_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_filter_duplicate_events_no_events().await;
             }
 
             #[async_test]

@@ -1808,16 +1808,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_filter_duplicate_events_no_events() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let duplicates = store.filter_duplicated_events(linked_chunk_id, Vec::new()).await.unwrap();
-        assert!(duplicates.is_empty());
-    }
-
-    #[async_test]
     async fn test_load_last_chunk() {
         let room_id = room_id!("!r0:matrix.org");
         let linked_chunk_id = LinkedChunkId::Room(room_id);
