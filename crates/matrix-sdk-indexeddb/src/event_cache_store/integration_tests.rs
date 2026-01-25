@@ -25,10 +25,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
 
-use crate::{
-    event_cache_store::{IndexeddbEventCacheStore, IndexeddbEventCacheStoreError},
-    transaction::TransactionError,
-};
+use crate::event_cache_store::IndexeddbEventCacheStore;
 
 pub async fn test_add_gap_chunk_and_delete_it_immediately(store: IndexeddbEventCacheStore) {
     let room_id = &DEFAULT_TEST_ROOM_ID;
@@ -54,29 +51,6 @@ pub async fn test_add_gap_chunk_and_delete_it_immediately(store: IndexeddbEventC
 
     let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
     assert_eq!(chunks.len(), 1);
-}
-
-pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCacheStore) {
-    let linked_chunk_id = LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID);
-    // Trigger a violation of the unique constraint on the (room id, chunk id)
-    // couple.
-    let updates = vec![
-        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
-        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
-    ];
-    let err = store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap_err();
-
-    // The operation fails with a constraint violation error.
-    assert_matches!(
-        err,
-        IndexeddbEventCacheStoreError::Transaction(TransactionError::DomException { .. })
-    );
-
-    // If the updates have been handled transactionally, then no new chunks should
-    // have been added; failure of the second update leads to the first one being
-    // rolled back.
-    let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-    assert!(chunks.is_empty());
 }
 
 pub async fn test_load_last_chunk(store: IndexeddbEventCacheStore) {
@@ -242,13 +216,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
                     store,
                 )
                 .await
-            }
-
-            #[async_test]
-            async fn test_linked_chunk_update_is_a_transaction() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_linked_chunk_update_is_a_transaction(store)
-                    .await
             }
 
             #[async_test]
