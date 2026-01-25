@@ -137,6 +137,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// the store.
     async fn test_handle_updates_and_rebuild_linked_chunk(&self);
 
+    /// Test loading the last chunk in a linked chunk from the store.
+    async fn test_load_last_chunk(&self);
+
     /// Test loading a linked chunk incrementally (chunk by chunk) from the
     /// store.
     async fn test_linked_chunk_incremental_loading(&self);
@@ -363,6 +366,90 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(metas[3].previous, Some(CId::new(2)));
         assert_eq!(metas[3].next, None);
         assert_eq!(metas[3].num_items, 0);
+    }
+
+    async fn test_load_last_chunk(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        // Case #1: no last chunk.
+        {
+            let (last_chunk, chunk_identifier_generator) =
+                self.load_last_chunk(linked_chunk_id).await.unwrap();
+
+            assert!(last_chunk.is_none());
+            assert_eq!(chunk_identifier_generator.current(), 0);
+        }
+
+        // Case #2: only one chunk is present.
+        {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                    Update::PushItems {
+                        at: Position::new(CId::new(42), 0),
+                        items: vec![event("saucisse de morteau"), event("comté")],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            let (last_chunk, chunk_identifier_generator) =
+                self.load_last_chunk(linked_chunk_id).await.unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 42);
+                assert!(last_chunk.previous.is_none());
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 2);
+                    check_test_event(&items[0], "saucisse de morteau");
+                    check_test_event(&items[1], "comté");
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
+
+        // Case #3: more chunks are present.
+        {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(42)),
+                        new: CId::new(7),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(CId::new(7), 0),
+                        items: vec![event("fondue"), event("gruyère"), event("mont d'or")],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            let (last_chunk, chunk_identifier_generator) =
+                self.load_last_chunk(linked_chunk_id).await.unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 7);
+                assert_matches!(last_chunk.previous, Some(previous) => {
+                    assert_eq!(previous, 42);
+                });
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 3);
+                    check_test_event(&items[0], "fondue");
+                    check_test_event(&items[1], "gruyère");
+                    check_test_event(&items[2], "mont d'or");
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
     }
 
     async fn test_linked_chunk_incremental_loading(&self) {
@@ -1845,6 +1932,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_handle_updates_and_rebuild_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_load_last_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_last_chunk().await;
             }
 
             #[async_test]
