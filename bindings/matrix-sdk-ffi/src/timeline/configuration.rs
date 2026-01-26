@@ -46,7 +46,7 @@ impl TimelineEventTypeFilter {
     }
 }
 
-/// A timeline filter that in- or excludes events based on their type or
+/// A timeline filter that includes or excludes events based on their type or
 /// content.
 #[derive(uniffi::Object)]
 pub struct TimelineEventFilter {

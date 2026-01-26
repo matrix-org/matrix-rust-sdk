@@ -68,7 +68,7 @@ impl TimelineEventCondition {
     /// `true` if the condition matches or `false` otherwise.
     fn matches(&self, event: &AnySyncTimelineEvent) -> bool {
         match self {
-            Self::EventType(event_type) => &event.event_type() == event_type,
+            Self::EventType(event_type) => event.event_type() == *event_type,
             Self::MembershipChange => match event {
                 AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
                     SyncStateEvent::Original(ev),
