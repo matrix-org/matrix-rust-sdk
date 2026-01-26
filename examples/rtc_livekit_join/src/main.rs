@@ -662,7 +662,11 @@ fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoom
     });
 
     tokio::spawn(async move {
-        let mut key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+        let mut key_stream = client
+            .encryption()
+            .backups()
+            .room_keys_for_room_stream(&room_id);
+        futures_util::pin_mut!(key_stream);
         while let Some(update) = key_stream.next().await {
             match update {
                 Ok(room_keys) => info!(?room_keys, "received room keys from backup"),
