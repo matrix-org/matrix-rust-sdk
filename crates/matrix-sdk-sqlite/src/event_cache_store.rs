@@ -67,7 +67,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 13;
+const DATABASE_VERSION: u8 = 14;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -492,6 +492,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
             ))?;
             txn.set_db_version(13)
+        })
+        .await?;
+    }
+
+    if version < 14 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
+            ))?;
+            txn.set_db_version(14)
         })
         .await?;
     }
