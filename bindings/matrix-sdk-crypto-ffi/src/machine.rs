@@ -17,7 +17,7 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::types::{BackupDecryptionKey, Changes},
-    types::{requests::ToDeviceRequest, SecretsBundle},
+    types::requests::ToDeviceRequest,
     CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine,
     UserIdentity as SdkUserIdentity,
 };
@@ -1412,7 +1412,8 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// Export all the secrets we have in the store into a [`SecretsBundle`].
+    /// Export all the secrets we have in the store into a serialized
+    /// SecretsBundle.
     ///
     /// This method will export all the private cross-signing keys and, if
     /// available, the private part of a backup key and its accompanying
@@ -1423,8 +1424,10 @@ impl OlmMachine {
     ///
     /// **Warning**: Only export this and share it with a trusted recipient,
     /// i.e. if an existing device is sharing this with a new device.
-    pub fn export_secrets_bundle(&self) -> Result<SecretsBundle, SecretsBundleExportError> {
-        Ok(self.runtime.block_on(self.inner.store().export_secrets_bundle())?)
+    pub fn export_secrets_bundle(&self) -> Result<String, SecretsBundleExportError> {
+        let bundle = self.runtime.block_on(self.inner.store().export_secrets_bundle())?;
+
+        Ok(serde_json::to_string(&bundle)?)
     }
 
     /// Request missing local secrets from our devices (cross signing private
