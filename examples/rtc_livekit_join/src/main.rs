@@ -590,6 +590,12 @@ fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
+fn retry_attempts_from_env(name: &str, default: usize) -> usize {
+    optional_env(name)
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
 #[cfg(feature = "e2e-encryption")]
 async fn import_recovery_key_if_set(client: &Client) -> anyhow::Result<()> {
     let Some(recovery_key) = optional_env("MATRIX_RECOVERY_KEY") else {
@@ -992,14 +998,31 @@ async fn build_per_participant_e2ee(
         }
     };
     let provider = OlmMachineKeyMaterialProvider::new(olm_machine);
-    let bundle = provider
-        .per_participant_key_bundle(room.room_id())
-        .await
-        .context("build per-participant key bundle")?;
-    if bundle.is_empty() {
-        info!("per-participant key bundle is empty; E2EE disabled");
-        return Ok(None);
-    }
+    let retries = retry_attempts_from_env("PER_PARTICIPANT_KEY_RETRIES", 0);
+    let mut attempt = 0usize;
+    let bundle = loop {
+        let bundle = provider
+            .per_participant_key_bundle(room.room_id())
+            .await
+            .context("build per-participant key bundle")?;
+        if !bundle.is_empty() {
+            break bundle;
+        }
+        if attempt >= retries {
+            info!(
+                retries,
+                "per-participant key bundle is empty; E2EE disabled"
+            );
+            return Ok(None);
+        }
+        attempt += 1;
+        info!(
+            attempt,
+            retries,
+            "per-participant key bundle empty; retrying after delay"
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    };
     info!(
         room_keys = bundle.room_keys.len(),
         withheld_keys = bundle.withheld.len(),
