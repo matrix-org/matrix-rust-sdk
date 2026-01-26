@@ -31,6 +31,8 @@ use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions, Room,
 };
+#[cfg(feature = "e2e-encryption")]
+use futures_util::StreamExt;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
     E2eeOptions, EncryptionType,
@@ -489,6 +491,7 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("join room")?,
     };
+    spawn_backup_diagnostics(client.clone(), room.room_id().to_owned());
     let element_call_url = optional_env("ELEMENT_CALL_URL")
         .or_else(|| optional_env("ELEMENT_CALL_WIDGET"));
     if let Some(element_call_url) = element_call_url {
@@ -643,6 +646,35 @@ async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
 
 #[cfg(not(feature = "e2e-encryption"))]
 async fn log_backup_state(_client: &Client) {}
+
+#[cfg(feature = "e2e-encryption")]
+fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoomId) {
+    let backup_client = client.clone();
+    tokio::spawn(async move {
+        let mut state_stream = backup_client.encryption().backups().state_stream();
+        while let Some(update) = state_stream.next().await {
+            match update {
+                Ok(state) => info!(?state, "backup state updated"),
+                Err(err) => info!(?err, "backup state stream error"),
+            }
+        }
+        info!("backup state stream closed");
+    });
+
+    tokio::spawn(async move {
+        let mut key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
+        while let Some(update) = key_stream.next().await {
+            match update {
+                Ok(room_keys) => info!(?room_keys, "received room keys from backup"),
+                Err(err) => info!(?err, "room key backup stream error"),
+            }
+        }
+        info!("room key backup stream closed");
+    });
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+fn spawn_backup_diagnostics(_client: Client, _room_id: matrix_sdk::ruma::OwnedRoomId) {}
 
 #[cfg(feature = "experimental-widgets")]
 fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
