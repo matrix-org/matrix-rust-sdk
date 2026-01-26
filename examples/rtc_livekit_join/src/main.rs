@@ -549,6 +549,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
     #[cfg(feature = "e2ee-per-participant")]
+    if let Some(context) = e2ee_context.as_ref() {
+        spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
+    }
+    #[cfg(feature = "e2ee-per-participant")]
     let _e2ee_to_device_guard = e2ee_context
         .as_ref()
         .map(|context| register_e2ee_to_device_handler(&client, room.room_id().to_owned(), context.key_provider.clone()));
@@ -593,6 +597,12 @@ fn optional_env(name: &str) -> Option<String> {
 fn retry_attempts_from_env(name: &str, default: usize) -> usize {
     optional_env(name)
         .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn retry_seconds_from_env(name: &str, default: u64) -> u64 {
+    optional_env(name)
+        .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(default)
 }
 
@@ -685,6 +695,36 @@ fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoom
 
 #[cfg(not(feature = "e2e-encryption"))]
 fn spawn_backup_diagnostics(_client: Client, _room_id: matrix_sdk::ruma::OwnedRoomId) {}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn spawn_periodic_e2ee_key_resend(
+    room: matrix_sdk::Room,
+    context: PerParticipantE2eeContext,
+) {
+    let interval_secs = retry_seconds_from_env("PER_PARTICIPANT_KEY_RESEND_SECS", 0);
+    if interval_secs == 0 {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        loop {
+            interval.tick().await;
+            info!(
+                interval_secs,
+                key_index = context.key_index,
+                "periodic per-participant E2EE key resend"
+            );
+            if let Err(err) =
+                send_per_participant_keys(&room, context.key_index, &context.local_key).await
+            {
+                info!(?err, "failed to resend per-participant E2EE keys");
+            }
+        }
+    });
+}
+
+#[cfg(not(feature = "e2ee-per-participant"))]
+fn spawn_periodic_e2ee_key_resend(_room: matrix_sdk::Room, _context: ()) {}
 
 #[cfg(feature = "experimental-widgets")]
 fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
