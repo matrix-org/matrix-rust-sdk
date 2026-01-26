@@ -1130,6 +1130,13 @@ async fn send_per_participant_keys(
     key_index: i32,
     key: &[u8],
 ) -> anyhow::Result<()> {
+    if key.is_empty() {
+        info!(
+            key_index,
+            "per-participant E2EE key payload is empty; skipping send"
+        );
+        return Ok(());
+    }
     let client = room.client();
     let own_device_id = client
         .device_id()
@@ -1174,6 +1181,11 @@ async fn send_per_participant_keys(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
+    info!(
+        key_index,
+        key_len = key.len(),
+        "preparing per-participant E2EE key payload"
+    );
     let content_raw = Raw::new(&serde_json::json!({
         "keys": [{ "index": key_index, "key": key_b64 }],
         "device_id": own_device_id.as_str(),
