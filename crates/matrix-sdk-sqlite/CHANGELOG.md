@@ -8,8 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Implement new method `CryptoStore::has_downloaded_all_room_keys`.
+- Implement new method `CryptoStore::has_downloaded_all_room_keys`, and process
+  `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+  ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
 
 ## [0.16.0] - 2025-12-04
 

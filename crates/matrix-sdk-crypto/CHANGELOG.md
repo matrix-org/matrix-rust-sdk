@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
   to building an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
   key bundle.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+  ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
 
 
 ### Refactor
