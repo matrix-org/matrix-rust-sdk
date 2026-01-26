@@ -3542,15 +3542,15 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
-            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(4)))
             .build()
             .await;
 
-        assert!(client.request_config().retry_limit.unwrap() == 3);
+        assert!(client.request_config().retry_limit.unwrap() == 4);
 
-        server.mock_login().error500().expect(3).mount().await;
+        server.mock_who_am_i().error500().expect(4).mount().await;
 
-        client.matrix_auth().login_username("example", "wordpass").send().await.unwrap_err();
+        client.whoami().await.unwrap_err();
     }
 
     #[async_test]
