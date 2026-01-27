@@ -21,6 +21,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Remove `TimelineEventTypeFilter` which has been replaced by
+  the more generic `TimelineEventFilter`.
+  ([#6070](https://github.com/matrix-org/matrix-rust-sdk/pull/6070/))
 - Add `TimelineEventFilter` for filtering events based on their type or
   content. For content filtering, only membership and profile change filters
   are available as of now.
