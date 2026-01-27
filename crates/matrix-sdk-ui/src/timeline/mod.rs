@@ -75,7 +75,6 @@ mod error;
 pub mod event_filter;
 mod event_handler;
 mod event_item;
-pub mod event_type_filter;
 pub mod futures;
 mod item;
 mod latest_event;
@@ -102,7 +101,6 @@ pub use self::{
         ThreadSummary, TimelineDetails, TimelineEventItemId, TimelineEventShieldState,
         TimelineEventShieldStateCode, TimelineItemContent,
     },
-    event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     latest_event::{LatestEventValue, LatestEventValueLocalState},
     traits::RoomExt,
