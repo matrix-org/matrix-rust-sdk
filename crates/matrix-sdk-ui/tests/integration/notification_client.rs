@@ -338,6 +338,7 @@ async fn test_notification_client_sliding_sync() {
     let event_id2 = event_id!("$example_event_id2");
     let sender = user_id!("@user:example.org");
     let sender_display_name = "John Mastodon";
+    let room_avatar_url = mxc_uri!("mxc://example.org/room_avatar");
     let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
     let my_user_id = client.user_id().unwrap().to_owned();
 
@@ -360,6 +361,9 @@ async fn test_notification_client_sliding_sync() {
 
     let power_levels_event =
         event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+
+    let room_avatar_event =
+        event_factory.room_avatar().sender(sender).url(room_avatar_url).into_raw_sync();
 
     let event_json =
         event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -401,6 +405,9 @@ async fn test_notification_client_sliding_sync() {
 
                             // Power levels.
                             power_levels_event,
+
+                            // The room's avatar
+                            room_avatar_event,
                         ],
 
                         "timeline": [
@@ -447,6 +454,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.member", "$ME"],
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
+                        ["m.room.avatar", ""],
                         ["m.room.power_levels", ""],
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
@@ -466,6 +474,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.member", "$ME"],
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
+                        ["m.room.avatar", ""],
                         ["m.room.power_levels", ""],
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],

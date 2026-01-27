@@ -494,6 +494,7 @@ impl NotificationClient {
             (StateEventType::RoomMember, "$ME".to_owned()),
             (StateEventType::RoomCanonicalAlias, "".to_owned()),
             (StateEventType::RoomName, "".to_owned()),
+            (StateEventType::RoomAvatar, "".to_owned()),
             (StateEventType::RoomPowerLevels, "".to_owned()),
             (StateEventType::RoomJoinRules, "".to_owned()),
             (StateEventType::CallMember, "*".to_owned()),
