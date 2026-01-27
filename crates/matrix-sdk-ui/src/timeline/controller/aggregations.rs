@@ -40,7 +40,7 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use as_variant::as_variant;
-use matrix_sdk::deserialized_responses::EncryptionInfo;
+use matrix_sdk::{check_validity_of_replacement_events, deserialized_responses::EncryptionInfo};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{
@@ -51,7 +51,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
@@ -782,7 +782,11 @@ fn resolve_edits(
     items: &ObservableItemsTransaction<'_>,
     event: &mut Cow<'_, EventTimelineItem>,
 ) -> bool {
-    let mut best_edit: Option<PendingEdit> = None;
+    // A tuple of the best edit, if we have found one and a boolean indicating if
+    // the edit is coming from a local echo. If it's from a local echo, we can't
+    // validate it as we don't have a raw JSON, but this isn't that important as
+    // we're sure we won't send ourselves invalid edits.
+    let mut best_edit: Option<(PendingEdit, bool)> = None;
     let mut best_edit_pos = None;
 
     for a in aggregations {
@@ -790,7 +794,7 @@ fn resolve_edits(
             match &a.own_id {
                 TimelineEventItemId::TransactionId(_) => {
                     // A local echo is always the most recent edit: use this one.
-                    best_edit = Some(pending_edit.clone());
+                    best_edit = Some((pending_edit.clone(), true));
                     break;
                 }
 
@@ -806,7 +810,7 @@ fn resolve_edits(
                             // If the edit is more recent (higher index) than the previous best
                             // edit we knew about, use this one.
                             if pos > *best_edit_pos {
-                                best_edit = Some(pending_edit.clone());
+                                best_edit = Some((pending_edit.clone(), false));
                                 *best_edit_pos = pos;
                                 trace!(?best_edit_pos, edit_id = ?a.own_id, "found better edit");
                             }
@@ -817,14 +821,14 @@ fn resolve_edits(
                             // edit. In this case, record it as the best edit if and only if
                             // there wasn't any other.
                             if best_edit.is_none() {
-                                best_edit = Some(pending_edit.clone());
+                                best_edit = Some((pending_edit.clone(), false));
                                 trace!(?best_edit_pos, edit_id = ?a.own_id, "found bundled edit");
                             }
                         }
                     } else {
                         // There wasn't any best edit yet, so record this one as being it, with
                         // its position.
-                        best_edit = Some(pending_edit.clone());
+                        best_edit = Some((pending_edit.clone(), false));
                         best_edit_pos = items.position_by_event_id(event_id);
                         trace!(?best_edit_pos, edit_id = ?a.own_id, "first best edit");
                     }
@@ -833,29 +837,54 @@ fn resolve_edits(
         }
     }
 
-    if let Some(edit) = best_edit { edit_item(event, edit) } else { false }
+    if let Some((edit, is_local_echo)) = best_edit {
+        edit_item(event, edit, is_local_echo)
+    } else {
+        false
+    }
 }
 
 /// Apply the selected edit to the given EventTimelineItem.
 ///
 /// Returns true if the edit was applied, false otherwise (because the edit and
 /// original timeline item types didn't match, for instance).
-fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
-    let PendingEdit { kind: edit_kind, edit_json, encryption_info, bundled_item_owner: _ } = edit;
-
-    if let Some(event_json) = &edit_json {
-        let Some(edit_sender) = event_json.get_field::<OwnedUserId>("sender").ok().flatten() else {
-            info!("edit event didn't have a sender; likely a malformed event");
+fn edit_item(
+    item: &mut Cow<'_, EventTimelineItem>,
+    edit: PendingEdit,
+    is_local_echo: bool,
+) -> bool {
+    // We can receive edits from a local echo, i.e. the edit wasn't yet received
+    // from the homeserver.
+    //
+    // Before we send an edit we check that the event is allowed to be edited and
+    // that the replacement content is allowed.
+    //
+    // We don't have yet a full JSON of the event, so we can't do the validation
+    // here.
+    if !is_local_echo {
+        let Some(original_json) = item.original_json() else {
+            error!("The original event does not have the JSON field set.");
             return false;
         };
 
-        if edit_sender != item.sender() {
-            info!(
-                original_sender = %item.sender(),
-                %edit_sender,
-                "Edit event applies to another user's timeline item, discarding"
+        let Some(edit_json) = &edit.edit_json else {
+            error!(
+                "The replacement event of a remotely received edit does not have the JSON field set."
             );
             return false;
+        };
+
+        match check_validity_of_replacement_events(
+            original_json,
+            item.encryption_info(),
+            edit_json,
+            edit.encryption_info.as_deref(),
+        ) {
+            Ok(content) => content,
+            Err(e) => {
+                warn!("Event wasn't replaced due to the replacement event being invalid: {e}");
+                return false;
+            }
         }
     }
 
@@ -863,6 +892,8 @@ fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
         info!("Edit of message event applies to {:?}, discarding", item.content().debug_string());
         return false;
     };
+
+    let PendingEdit { kind: edit_kind, edit_json, encryption_info, bundled_item_owner: _ } = edit;
 
     match (edit_kind, content) {
         (
