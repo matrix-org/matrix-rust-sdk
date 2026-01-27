@@ -16,11 +16,13 @@ extend-ignore-re = [
 [default.extend-identifiers]
 WeeChat = "WeeChat"
 
-# all of these are valid words, but should never appear in this repo
 [default.extend-words]
+# all of these are valid words, but should never appear in this repo
+bellow = "below"
 sing = "sign"
 singed = "signed"
 singing = "signing"
+# crate name
 ratatui = "ratatui"
 # base64 false positives
 Nd = "Nd"
