@@ -843,13 +843,11 @@ impl GossipMachine {
             );
             info.sent_out = true;
             self.save_outgoing_key_info(info).await?;
-        } else {
-            if let Some(req) = self.inner.outgoing_requests.read().get(id) {
-                debug!(
-                    request_id = ?req.request_id,
-                    "Marking outgoing request as sent"
-                );
-            }
+        } else if let Some(req) = self.inner.outgoing_requests.read().get(id) {
+            debug!(
+                request_id = ?req.request_id,
+                "Marking outgoing request as sent"
+            );
         }
 
         self.inner.outgoing_requests.write().remove(id);
