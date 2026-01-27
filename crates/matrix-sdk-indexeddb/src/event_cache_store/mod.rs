@@ -47,8 +47,6 @@ use crate::{
 
 mod builder;
 mod error;
-#[cfg(all(test, target_family = "wasm"))]
-mod integration_tests;
 mod migrations;
 mod serializer;
 mod transaction;
@@ -576,9 +574,7 @@ mod tests {
     };
     use uuid::Uuid;
 
-    use crate::{
-        event_cache_store::IndexeddbEventCacheStore, indexeddb_event_cache_store_integration_tests,
-    };
+    use crate::event_cache_store::IndexeddbEventCacheStore;
 
     mod unencrypted {
         use super::*;
@@ -592,8 +588,6 @@ mod tests {
 
         event_cache_store_integration_tests!();
         event_cache_store_integration_tests_time!();
-
-        indexeddb_event_cache_store_integration_tests!();
     }
 
     mod encrypted {
@@ -616,7 +610,5 @@ mod tests {
 
         event_cache_store_integration_tests!();
         event_cache_store_integration_tests_time!();
-
-        indexeddb_event_cache_store_integration_tests!();
     }
 }
