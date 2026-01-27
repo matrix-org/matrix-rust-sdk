@@ -151,7 +151,8 @@ impl SessionManager {
         if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id))
             && let Some(device) = self.store.get_device(user_id, device_id).await?
         {
-            let (_, content) = device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
+            let (_, content, _) =
+                device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
 
             let event_type = content.event_type().to_owned();
 

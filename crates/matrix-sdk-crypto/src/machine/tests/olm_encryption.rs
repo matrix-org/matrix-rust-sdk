@@ -203,7 +203,7 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
 
     let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-    let (_, content) = bob_device
+    let (_, content, _) = bob_device
         .encrypt("m.dummy", ToDeviceDummyEventContent::new())
         .await
         .expect("We should be able to encrypt a dummy event.");
