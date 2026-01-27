@@ -183,17 +183,17 @@ impl LatestEvent {
             return;
         };
 
+        let client = room.client();
+
+        // Take the state store lock.
+        let _state_store_lock = client.base_client().state_store_lock().lock().await;
+
         // Compute a new `RoomInfo`.
         let mut room_info = room.clone_info();
         room_info.set_latest_event(new_value);
 
         let mut state_changes = StateChanges::default();
         state_changes.add_room(room_info.clone());
-
-        let client = room.client();
-
-        // Take the state store lock.
-        let _state_store_lock = client.base_client().state_store_lock().lock().await;
 
         // Update the `RoomInfo` in the state store.
         if let Err(error) = client.state_store().save_changes(&state_changes).await {
