@@ -562,7 +562,7 @@ impl GossipMachine {
             event_type,
             request_id = ?request.request_id,
             ?secret_name,
-            "Creating outgoing secret sharing request"
+            "Creating outgoing `m.secret.send` to-device request"
         );
 
         self.inner.outgoing_requests.write().insert(request.request_id.clone(), request);
