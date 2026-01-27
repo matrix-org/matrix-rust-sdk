@@ -534,6 +534,12 @@ impl GossipMachine {
         }
     }
 
+    /// Add an `m.secret.send` request to the `outgoing_requests` queue.
+    ///
+    /// `device` is the device to send the request to.
+    /// `content` is the actual event content, containing the secret to send.
+    /// `secret_name` is the name of the secret e.g. `m.megolm_backup.v1` (used
+    /// for logging).
     async fn share_secret(
         &self,
         device: &Device,
