@@ -599,7 +599,7 @@ impl GossipMachine {
             event_type = event_type,
             request_id = ?request.request_id,
             session_id = session.session_id(),
-            "Creating outgoing forwarded room key request"
+            "Creating outgoing `m.forwarded_room_key` to-device request"
         );
 
         self.inner.outgoing_requests.write().insert(request.request_id.clone(), request);
