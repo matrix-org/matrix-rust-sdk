@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId, encryption::KeyUsage};
+use ruma::{
+    CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId,
+    canonical_json::to_canonical_value, encryption::KeyUsage,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::{Error as JsonError, Value};
+use serde_json::Error as JsonError;
 use thiserror::Error;
 use vodozemac::{DecodeError, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 use zeroize::Zeroize;
@@ -65,7 +68,7 @@ impl PartialEq for Signing {
 }
 
 impl SignJson for Signing {
-    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+    fn sign_json(&self, value: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(value)
     }
 }
@@ -184,9 +187,7 @@ impl MasterSigning {
     }
 
     pub fn sign_subkey(&self, subkey: &mut CrossSigningKey) {
-        #[allow(clippy::needless_borrows_for_generic_args)]
-        // XXX: false positive, see https://github.com/rust-lang/rust-clippy/issues/12856
-        let json_subkey = serde_json::to_value(&subkey).expect("Can't serialize cross signing key");
+        let json_subkey = to_canonical_value(&subkey).expect("Can't serialize cross signing key");
         let signature = self.inner.sign_json(json_subkey).expect("Can't sign cross signing keys");
 
         subkey.signatures.add_signature(
@@ -242,7 +243,7 @@ impl UserSigning {
         user: &OtherUserIdentityData,
     ) -> Result<Signatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
-        let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;
+        let signature = self.inner.sign_json(to_canonical_value(user_master)?)?;
 
         let mut signatures = Signatures::new();
 
@@ -291,9 +292,7 @@ impl SelfSigning {
     }
 
     pub(crate) fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        #[allow(clippy::needless_borrows_for_generic_args)]
-        // XXX: false positive, see https://github.com/rust-lang/rust-clippy/issues/12856
-        let serialized = serde_json::to_value(&device_keys)?;
+        let serialized = to_canonical_value(&device_keys)?;
         let signature = self.inner.sign_json(serialized)?;
 
         device_keys.signatures.add_signature(

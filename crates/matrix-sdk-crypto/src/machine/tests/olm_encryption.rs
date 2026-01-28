@@ -23,7 +23,9 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::async_test;
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch, device_id,
+    DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
+    canonical_json::to_canonical_value,
+    device_id,
     events::{AnyToDeviceEvent, dummy::ToDeviceDummyEventContent},
     user_id,
 };
@@ -179,7 +181,7 @@ async fn test_get_most_recent_session_of_device_with_no_curve_key() {
             bob_user_id.to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, bob_device_id),
             bob_signing_key
-                .sign_json(serde_json::to_value(&bob_device_keys).unwrap())
+                .sign_json(to_canonical_value(&bob_device_keys).unwrap())
                 .expect("Could not sign device data"),
         );
 

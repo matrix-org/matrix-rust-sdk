@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+use ruma::{
+    CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId, canonical_json::to_canonical_value,
+};
 use serde::Serialize;
-use serde_json::Value;
 use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, olm::Account};
 
 use crate::{
@@ -22,21 +23,20 @@ use crate::{
     types::{CrossSigningKey, DeviceKeys, Signature, Signatures, SignedKey},
 };
 
-fn to_signable_json(mut value: Value) -> Result<String, SignatureError> {
+fn to_signable_json(mut value: CanonicalJsonValue) -> Result<String, SignatureError> {
     let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
     let _ = json_object.remove("signatures");
     let _ = json_object.remove("unsigned");
 
-    let canonical_json: CanonicalJsonValue = value.try_into()?;
-    Ok(canonical_json.to_string())
+    Ok(value.to_string())
 }
 
 pub trait SignJson {
-    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError>;
+    fn sign_json(&self, value: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError>;
 }
 
 impl SignJson for Account {
-    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+    fn sign_json(&self, value: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         let serialized = to_signable_json(value)?;
 
         Ok(self.sign(serialized))
@@ -44,7 +44,7 @@ impl SignJson for Account {
 }
 
 impl SignJson for Ed25519SecretKey {
-    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+    fn sign_json(&self, value: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         let serialized = to_signable_json(value)?;
 
         Ok(self.sign(serialized.as_ref()))
@@ -169,7 +169,7 @@ pub trait SignedJsonObject: Serialize {
 
     /// Convert this signed JSON object to a canonicalized signed JSON string.
     fn to_canonical_json(&self) -> Result<String, SignatureError> {
-        let value = serde_json::to_value(self)?;
+        let value = to_canonical_value(self)?;
         to_signable_json(value)
     }
 }
