@@ -39,6 +39,7 @@ use matrix_sdk_base::{
         WellKnownResponse,
     },
     sync::{Notification, RoomUpdates},
+    watchdog::TaskMonitor,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
@@ -383,6 +384,9 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
+
+    /// A monitor for background tasks spawned by the client.
+    pub(crate) task_monitor: TaskMonitor,
 }
 
 impl ClientInner {
@@ -449,6 +453,7 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            task_monitor: TaskMonitor::new(),
         };
 
         #[allow(clippy::let_and_return)]
@@ -3311,6 +3316,12 @@ impl Client {
             event_cache_store: event_cache_store_size,
             media_store: media_store_size,
         })
+    }
+
+    /// Get a reference to the client's task monitor, for spawning background
+    /// tasks.
+    pub(crate) fn task_monitor(&self) -> &TaskMonitor {
+        &self.inner.task_monitor
     }
 }
 
