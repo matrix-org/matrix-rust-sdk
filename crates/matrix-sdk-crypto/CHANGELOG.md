@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
   used when encrypting raw events.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
+- Improved logging when we are sending secrets in `GossipMachine`.
+  ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
 
 ### Refactor
 
