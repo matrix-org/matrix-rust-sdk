@@ -536,10 +536,12 @@ impl GossipMachine {
 
     /// Add an `m.secret.send` request to the `outgoing_requests` queue.
     ///
-    /// `device` is the device to send the request to.
-    /// `content` is the actual event content, containing the secret to send.
-    /// `secret_name` is the name of the secret e.g. `m.megolm_backup.v1` (used
-    /// for logging).
+    /// # Arguments
+    ///
+    /// * `device` is the device to send the request to.
+    /// * `content` is the actual event content, containing the secret to send.
+    /// * `secret_name` is the name of the secret e.g. `m.megolm_backup.v1`
+    ///   (used for logging).
     async fn share_secret(
         &self,
         device: &Device,
@@ -547,7 +549,7 @@ impl GossipMachine {
         secret_name: &SecretName,
     ) -> OlmResult<Session> {
         let event_type = content.event_type().to_owned();
-        let (used_session, content) = device.encrypt(&event_type, content).await?;
+        let (used_session, content, message_id) = device.encrypt(&event_type, content).await?;
 
         let encrypted_event_type = content.event_type().to_owned();
 
@@ -568,6 +570,7 @@ impl GossipMachine {
             event_type,
             request_id = ?request.request_id,
             ?secret_name,
+            ?message_id,
             "Creating outgoing `m.secret.send` to-device request"
         );
 
