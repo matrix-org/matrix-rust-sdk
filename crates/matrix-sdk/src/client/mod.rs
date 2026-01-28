@@ -3316,7 +3316,7 @@ impl Client {
 
     /// Get a reference to the client's task monitor, for spawning background
     /// tasks.
-    pub(crate) fn task_monitor(&self) -> &TaskMonitor {
+    pub fn task_monitor(&self) -> &TaskMonitor {
         &self.inner.task_monitor
     }
 }

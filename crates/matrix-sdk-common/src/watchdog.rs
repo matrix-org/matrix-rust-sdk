@@ -97,6 +97,7 @@ pub struct BackgroundTaskInfo {
 
 /// Reason why a background task failed.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum BackgroundTaskFailureReason {
     /// The task panicked.
     Panic {
