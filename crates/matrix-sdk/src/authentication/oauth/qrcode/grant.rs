@@ -238,10 +238,13 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             // and presented a QR code which this device has scanned.
             // -- MSC4108 Secure channel setup steps 1-3
 
-            // First things first, establish the secure channel. Since we're the one that
-            // scanned the QR code, we're certain that the secure channel is
-            // secure, under the assumption that we didn't scan the wrong QR code.
-            // -- MSC4108 Secure channel setup steps 3-5
+            // First things first, export the secrets bundle and establish the secure
+            // channel. Since we're the one that scanned the QR code, we're
+            // certain that the secure channel is secure, under the assumption
+            // that we didn't scan the wrong QR code. -- MSC4108 Secure channel
+            // setup steps 3-5
+            let secrets_bundle = export_secrets_bundle(self.client).await?;
+
             let mut channel = EstablishedSecureChannel::from_qr_code(
                 self.client.inner.http_client.inner.clone(),
                 self.qr_code_data,
@@ -275,7 +278,7 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
                 self.client,
                 &mut channel,
                 self.device_creation_timeout,
-                &export_secrets_bundle(self.client).await?,
+                &secrets_bundle,
                 &self.state,
             )
             .await
@@ -326,6 +329,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             // -- MSC4108 Secure channel setup steps 1 & 2
             let homeserver_url = self.client.homeserver();
             let http_client = self.client.inner.http_client.clone();
+            let secrets_bundle = export_secrets_bundle(self.client).await?;
             let channel = SecureChannel::reciprocate(http_client, &homeserver_url).await?;
 
             // Extract the QR code data and emit an update so that the caller can
@@ -365,7 +369,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
                 self.client,
                 &mut channel,
                 self.device_creation_timeout,
-                &export_secrets_bundle(self.client).await?,
+                &secrets_bundle,
                 &self.state,
             )
             .await
