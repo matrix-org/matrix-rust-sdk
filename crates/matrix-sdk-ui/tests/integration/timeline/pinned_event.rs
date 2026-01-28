@@ -321,7 +321,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .await
         .expect("Sync failed");
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 4);
 
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
@@ -618,7 +618,15 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
         TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline loaded with just a day divider and the pinned UTD
-    let (items, _) = timeline.subscribe().await;
+    let (mut items, mut stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
+
     assert_eq!(items.len(), 2);
     let pinned_utd_event = items.last().unwrap().as_event().unwrap();
     assert_eq!(pinned_utd_event.event_id().unwrap(), event_id);

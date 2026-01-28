@@ -129,6 +129,12 @@ pub enum EventCacheError {
     #[error(transparent)]
     LinkedChunkLoader(#[from] LazyLoaderError),
 
+    /// An error happened when trying to load pinned events; none of them could
+    /// be loaded, which would otherwise result in an empty pinned events
+    /// list, incorrectly.
+    #[error("Unable to load any of the pinned events.")]
+    UnableToLoadPinnedEvents,
+
     /// An error happened when reading the metadata of a linked chunk, upon
     /// reload.
     #[error("the linked chunk metadata is invalid: {details}")]
