@@ -952,7 +952,10 @@ async fn encrypt_content_for_devices(
         event_type: String,
         bundle_data: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        device.encrypt(store.as_ref(), &event_type, bundle_data).await
+        device
+            .encrypt(store.as_ref(), &event_type, bundle_data)
+            .await
+            .map(|(session, message, _message_id)| (session, message))
     }
 
     let tasks = devices.iter().map(|device| {
