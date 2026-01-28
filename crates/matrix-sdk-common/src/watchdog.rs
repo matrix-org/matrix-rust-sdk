@@ -39,6 +39,22 @@
 //! // }
 //! ```
 //!
+//! ## A word about unwind safety
+//!
+//! This assumes that all the code running inside the monitored tasks is [unwind
+//! safe](https://doc.rust-lang.org/std/panic/trait.UnwindSafe.html). The assumption is that these
+//! are long-running tasks that:
+//!
+//! - should not panic under normal operation,
+//! - will not be automatically restarted with state shared previously (they can
+//!   be restarted, but in this case they have to be restarted with a clean
+//!   state).
+//!
+//! In general, observers of the task monitor should consider any reported
+//! failure as fatal, and they may decide to report the error one way or another
+//! (e.g., logging, metrics) and subsequently crash the process to avoid running
+//! in a potentially corrupted state.
+//!
 //! ## WebAssembly (WASM) support
 //!
 //! Unfortunately, safe unwinding isn't supported on most WASM targets, as of
@@ -241,6 +257,7 @@ impl TaskMonitor {
         let aborted_flag = intentionally_aborted.clone();
 
         let wrapped = async move {
+            // SAFETY: see module-level documentation about unwind safety.
             let result = AssertUnwindSafe(future).catch_unwind().await;
 
             // Remove the task from the list of active ones.
