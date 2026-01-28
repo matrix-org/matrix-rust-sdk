@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crypto_channel::*;
-use matrix_sdk_base::crypto::types::qr_login::{Msc4108IntentData, QrCodeData, QrCodeIntent};
+use matrix_sdk_base::crypto::types::qr_login::{
+    Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
@@ -174,8 +176,14 @@ impl EstablishedSecureChannel {
             // and send this initial encrypted message through it. The initial message on
             // the rendezvous channel will have an empty body, so we can just
             // drop it.
-            let InboundChannelCreationResult { mut channel, .. } =
-                RendezvousChannel::create_inbound(client, qr_code_data.rendezvous_url()).await?;
+            let mut channel = match qr_code_data.intent_data() {
+                QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
+                    let InboundChannelCreationResult { channel, .. } =
+                        RendezvousChannel::create_inbound(client, rendezvous_url).await?;
+
+                    channel
+                }
+            };
 
             trace!(
                 "Received the initial message from the rendezvous channel, sending the LOGIN \

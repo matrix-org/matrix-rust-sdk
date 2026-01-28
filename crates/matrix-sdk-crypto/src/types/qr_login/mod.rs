@@ -179,14 +179,6 @@ impl QrCodeData {
         }
     }
 
-    /// The URL of the rendezvous session, can be used to exchange messages with
-    /// the other device.
-    pub fn rendezvous_url(&self) -> &Url {
-        match &self.0 {
-            QrCodeDataInner::Msc4108(qr_code_data) => &qr_code_data.rendezvous_url,
-        }
-    }
-
     /// Get the [`QrCodeIntent`] of this [`QrCodeData`] object.
     ///
     /// This tells us if the creator of the QR code wants to log in or if they
