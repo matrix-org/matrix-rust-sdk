@@ -57,6 +57,7 @@ use crate::{
 };
 
 pub(super) mod events;
+mod pinned_events;
 mod threads;
 
 pub use threads::ThreadEventCacheUpdate;
@@ -233,6 +234,25 @@ impl RoomEventCache {
     ) -> Result<(Vec<Event>, Receiver<ThreadEventCacheUpdate>)> {
         let mut state = self.inner.state.write().await?;
         Ok(state.subscribe_to_thread(thread_root))
+    }
+
+    /// Get the pinned event cache for this room.
+    ///
+    /// This is a persisted view over the pinned events of a room. The pinned
+    /// events will be initially loaded from a network request to fetch the
+    /// latest pinned events will be performed, to update it as needed. The
+    /// list of pinned events will also be kept up-to-date as new events are
+    /// pinned, and new related events show up from sync or backpagination.
+    ///
+    /// This requires that the room's event cache be initialized.
+    pub async fn subscribe_to_pinned_events(
+        &self,
+    ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
+        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+        let mut state = self.inner.state.write().await?;
+        let event_cache = self.clone();
+
+        Ok(state.subscribe_to_pinned_events(room, event_cache).await)
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -664,7 +684,7 @@ mod private {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
         sync::{
-            Arc,
+            Arc, OnceLock,
             atomic::{AtomicBool, AtomicUsize, Ordering},
         },
     };
@@ -714,6 +734,10 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
+    use crate::{
+        Room,
+        event_cache::{RoomEventCache, room::pinned_events::PinnedEventCache},
+    };
 
     /// State for a single room's event cache.
     ///
@@ -749,6 +773,9 @@ mod private {
         ///
         /// Keyed by the thread root event ID.
         threads: HashMap<OwnedEventId, ThreadEventCache>,
+
+        /// Cache for pinned events in this room, initialized on-demand.
+        pinned_event_cache: OnceLock<PinnedEventCache>,
 
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
@@ -887,6 +914,7 @@ mod private {
                     room_version_rules,
                     waited_for_initial_prev_token,
                     subscriber_count: Default::default(),
+                    pinned_event_cache: OnceLock::new(),
                 }),
                 state_lock_upgrade_mutex: Mutex::new(()),
             })
@@ -1824,6 +1852,34 @@ mod private {
             self.get_or_reload_thread(root).subscribe()
         }
 
+        /// Subscribe to the lazily initialized pinned event cache for this
+        /// room.
+        ///
+        /// This is a persisted view over the pinned events of a room. The
+        /// pinned events will be initially loaded from a network
+        /// request to fetch the latest pinned events will be performed,
+        /// to update it as needed. The list of pinned events will also
+        /// be kept up-to-date as new events are pinned, and new related
+        /// events show up from sync or backpagination.
+        ///
+        /// This requires that the room's event cache be initialized.
+        pub async fn subscribe_to_pinned_events(
+            &mut self,
+            room: Room,
+            event_cache: RoomEventCache,
+        ) -> (Vec<Event>, Receiver<RoomEventCacheUpdate>) {
+            let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
+                PinnedEventCache::new(
+                    room,
+                    event_cache,
+                    self.state.linked_chunk_update_sender.clone(),
+                    self.state.store.clone(),
+                )
+            });
+
+            pinned_event_cache.subscribe().await
+        }
+
         /// Back paginate in the given thread.
         ///
         /// Will always start from the end, unless we previously paginated.
@@ -1859,6 +1915,16 @@ mod private {
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
+
+            // Need an explicit re-borrow to avoid a deref vs deref-mut borrowck conflict
+            // below.
+            let state = &mut *self.state;
+
+            if let Some(pinned_event_cache) = state.pinned_event_cache.get_mut() {
+                pinned_event_cache
+                    .maybe_add_live_related_events(&events, &state.room_version_rules.redaction)
+                    .await?;
+            }
 
             let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
