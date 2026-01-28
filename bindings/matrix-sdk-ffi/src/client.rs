@@ -2351,7 +2351,7 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         if let Some(power_levels) = value.power_level_content_override {
             match Raw::<RoomPowerLevelsContentOverride>::new(&power_levels.into()) {
                 Ok(power_levels) => {
-                    request.power_level_content_override = Some(power_levels.cast());
+                    request.power_level_content_override = Some(power_levels);
                 }
                 Err(e) => {
                     return Err(ClientError::Generic {

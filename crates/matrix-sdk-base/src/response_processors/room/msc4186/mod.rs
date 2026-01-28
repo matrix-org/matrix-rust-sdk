@@ -29,7 +29,7 @@ use ruma::{
     assign,
     events::{
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
-        room::member::{MembershipState, RoomMemberEventContent},
+        room::member::{MembershipState, PossiblyRedactedRoomMemberEventContent},
     },
     serde::Raw,
 };
@@ -242,7 +242,10 @@ fn membership(
 
         match membership_event {
             // There is a membership event indicating it's a knocked room.
-            Some(RoomMemberEventContent { membership: MembershipState::Knock, .. }) => {
+            Some(PossiblyRedactedRoomMemberEventContent {
+                membership: MembershipState::Knock,
+                ..
+            }) => {
                 let room = store.get_or_create_room(
                     room_id,
                     RoomState::Knocked,
