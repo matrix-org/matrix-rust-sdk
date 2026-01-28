@@ -133,10 +133,10 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
     timer,
+    watchdog::BackgroundTaskHandle,
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
-use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt, spawn};
 use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
@@ -784,7 +784,7 @@ async fn send_report_and_retry_memory_events(
 ///
 /// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
-    _task: AbortOnDrop<()>,
+    _task: BackgroundTaskHandle,
 }
 
 impl Redecryptor {
@@ -801,18 +801,20 @@ impl Redecryptor {
         let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
 
-        let task = spawn(async {
-            let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
+        let task = client
+            .task_monitor()
+            .spawn_background_task("event_cache::redecryptor", async {
+                let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
 
-            Self::listen_for_room_keys_task(
-                cache,
-                request_redecryption_stream,
-                linked_chunk_stream,
-                backup_state_stream,
-            )
-            .await;
-        })
-        .abort_on_drop();
+                Self::listen_for_room_keys_task(
+                    cache,
+                    request_redecryption_stream,
+                    linked_chunk_stream,
+                    backup_state_stream,
+                )
+                .await;
+            })
+            .abort_on_drop();
 
         Self { _task: task }
     }
