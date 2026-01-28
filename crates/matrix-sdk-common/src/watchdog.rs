@@ -276,7 +276,7 @@ impl TaskMonitor {
             .write()
             .insert(task_id, ActiveTask { _abort_handle: abort_handle.clone() });
 
-        BackgroundTaskHandle { abort_handle, intentionally_aborted }
+        BackgroundTaskHandle { abort_on_drop: false, abort_handle, intentionally_aborted }
     }
 
     /// Spawn a background task that returns a `Result`.
@@ -352,7 +352,7 @@ impl TaskMonitor {
             .write()
             .insert(task_id, ActiveTask { _abort_handle: abort_handle.clone() });
 
-        BackgroundTaskHandle { abort_handle, intentionally_aborted }
+        BackgroundTaskHandle { abort_on_drop: false, abort_handle, intentionally_aborted }
     }
 }
 
@@ -366,12 +366,34 @@ pub struct BackgroundTaskHandle {
     /// The underlying tokio's [`AbortHandle`].
     abort_handle: AbortHandle,
 
+    /// Should the task be safely aborted on drop?
+    ///
+    /// This won't result in a failure report, as it's an intentional abort.
+    abort_on_drop: bool,
+
     /// An additional flag to indicate if the task was intentionally aborted, so
     /// we don't report it as a failure when that happens.
     intentionally_aborted: Arc<AtomicBool>,
 }
 
+impl Drop for BackgroundTaskHandle {
+    fn drop(&mut self) {
+        if self.abort_on_drop {
+            self.abort();
+        }
+    }
+}
+
 impl BackgroundTaskHandle {
+    /// Configure the handle to abort the task when dropped.
+    ///
+    /// The task will be stopped and will NOT be reported as a failure
+    /// (this is considered intentional termination).
+    pub fn abort_on_drop(mut self) -> Self {
+        self.abort_on_drop = true;
+        self
+    }
+
     /// Abort the task.
     ///
     /// The task will be stopped and will NOT be reported as a failure
@@ -546,5 +568,30 @@ mod tests {
         assert!(result.is_err(), "should timeout, no failure expected for abort");
 
         assert!(handle.is_finished(), "task should be finished after abort");
+    }
+
+    #[async_test]
+    async fn test_abort_on_drop_does_not_report_failure() {
+        let monitor = TaskMonitor::new();
+        let mut failures = monitor.subscribe();
+
+        // Spawn a long-running task.
+        let handle = monitor
+            .spawn_background_task("aborted_task", async {
+                loop {
+                    sleep(Duration::from_secs(10)).await;
+                }
+            })
+            .abort_on_drop();
+
+        // Give the task time to start.
+        sleep(Duration::from_millis(10)).await;
+
+        // Abort it.
+        drop(handle);
+
+        // Should NOT receive a failure for intentional abort.
+        let result = timeout(failures.recv(), Duration::from_millis(100)).await;
+        assert!(result.is_err(), "should timeout, no failure expected for abort");
     }
 }
