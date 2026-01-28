@@ -465,10 +465,7 @@ impl ClientInner {
         let _ = client
             .event_cache
             .get_or_init(|| async {
-                EventCache::new(
-                    WeakClient::from_inner(&client),
-                    client.base_client.event_cache_store().clone(),
-                )
+                EventCache::new(&client, client.base_client.event_cache_store().clone())
             })
             .await;
 

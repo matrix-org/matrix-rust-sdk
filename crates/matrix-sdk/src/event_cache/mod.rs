@@ -44,13 +44,12 @@ use matrix_sdk_base::{
         Gap,
         store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
     },
-    executor::AbortOnDrop,
     linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
     timer,
+    watchdog::BackgroundTaskHandle,
 };
-use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
     serde::Raw,
@@ -67,7 +66,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 
 use crate::{
     Client,
-    client::WeakClient,
+    client::{ClientInner, WeakClient},
     event_cache::room::RoomEventCacheStateLock,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
@@ -145,13 +144,13 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
     /// Task that listens to room updates.
-    listen_updates_task: JoinHandle<()>,
+    listen_updates_task: BackgroundTaskHandle,
 
     /// Task that listens to updates to the user's ignored list.
-    ignore_user_list_update_task: JoinHandle<()>,
+    ignore_user_list_update_task: BackgroundTaskHandle,
 
     /// The task used to automatically shrink the linked chunks.
-    auto_shrink_linked_chunk_task: JoinHandle<()>,
+    auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
@@ -191,29 +190,40 @@ impl fmt::Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
+    pub(crate) fn new(client: &Arc<ClientInner>, event_cache_store: EventCacheStoreLock) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
 
+        let weak_client = WeakClient::from_inner(client);
+
         let (thread_subscriber_sender, thread_subscriber_receiver) = channel(128);
-        let thread_subscriber_task = AbortOnDrop::new(spawn(Self::thread_subscriber_task(
-            client.clone(),
-            linked_chunk_update_sender.clone(),
-            thread_subscriber_sender,
-        )));
+        let thread_subscriber_task = client
+            .task_monitor
+            .spawn_background_task(
+                "event_cache::thread_subscriber",
+                Self::thread_subscriber_task(
+                    weak_client.clone(),
+                    linked_chunk_update_sender.clone(),
+                    thread_subscriber_sender,
+                ),
+            )
+            .abort_on_drop();
 
         #[cfg(feature = "experimental-search")]
-        let search_indexing_task = AbortOnDrop::new(spawn(Self::search_indexing_task(
-            client.clone(),
-            linked_chunk_update_sender.clone(),
-        )));
+        let search_indexing_task = client
+            .task_monitor
+            .spawn_background_task(
+                "event_cache::search_indexing",
+                Self::search_indexing_task(weak_client.clone(), linked_chunk_update_sender.clone()),
+            )
+            .abort_on_drop();
 
         #[cfg(feature = "e2e-encryption")]
         let redecryption_channels = redecryptor::RedecryptorChannels::new();
 
         Self {
             inner: Arc::new(EventCacheInner {
-                client,
+                client: weak_client,
                 store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
@@ -249,13 +259,15 @@ impl EventCache {
 
         // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
+            let task_monitor = client.task_monitor();
+
             // Spawn the task that will listen to all the room updates at once.
-            let listen_updates_task = spawn(Self::listen_task(
+            let listen_updates_task = task_monitor.spawn_background_task("event_cache::listen_updates", Self::listen_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
             ));
 
-            let ignore_user_list_update_task = spawn(Self::ignore_user_list_update_task(
+            let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", Self::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
             ));
@@ -265,7 +277,7 @@ impl EventCache {
             // Force-initialize the sender in the [`RoomEventCacheInner`].
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
-            let auto_shrink_linked_chunk_task = spawn(Self::auto_shrink_linked_chunk_task(
+            let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", Self::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             ));
@@ -858,7 +870,7 @@ struct EventCacheInner {
     ///
     /// One important constraint is that there is only one such task per
     /// [`EventCache`], so it does listen to *all* rooms at the same time.
-    _thread_subscriber_task: AbortOnDrop<()>,
+    _thread_subscriber_task: BackgroundTaskHandle,
 
     /// A background task listening to room updates, and
     /// automatically handling search index operations add/remove/edit
@@ -867,7 +879,7 @@ struct EventCacheInner {
     /// One important constraint is that there is only one such task per
     /// [`EventCache`], so it does listen to *all* rooms at the same time.
     #[cfg(feature = "experimental-search")]
-    _search_indexing_task: AbortOnDrop<()>,
+    _search_indexing_task: BackgroundTaskHandle,
 
     /// A test helper receiver that will be emitted every time the thread
     /// subscriber task subscribed to a new thread.
