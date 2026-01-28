@@ -141,6 +141,17 @@ async fn main() -> Result<()> {
     let share_pos = !cli.dont_share_pos;
     let client = configure_client(cli).await?;
 
+    // Watch for errors in background jobs.
+    spawn({
+        let client = client.clone();
+        async move {
+            let mut recv = client.task_monitor().subscribe();
+            while let Ok(report) = recv.recv().await {
+                error!(name = report.task.name, ?report.reason, "A background task has crashed!");
+            }
+        }
+    });
+
     let event_cache = client.event_cache();
     event_cache.subscribe()?;
 
