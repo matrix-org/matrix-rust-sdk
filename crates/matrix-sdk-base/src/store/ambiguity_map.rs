@@ -204,7 +204,7 @@ impl AmbiguityCache {
             {
                 Some(d)
             } else {
-                old_event.original_content().and_then(|c| c.displayname.clone())
+                old_event.displayname_value().map(ToOwned::to_owned)
             };
 
             Ok(Some(display_name.unwrap_or_else(|| user_id.localpart().to_owned())))

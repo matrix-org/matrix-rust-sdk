@@ -261,7 +261,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             p.as_original().and_then(|e| e.content.displayname.as_deref())
         } else {
-            self.event.original_content()?.displayname.as_deref()
+            self.event.displayname_value()
         }
     }
 
@@ -278,7 +278,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             p.as_original().and_then(|e| e.content.avatar_url.as_deref())
         } else {
-            self.event.original_content()?.avatar_url.as_deref()
+            self.event.avatar_url()
         }
     }
 
