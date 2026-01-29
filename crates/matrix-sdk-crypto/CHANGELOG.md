@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - Improved logging when we are sending secrets in `GossipMachine`.
   ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
+  ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
 - Added a new field `forwarder` to `InboundGroupSession` of type `ForwarderData`, which stores information about the forwarder of a session shared in a room key bundle under [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5980])(https://github.com/matrix-org/matrix-rust-sdk/pull/5980)
 - The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
