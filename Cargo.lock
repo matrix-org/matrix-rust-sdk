@@ -7444,12 +7444,15 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "chrono",
  "clap",
  "fs_extra",
+ "indexmap",
  "regex",
  "serde",
  "serde_json",
  "uniffi_bindgen",
+ "url",
  "xshell",
 ]
 

@@ -3,6 +3,7 @@
 mod ci;
 mod fixup;
 mod kotlin;
+mod log;
 mod release;
 mod swift;
 mod workspace;
@@ -13,6 +14,7 @@ use ci::CiArgs;
 use clap::{Parser, Subcommand};
 use fixup::FixupArgs;
 use kotlin::KotlinArgs;
+use log::LogArgs;
 use release::ReleaseArgs;
 use swift::SwiftArgs;
 use xshell::{Shell, cmd};
@@ -43,6 +45,7 @@ enum Command {
     Release(ReleaseArgs),
     Swift(SwiftArgs),
     Kotlin(KotlinArgs),
+    Log(LogArgs),
 }
 
 fn main() -> Result<()> {
@@ -53,6 +56,7 @@ fn main() -> Result<()> {
         Command::Swift(cfg) => cfg.run(),
         Command::Kotlin(cfg) => cfg.run(),
         Command::Release(cfg) => cfg.run(),
+        Command::Log(cfg) => cfg.run(),
     }
 }
 
