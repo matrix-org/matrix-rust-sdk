@@ -47,7 +47,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle, room::SpaceRoomChildState};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
@@ -501,7 +501,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
                         None
                     }
                 }).for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
@@ -526,7 +526,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
                         None
                     }
                 }).for_each(|child| graph.add_edge(space.room_id().to_owned(), child));
