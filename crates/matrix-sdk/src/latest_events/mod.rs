@@ -16,7 +16,7 @@
 //! the latest event for a room or a thread.
 //!
 //! The latest event represents the last displayable and relevant event a room
-//! or a thread has been received. It is usually displayed in a _summary_, e.g.
+//! or a thread has received. It is usually displayed in a _summary_, e.g.
 //! below the room title in a room list.
 //!
 //! The entry point is [`LatestEvents`]. It is preferable to get a reference to
