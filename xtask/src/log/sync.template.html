@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta http-equiv="content-security-policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+  <meta name="viewport" content="width=device-width, minimum-scale=1">
+
+  <style>
+  /* Reset */
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  * { margin: 0 }
+
+  input, button, textarea, select {
+    font: inherit;
+    color: currentColor;
+  }
+
+  :root {
+    --space-very-small: .25rem;
+    --space-small: .5rem;
+    --space: 1rem;
+    --space-large: 2rem;
+    --space-very-large: 4rem;
+
+    --border-radius: 3px;
+
+    --color-accent: oklch(59.1% .236 10.25);
+    --color-text: oklch(.84 0 0);
+    --color-canvas: oklch(0.258 0.007 285.867);
+    --color-canvas-lighter: oklch(0.303 0.007 285.966);
+    --color-canvas-lighter-2: oklch(0.343 0.009 285.935);
+    --color-canvas-lighter-3: oklch(0.6 0 0);
+
+    --color-green: oklch(0.524 0.164 145.0);
+    --color-red : oklch(0.503 0.172 25.0);
+    --color-orange: oklch(0.793 0.171 70.670);
+    --color-yellow: oklch(0.968 0.211 109.769);
+  }
+
+  .content-grid {
+    --padding-inline: 1rem;
+    --content-max-width: 70ch;
+    --breakout-max-width: 85ch;
+
+    --breakout-size: calc((var(--breakout-max-width) - var(--content-max-width)) / 2);
+
+    display: grid;
+    grid-template-columns:
+      [full-width-start]
+        minmax(var(--padding-inline), 1fr)
+        [breakout-start]
+          minmax(0, var(--breakout-size))
+          [content-start]
+            min(
+              100% - (var(--padding-inline) * 2),
+              var(--content-max-width)
+            )
+          [content-end]
+          minmax(0, var(--breakout-size))
+        [breakout-end]
+        minmax(var(--padding-inline), 1fr)
+      [full-width-end];
+
+    > * {
+      grid-column: content;
+    }
+
+    > .breakout {
+      grid-column: breakout;
+    }
+
+    > .full-width {
+      grid-column: full-width;
+    }
+  }
+
+  html {
+    scroll-padding-top: var(--space-very-large);
+  }
+
+  body {
+    font-size: .95rem;
+    /* Thanks modernfontstacks.com */
+    font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif;
+    font-weight: normal;
+    font-variant-numeric: proportional-nums slashed-zero;
+    color: var(--color-text);
+    background: var(--color-canvas);
+    scroll-behaviour: smooth;
+  }
+
+  header {
+    text-align: center;
+    text-wrap: balanced;
+    margin-block: var(--space) var(--space-large);
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style-position: inside;
+    list-style-type: "− ";
+  }
+
+  main > table {
+    width: 100%;
+    min-width: 1400px;
+    border-spacing: 0;
+
+    th, td {
+      white-space: nowrap;
+      padding: .15rem var(--space-small);
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: oklch(from var(--color-canvas) l c h / .8);
+      backdrop-filter: blur(5px);
+
+      tr {
+        font-weight: bold;
+        height: 3em;
+      }
+    }
+
+    tbody > tr {
+      position: relative;
+
+      &:nth-child(even) {
+        background: var(--color-canvas-lighter);
+      }
+
+      &:hover {
+        z-index: 2;
+        outline: 1px var(--color-canvas-lighter-3) dashed;
+        outline-offset: var(--space-very-small);
+        border-radius: var(--border-radius);
+      }
+
+      &:target {
+        z-index: 2;
+        outline: 3px var(--color-yellow) solid;
+        outline-offset: .1rem;
+        border-radius: var(--border-radius);
+      }
+
+      /* request ID */
+      > :nth-child(2) {
+        text-align: end;
+
+        a {
+          color: inherit;
+        }
+      }
+
+      /* status */
+      > :nth-child(3) {
+        &[data-status-family] {
+          --_background: var(--color-red);
+
+          > span {
+            width: 3em;
+            display: inline-block;
+            text-align: center;
+            border-radius: var(--border-radius);
+            padding-inline: var(--space-very-small);
+            background-color: var(--_background, transparent);
+          }
+        }
+
+        &[data-status-family="cancelled"] {
+          color: var(--color-canvas);
+          font-weight: bold;
+          --_background: var(--color-orange);
+        }
+        &[data-status-family="2"] { --_background: var(--color-green) }
+      }
+
+      /* domain and path */
+      > :nth-child(5) { --_column-width: 15ch; --_dir: ltr }
+      > :nth-child(6) { --_column-width: 20ch; --_dir: rtl }
+      > :nth-child(5),
+      > :nth-child(6) {
+        direction: var(--_dir);
+        text-overflow: ellipsis;
+        max-width: var(--_column-width);
+        overflow: hidden;
+      }
+
+      /* request size and response size */
+      > :nth-child(7),
+      > :nth-child(8) {
+        text-align: end;
+      }
+
+      /* time */
+      > :nth-child(9) {
+        font-size: small;
+        font-variant-numeric: slashed-zero tabular-nums;
+      }
+
+      > :last-child {
+        --_end-at: var(--end-at, 100);
+
+        width: 100%;
+
+        --_grid-step: 15%;
+        --_grid-width: 2px;
+        background: linear-gradient(
+          90deg,
+          var(--color-canvas-lighter-2) var(--_grid-width),
+          transparent var(--_grid-width)
+        );
+        background-size: var(--_grid-step);
+
+        position: relative;
+
+        .span {
+          --_start-at: var(--start-at, 0);
+          --_duration: var(--duration);
+          --_background: var(--color-accent);
+          --_end-gutter: 10ch; /* spaces for the labels */
+
+          display: block;
+          position: absolute;
+          top: .15rem;
+          left: calc((var(--_start-at) * (100% - var(--_end-gutter))) / var(--_end-at));
+          width: max(1px, calc((var(--_duration) * (100% - var(--_end-gutter))) / var(--_end-at)));
+          height: 1.2rem;
+          background: var(--_background);
+          border-radius: var(--border-radius);
+
+          tr:has(> td[data-status-family="cancelled"]) & {
+            width: 3px;
+            --_background: var(--color-orange);
+          }
+
+          > span {
+            position: absolute;
+            font-size: .855em;
+            top: .1em;
+            left: calc(100% + var(--space-very-small));
+          }
+        }
+
+        details {
+          text-align: end;
+
+          summary {
+            pointer: cursor;
+            height: 1em;
+            width: 100%;
+
+            list-style: none;
+            &::marker,
+            &::-webkit-details-marker {
+              content: none; /* all browsers */
+              display: none; /* WebKit */
+            }
+
+            &::after {
+              position: absolute;
+              top: 0;
+              right: var(--space-small);
+
+              content: '+';
+              font-weight: bold;
+            }
+          }
+
+          &[open] {
+            margin-bottom: var(--space-small);
+
+            summary {
+              margin-bottom: var(--space-small);
+
+              &::after {
+                content: '−' !important;
+              }
+            }
+          }
+
+          summary ~ * {
+            text-align: start;
+            font-size: small;
+          }
+        }
+      }
+    }
+  }
+
+  code {
+    /* Thanks modernfontstacks.com */
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-weight: normal;
+    font-size: .9em;
+  }
+
+  .hidden {
+    display: none;
+  }
+  </style>
+
+  <title>Network viewer</title>
+</head>
+
+<body class="content-grid">
+
+<header>
+  <h1>Analyse of <code>{log_file}</code></h1>
+</header>
+
+<main class="full-width">
+
+<table>
+  <thead>
+    <tr>
+      <th scope="col"><abbr title="Connection">Conn.</abbr> ID</th>
+      <th scope="col"><abbr title="Request">Req.</abbr> ID</th>
+      <th scope="col">Status</th>
+      <th scope="col"><abbr title="Method">Meth.</abbr></th>
+      <th scope="col">Domain</th>
+      <th scope="col">Path</th>
+      <th scope="col"><abbr title="Request">Req.</abbr> size</th>
+      <th scope="col"><abbr title="Response">Resp.</abbr> size</th>
+      <th scope="col">Time</th>
+      <th scope="col">Timeline</th>
+    </tr>
+  </thead>
+
+  <tbody style="--end-at: {end_at}">
+    {rows}
+  </tbody>
+</table>
+
+</main>
+
+</body>
+</html>
