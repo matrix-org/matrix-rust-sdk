@@ -23,6 +23,13 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The QrcodeData struct has been reworked in preparation to
+  support MSC4388. The fields of the QrcodeData struct are not anymore publicly
+  accessible. The `mode_data()` method has been renamed to `intent_data()` and
+  returns an MSC-specific struct now. The `rendezvous_url()` method has been
+  removed.
+  ([#6081](https://github.com/matrix-org/matrix-rust-sdk/pull/6081))
+
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
   been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
