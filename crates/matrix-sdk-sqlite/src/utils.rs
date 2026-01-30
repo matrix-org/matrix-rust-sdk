@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
@@ -238,11 +239,15 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     where
         P: Params + Send + 'static,
     {
-        self.interact(move |conn| conn.execute(sql.as_ref(), params)).await.unwrap()
+        self.interact(move |conn| conn.execute(sql.as_ref(), params))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn execute_batch(&self, sql: impl AsRef<str> + Send + 'static) -> rusqlite::Result<()> {
-        self.interact(move |conn| conn.execute_batch(sql.as_ref())).await.unwrap()
+        self.interact(move |conn| conn.execute_batch(sql.as_ref()))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn prepare<T, F>(
@@ -254,7 +259,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         T: Send + 'static,
         F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.unwrap()
+        self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.map_err(map_interact_err)?
     }
 
     async fn query_row<T, P, F>(
@@ -268,7 +273,9 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.interact(move |conn| conn.query_row(sql.as_ref(), params, f)).await.unwrap()
+        self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
@@ -284,7 +291,8 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             Ok(result)
         })
         .await
-        .unwrap()
+        .map_err(map_interact_err)
+        .map_err(E::from)?
     }
 
     /// Chunk a large query over some keys.
@@ -307,6 +315,21 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
         })
         .await
+    }
+}
+
+/// Map an [`InteractError`] into a [`rusqlite::Error`].
+///
+/// An [`InteractError::Panic`] will panic. An [`InteractError::Aborted`] will
+/// generate a [`rusqlite::Error::SqliteFailure`] with the
+/// [`rusqlite::ffi::SQLITE_ABORT`] code.
+fn map_interact_err(error: InteractError) -> rusqlite::Error {
+    match error {
+        InteractError::Panic(p) => panic!("{p:?}"),
+        InteractError::Aborted => rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ABORT),
+            None,
+        ),
     }
 }
 
