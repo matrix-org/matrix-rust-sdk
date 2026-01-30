@@ -169,7 +169,7 @@ impl EstablishedSecureChannel {
                     qr_code_data.public_key(),
                     LOGIN_INITIATE_MESSAGE.as_bytes(),
                 )?;
-                (ChannelType::Ecies(ecies), message.encode().as_bytes().to_vec())
+                (ChannelType::Ecies(ecies), message.encode())
             };
 
             // The other side has crated a rendezvous channel, we're going to connect to it
@@ -244,16 +244,14 @@ impl EstablishedSecureChannel {
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.crypto_channel.seal(message.as_bytes());
+        let message = self.crypto_channel.seal(message);
 
         Ok(self.channel.send(message).await?)
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
         let message = self.channel.receive().await?;
-        let decrypted = self.crypto_channel.open(&message)?;
-
-        Ok(String::from_utf8(decrypted).map_err(|e| e.utf8_error())?)
+        self.crypto_channel.open(&message)
     }
 }
 
