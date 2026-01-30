@@ -1227,7 +1227,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         // The profile for the invited user has been updated.
         let invited_member_event = self.get_profile(room_id, invited_user_id).await?.unwrap();
         assert_eq!(
-            invited_member_event.as_original().unwrap().content.displayname.as_deref(),
+            invited_member_event.content.displayname.as_deref(),
             Some("example after update")
         );
         assert!(self.get_member_event(room_id, invited_user_id).await?.is_some());

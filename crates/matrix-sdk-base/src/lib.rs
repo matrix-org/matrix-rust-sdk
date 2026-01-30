@@ -68,10 +68,7 @@ pub use store::{
     QueueWedgeError, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
     ThreadSubscriptionCatchupToken,
 };
-pub use utils::{
-    MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent,
-    RawSyncStateEventWithKeys, RedactedMinimalStateEvent,
-};
+pub use utils::{MinimalRoomMemberEvent, MinimalStateEvent, RawSyncStateEventWithKeys};
 
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
