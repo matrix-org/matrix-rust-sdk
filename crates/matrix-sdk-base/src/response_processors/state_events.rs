@@ -427,7 +427,7 @@ pub fn is_tombstone_event_valid(
             .state_changes
             .room_infos
             .get(&successor_room_id)
-            .and_then(|room_info| Some(room_info.tombstone()?.replacement_room.clone()))
+            .and_then(|room_info| room_info.tombstone()?.replacement_room.clone())
             .or_else(|| {
                 state_store
                     .room(&successor_room_id)
