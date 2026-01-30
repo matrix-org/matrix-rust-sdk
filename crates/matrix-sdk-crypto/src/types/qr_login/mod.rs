@@ -121,7 +121,9 @@ impl From<msc_4108::QrCodeIntent> for QrCodeIntent {
 /// The [`QrCodeData`] can be serialized and encoded as a QR code or it can be
 /// decoded from a QR code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QrCodeData(QrCodeDataInner);
+pub struct QrCodeData {
+    inner: QrCodeDataInner,
+}
 
 impl QrCodeData {
     /// Create a new [`QrCodeData`] object which conforms to the data format
@@ -133,20 +135,22 @@ impl QrCodeData {
         rendezvous_url: Url,
         intent_data: Msc4108IntentData,
     ) -> Self {
-        Self(QrCodeDataInner::Msc4108(msc_4108::QrCodeData {
-            public_key,
-            rendezvous_url,
-            intent_data,
-        }))
+        Self {
+            inner: QrCodeDataInner::Msc4108(msc_4108::QrCodeData {
+                public_key,
+                rendezvous_url,
+                intent_data,
+            }),
+        }
     }
 
     /// Attempt to decode a slice of bytes into a [`QrCodeData`] object.
     ///
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
-        let data = msc_4108::QrCodeData::from_bytes(bytes).map(QrCodeDataInner::Msc4108)?;
+        let inner = msc_4108::QrCodeData::from_bytes(bytes).map(QrCodeDataInner::Msc4108)?;
 
-        Ok(QrCodeData(data))
+        Ok(QrCodeData { inner })
     }
 
     /// Encode the [`QrCodeData`] into a list of bytes.
@@ -154,7 +158,7 @@ impl QrCodeData {
     /// The list of bytes can be used by a QR code generator to create an image
     /// containing a QR code.
     pub fn to_bytes(&self) -> Vec<u8> {
-        match &self.0 {
+        match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.to_bytes(),
         }
     }
@@ -174,7 +178,7 @@ impl QrCodeData {
     /// The ephemeral Curve25519 public key. Can be used to establish a shared
     /// secret using the Diffie-Hellman key agreement.
     pub fn public_key(&self) -> Curve25519PublicKey {
-        match &self.0 {
+        match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.public_key,
         }
     }
@@ -184,14 +188,14 @@ impl QrCodeData {
     /// This tells us if the creator of the QR code wants to log in or if they
     /// want to log another device in.
     pub fn intent(&self) -> QrCodeIntent {
-        match &self.0 {
+        match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => qr_code_data.intent().into(),
         }
     }
 
     /// The intent-specific data for the QR code.
     pub fn intent_data(&self) -> QrCodeIntentData<'_> {
-        match &self.0 {
+        match &self.inner {
             QrCodeDataInner::Msc4108(qr_code_data) => QrCodeIntentData::Msc4108 {
                 data: &qr_code_data.intent_data,
                 rendezvous_url: &qr_code_data.rendezvous_url,
