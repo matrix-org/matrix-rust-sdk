@@ -231,29 +231,30 @@ pub mod sync {
         // Start from the last event; the first membership event we see in that order is
         // the last in the regular order, so that's the only one we need to
         // consider.
-        for event in state_events.iter_mut().rev() {
-            // If this event updates the current user's membership, record that in the
-            // room_info.
+        if let Some(member) = state_events.iter_mut().rev().find_map(|event| {
+            // Find the event that updates the current user's membership.
             if event.event_type == StateEventType::RoomMember
                 && event.state_key.as_str() == user_id
                 && let Some(member) = event.deserialize_as(|any_event| {
                     as_variant!(any_event, AnySyncStateEvent::RoomMember)
                 })
             {
-                let new_state: RoomState = member.membership().into();
+                Some(member)
+            } else {
+                None
+            }
+        }) {
+            let new_state: RoomState = member.membership().into();
 
-                if new_state != room_info.state() {
-                    room_info.set_state(new_state);
+            if new_state != room_info.state() {
+                room_info.set_state(new_state);
 
-                    // Update an existing notable update entry or create a new one
-                    context
-                        .room_info_notable_updates
-                        .entry(room_info.room_id.to_owned())
-                        .or_default()
-                        .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
-                }
-
-                break;
+                // Update an existing notable update entry or create a new one
+                context
+                    .room_info_notable_updates
+                    .entry(room_info.room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
             }
         }
     }
@@ -353,20 +354,22 @@ pub mod stripped {
         // Start from the last event; the first membership event we see in that order is
         // the last in the regular order, so that's the only one we need to
         // consider.
-        for event in state_events.iter().rev() {
-            // If this event updates the current user's membership…
+        if state_events.iter().rev().any(|event| {
+            // Find the event that updates the current user's membership.
             if let AnyStrippedStateEvent::RoomMember(member) = &event
                 && member.state_key.as_str() == user_id.as_str()
             {
-                // Update an existing notable update entry or create a new one
-                context
-                    .room_info_notable_updates
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
-
-                break;
+                true
+            } else {
+                false
             }
+        }) {
+            // Update an existing notable update entry or create a new one
+            context
+                .room_info_notable_updates
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
     }
 }
