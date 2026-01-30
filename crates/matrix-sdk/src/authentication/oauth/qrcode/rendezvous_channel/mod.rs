@@ -15,7 +15,9 @@
 use tracing::instrument;
 use url::Url;
 
-use crate::{HttpError, http_client::HttpClient};
+use crate::{
+    HttpError, authentication::oauth::qrcode::SecureChannelError, http_client::HttpClient,
+};
 
 mod msc_4108;
 
@@ -75,9 +77,9 @@ impl RendezvousChannel {
     ///
     /// The message must be of the `text/plain` content type.
     #[instrument(skip_all)]
-    pub(super) async fn send(&mut self, message: Vec<u8>) -> Result<(), HttpError> {
+    pub(super) async fn send(&mut self, message: String) -> Result<(), HttpError> {
         match self {
-            RendezvousChannel::MSC4108(channel) => channel.send(message).await,
+            RendezvousChannel::MSC4108(channel) => channel.send(message.into_bytes()).await,
         }
     }
 
@@ -89,9 +91,11 @@ impl RendezvousChannel {
     ///
     /// This method will wait in a loop for the channel to give us a new
     /// message.
-    pub(super) async fn receive(&mut self) -> Result<Vec<u8>, HttpError> {
-        match self {
-            RendezvousChannel::MSC4108(channel) => channel.receive().await,
-        }
+    pub(super) async fn receive(&mut self) -> Result<String, SecureChannelError> {
+        let message = match self {
+            RendezvousChannel::MSC4108(channel) => channel.receive().await?,
+        };
+
+        Ok(String::from_utf8(message).map_err(|e| e.utf8_error())?)
     }
 }
