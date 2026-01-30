@@ -11,9 +11,11 @@ pub struct LogArgs {
     cmd: LogCommand,
 }
 
+/// Analysis around logs (formatted by `matrix-sdk-ffi`).
 #[derive(Subcommand)]
 enum LogCommand {
-    /// Visualise the sync requests and responses.
+    /// Visualise the sync requests and responses with a table and a duration
+    /// graph.
     Sync {
         #[clap(long)]
         log_file: PathBuf,
