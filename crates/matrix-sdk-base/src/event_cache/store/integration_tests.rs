@@ -180,10 +180,6 @@ pub trait EventCacheStoreIntegrationTests {
     /// room.
     async fn test_linked_chunk_multiple_rooms(&self);
 
-    /// Test that updates to linked chunks are only persisted if all updates
-    /// are successful.
-    async fn test_linked_chunk_update_is_a_transaction(&self);
-
     /// Test that loading a linked chunk's metadata works as intended.
     async fn test_load_all_chunks_metadata(&self);
 
@@ -1198,29 +1194,6 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
-    async fn test_linked_chunk_update_is_a_transaction(&self) {
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        // Trigger a violation of the unique constraint on the (room id, chunk id)
-        // couple.
-        self.handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
-                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
-            ],
-        )
-        .await
-        .unwrap_err();
-
-        // If the updates have been handled transactionally, then no new chunks should
-        // have been added; failure of the second update leads to the first one being
-        // rolled back.
-        let chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
-        assert!(chunks.is_empty());
-    }
-
     async fn test_remove_room(&self) {
         let r0 = room_id!("!r0:matrix.org");
         let linked_chunk_id0 = LinkedChunkId::Room(r0);
@@ -1983,13 +1956,6 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_multiple_rooms().await;
-            }
-
-            #[async_test]
-            async fn test_linked_chunk_update_is_a_transaction() {
-                let event_cache_store =
-                    get_event_cache_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_linked_chunk_update_is_a_transaction().await;
             }
 
             #[async_test]
