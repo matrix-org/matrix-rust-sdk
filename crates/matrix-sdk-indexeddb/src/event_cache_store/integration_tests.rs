@@ -77,7 +77,21 @@ pub async fn test_linked_chunk_exists_before_referenced(store: IndexeddbEventCac
         )
         .await
         .unwrap_err();
+}
 
+pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCacheStore) {
+    let linked_chunk_id = LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID);
+    // Trigger a violation of the unique constraint on the (room id, chunk id)
+    // couple.
+    let updates = vec![
+        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+    ];
+    store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap_err();
+
+    // If the updates have been handled transactionally, then no new chunks should
+    // have been added; failure of the second update leads to the first one being
+    // rolled back.
     let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
     assert!(chunks.is_empty());
 }
@@ -122,6 +136,13 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
             async fn test_linked_chunk_exists_before_referenced() {
                 let store = get_event_cache_store().await.expect("Failed to get event cache store");
                 $crate::event_cache_store::integration_tests::test_linked_chunk_exists_before_referenced(store)
+                    .await
+            }
+
+           #[async_test]
+            async fn test_linked_chunk_update_is_a_transaction() {
+                let store = get_event_cache_store().await.expect("Failed to get event cache store");
+                $crate::event_cache_store::integration_tests::test_linked_chunk_update_is_a_transaction(store)
                     .await
             }
         }
