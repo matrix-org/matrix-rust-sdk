@@ -259,21 +259,21 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         let indexed = self.add_item(chunk).await?;
         if let Some(previous) = chunk.previous {
             let previous_identifier = ChunkIdentifier::new(previous);
-            if let Some(mut previous_chunk) =
-                self.get_chunk_by_id(chunk.linked_chunk_id.as_ref(), previous_identifier).await?
-            {
-                previous_chunk.next = Some(chunk.identifier);
-                self.put_item(&previous_chunk).await?;
-            }
+            let mut previous_chunk = self
+                .get_chunk_by_id(chunk.linked_chunk_id.as_ref(), previous_identifier)
+                .await?
+                .ok_or(TransactionError::ItemNotFound)?;
+            previous_chunk.next = Some(chunk.identifier);
+            self.put_item(&previous_chunk).await?;
         }
         if let Some(next) = chunk.next {
             let next_identifier = ChunkIdentifier::new(next);
-            if let Some(mut next_chunk) =
-                self.get_chunk_by_id(chunk.linked_chunk_id.as_ref(), next_identifier).await?
-            {
-                next_chunk.previous = Some(chunk.identifier);
-                self.put_item(&next_chunk).await?;
-            }
+            let mut next_chunk = self
+                .get_chunk_by_id(chunk.linked_chunk_id.as_ref(), next_identifier)
+                .await?
+                .ok_or(TransactionError::ItemNotFound)?;
+            next_chunk.previous = Some(chunk.identifier);
+            self.put_item(&next_chunk).await?;
         }
         Ok(indexed)
     }
