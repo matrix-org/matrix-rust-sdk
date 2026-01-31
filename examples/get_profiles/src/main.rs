@@ -18,17 +18,17 @@ struct UserProfile {
 
 /// This function calls the GET profile endpoint
 /// Spec: <https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3profileuserid>
-/// Ruma: <https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/index.html>
+/// Ruma: <https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/index.html>
 async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile> {
     // First construct the request you want to make
-    // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/index.html for all available Endpoints
+    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html for all available Endpoints
     let request = profile::get_profile::v3::Request::new(mxid.to_owned());
 
     // Start the request using matrix_sdk::Client::send
     let resp = client.send(request).await?;
 
     // Use the response and construct a UserProfile struct.
-    // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/struct.Response.html
+    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/struct.Response.html
     // for details on the Response for this Request
     let user_profile = UserProfile {
         avatar_url: resp.get_static::<AvatarUrl>()?,
