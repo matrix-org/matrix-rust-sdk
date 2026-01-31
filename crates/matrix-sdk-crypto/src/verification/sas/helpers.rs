@@ -79,7 +79,7 @@ pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartCont
 /// The spec defines 64 unique emojis, this function panics if the index is
 /// bigger than 63.
 ///
-/// [spec]: https://matrix.org/docs/spec/client_server/latest#sas-method-emoji
+/// [spec]: https://spec.matrix.org/latest/client-server-api/#sas-method-emoji
 fn emoji_from_index(index: u8) -> Emoji {
     /*
     This list was generated from the data in the spec [1] with the following command:

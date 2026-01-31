@@ -44,7 +44,7 @@ impl Room {
     /// If you need a variant that's sync (but with the drawback that it returns
     /// an `Option`), consider using [`Room::cached_display_name`].
     ///
-    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    /// [spec]: <https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> StoreResult<RoomDisplayName> {
         if let Some(name) = self.cached_display_name() {
             Ok(name)
@@ -99,7 +99,7 @@ impl Room {
     /// or [`Room::display_name`] (async, always returns a value), which should
     /// be preferred in general.
     ///
-    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    /// [spec]: <https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room>
     pub(crate) async fn compute_display_name(&self) -> StoreResult<UpdatedRoomDisplayName> {
         enum DisplayNameOrSummary {
             Summary(RoomSummary),
@@ -407,7 +407,7 @@ pub struct RoomHero {
 const NUM_HEROES: usize = 5;
 
 /// The name of the room, either from the metadata or calculated
-/// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
+/// according to [matrix specification](https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room)
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RoomDisplayName {
     /// The room has been named explicitly as
