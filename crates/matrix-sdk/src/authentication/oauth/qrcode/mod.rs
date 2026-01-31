@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
-    LoginQrCodeDecodeError, QrCodeData, QrCodeMode, QrCodeModeData,
+    LoginQrCodeDecodeError, Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
 use matrix_sdk_base::crypto::{SecretImportError, store::SecretsBundleExportError};
 pub use oauth2::{
@@ -290,6 +290,10 @@ pub enum SecureChannelError {
          the check code cannot be received"
     )]
     CannotReceiveCheckCode,
+
+    #[error("The QR code specifies an unsupported protocol version")]
+    /// The QR code specifies an unsupported protocol version.
+    UnsupportedQrCodeType,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]

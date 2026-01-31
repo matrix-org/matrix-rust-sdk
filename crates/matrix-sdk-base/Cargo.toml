@@ -83,7 +83,6 @@ matrix-sdk-test = { workspace = true, optional = true }
 once_cell.workspace = true
 regex.workspace = true
 ruma = { workspace = true, features = [
-    "canonical-json",
     "unstable-msc2867",
     "unstable-msc3381",
     "unstable-msc4186",

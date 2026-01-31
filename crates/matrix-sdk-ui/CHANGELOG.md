@@ -21,6 +21,16 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
+  event as the root of a thread.
+  ([#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050))
+- [**breaking**] Remove `TimelineEventTypeFilter` which has been replaced by
+  the more generic `TimelineEventFilter`.
+  ([#6070](https://github.com/matrix-org/matrix-rust-sdk/pull/6070/))
+- Add `TimelineEventFilter` for filtering events based on their type or
+  content. For content filtering, only membership and profile change filters
+  are available as of now.
+  ([#6048](https://github.com/matrix-org/matrix-rust-sdk/pull/6048/))
 - Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
   the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Utilize the cache and include common relations when focusing a timeline on an event without
@@ -48,6 +58,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
+  account also for v12 rooms, where creators and users with PL 150 matter.
+  ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
   client events when invoking the `subscribe_to_joined_spaces` but instead do it
   through its, now async, constructor.

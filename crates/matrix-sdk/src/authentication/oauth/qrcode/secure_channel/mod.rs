@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crypto_channel::*;
-use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode, QrCodeModeData};
+use matrix_sdk_base::crypto::types::qr_login::{
+    Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
@@ -45,12 +47,12 @@ impl SecureChannel {
     ) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
         let rendezvous_url = channel.rendezvous_url().to_owned();
-        let mode_data = QrCodeModeData::Login;
+        let intent_data = Msc4108IntentData::Login;
 
         let crypto_channel = CryptoChannel::new_ecies();
-        let public_key = crypto_channel.public_key();
 
-        let qr_code_data = QrCodeData { public_key, rendezvous_url, mode_data };
+        let public_key = crypto_channel.public_key();
+        let qr_code_data = QrCodeData::new_msc4108(public_key, rendezvous_url, intent_data);
 
         Ok(Self { channel, qr_code_data, crypto_channel })
     }
@@ -61,8 +63,14 @@ impl SecureChannel {
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
         let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
-        channel.qr_code_data.mode_data =
-            QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
+        let mode_data = Msc4108IntentData::Reciprocate { server_name: homeserver_url.to_string() };
+
+        channel.qr_code_data = QrCodeData::new_msc4108(
+            channel.crypto_channel.public_key(),
+            channel.channel.rendezvous_url().clone(),
+            mode_data,
+        );
+
         Ok(channel)
     }
 
@@ -137,13 +145,13 @@ impl EstablishedSecureChannel {
     pub(super) async fn from_qr_code(
         client: reqwest::Client,
         qr_code_data: &QrCodeData,
-        expected_mode: QrCodeMode,
+        expected_mode: QrCodeIntent,
     ) -> Result<Self, Error> {
         enum ChannelType {
             Ecies(EstablishedEcies),
         }
 
-        if qr_code_data.mode() == expected_mode {
+        if qr_code_data.intent() == expected_mode {
             Err(Error::InvalidIntent)
         } else {
             trace!("Attempting to create a new inbound secure channel from a QR code.");
@@ -158,18 +166,26 @@ impl EstablishedSecureChannel {
                 let ecies = Ecies::new();
 
                 let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key,
+                    qr_code_data.public_key(),
                     LOGIN_INITIATE_MESSAGE.as_bytes(),
                 )?;
-                (ChannelType::Ecies(ecies), message.encode().as_bytes().to_vec())
+                (ChannelType::Ecies(ecies), message.encode())
             };
 
             // The other side has crated a rendezvous channel, we're going to connect to it
             // and send this initial encrypted message through it. The initial message on
             // the rendezvous channel will have an empty body, so we can just
             // drop it.
-            let InboundChannelCreationResult { mut channel, .. } =
-                RendezvousChannel::create_inbound(client, &qr_code_data.rendezvous_url).await?;
+            let mut channel = match qr_code_data.intent_data() {
+                QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
+                    let InboundChannelCreationResult { channel, .. } =
+                        RendezvousChannel::create_inbound(client, rendezvous_url).await?;
+                    channel
+                }
+                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
+                // channel when we encounter this QR code variant.
+                QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
+            };
 
             trace!(
                 "Received the initial message from the rendezvous channel, sending the LOGIN \
@@ -230,16 +246,14 @@ impl EstablishedSecureChannel {
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.crypto_channel.seal(message.as_bytes());
+        let message = self.crypto_channel.seal(message);
 
         Ok(self.channel.send(message).await?)
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
         let message = self.channel.receive().await?;
-        let decrypted = self.crypto_channel.open(&message)?;
-
-        Ok(String::from_utf8(decrypted).map_err(|e| e.utf8_error())?)
+        self.crypto_channel.open(&message)
     }
 }
 
@@ -253,7 +267,7 @@ pub(super) mod test {
         time::Duration,
     };
 
-    use matrix_sdk_base::crypto::types::qr_login::QrCodeMode;
+    use matrix_sdk_base::crypto::types::qr_login::QrCodeIntent;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use ruma::time::Instant;
@@ -418,7 +432,7 @@ pub(super) mod test {
             EstablishedSecureChannel::from_qr_code(
                 reqwest::Client::new(),
                 &qr_code_data,
-                QrCodeMode::Login,
+                QrCodeIntent::Login,
             )
             .await
             .expect("Bob should be able to fully establish the secure channel.")

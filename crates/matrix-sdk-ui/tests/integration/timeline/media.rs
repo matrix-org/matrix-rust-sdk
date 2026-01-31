@@ -21,7 +21,11 @@ use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo};
 use matrix_sdk::{
-    assert_let_timeout, send_queue::AbstractProgress, test_utils::mocks::MatrixMockServer,
+    assert_let_timeout,
+    attachment::Thumbnail,
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    send_queue::AbstractProgress,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
     ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
@@ -41,7 +45,7 @@ use ruma::{
         MediaSource,
         message::{MessageType, TextMessageEventContent},
     },
-    room_id,
+    room_id, uint,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -352,6 +356,242 @@ async fn test_send_attachment_from_bytes() -> TestResult {
             Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
         );
         assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
+    }
+
+    // That's all, folks!
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+#[async_test]
+async fn test_send_media_with_thumbnail() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (items, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    assert!(items.is_empty());
+    assert_pending!(timeline_stream);
+
+    // The data of the file.
+    let thumbnail_data = b"hello world".to_vec();
+
+    // A mock to upload the thumbnail.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": "mxc://sdk.rs/thumbnail"
+        })))
+        .mock_once()
+        .mount()
+        .await;
+
+    // A mock to upload the media file.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": "mxc://sdk.rs/media"
+        })))
+        .mock_once()
+        .mount()
+        .await;
+
+    // A mock for sending the media event.
+    mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
+
+    // Send an attachment with a thumbnail.
+    timeline
+        .send_attachment(
+            AttachmentSource::Data { bytes: vec![1, 2, 3], filename: "image.png".to_owned() },
+            mime::IMAGE_PNG,
+            AttachmentConfig {
+                thumbnail: Some(Thumbnail {
+                    data: thumbnail_data.clone(),
+                    content_type: mime::IMAGE_PNG,
+                    height: uint!(13),
+                    width: uint!(37),
+                    size: uint!(42),
+                }),
+                ..Default::default()
+            },
+        )
+        .use_send_queue()
+        .await
+        .unwrap();
+
+    {
+        assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+        assert_let!(Some(msg) = item.content().as_message());
+
+        // Message is an image, as intended.
+        assert_let!(MessageType::Image(content) = msg.msgtype());
+        assert_eq!(content.filename(), "image.png");
+
+        // At the moment, it's stored in the media cache store, so its media source
+        // references a local URI.
+        assert_let!(MediaSource::Plain(uri) = &content.source);
+        assert!(uri.to_string().contains("localhost"));
+
+        // The thumbnail media source also has a local URI.
+        let media_info = content.info.as_ref().unwrap();
+        assert_let!(Some(MediaSource::Plain(uri)) = &media_info.thumbnail_source);
+        assert!(uri.to_string().contains("localhost"));
+
+        let thumbnail = media_info.thumbnail_info.as_ref().unwrap();
+        // Sanity checks, although we're not quite interested in these values here.
+        assert_eq!(thumbnail.height.unwrap(), uint!(13));
+        assert_eq!(thumbnail.width.unwrap(), uint!(37));
+        assert_eq!(thumbnail.size.unwrap(), uint!(42));
+        assert_eq!(thumbnail.mimetype.as_deref().unwrap(), "image/png");
+    }
+
+    // First, we get an update because the thumbnail has been uploaded.
+    {
+        assert_let_timeout!(
+            Duration::from_secs(2),
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(
+            Some(EventSendState::NotSentYet {
+                progress: Some(MediaUploadProgress { index, progress })
+            }) = item.send_state()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+
+        // Message is an image, as intended, and MXC URIs are still local.
+        assert_let!(MessageType::Image(content) = msg.msgtype());
+        assert_eq!(content.filename(), "image.png");
+
+        assert_let!(MediaSource::Plain(uri) = &content.source);
+        assert!(uri.to_string().contains("localhost"));
+
+        let media_info = content.info.as_ref().unwrap();
+        assert_let!(Some(MediaSource::Plain(uri)) = &media_info.thumbnail_source);
+        assert!(uri.to_string().contains("localhost"));
+
+        // The upload has of the thumbnail has finished, but not the media yet.
+        assert_eq!(*index, 0);
+        assert_eq!(progress.current, 1);
+        assert_eq!(progress.total, 1);
+    }
+
+    // Then, the media gets uploaded too.
+    {
+        assert_let_timeout!(
+            Duration::from_secs(2),
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(
+            Some(EventSendState::NotSentYet {
+                progress: Some(MediaUploadProgress { index, progress })
+            }) = item.send_state()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+
+        // Message is an image, as intended, and MXC URIs are still local.
+        assert_let!(MessageType::Image(content) = msg.msgtype());
+        assert_eq!(content.filename(), "image.png");
+
+        assert_let!(MediaSource::Plain(uri) = &content.source);
+        assert!(uri.to_string().contains("localhost"));
+
+        let media_info = content.info.as_ref().unwrap();
+        assert_let!(Some(MediaSource::Plain(uri)) = &media_info.thumbnail_source);
+        assert!(uri.to_string().contains("localhost"));
+
+        assert_eq!(*index, 0);
+        assert_eq!(progress.current, 1);
+        assert_eq!(progress.total, 1);
+    }
+
+    // Eventually, the media is updated with the final MXC IDs…
+    {
+        assert_let_timeout!(
+            Duration::from_secs(3),
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+
+        // Message is an image, as intended, and both MXC URIs are not local anymore.
+        assert_let!(MessageType::Image(content) = msg.msgtype());
+        assert_eq!(content.filename(), "image.png");
+
+        assert_let!(MediaSource::Plain(uri) = &content.source);
+        assert_eq!(uri.to_string(), "mxc://sdk.rs/media");
+
+        let media_info = content.info.as_ref().unwrap();
+        assert_let!(Some(MediaSource::Plain(uri)) = &media_info.thumbnail_source);
+        assert_eq!(uri.to_string(), "mxc://sdk.rs/thumbnail");
+
+        assert_let!(Some(EventSendState::NotSentYet { .. }) = item.send_state());
+    }
+
+    // And eventually the event itself is sent.
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
+            assert_eq!(event_id, event_id!("$media"));
+        });
+
+        assert_let!(Some(msg) = item.content().as_message());
+        assert_let!(MessageType::Image(content) = msg.msgtype());
+        assert_let!(
+            Some(MediaSource::Plain(thumbnail_uri)) =
+                &content.info.as_ref().unwrap().thumbnail_source
+        );
+        assert_eq!(thumbnail_uri.to_string(), "mxc://sdk.rs/thumbnail");
+
+        // Now, getting the thumbnail should be a cache hit and not require an extra
+        // endpoint to be set up; the test will fail with a 404 error if there's
+        // a cache miss.
+        let use_cache = true;
+        let retrieved_thumbnail_data = client
+            .media()
+            .get_media_content(
+                &MediaRequestParameters {
+                    source: MediaSource::Plain(thumbnail_uri.clone()),
+                    format: MediaFormat::File,
+                },
+                use_cache,
+            )
+            .await
+            .unwrap();
+        // And the thumbnail data matches what we've sent.
+        assert_eq!(retrieved_thumbnail_data, thumbnail_data);
+
+        // Another way to get the thumbnail data is to request a thumbnail with the same
+        // sizes as the ones we've sent during the upload.
+        let retrieved_thumbnail_data = client
+            .media()
+            .get_media_content(
+                &MediaRequestParameters {
+                    source: MediaSource::Plain(thumbnail_uri.clone()),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                        uint!(37),
+                        uint!(13),
+                    )),
+                },
+                use_cache,
+            )
+            .await
+            .unwrap();
+        // And the thumbnail data still matches what we've sent.
+        assert_eq!(retrieved_thumbnail_data, thumbnail_data);
+
+        // Since it's sent, it's inserted in the Event Cache, and reinserted as a
+        // remote event.
+        assert_let_timeout!(Some(VectorDiff::Remove { index: 0 }) = timeline_stream.next());
+        assert_let_timeout!(Some(VectorDiff::PushFront { value: item }) = timeline_stream.next());
+        assert_eq!(item.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!

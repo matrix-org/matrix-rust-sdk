@@ -76,6 +76,49 @@ pub enum DecryptionError {
     Store { error: String },
 }
 
+/// Error describing what went wrong when exporting a [`SecretsBundle`].
+///
+/// The [`SecretsBundle`] can only be exported if we have all cross-signing
+/// private keys in the store.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum SecretsBundleExportError {
+    /// The store itself had an error.
+    #[error(transparent)]
+    CryptoStore(CryptoStoreError),
+    /// We're missing one or more cross-signing keys.
+    #[error("The store doesn't contain all the cross-signing keys")]
+    MissingCrossSigningKeys,
+    /// We have a backup key stored, but we don't know the version of the
+    /// backup.
+    #[error("The store contains a backup key, but no backup version")]
+    MissingBackupVersion,
+    #[error("serialization error: {error}")]
+    Serialization { error: String },
+}
+
+impl From<matrix_sdk_crypto::store::SecretsBundleExportError> for SecretsBundleExportError {
+    fn from(value: matrix_sdk_crypto::store::SecretsBundleExportError) -> Self {
+        match value {
+            matrix_sdk_crypto::store::SecretsBundleExportError::Store(e) => {
+                Self::CryptoStore(e.into())
+            }
+            matrix_sdk_crypto::store::SecretsBundleExportError::MissingCrossSigningKey(_)
+            | matrix_sdk_crypto::store::SecretsBundleExportError::MissingCrossSigningKeys => {
+                Self::MissingCrossSigningKeys
+            }
+            matrix_sdk_crypto::store::SecretsBundleExportError::MissingBackupVersion => {
+                Self::MissingBackupVersion
+            }
+        }
+    }
+}
+
+impl From<serde_json::Error> for SecretsBundleExportError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Serialization { error: err.to_string() }
+    }
+}
+
 impl From<MegolmError> for DecryptionError {
     fn from(value: MegolmError) -> Self {
         match &value {

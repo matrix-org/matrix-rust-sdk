@@ -52,44 +52,6 @@ fn get_header(
     Ok(header)
 }
 
-/// The result of the [`RendezvousChannel::create_inbound()`] method.
-pub(super) struct InboundChannelCreationResult {
-    /// The connected [`RendezvousChannel`].
-    pub channel: RendezvousChannel,
-    /// The initial message we received when we connected to the
-    /// [`RendezvousChannel`].
-    ///
-    /// This is currently unused, but left in for completeness sake.
-    #[allow(dead_code)]
-    pub initial_message: Vec<u8>,
-}
-
-struct RendezvousGetResponse {
-    pub status_code: StatusCode,
-    pub etag: String,
-    // TODO: This is currently unused, but will be required once we implement the reciprocation of
-    // a login. Left here so we don't forget about it. We should put this into the
-    // [`RendezvousChannel`] struct, once we parse it into a [`SystemTime`].
-    #[allow(dead_code)]
-    pub expires: String,
-    #[allow(dead_code)]
-    pub last_modified: String,
-    pub content_type: Option<String>,
-    pub body: Vec<u8>,
-}
-
-struct RendezvousMessage {
-    pub status_code: StatusCode,
-    pub body: Vec<u8>,
-    pub content_type: String,
-}
-
-pub(super) struct RendezvousChannel {
-    client: HttpClient,
-    rendezvous_url: Url,
-    etag: Etag,
-}
-
 fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
     match http::Response::builder().status(status).body(body).map_err(IntoHttpError::from) {
         Ok(response) => {
@@ -103,7 +65,42 @@ fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
     }
 }
 
-impl RendezvousChannel {
+/// The result of the [`RendezvousChannel::create_inbound()`] method.
+pub(super) struct InboundChannelCreationResult {
+    /// The connected [`RendezvousChannel`].
+    pub channel: Channel,
+    /// The initial message we received when we connected to the
+    /// [`RendezvousChannel`].
+    ///
+    /// This is currently unused, but left in for completeness sake.
+    #[allow(dead_code)]
+    pub initial_message: Vec<u8>,
+}
+
+pub(super) struct RendezvousGetResponse {
+    pub status_code: StatusCode,
+    pub etag: String,
+    #[allow(dead_code)]
+    pub expires: String,
+    #[allow(dead_code)]
+    pub last_modified: String,
+    pub content_type: Option<String>,
+    pub body: Vec<u8>,
+}
+
+pub(super) struct RendezvousMessage {
+    pub status_code: StatusCode,
+    pub body: Vec<u8>,
+    pub content_type: String,
+}
+
+pub struct Channel {
+    client: HttpClient,
+    rendezvous_url: Url,
+    etag: Etag,
+}
+
+impl Channel {
     /// Create a new outbound [`RendezvousChannel`].
     ///
     /// By outbound we mean that we're going to tell the Matrix server to create
@@ -343,7 +340,7 @@ mod test {
 
         let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
 
-        let mut alice = RendezvousChannel::create_outbound(client, &url)
+        let mut alice = Channel::create_outbound(client, &url)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 
@@ -370,7 +367,7 @@ mod test {
 
             let client = HttpClient::new(reqwest::Client::new(), RequestConfig::short_retry());
             let InboundChannelCreationResult { channel: bob, initial_message: _ } =
-                RendezvousChannel::create_inbound(client, &rendezvous_url).await.expect(
+                Channel::create_inbound(client, &rendezvous_url).await.expect(
                     "We should be able to create a rendezvous channel from a received message",
                 );
 
@@ -463,7 +460,7 @@ mod test {
 
         let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
 
-        let mut alice = RendezvousChannel::create_outbound(client, &url)
+        let mut alice = Channel::create_outbound(client, &url)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 
@@ -520,7 +517,7 @@ mod test {
 
         let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
 
-        let mut alice = RendezvousChannel::create_outbound(client, &url)
+        let mut alice = Channel::create_outbound(client, &url)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 

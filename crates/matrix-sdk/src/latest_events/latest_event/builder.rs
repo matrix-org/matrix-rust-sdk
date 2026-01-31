@@ -34,7 +34,7 @@ use ruma::{
 };
 use tracing::error;
 
-use crate::{event_cache::RoomEventCache, send_queue::RoomSendQueueUpdate};
+use crate::{Room, event_cache::RoomEventCache, room::Invite, send_queue::RoomSendQueueUpdate};
 
 /// A builder of [`LatestEventValue`]s.
 pub(super) struct Builder;
@@ -92,6 +92,33 @@ impl Builder {
             }
 
             current_value_must_be_erased.then(LatestEventValue::default)
+        }
+    }
+
+    pub async fn new_remote_for_invite(room: &Room) -> LatestEventValue {
+        let (event_id, timestamp, inviter_id) = room
+            .invite_details()
+            .await
+            .map(|Invite { invitee, inviter_id, .. }| {
+                let event = invitee.event();
+
+                (
+                    // If the event is a stripped state event, it has no event ID. This is
+                    // acceptable.
+                    event.event_id().map(ToOwned::to_owned),
+                    event.timestamp().map(MilliSecondsSinceUnixEpoch),
+                    Some(inviter_id),
+                )
+            })
+            .unwrap_or_else(|_| (None, None, None));
+
+        LatestEventValue::RemoteInvite {
+            event_id,
+            // If the event is a stripped state event, it has no timestamp, let's
+            // use `now` as a fallback so that the `LatestEventValue` can be used to
+            // sort rooms in a room list for example.
+            timestamp: timestamp.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+            inviter: inviter_id,
         }
     }
 
@@ -219,7 +246,7 @@ impl Builder {
                             | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
                                 return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value });
                             }
-                            LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
+                            LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         }
                     }
                 }

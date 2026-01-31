@@ -54,8 +54,8 @@ use matrix_sdk_ui::{
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
     timeline::{
-        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder, TimelineFocus,
-        TimelineItem,
+        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder,
+        TimelineEventFocusThreadMode, TimelineFocus, TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -973,7 +973,7 @@ async fn test_thread_focused_timeline() -> TestResult {
         .with_focus(TimelineFocus::Event {
             target: thread_reply_event_id.clone(),
             num_context_events: 42,
-            hide_threaded_events: false,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
         })
         .build()
         .await?;
@@ -1337,7 +1337,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
         .with_focus(TimelineFocus::Event {
             target: event_id.to_owned(),
             num_context_events: 1,
-            hide_threaded_events: true,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
         })
         .build()
         .await?;

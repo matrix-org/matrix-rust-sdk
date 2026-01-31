@@ -47,7 +47,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle, room::SpaceRoomChildState};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
@@ -501,7 +501,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
                         None
                     }
                 }).for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
@@ -526,7 +526,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
                         None
                     }
                 }).for_each(|child| graph.add_edge(space.room_id().to_owned(), child));
@@ -675,7 +675,10 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
         event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, UserId, event_id, owned_room_id, room_id};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, RoomVersionId, UserId, event_id, owned_room_id, room_id,
+        serde::Raw,
+    };
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
 
@@ -1621,5 +1624,115 @@ mod tests {
         parents: Vec<&'static RoomId>,
         children: Vec<&'static RoomId>,
         power_level: Option<i32>,
+    }
+
+    #[async_test]
+    async fn test_space_child_updates() {
+        // Test child updates received via sync.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_id = room_id!("!space:localhost");
+        let first_child_id = room_id!("!first_child:localhost");
+        let second_child_id = room_id!("!second_child:localhost");
+
+        // The space is joined.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V11).with_space_type()),
+            )
+            .await;
+
+        // Build the `SpaceService` and expect the room to show up with no updates
+        // pending
+        let space_service = SpaceService::new(client.clone()).await;
+
+        let (initial_values, joined_spaces_subscriber) =
+            space_service.subscribe_to_top_level_joined_spaces().await;
+        pin_mut!(joined_spaces_subscriber);
+        assert_pending!(joined_spaces_subscriber);
+
+        assert_eq!(
+            initial_values,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)].into()
+        );
+
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)]
+        );
+
+        // Two children are added.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id)
+                    .add_state_event(
+                        factory
+                            .space_child(space_id.to_owned(), first_child_id.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_child(space_id.to_owned(), second_child_id.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        // And expect the list to update.
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
+        );
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
+                        .into()
+                },
+            ]
+        );
+
+        // Then remove a child by replacing the state event with an empty one.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id).add_state_bulk([Raw::new(&json!({
+                    "content": {},
+                    "type": "m.space.child",
+                    "event_id": "$cancelsecondchild",
+                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                    "sender": user_id,
+                    "state_key": second_child_id,
+                }))
+                .unwrap()
+                .cast_unchecked()]),
+            )
+            .await;
+
+        // And expect the list to update.
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
+        );
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
+                        .into()
+                },
+            ]
+        );
     }
 }

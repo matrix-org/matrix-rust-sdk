@@ -7,6 +7,7 @@ use matrix_sdk::authentication::oauth::{
     },
     OAuth,
 };
+use matrix_sdk_base::crypto::types::qr_login;
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 
 use crate::{
@@ -244,13 +245,18 @@ impl QrCodeData {
 
     /// The server name contained within the scanned QR code data.
     ///
-    /// Note: This value is only present when scanning a QR code the belongs to
+    /// Note: This value is only present when scanning a QR code that belongs to
     /// a logged in client. The mode where the new client shows the QR code
     /// will return `None`.
     pub fn server_name(&self) -> Option<String> {
-        match &self.inner.mode_data {
-            qrcode::QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
-            qrcode::QrCodeModeData::Login => None,
+        match &self.inner.intent_data() {
+            qr_login::QrCodeIntentData::Msc4108 { data, .. } => match data {
+                qrcode::Msc4108IntentData::Login => None,
+                qrcode::Msc4108IntentData::Reciprocate { server_name } => {
+                    Some(server_name.to_owned())
+                }
+            },
+            qr_login::QrCodeIntentData::Msc4388 { .. } => None,
         }
     }
 }
@@ -322,7 +328,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                | SecureChannelError::RendezvousChannel(_)
+                | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode

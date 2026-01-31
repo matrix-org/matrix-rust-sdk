@@ -67,7 +67,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 13;
+const DATABASE_VERSION: u8 = 14;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -492,6 +492,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
             ))?;
             txn.set_db_version(13)
+        })
+        .await?;
+    }
+
+    if version < 14 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
+            ))?;
+            txn.set_db_version(14)
         })
         .await?;
     }
@@ -1647,14 +1657,15 @@ mod tests {
             Gap,
             store::{
                 EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-                integration_tests::EventCacheStoreIntegrationTests,
+                integration_tests::{EventCacheStoreIntegrationTests, make_test_event_with_event_id},
             },
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
-        linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
+        linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
+    use ruma::event_id;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1882,6 +1893,84 @@ mod tests {
         // rolled back.
         let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
+    }
+
+    #[async_test]
+    async fn test_event_chunks_allows_same_event_in_room_and_thread() {
+        // This test verifies that the same event can appear in both a room's linked
+        // chunk and a thread's linked chunk. This is the real-world use case:
+        // a thread reply appears in both the main room timeline and the thread.
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let event = make_test_event_with_event_id(
+            room_id,
+            "thread reply",
+            Some(event_id!("$thread_reply")),
+        );
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the event into the room's linked chunk.
+        store
+            .handle_linked_chunk_updates(
+                room_linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Insert the same event into the thread's linked chunk.
+        store
+            .handle_linked_chunk_updates(
+                thread_linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Verify both entries exist by loading chunks from both linked chunk IDs.
+        let room_chunks = store.load_all_chunks(room_linked_chunk_id).await.unwrap();
+        let thread_chunks = store.load_all_chunks(thread_linked_chunk_id).await.unwrap();
+
+        assert_eq!(room_chunks.len(), 1);
+        assert_eq!(thread_chunks.len(), 1);
+
+        // Verify the event is in both.
+        assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+        });
+        assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+        });
     }
 }
 

@@ -320,7 +320,7 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
 
     let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-    let (session, content) =
+    let (session, content, _) =
         bob_device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await.unwrap();
     alice.store().save_sessions(&[session]).await.unwrap();
 

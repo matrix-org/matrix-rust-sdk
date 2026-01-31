@@ -773,21 +773,6 @@ impl Media {
         }
     }
 
-    /// Create a [`MediaRequest`] for a file we want to store locally before
-    /// sending it.
-    ///
-    /// This uses a MXC ID that is only locally valid.
-    pub(crate) fn make_local_thumbnail_media_request(
-        txn_id: &TransactionId,
-        height: UInt,
-        width: UInt,
-    ) -> MediaRequestParameters {
-        MediaRequestParameters {
-            source: MediaSource::Plain(Self::make_local_uri(txn_id)),
-            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
-        }
-    }
-
     /// Returns the local MXC URI contained by the given source, if any.
     ///
     /// A local MXC URI is a URI that was generated with `make_local_uri`.
@@ -809,7 +794,7 @@ mod tests {
     use ruma::{
         MxcUri,
         events::room::{EncryptedFile, MediaSource},
-        mxc_uri, owned_mxc_uri, uint,
+        mxc_uri, owned_mxc_uri,
     };
     use serde_json::json;
 
@@ -843,12 +828,6 @@ mod tests {
 
         // Request generated with `make_local_file_media_request`.
         let request = Media::make_local_file_media_request(txn_id.into());
-        assert_matches!(Media::as_local_uri(&request.source), Some(uri));
-        assert_eq!(uri.media_id(), Ok(txn_id));
-
-        // Request generated with `make_local_thumbnail_media_request`.
-        let request =
-            Media::make_local_thumbnail_media_request(txn_id.into(), uint!(100), uint!(100));
         assert_matches!(Media::as_local_uri(&request.source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 

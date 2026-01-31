@@ -52,7 +52,5 @@ allow-git = [
     # on releases.
     "https://github.com/matrix-org/vodozemac",
     # A patch override for the bindings: https://github.com/Alorel/rust-indexed-db/pull/72
-    "https://github.com/matrix-org/rust-indexed-db",
-    # A patch to fixing the bindings not being usable for test in Kotlin https://github.com/mozilla/uniffi-rs/pull/2713
-    "https://github.com/mozilla/uniffi-rs"
+    "https://github.com/matrix-org/rust-indexed-db"
 ]

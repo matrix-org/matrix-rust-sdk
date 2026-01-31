@@ -259,10 +259,10 @@ impl Room {
                 });
             }
 
-            TimelineFilter::EventTypeFilter { filter: event_type_filter } => {
+            TimelineFilter::EventFilter { filter: event_filter } => {
                 builder = builder.event_filter(move |event, room_version_id| {
                     // Always perform the default filter first
-                    default_event_filter(event, room_version_id) && event_type_filter.filter(event)
+                    default_event_filter(event, room_version_id) && event_filter.filter(event)
                 });
             }
         }

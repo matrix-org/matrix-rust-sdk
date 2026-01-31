@@ -72,9 +72,9 @@ mod builder;
 mod controller;
 mod date_dividers;
 mod error;
+pub mod event_filter;
 mod event_handler;
 mod event_item;
-pub mod event_type_filter;
 pub mod futures;
 mod item;
 mod latest_event;
@@ -91,6 +91,7 @@ pub use self::{
     builder::TimelineBuilder,
     controller::default_event_filter,
     error::*,
+    event_filter::{TimelineEventCondition, TimelineEventFilter},
     event_item::{
         AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MediaUploadProgress,
@@ -100,7 +101,6 @@ pub use self::{
         ThreadSummary, TimelineDetails, TimelineEventItemId, TimelineEventShieldState,
         TimelineEventShieldStateCode, TimelineItemContent,
     },
-    event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     latest_event::{LatestEventValue, LatestEventValueLocalState},
     traits::RoomExt,
@@ -142,11 +142,8 @@ pub enum TimelineFocus {
     Event {
         target: OwnedEventId,
         num_context_events: u16,
-        /// Whether to hide in-thread replies from the live timeline.
-        ///
-        /// This should be set to true when the client can create
-        /// [`Self::Thread`]-focused timelines from the thread roots themselves.
-        hide_threaded_events: bool,
+        /// How to handle threaded events.
+        thread_mode: TimelineEventFocusThreadMode,
     },
 
     /// Focus on a specific thread
@@ -154,6 +151,31 @@ pub enum TimelineFocus {
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
+}
+
+/// Options for controlling the behaviour of [`TimelineFocus::Event`]
+/// for threaded events.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimelineEventFocusThreadMode {
+    /// Force the timeline into threaded mode. When the focused event is part of
+    /// a thread, the timeline will be focused on that thread's root. Otherwise,
+    /// the timeline will treat the target event itself as the thread root.
+    /// Threaded events will never be hidden.
+    ForceThread,
+    /// Automatically determine if the target event is
+    /// part of a thread or not. If the event is part of a thread, the timeline
+    /// will be filtered to on-thread events.
+    Automatic {
+        /// When the target event is not part of a thread, whether to
+        /// hide in-thread replies from the live timeline. Has no effect
+        /// when the target event is part of a thread.
+        ///
+        /// This should be set to true when the client can create
+        /// [`TimelineFocus::Thread`]-focused timelines from the thread roots
+        /// themselves and doesn't use the [`Self::ForceThread`] mode.
+        hide_threaded_events: bool,
+    },
 }
 
 impl TimelineFocus {

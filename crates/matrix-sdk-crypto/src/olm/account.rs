@@ -28,9 +28,9 @@ use matrix_sdk_common::deserialized_responses::{
 #[cfg(test)]
 use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
-    OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, UInt, UserId,
+    CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
+    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
+    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -38,14 +38,12 @@ use ruma::{
             upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
         },
     },
+    canonical_json::to_canonical_value,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::Error};
-use serde_json::{
-    Value,
-    value::{RawValue as RawJsonValue, to_raw_value},
-};
+use serde_json::value::{RawValue as RawJsonValue, to_raw_value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
@@ -792,7 +790,7 @@ impl Account {
         // Create a copy of the device keys containing only fields that will
         // get signed.
         let json_device_keys =
-            serde_json::to_value(&device_keys).expect("device key is always safe to serialize");
+            to_canonical_value(&device_keys).expect("device key is always safe to serialize");
         let signature = self
             .sign_json(json_device_keys)
             .expect("Newly created device keys can always be signed");
@@ -837,9 +835,7 @@ impl Account {
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
-        #[allow(clippy::needless_borrows_for_generic_args)]
-        // XXX: false positive, see https://github.com/rust-lang/rust-clippy/issues/12856
-        let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?)?;
+        let signature = self.sign_json(to_canonical_value(&cross_signing_key)?)?;
 
         cross_signing_key.signatures.add_signature(
             self.user_id().to_owned(),
@@ -876,7 +872,7 @@ impl Account {
     ///
     /// * `json` - The value that should be converted into a canonical JSON
     ///   string.
-    pub fn sign_json(&self, json: Value) -> Result<Ed25519Signature, SignatureError> {
+    pub fn sign_json(&self, json: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(json)
     }
 
@@ -932,7 +928,7 @@ impl Account {
         };
 
         let signature = self
-            .sign_json(serde_json::to_value(&key).expect("Can't serialize a signed key"))
+            .sign_json(to_canonical_value(&key).expect("Can't serialize a signed key"))
             .expect("Newly created one-time keys can always be signed");
 
         key.signatures_mut().add_signature(

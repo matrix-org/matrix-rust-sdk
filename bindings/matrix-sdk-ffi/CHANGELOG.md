@@ -23,6 +23,18 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
+  event as the root of a thread.
+  [#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050)
+- [**breaking**] Remove `TimelineFilter::EventTypeFilter` which has been replaced by
+  the more generic `TimelineFilter::EventFilter`. Users of `TimelineEventTypeFilter::include`
+  and `TimelineEventTypeFilter::exclude` can switch to `TimelineEventFilter::include_event_types`
+  and `TimelineEventFilter::exclude_event_types`.
+  ([#6070](https://github.com/matrix-org/matrix-rust-sdk/pull/6070/))
+- Add `TimelineFilter::EventFilter` for filtering events based on their type or
+  content. For content filtering, only membership and profile change filters
+  are available as of now.
+  ([#6048](https://github.com/matrix-org/matrix-rust-sdk/pull/6048/))
 - Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
   the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Expose room power level thresholds in `OtherState::RoomPowerLevels` (ban, kick, invite, redact, state &
@@ -54,6 +66,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
+  account also for v12 rooms, where creators and users with PL 150 matter.
+  ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
 - [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the 
   actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the 
   event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))

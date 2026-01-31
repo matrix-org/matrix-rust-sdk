@@ -100,7 +100,7 @@ via a phone call.)
 
 Usually each *end* will need to verify every *end* it communicates with. An
 *end* is represented as a [`Device`] in the matrix-sdk. This gets rather
-complicated quickly as is shown bellow, with Alice and Bob each having two
+complicated quickly as is shown below, with Alice and Bob each having two
 devices. Each arrow represents who needs to verify whom for the
 communication between Alice and Bob to be considered secure.
 

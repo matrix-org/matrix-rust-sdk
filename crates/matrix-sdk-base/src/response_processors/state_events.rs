@@ -14,40 +14,41 @@
 
 use std::collections::BTreeSet;
 
+use as_variant::as_variant;
 use ruma::{
     RoomId,
-    events::{
-        AnySyncStateEvent, SyncStateEvent,
-        room::{create::RoomCreateEventContent, tombstone::RoomTombstoneEventContent},
-    },
+    events::{AnySyncStateEvent, SyncStateEvent},
     serde::Raw,
 };
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::Context;
-use crate::store::BaseStateStore;
+#[cfg(feature = "experimental-encrypted-state-events")]
+use super::e2ee;
+use crate::{store::BaseStateStore, utils::RawSyncStateEventWithKeys};
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
-    use std::{collections::BTreeSet, iter};
+    use std::collections::BTreeSet;
 
+    use as_variant::as_variant;
     use ruma::{
         OwnedUserId, RoomId, UserId,
         events::{
-            AnySyncTimelineEvent, SyncStateEvent,
-            room::member::{MembershipState, RoomMemberEventContent},
+            AnySyncStateEvent, AnySyncTimelineEvent, StateEventType, room::member::MembershipState,
         },
     };
-    use tracing::{error, instrument};
+    use tracing::instrument;
 
-    use super::{super::profiles, AnySyncStateEvent, Context, Raw};
+    use super::{super::profiles, Context, Raw};
     #[cfg(feature = "experimental-encrypted-state-events")]
     use crate::response_processors::e2ee;
     use crate::{
-        RoomInfo,
+        RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
+        utils::RawSyncStateEventWithKeys,
     };
 
     impl State {
@@ -58,18 +59,23 @@ pub mod sync {
         pub(crate) fn collect(
             &self,
             timeline: &[Raw<AnySyncTimelineEvent>],
-        ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+        ) -> Vec<RawSyncStateEventWithKeys> {
             match self {
-                Self::Before(events) => {
-                    super::collect(events.iter().chain(timeline.iter().filter_map(|raw_event| {
-                        // Only state events have a `state_key` field.
-                        match raw_event.get_field::<&str>("state_key") {
-                            Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
-                            _ => None,
-                        }
-                    })))
-                }
-                Self::After(events) => super::collect(events),
+                Self::Before(events) => events
+                    .iter()
+                    .cloned()
+                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .chain(
+                        timeline
+                            .iter()
+                            .filter_map(RawSyncStateEventWithKeys::try_from_raw_timeline_event),
+                    )
+                    .collect(),
+                Self::After(events) => events
+                    .iter()
+                    .cloned()
+                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .collect(),
             }
         }
     }
@@ -86,7 +92,7 @@ pub mod sync {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub async fn dispatch<U>(
         context: &mut Context,
-        (raw_events, events): (&[Raw<AnySyncStateEvent>], &[AnySyncStateEvent]),
+        raw_events: Vec<RawSyncStateEventWithKeys>,
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
@@ -96,49 +102,41 @@ pub mod sync {
     where
         U: NewUsers,
     {
-        for (raw_event, event) in iter::zip(raw_events, events) {
-            match event {
-                AnySyncStateEvent::RoomMember(member) => {
-                    room_info.handle_state_event(event);
+        for mut raw_event in raw_events {
+            match (&raw_event.event_type, raw_event.state_key.as_str()) {
+                (StateEventType::RoomMember, _) => {
+                    room_info.handle_state_event(&mut raw_event);
 
                     dispatch_room_member(
                         context,
                         &room_info.room_id,
-                        member,
+                        &mut raw_event,
                         ambiguity_cache,
                         new_users,
                     )
                     .await?;
                 }
 
-                AnySyncStateEvent::RoomCreate(create) => {
-                    let edited_create = super::validate_create_event_predecessor(
+                (StateEventType::RoomCreate, "") => {
+                    super::validate_create_event_predecessor(
                         context,
-                        room_info.room_id(),
-                        create,
+                        &room_info.room_id,
+                        &mut raw_event,
                         state_store,
                     );
 
-                    room_info.handle_state_event(
-                        edited_create.map(Into::into).as_ref().unwrap_or(event),
-                    );
+                    room_info.handle_state_event(&mut raw_event);
                 }
 
-                AnySyncStateEvent::RoomTombstone(tombstone) => {
+                (StateEventType::RoomTombstone, "") => {
                     if super::is_tombstone_event_valid(
                         context,
-                        room_info.room_id(),
-                        tombstone,
+                        &room_info.room_id,
+                        &mut raw_event,
                         state_store,
                     ) {
-                        room_info.handle_state_event(event);
+                        room_info.handle_state_event(&mut raw_event);
                     } else {
-                        error!(
-                            room_id = ?room_info.room_id(),
-                            ?tombstone,
-                            "`m.room.tombstone` event is invalid, it creates a loop"
-                        );
-
                         // Do not add the event to `room_info`.
                         // Do not add the event to `context.state_changes.state`.
                         continue;
@@ -146,56 +144,18 @@ pub mod sync {
                 }
 
                 #[cfg(feature = "experimental-encrypted-state-events")]
-                AnySyncStateEvent::RoomEncrypted(SyncStateEvent::Original(outer)) => {
-                    use matrix_sdk_crypto::RoomEventDecryptionResult;
-                    use tracing::{trace, warn};
-
-                    trace!(event_id = ?outer.event_id, "Received encrypted state event, attempting decryption...");
-
-                    let Some(olm_machine) = e2ee.olm_machine else {
-                        continue;
-                    };
-
-                    let decrypted_event = olm_machine
-                        .try_decrypt_room_event(
-                            raw_event.cast_ref_unchecked(),
-                            &room_info.room_id,
-                            e2ee.decryption_settings,
-                        )
-                        .await
-                        .expect("OlmMachine was not started");
-
-                    // Skip state events that failed to decrypt.
-                    let RoomEventDecryptionResult::Decrypted(decrypted_event) = decrypted_event
+                (StateEventType::RoomEncrypted, _) => {
+                    let Some(mut raw_event) =
+                        super::decrypt_state_event(&mut raw_event, &room_info.room_id, &e2ee).await
                     else {
-                        warn!(event_id = ?outer.event_id, "Failed to decrypt state event");
                         continue;
                     };
 
-                    // Cast to `AnySyncTimelineEvent`, safe since this is a supertype of
-                    // `AnyTimelineEvent`.
-                    let deserialized_event = match decrypted_event
-                        .event
-                        .deserialize_as::<AnySyncTimelineEvent>()
-                    {
-                        Ok(event) => event,
-                        Err(err) => {
-                            warn!(event_id = ?outer.event_id, "Failed to decrypt state event: {err}");
-                            continue;
-                        }
-                    };
-
-                    // Ensure decrypted event is actually a state event.
-                    let AnySyncTimelineEvent::State(event) = deserialized_event else {
-                        continue;
-                    };
-
-                    trace!(event_id = ?outer.event_id, "Decrypted state event successfully.");
-                    room_info.handle_state_event(&event);
+                    room_info.handle_state_event(&mut raw_event);
                 }
 
                 _ => {
-                    room_info.handle_state_event(event);
+                    room_info.handle_state_event(&mut raw_event);
                 }
             }
 
@@ -204,9 +164,9 @@ pub mod sync {
                 .state
                 .entry(room_info.room_id.to_owned())
                 .or_default()
-                .entry(event.event_type())
+                .entry(raw_event.event_type)
                 .or_default()
-                .insert(event.state_key().to_owned(), raw_event.clone());
+                .insert(raw_event.state_key, raw_event.raw);
         }
 
         Ok(())
@@ -216,13 +176,19 @@ pub mod sync {
     async fn dispatch_room_member<U>(
         context: &mut Context,
         room_id: &RoomId,
-        event: &SyncStateEvent<RoomMemberEventContent>,
+        raw_event: &mut RawSyncStateEventWithKeys,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
     ) -> StoreResult<()>
     where
         U: NewUsers,
     {
+        let Some(event) = raw_event
+            .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomMember))
+        else {
+            return Ok(());
+        };
+
         ambiguity_cache.handle_event(&context.state_changes, room_id, event).await?;
 
         match event.membership() {
@@ -252,20 +218,60 @@ pub mod sync {
     impl NewUsers for () {
         fn insert(&mut self, _user_id: &UserId) {}
     }
+
+    /// Find any `m.room.member` events that refer to the current user, and emit
+    /// a membership update accordingly, plus update the state in `room_info` to
+    /// reflect the "membership" property.
+    pub fn own_membership_and_update_room_state(
+        context: &mut Context,
+        user_id: &UserId,
+        state_events: &mut [RawSyncStateEventWithKeys],
+        room_info: &mut RoomInfo,
+    ) {
+        // Start from the last event; the first membership event we see in that order is
+        // the last in the regular order, so that's the only one we need to
+        // consider.
+        if let Some(member) = state_events.iter_mut().rev().find_map(|event| {
+            // Find the event that updates the current user's membership.
+            if event.event_type == StateEventType::RoomMember
+                && event.state_key.as_str() == user_id
+                && let Some(member) = event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomMember)
+                })
+            {
+                Some(member)
+            } else {
+                None
+            }
+        }) {
+            let new_state: RoomState = member.membership().into();
+
+            if new_state != room_info.state() {
+                room_info.set_state(new_state);
+
+                // Update an existing notable update entry or create a new one
+                context
+                    .room_info_notable_updates
+                    .entry(room_info.room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            }
+        }
+    }
 }
 
 /// Collect [`AnyStrippedStateEvent`].
 pub mod stripped {
     use std::{collections::BTreeMap, iter};
 
-    use ruma::{events::AnyStrippedStateEvent, push::Action};
+    use ruma::{RoomId, UserId, events::AnyStrippedStateEvent, push::Action};
     use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
         Context, Raw,
     };
-    use crate::{Result, Room, RoomInfo};
+    use crate::{Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
 
     /// Collect [`Raw<AnyStrippedStateEvent>`] to [`AnyStrippedStateEvent`].
     pub fn collect(
@@ -296,17 +302,21 @@ pub mod stripped {
         (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
         room: &Room,
         room_info: &mut RoomInfo,
+        user_id: &UserId,
         mut notification: notification::Notification<'_>,
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_stripped_state_event(event);
+
             state_events
                 .entry(event.event_type())
                 .or_insert_with(BTreeMap::new)
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
+
+        own_membership(context, room.room_id(), user_id, events);
 
         context
             .state_changes
@@ -332,6 +342,36 @@ pub mod stripped {
 
         Ok(())
     }
+
+    /// Find any `m.room.member` events that refer to the current user, and emit
+    /// a membership update accordingly.
+    pub fn own_membership(
+        context: &mut Context,
+        room_id: &RoomId,
+        user_id: &UserId,
+        state_events: &[AnyStrippedStateEvent],
+    ) {
+        // Start from the last event; the first membership event we see in that order is
+        // the last in the regular order, so that's the only one we need to
+        // consider.
+        if state_events.iter().rev().any(|event| {
+            // Find the event that updates the current user's membership.
+            if let AnyStrippedStateEvent::RoomMember(member) = &event
+                && member.state_key.as_str() == user_id.as_str()
+            {
+                true
+            } else {
+                false
+            }
+        }) {
+            // Update an existing notable update entry or create a new one
+            context
+                .room_info_notable_updates
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        }
+    }
 }
 
 fn collect<'a, I, T>(raw_events: I) -> (Vec<Raw<T>>, Vec<T>)
@@ -354,15 +394,21 @@ where
 /// Check if the `predecessor` in `m.room.create` isn't creating a loop of
 /// rooms.
 ///
-/// If it is, we return a clone of the event with the predecessor removed.
+/// If it is, we edit the cached event in `raw_event` to remove the predecessor.
 pub fn validate_create_event_predecessor(
     context: &mut Context,
     room_id: &RoomId,
-    event: &SyncStateEvent<RoomCreateEventContent>,
+    raw_event: &mut RawSyncStateEventWithKeys,
     state_store: &BaseStateStore,
-) -> Option<SyncStateEvent<RoomCreateEventContent>> {
+) {
     let mut already_seen = BTreeSet::new();
     already_seen.insert(room_id.to_owned());
+
+    let Some(event) =
+        raw_event.deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomCreate))
+    else {
+        return;
+    };
 
     // Redacted and non-redacted create events use the same content type.
     let content = match event {
@@ -374,7 +420,7 @@ pub fn validate_create_event_predecessor(
         content.predecessor.as_ref().map(|predecessor| predecessor.room_id.clone())
     else {
         // No predecessor = no problem here.
-        return None;
+        return;
     };
 
     loop {
@@ -391,7 +437,9 @@ pub fn validate_create_event_predecessor(
                 SyncStateEvent::Redacted(event) => event.content.predecessor.take(),
             };
 
-            return Some(event);
+            raw_event.set_cached_event(event.into());
+
+            return;
         }
 
         already_seen.insert(predecessor_room_id.clone());
@@ -415,32 +463,34 @@ pub fn validate_create_event_predecessor(
 
         predecessor_room_id = next_predecessor_room_id;
     }
-
-    None
 }
 
 /// Check if `m.room.tombstone` isn't creating a loop of rooms.
 pub fn is_tombstone_event_valid(
     context: &mut Context,
     room_id: &RoomId,
-    event: &SyncStateEvent<RoomTombstoneEventContent>,
+    raw_event: &mut RawSyncStateEventWithKeys,
     state_store: &BaseStateStore,
 ) -> bool {
     let mut already_seen = BTreeSet::new();
     already_seen.insert(room_id.to_owned());
 
-    let Some(mut successor_room_id) =
-        event.as_original().map(|event| event.content.replacement_room.clone())
+    let Some(tombstone) = raw_event
+        .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomTombstone))
+        .and_then(|event| Some(&event.as_original()?.content))
     else {
         // `true` means no problem. No successor = no problem here.
         return true;
     };
+
+    let mut successor_room_id = tombstone.replacement_room.clone();
 
     loop {
         // We must check immediately if the `successor_room_id` is in `already_seen` in
         // case of a room is created and tombstones itself in a single sync.
         if already_seen.contains(AsRef::<RoomId>::as_ref(&successor_room_id)) {
             // Ahhh, there is a loop with `m.room.tombstone` events!
+            error!(?room_id, ?tombstone, "`m.room.tombstone` event is invalid, it creates a loop");
             return false;
         }
 
@@ -466,6 +516,67 @@ pub fn is_tombstone_event_valid(
     }
 
     true
+}
+
+/// Attempt to decrypt the given state event.
+///
+/// Returns `Some(_)` if the state event was successfully decrypted and
+/// its keys were deserialized.
+#[cfg(feature = "experimental-encrypted-state-events")]
+async fn decrypt_state_event(
+    raw_event: &mut RawSyncStateEventWithKeys,
+    room_id: &RoomId,
+    e2ee: &e2ee::E2EE<'_>,
+) -> Option<RawSyncStateEventWithKeys> {
+    use matrix_sdk_crypto::RoomEventDecryptionResult;
+    use ruma::OwnedEventId;
+    use tracing::{trace, warn};
+
+    let event_id = match raw_event.raw.get_field::<OwnedEventId>("event_id") {
+        Ok(Some(event_id)) => event_id,
+        Ok(None) => {
+            warn!("Couldn't deserialize encrypted state event's ID: missing `event_id` field");
+            return None;
+        }
+        Err(error) => {
+            warn!(?error, "Couldn't deserialize encrypted state event's ID");
+            return None;
+        }
+    };
+
+    trace!(?event_id, "Received encrypted state event, attempting decryption...");
+
+    let olm_machine = e2ee.olm_machine?;
+
+    let decrypted_event = olm_machine
+        .try_decrypt_room_event(
+            raw_event.raw.cast_ref_unchecked(),
+            room_id,
+            e2ee.decryption_settings,
+        )
+        .await
+        .expect("OlmMachine was not started");
+
+    // Skip state events that failed to decrypt.
+    let RoomEventDecryptionResult::Decrypted(decrypted_event) = decrypted_event else {
+        warn!(?event_id, "Failed to decrypt state event");
+        return None;
+    };
+
+    // Cast to `AnySync*Event`, safe since this is a supertype of
+    // `AnyTimelineEvent`.
+    match RawSyncStateEventWithKeys::try_from_raw_state_event(
+        decrypted_event.event.cast_unchecked(),
+    ) {
+        Some(event) => {
+            trace!(?event_id, "Decrypted state event successfully.");
+            Some(event)
+        }
+        None => {
+            warn!(?event_id, "Failed to decrypt state event: decrypted state event is invalid");
+            None
+        }
+    }
 }
 
 #[cfg(test)]

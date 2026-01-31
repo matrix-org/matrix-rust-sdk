@@ -229,7 +229,7 @@ impl SasVerification {
     ///
     /// # Flowchart
     ///
-    /// The flow of the verification process is pictured bellow. Please note
+    /// The flow of the verification process is pictured below. Please note
     /// that the process can be cancelled at each step of the process.
     /// Either side can cancel the process.
     ///

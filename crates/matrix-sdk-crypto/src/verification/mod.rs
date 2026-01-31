@@ -84,7 +84,7 @@ pub struct Emoji {
 /// Format the list of emojis as a two line string.
 ///
 /// The first line will contain the emojis spread out so the second line can
-/// contain the descriptions centered bellow the emoji.
+/// contain the descriptions centered below the emoji.
 pub fn format_emojis(emojis: [Emoji; 7]) -> String {
     let (emojis, descriptions): (Vec<_>, Vec<_>) =
         emojis.iter().map(|e| (e.symbol, e.description)).unzip();

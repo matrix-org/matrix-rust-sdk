@@ -21,11 +21,11 @@ use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
-use matrix_sdk_base::{RoomInfoNotableUpdateReasons, StateChanges};
+use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState, StateChanges};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tracing::{error, info, instrument, warn};
 
-use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
+use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
 /// The latest event of a room or a thread.
 ///
@@ -144,6 +144,38 @@ impl LatestEvent {
         }
     }
 
+    /// Update the inner latest event value, based on the room info.
+    pub async fn update_with_room_info(
+        &mut self,
+        room: Room,
+        reasons: RoomInfoNotableUpdateReasons,
+    ) {
+        // If the `RoomInfo` has been updated due to a change of the own membership.
+        if reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP) {
+            let new_value = match room.state() {
+                // If the room' state is `Invited`, it means the current user has been recently
+                // invited to this room.
+                RoomState::Invited => {
+                    let new_value = Builder::new_remote_for_invite(&room).await;
+
+                    info!(value = ?new_value, "Computed a remote `LatestEventValue` for invite");
+
+                    new_value
+                }
+
+                _ => {
+                    info!(
+                        "Skipping the computation of a remote `LatestEventValue` from a `RoomInfo`"
+                    );
+
+                    return;
+                }
+            };
+
+            self.update(new_value).await;
+        }
+    }
+
     /// Update [`Self::current_value`], and persist the `new_value` in the
     /// store.
     ///
@@ -183,17 +215,17 @@ impl LatestEvent {
             return;
         };
 
+        let client = room.client();
+
+        // Take the state store lock.
+        let _state_store_lock = client.base_client().state_store_lock().lock().await;
+
         // Compute a new `RoomInfo`.
         let mut room_info = room.clone_info();
         room_info.set_latest_event(new_value);
 
         let mut state_changes = StateChanges::default();
         state_changes.add_room(room_info.clone());
-
-        let client = room.client();
-
-        // Take the state store lock.
-        let _state_store_lock = client.base_client().state_store_lock().lock().await;
 
         // Update the `RoomInfo` in the state store.
         if let Err(error) = client.state_store().save_changes(&state_changes).await {

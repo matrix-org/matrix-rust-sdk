@@ -19,7 +19,7 @@
 //! well.
 
 use futures_util::future::join_all;
-use matrix_sdk_base::{RoomHero, RoomInfo, RoomState};
+use matrix_sdk_base::{RawSyncStateEventWithKeys, RoomHero, RoomInfo, RoomState};
 use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
     api::client::{membership::joined_members, state::get_state_events},
@@ -310,14 +310,11 @@ impl RoomPreview {
         let mut room_info = RoomInfo::new(room_id, RoomState::Joined);
 
         for ev in state.room_state {
-            let ev = match ev.deserialize() {
-                Ok(ev) => ev,
-                Err(err) => {
-                    warn!("failed to deserialize state event: {err}");
-                    continue;
-                }
-            };
-            room_info.handle_state_event(&ev.into());
+            if let Some(mut raw_event) =
+                RawSyncStateEventWithKeys::try_from_raw_state_event(ev.cast())
+            {
+                room_info.handle_state_event(&mut raw_event);
+            }
         }
 
         let room = client.get_room(room_id);

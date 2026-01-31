@@ -608,11 +608,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 ChunkContent::Items(current_items) => current_items,
             };
 
-            if item_index > current_items.len() {
+            if item_index >= current_items.len() {
                 return Err(Error::InvalidItemIndex { index: item_index });
             }
 
             removed_item = current_items.remove(item_index);
+
             if let Some(updates) = self.updates.as_mut() {
                 updates.push(Update::RemoveItem { at: Position(chunk_identifier, item_index) })
             }
@@ -2878,6 +2879,18 @@ mod tests {
             #[rustfmt::skip]
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d']);
             assert_eq!(linked_chunk.num_items(), 4);
+
+            // Delete at a limit position (right after `c`), that is invalid.
+            assert_matches!(
+                linked_chunk.remove_item_at(Position(ChunkIdentifier(0), 3)),
+                Err(Error::InvalidItemIndex { index: 3 })
+            );
+
+            // Delete at an out-of-bound position (way after `c`), that is invalid.
+            assert_matches!(
+                linked_chunk.remove_item_at(Position(ChunkIdentifier(0), 42)),
+                Err(Error::InvalidItemIndex { index: 42 })
+            );
 
             let position_of_c = linked_chunk.item_position(|item| *item == 'c').unwrap();
             linked_chunk.insert_gap_at((), position_of_c)?;

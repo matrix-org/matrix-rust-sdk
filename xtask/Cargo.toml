@@ -14,10 +14,13 @@ test = false
 
 [dependencies]
 camino = "1.0.8"
+chrono.workspace = true
 clap = { version = "4.0.18", features = ["derive"] }
 fs_extra = "1"
+indexmap.workspace = true
 regex = "1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uniffi_bindgen.workspace = true
+url.workspace = true
 xshell = "0.2.2"

@@ -8,8 +8,15 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Implement new method `CryptoStore::has_downloaded_all_room_keys`.
+- Implement new method `CryptoStore::has_downloaded_all_room_keys`, and process
+  `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+  ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
+
+### Bug Fixes
+
+- Fix a panic when the SQLite connection is aborted.
+  ([#6091](https://github.com/matrix-org/matrix-rust-sdk/pull/6091))
 
 ## [0.16.0] - 2025-12-04
 
@@ -19,7 +26,6 @@ All notable changes to this project will be documented in this file.
   ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
 - [**breaking**] `SqliteCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>>`.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
-
 - Implement a new constructor that allows to open `SqliteCryptoStore` with a cryptographic key
   ([#5472](https://github.com/matrix-org/matrix-rust-sdk/pull/5472))
 - Implement `StateStore::upsert_thread_subscriptions()` method for bulk upserts.

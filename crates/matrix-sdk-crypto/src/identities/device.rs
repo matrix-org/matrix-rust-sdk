@@ -412,12 +412,23 @@ impl Device {
     ///
     /// # Arguments
     ///
+    /// * `event_type` - The type of the event that should be encrypted.
     /// * `content` - The content of the event that should be encrypted.
+    ///
+    /// # Returns
+    ///
+    /// On success, a tuple `(session, content, message_id)`, where `session` is
+    /// the Olm [`Session`] that was used to encrypt the content, `content`
+    /// is the content for the `m.room.encrypted` to-device event, and
+    /// `message_id` is the newly-minted message ID stored within the content.
+    ///
+    /// If an Olm session has not already been established with this device,
+    /// returns `Err(OlmError::MissingSession)`.
     pub(crate) async fn encrypt(
         &self,
         event_type: &str,
         content: impl Serialize,
-    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>, String)> {
         self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
     }
 
@@ -440,7 +451,9 @@ impl Device {
 
         let event_type = content.event_type().to_owned();
 
-        self.encrypt(&event_type, content).await
+        self.encrypt(&event_type, content)
+            .await
+            .map(|(session, message, _message_id)| (session, message))
     }
 
     /// Encrypt an event for this device.
@@ -486,7 +499,7 @@ impl Device {
             return Err(OlmError::Withheld(withheld_code));
         }
 
-        let (used_session, raw_encrypted) = self.encrypt(event_type, content).await?;
+        let (used_session, raw_encrypted, _message_id) = self.encrypt(event_type, content).await?;
 
         // Persist the used session
         self.verification_machine
@@ -798,9 +811,10 @@ impl DeviceData {
     ///
     /// # Returns
     ///
-    /// On success, a tuple `(session, content)`, where `session` is the Olm
-    /// [`Session`] that was used to encrypt the content, and `content` is
-    /// the content for the `m.room.encrypted` to-device event.
+    /// On success, a tuple `(session, content, message_id)`, where `session` is
+    /// the Olm [`Session`] that was used to encrypt the content, `content`
+    /// is the content for the `m.room.encrypted` to-device event, and
+    /// `message_id` is the newly-minted message ID stored within the content.
     ///
     /// If an Olm session has not already been established with this device,
     /// returns `Err(OlmError::MissingSession)`.
@@ -819,7 +833,7 @@ impl DeviceData {
         store: &CryptoStoreWrapper,
         event_type: &str,
         content: impl Serialize,
-    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>, String)> {
         #[cfg(not(target_family = "wasm"))]
         let message_id = ulid::Ulid::new().to_string();
         #[cfg(target_family = "wasm")]
@@ -830,8 +844,10 @@ impl DeviceData {
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
-            let message = session.encrypt(self, event_type, content, Some(message_id)).await?;
-            Ok((session, message))
+            let message =
+                session.encrypt(self, event_type, content, Some(message_id.clone())).await?;
+
+            Ok((session, message, message_id))
         } else {
             trace!("Trying to encrypt an event for a device, but no Olm session is found.");
             Err(OlmError::MissingSession)
@@ -848,7 +864,7 @@ impl DeviceData {
         let event_type = content.event_type().to_owned();
 
         match self.encrypt(store, &event_type, content).await {
-            Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
+            Ok((session, encrypted, _)) => Ok(MaybeEncryptedRoomKey::Encrypted {
                 share_info: Box::new(ShareInfo::new_shared(
                     session.sender_key().to_owned(),
                     message_index,

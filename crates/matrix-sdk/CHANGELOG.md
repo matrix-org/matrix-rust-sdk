@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `LatestEventValue::RemoteInvite` is added to handle a Latest Event for invite room.
+  ([#6056](https://github.com/matrix-org/matrix-rust-sdk/pull/6056))
 - Add `Room::set_own_member_display_name` to set the current user's display name
   within only the one single room (can be used for /myroomnick functionality).
   [#5981](https://github.com/matrix-org/matrix-rust-sdk/pull/5981)

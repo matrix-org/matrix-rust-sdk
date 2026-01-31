@@ -323,7 +323,7 @@ impl GossipMachine {
                         "Sharing a secret with a device",
                     );
 
-                    match self.share_secret(&device, content).await {
+                    match self.share_secret(&device, content, secret_name).await {
                         Ok(s) => Ok(Some(s)),
                         Err(OlmError::MissingSession) => {
                             info!(
@@ -534,13 +534,22 @@ impl GossipMachine {
         }
     }
 
+    /// Add an `m.secret.send` request to the `outgoing_requests` queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` is the device to send the request to.
+    /// * `content` is the actual event content, containing the secret to send.
+    /// * `secret_name` is the name of the secret e.g. `m.megolm_backup.v1`
+    ///   (used for logging).
     async fn share_secret(
         &self,
         device: &Device,
         content: SecretSendContent,
+        secret_name: &SecretName,
     ) -> OlmResult<Session> {
         let event_type = content.event_type().to_owned();
-        let (used_session, content) = device.encrypt(&event_type, content).await?;
+        let (used_session, content, message_id) = device.encrypt(&event_type, content).await?;
 
         let encrypted_event_type = content.event_type().to_owned();
 
@@ -555,6 +564,16 @@ impl GossipMachine {
             request_id: request.txn_id.clone(),
             request: Arc::new(request.into()),
         };
+
+        debug!(
+            recipient = ?device.user_id(),
+            event_type,
+            request_id = ?request.request_id,
+            ?secret_name,
+            ?message_id,
+            "Creating outgoing `m.secret.send` to-device request"
+        );
+
         self.inner.outgoing_requests.write().insert(request.request_id.clone(), request);
 
         Ok(used_session)
@@ -583,6 +602,15 @@ impl GossipMachine {
             request_id: request.txn_id.clone(),
             request: Arc::new(request.into()),
         };
+
+        debug!(
+            recipient = ?device.user_id(),
+            event_type = event_type,
+            request_id = ?request.request_id,
+            session_id = session.session_id(),
+            "Creating outgoing `m.forwarded_room_key` to-device request"
+        );
+
         self.inner.outgoing_requests.write().insert(request.request_id.clone(), request);
 
         Ok(used_session)
@@ -816,7 +844,7 @@ impl GossipMachine {
         let info = self.inner.store.get_outgoing_secret_requests(id).await?;
 
         if let Some(mut info) = info {
-            trace!(
+            debug!(
                 recipient = ?info.request_recipient,
                 request_type = info.request_type(),
                 request_id = ?info.request_id,
@@ -824,6 +852,14 @@ impl GossipMachine {
             );
             info.sent_out = true;
             self.save_outgoing_key_info(info).await?;
+        } else if let Some(req) = self.inner.outgoing_requests.read().get(id) {
+            // This outgoing event was not saved into the store. This is
+            // expected: for example `m.secret.send` events are only stored in
+            // `outgoing_requests`, not in the store.
+            debug!(
+                request_id = ?req.request_id,
+                "Marking outgoing request as sent"
+            );
         }
 
         self.inner.outgoing_requests.write().remove(id);
@@ -835,7 +871,7 @@ impl GossipMachine {
     ///
     /// This will queue up a request cancellation.
     async fn mark_as_done(&self, key_info: &GossipRequest) -> Result<(), CryptoStoreError> {
-        trace!(
+        debug!(
             recipient = ?key_info.request_recipient,
             request_type = key_info.request_type(),
             request_id = ?key_info.request_id,
