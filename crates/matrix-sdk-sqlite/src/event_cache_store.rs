@@ -1657,7 +1657,9 @@ mod tests {
             Gap,
             store::{
                 EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-                integration_tests::{EventCacheStoreIntegrationTests, make_test_event_with_event_id},
+                integration_tests::{
+                    EventCacheStoreIntegrationTests, make_test_event_with_event_id,
+                },
             },
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
