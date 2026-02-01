@@ -40,3 +40,4 @@ workspace = true
 v4l2 = ["dep:v4l"]
 e2e-encryption = ["matrix-sdk/e2e-encryption"]
 e2ee-per-participant = ["matrix-sdk-rtc-livekit/crypto", "matrix-sdk/experimental-send-custom-to-device"]
+experimental-widgets = ["matrix-sdk/experimental-widgets"]
