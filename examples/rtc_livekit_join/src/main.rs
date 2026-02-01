@@ -1023,7 +1023,8 @@ async fn publish_call_membership_via_widget(
     service_url: &str,
 ) -> anyhow::Result<()> {
     if !*widget.capabilities_ready.borrow() {
-        let _ = widget.capabilities_ready.changed().await;
+        let mut capabilities_ready = widget.capabilities_ready.clone();
+        let _ = capabilities_ready.changed().await;
     }
     let own_user_id = room
         .client()
