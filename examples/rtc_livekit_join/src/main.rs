@@ -1036,8 +1036,7 @@ async fn publish_call_membership_via_widget(
         .device_id()
         .context("missing device id for widget membership publisher")?
         .to_owned();
-    let membership_id = format!("{own_device_id}_m.call");
-    let state_key = CallMemberStateKey::new(own_user_id.clone(), Some(membership_id), false);
+    let state_key = CallMemberStateKey::new(own_user_id.clone(), None, false);
     let call_id = room.room_id().to_string();
     let application = Application::Call(CallApplicationContent::new(call_id.clone(), CallScope::Room));
     let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
