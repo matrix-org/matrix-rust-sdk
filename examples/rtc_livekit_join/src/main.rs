@@ -64,6 +64,8 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use sha2::{Digest, Sha256};
 #[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
+#[cfg(feature = "experimental-widgets")]
+use tokio::sync::watch;
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -86,6 +88,7 @@ struct StaticCapabilitiesProvider {
 struct ElementCallWidget {
     handle: matrix_sdk::widget::WidgetDriverHandle,
     widget_id: String,
+    capabilities_ready: watch::Receiver<bool>,
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -566,12 +569,7 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "experimental-widgets")]
     if let Some(widget) = widget.as_ref() {
-        publish_call_membership_via_widget(
-            room.clone(),
-            &widget.handle,
-            &widget.widget_id,
-            &service_url,
-        )
+        publish_call_membership_via_widget(room.clone(), widget, &service_url)
             .await
             .context("publish MatrixRTC membership via widget api")?;
     }
@@ -920,6 +918,8 @@ async fn start_element_call_widget(
     let (driver, handle) = WidgetDriver::new(widget_settings);
     let capabilities = element_call_capabilities(&own_user_id, &own_device_id);
     let capabilities_provider = StaticCapabilitiesProvider { capabilities };
+    let widget_capabilities = capabilities_provider.capabilities.clone();
+    let (capabilities_ready_tx, capabilities_ready_rx) = watch::channel(false);
     tokio::spawn(async move {
         if driver.run(room, capabilities_provider).await.is_err() {
             info!("element call widget driver stopped");
@@ -927,10 +927,50 @@ async fn start_element_call_widget(
     });
 
     let outbound_handle = handle.clone();
+    let outbound_widget_id = widget_id.clone();
     tokio::spawn(async move {
+        let capabilities_ready_tx = capabilities_ready_tx;
         while let Some(message) = outbound_handle.recv().await {
             info!("widget -> rust-sdk message forwarded to stdout");
             println!("{message}");
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
+                continue;
+            };
+            let Some(action) = value.get("action").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(request_id) = value.get("requestId").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if action == "capabilities" {
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "capabilities",
+                    "data": {},
+                    "response": {
+                        "capabilities": widget_capabilities,
+                    },
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
+            }
+            if action == "notify_capabilities" {
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "notify_capabilities",
+                    "data": {},
+                    "response": {},
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
+                let _ = capabilities_ready_tx.send(true);
+            }
         }
         info!("widget -> rust-sdk message stream closed");
     });
@@ -948,7 +988,23 @@ async fn start_element_call_widget(
         info!("stdin -> widget message stream closed");
     });
 
-    Ok(Some(ElementCallWidget { handle, widget_id }))
+    let content_loaded = serde_json::json!({
+        "api": "fromWidget",
+        "widgetId": widget_id,
+        "requestId": format!("content-loaded-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()),
+        "action": "content_loaded",
+        "data": {},
+    });
+    let _ = handle.send(content_loaded.to_string()).await;
+
+    Ok(Some(ElementCallWidget {
+        handle,
+        widget_id,
+        capabilities_ready: capabilities_ready_rx,
+    }))
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -963,10 +1019,12 @@ async fn start_element_call_widget(
 #[cfg(feature = "experimental-widgets")]
 async fn publish_call_membership_via_widget(
     room: matrix_sdk::Room,
-    handle: &matrix_sdk::widget::WidgetDriverHandle,
-    widget_id: &str,
+    widget: &ElementCallWidget,
     service_url: &str,
 ) -> anyhow::Result<()> {
+    if !*widget.capabilities_ready.borrow() {
+        let _ = widget.capabilities_ready.changed().await;
+    }
     let own_user_id = room
         .client()
         .user_id()
@@ -1004,7 +1062,7 @@ async fn publish_call_membership_via_widget(
     );
     let message = serde_json::json!({
         "api": "fromWidget",
-        "widgetId": widget_id,
+        "widgetId": widget.widget_id,
         "requestId": request_id,
         "action": "send_event",
         "data": {
@@ -1014,7 +1072,7 @@ async fn publish_call_membership_via_widget(
             "content": content,
         }
     });
-    if !handle.send(message.to_string()).await {
+    if !widget.handle.send(message.to_string()).await {
         return Err(anyhow!("widget driver handle closed before sending membership"));
     }
     info!("published MatrixRTC membership via widget api");
