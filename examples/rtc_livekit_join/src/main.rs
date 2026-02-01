@@ -9,7 +9,7 @@ use matrix_sdk::{
     RoomState,
     RoomMemberships,
     config::SyncSettings,
-    ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+    ruma::{OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::encryption::secret_storage::SecretStore;
@@ -180,10 +180,8 @@ enum V4l2PixelFormat {
 impl V4l2CameraPublisher {
     async fn start(room: std::sync::Arc<Room>, config: V4l2Config) -> anyhow::Result<Self> {
         use matrix_sdk_rtc_livekit::livekit::options::{TrackPublishOptions, VideoCodec};
-        use matrix_sdk_rtc_livekit::livekit::prelude::*;
         use matrix_sdk_rtc_livekit::livekit::track::{LocalTrack, TrackSource};
-        use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::{RtcVideoSource, VideoResolution};
-        use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
+        use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::RtcVideoSource;
 
         let (resolution, pixel_format, rtc_source, mut device) =
             configure_v4l2_device(&config).context("configure V4L2 device")?;
@@ -242,7 +240,7 @@ fn configure_v4l2_device(
     use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
     use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
     use v4l::video::Capture;
-    use v4l::{Device, FourCC};
+    use v4l::Device;
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
     let mut format = device.format().context("read V4L2 format")?;
@@ -399,7 +397,7 @@ fn yuyv_to_i420(
     dst_v: &mut [u8],
     dst_stride_v: u32,
 ) {
-    let width = (src_stride / 2) as usize;
+    let width = src_stride / 2;
     let dst_stride_y = dst_stride_y as usize;
     let dst_stride_u = dst_stride_u as usize;
     let dst_stride_v = dst_stride_v as usize;
@@ -703,7 +701,7 @@ async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
 async fn log_backup_state(_client: &Client) {}
 
 #[cfg(feature = "e2e-encryption")]
-fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoomId) {
+fn spawn_backup_diagnostics(client: Client, room_id: OwnedRoomId) {
     let backup_client = client.clone();
     tokio::spawn(async move {
         let mut state_stream = backup_client.encryption().backups().state_stream();
@@ -717,7 +715,7 @@ fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoom
     });
 
     tokio::spawn(async move {
-        let mut key_stream = client
+        let key_stream = client
             .encryption()
             .backups()
             .room_keys_for_room_stream(&room_id);
@@ -733,7 +731,7 @@ fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoom
 }
 
 #[cfg(not(feature = "e2e-encryption"))]
-fn spawn_backup_diagnostics(_client: Client, _room_id: matrix_sdk::ruma::OwnedRoomId) {}
+fn spawn_backup_diagnostics(_client: Client, _room_id: OwnedRoomId) {}
 
 #[cfg(feature = "e2ee-per-participant")]
 fn spawn_periodic_e2ee_key_resend(
@@ -905,6 +903,7 @@ async fn start_element_call_widget(
 
     let widget_settings = WidgetSettings::new_virtual_element_call_widget(props, config)
         .context("build element call widget settings")?;
+    let widget_id = widget_settings.widget_id().to_owned();
     let widget_url = widget_settings
         .generate_webview_url(
             &room,
@@ -949,10 +948,7 @@ async fn start_element_call_widget(
         info!("stdin -> widget message stream closed");
     });
 
-    Ok(Some(ElementCallWidget {
-        handle,
-        widget_id: widget_settings.widget_id().to_owned(),
-    }))
+    Ok(Some(ElementCallWidget { handle, widget_id }))
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -1068,7 +1064,7 @@ struct OpenIdToken {
 
 async fn fetch_sfu_token(
     url: &str,
-    room_id: matrix_sdk::ruma::OwnedRoomId,
+    room_id: OwnedRoomId,
     device_id: String,
     openid_token: &request_openid_token::v3::Response,
 ) -> anyhow::Result<(String, String)> {
@@ -1348,7 +1344,7 @@ async fn send_per_participant_keys(
 #[cfg(feature = "e2ee-per-participant")]
 fn register_e2ee_to_device_handler(
     client: &Client,
-    room_id: matrix_sdk::ruma::OwnedRoomId,
+    room_id: OwnedRoomId,
     key_provider: KeyProvider,
 ) -> EventHandlerDropGuard {
     let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| {
