@@ -11,12 +11,28 @@ use matrix_sdk::{
     config::SyncSettings,
     ruma::{OwnedServerName, RoomId, RoomOrAliasId, ServerName},
 };
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk::encryption::secret_storage::SecretStore;
+#[cfg(feature = "experimental-widgets")]
+use matrix_sdk::{
+    ruma::{DeviceId, UserId},
+    widget::{
+        Capabilities, CapabilitiesProvider, ClientProperties, Filter, MessageLikeEventFilter,
+        StateEventFilter, ToDeviceEventFilter, WidgetDriver, WidgetSettings,
+        settings::{
+            EncryptionSystem, Intent, VirtualElementCallWidgetConfig,
+            VirtualElementCallWidgetProperties,
+        },
+    },
+};
 use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, RoomOptions, Room,
 };
+#[cfg(feature = "e2e-encryption")]
+use futures_util::StreamExt;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
     E2eeOptions, EncryptionType,
@@ -40,6 +56,8 @@ use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 use matrix_sdk_base::crypto::CollectStrategy;
 #[cfg(feature = "e2ee-per-participant")]
 use sha2::{Digest, Sha256};
+#[cfg(feature = "experimental-widgets")]
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -50,6 +68,19 @@ struct EnvLiveKitTokenProvider {
 }
 
 struct DefaultRoomOptionsProvider;
+
+#[cfg(feature = "experimental-widgets")]
+#[derive(Clone)]
+struct StaticCapabilitiesProvider {
+    capabilities: Capabilities,
+}
+
+#[cfg(feature = "experimental-widgets")]
+impl CapabilitiesProvider for StaticCapabilitiesProvider {
+    async fn acquire_capabilities(&self, _capabilities: Capabilities) -> Capabilities {
+        self.capabilities.clone()
+    }
+}
 
 #[async_trait::async_trait]
 impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
@@ -440,6 +471,10 @@ async fn main() -> anyhow::Result<()> {
         .login_username(&username, &password)
         .await
         .context("login Matrix user")?;
+    import_recovery_key_if_set(&client)
+        .await
+        .context("import recovery key")?;
+    log_backup_state(&client).await;
 
     let room_id_or_alias = RoomOrAliasId::parse(room_id_or_alias).context("parse ROOM_ID")?;
     let via_servers = via_servers_from_env().context("parse VIA_SERVERS")?;
@@ -456,6 +491,17 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("join room")?,
     };
+    spawn_backup_diagnostics(client.clone(), room.room_id().to_owned());
+    let element_call_url = optional_env("ELEMENT_CALL_URL")
+        .or_else(|| optional_env("ELEMENT_CALL_WIDGET"));
+    if let Some(element_call_url) = element_call_url {
+        info!(%element_call_url, "Element Call widget URL set; starting widget bridge");
+        start_element_call_widget(room.clone(), element_call_url)
+            .await
+            .context("start element call widget")?;
+    } else if optional_env("ELEMENT_CALL_WIDGET_ID").is_some() {
+        info!("ELEMENT_CALL_WIDGET_ID set but no Element Call URL provided");
+    }
 
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move {
@@ -466,6 +512,16 @@ async fn main() -> anyhow::Result<()> {
     // this device. This example does not implement that step; you can integrate your own
     // membership publisher (or Element Call) before starting the driver so that the room
     // contains active call memberships.
+    //
+    // The optional Element Call widget wiring below is how a Rust client can integrate
+    // with the Element Call webapp:
+    // - The widget driver bridges postMessage traffic to/from the webview/iframe.
+    // - Capabilities allow Element Call to send/receive to-device encryption keys
+    //   (io.element.call.encryption_keys), which the Rust SDK consumes for per-participant
+    //   E2EE when enabled.
+    // - When running Element Call inside element-web directly (not embedded), the widget
+    //   bridge logs below will not appear because the Rust SDK is not connected to that
+    //   webview's postMessage channel.
 
     let (service_url, livekit_token) = if let Some(sfu_url) = livekit_sfu_get_url {
         let openid_token = request_openid_token(&client)
@@ -492,6 +548,10 @@ async fn main() -> anyhow::Result<()> {
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
+    #[cfg(feature = "e2ee-per-participant")]
+    if let Some(context) = e2ee_context.as_ref() {
+        spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
+    }
     #[cfg(feature = "e2ee-per-participant")]
     let _e2ee_to_device_guard = e2ee_context
         .as_ref()
@@ -532,6 +592,329 @@ fn required_env(name: &str) -> anyhow::Result<String> {
 
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn bool_env(name: &str) -> bool {
+    optional_env(name).is_some_and(|value| {
+        matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    })
+}
+
+fn retry_attempts_from_env(name: &str, default: usize) -> usize {
+    optional_env(name)
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn retry_seconds_from_env(name: &str, default: u64) -> u64 {
+    optional_env(name)
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+#[cfg(feature = "e2e-encryption")]
+async fn import_recovery_key_if_set(client: &Client) -> anyhow::Result<()> {
+    let Some(recovery_key) = optional_env("MATRIX_RECOVERY_KEY") else {
+        return Ok(());
+    };
+    if recovery_key.trim_start().starts_with('{') {
+        info!(
+            "MATRIX_RECOVERY_KEY looks like JSON; provide the secret storage recovery key string instead"
+        );
+    }
+    info!("MATRIX_RECOVERY_KEY set; attempting to import secrets from secret storage");
+    let secret_store: SecretStore = client
+        .encryption()
+        .secret_storage()
+        .open_secret_store(&recovery_key)
+        .await
+        .context("open secret storage with recovery key")?;
+    secret_store
+        .import_secrets()
+        .await
+        .context("import secrets from secret storage")?;
+    info!("recovery key import finished");
+    Ok(())
+}
+
+#[cfg(feature = "e2e-encryption")]
+async fn log_backup_state(client: &Client) {
+    let backups = client.encryption().backups();
+    let state = backups.state();
+    let enabled = backups.are_enabled().await;
+    let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
+    info!(
+        ?state,
+        enabled,
+        exists_on_server = exists,
+        "backup state summary"
+    );
+    if exists && !enabled {
+        info!(
+            "backup exists on the server but backups are not enabled; ensure the recovery key is available"
+        );
+    }
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
+    if optional_env("MATRIX_RECOVERY_KEY").is_some() {
+        info!(
+            "MATRIX_RECOVERY_KEY set but e2e-encryption feature is disabled; enable the example's e2e-encryption feature"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+async fn log_backup_state(_client: &Client) {}
+
+#[cfg(feature = "e2e-encryption")]
+fn spawn_backup_diagnostics(client: Client, room_id: matrix_sdk::ruma::OwnedRoomId) {
+    let backup_client = client.clone();
+    tokio::spawn(async move {
+        let mut state_stream = backup_client.encryption().backups().state_stream();
+        while let Some(update) = state_stream.next().await {
+            match update {
+                Ok(state) => info!(?state, "backup state updated"),
+                Err(err) => info!(?err, "backup state stream error"),
+            }
+        }
+        info!("backup state stream closed");
+    });
+
+    tokio::spawn(async move {
+        let mut key_stream = client
+            .encryption()
+            .backups()
+            .room_keys_for_room_stream(&room_id);
+        futures_util::pin_mut!(key_stream);
+        while let Some(update) = key_stream.next().await {
+            match update {
+                Ok(room_keys) => info!(?room_keys, "received room keys from backup"),
+                Err(err) => info!(?err, "room key backup stream error"),
+            }
+        }
+        info!("room key backup stream closed");
+    });
+}
+
+#[cfg(not(feature = "e2e-encryption"))]
+fn spawn_backup_diagnostics(_client: Client, _room_id: matrix_sdk::ruma::OwnedRoomId) {}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn spawn_periodic_e2ee_key_resend(
+    room: matrix_sdk::Room,
+    context: PerParticipantE2eeContext,
+) {
+    let interval_secs = retry_seconds_from_env("PER_PARTICIPANT_KEY_RESEND_SECS", 0);
+    if interval_secs == 0 {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        loop {
+            interval.tick().await;
+            info!(
+                interval_secs,
+                key_index = context.key_index,
+                "periodic per-participant E2EE key resend"
+            );
+            if let Err(err) =
+                send_per_participant_keys(&room, context.key_index, &context.local_key).await
+            {
+                info!(?err, "failed to resend per-participant E2EE keys");
+            }
+        }
+    });
+}
+
+#[cfg(not(feature = "e2ee-per-participant"))]
+fn spawn_periodic_e2ee_key_resend(_room: matrix_sdk::Room, _context: ()) {}
+
+#[cfg(feature = "experimental-widgets")]
+fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> Capabilities {
+    use ruma::events::{MessageLikeEventType, StateEventType};
+
+    let read_send = vec![
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "org.matrix.rageshake_request",
+        ))),
+        Filter::ToDevice(ToDeviceEventFilter::new(
+            "io.element.call.encryption_keys".into(),
+        )),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "io.element.call.encryption_keys",
+        ))),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::from(
+            "io.element.call.reaction",
+        ))),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::Reaction)),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(
+            MessageLikeEventType::RoomRedaction,
+        )),
+        Filter::MessageLike(MessageLikeEventFilter::WithType(
+            MessageLikeEventType::RtcDecline,
+        )),
+    ];
+
+    let user_id = own_user_id.as_str();
+    let device_id = own_device_id.as_str();
+
+    Capabilities {
+        read: vec![
+            Filter::State(StateEventFilter::WithType(StateEventType::CallMember)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomName)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomEncryption)),
+            Filter::State(StateEventFilter::WithType(StateEventType::RoomCreate)),
+        ]
+        .into_iter()
+        .chain(read_send.clone())
+        .collect(),
+        send: vec![
+            Filter::MessageLike(MessageLikeEventFilter::WithType(
+                MessageLikeEventType::RtcNotification,
+            )),
+            Filter::MessageLike(MessageLikeEventFilter::WithType(
+                MessageLikeEventType::CallNotify,
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                user_id.to_owned(),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("{user_id}_{device_id}"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("{user_id}_{device_id}_m.call"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("_{user_id}_{device_id}"),
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
+                format!("_{user_id}_{device_id}_m.call"),
+            )),
+        ]
+        .into_iter()
+        .chain(read_send)
+        .collect(),
+        requires_client: true,
+        update_delayed_event: true,
+        send_delayed_event: true,
+    }
+}
+
+#[cfg(feature = "experimental-widgets")]
+async fn start_element_call_widget(
+    room: matrix_sdk::Room,
+    element_call_url: String,
+) -> anyhow::Result<()> {
+    let own_user_id = room
+        .client()
+        .user_id()
+        .context("missing user id for element call widget")?
+        .to_owned();
+    let own_device_id = room
+        .client()
+        .device_id()
+        .context("missing device id for element call widget")?
+        .to_owned();
+
+    let encryption_state = room
+        .latest_encryption_state()
+        .await
+        .context("load room encryption state for element call")?;
+    let encryption = if encryption_state.is_encrypted() {
+        info!("room is encrypted; Element Call will be configured for E2EE");
+        #[cfg(feature = "e2ee-per-participant")]
+        {
+            EncryptionSystem::PerParticipantKeys
+        }
+        #[cfg(not(feature = "e2ee-per-participant"))]
+        {
+            info!("room is encrypted but per-participant E2EE is disabled at compile time");
+            EncryptionSystem::Unencrypted
+        }
+    } else {
+        info!("room is not encrypted; Element Call will be configured unencrypted");
+        EncryptionSystem::Unencrypted
+    };
+
+    let widget_id = optional_env("ELEMENT_CALL_WIDGET_ID")
+        .unwrap_or_else(|| "element-call".to_owned());
+    let props = VirtualElementCallWidgetProperties {
+        element_call_url,
+        widget_id,
+        parent_url: optional_env("ELEMENT_CALL_PARENT_URL"),
+        encryption,
+        ..Default::default()
+    };
+    let config = VirtualElementCallWidgetConfig {
+        intent: Some(Intent::JoinExisting),
+        ..Default::default()
+    };
+
+    let widget_settings = WidgetSettings::new_virtual_element_call_widget(props, config)
+        .context("build element call widget settings")?;
+    let widget_url = widget_settings
+        .generate_webview_url(
+            room,
+            ClientProperties::new("matrix-sdk-rtc-livekit-join", None, None),
+        )
+        .await
+        .context("generate element call widget url")?;
+    info!(%widget_url, "element call widget url");
+    info!(
+        widget_id = %widget_settings.widget_id(),
+        "starting Element Call widget driver"
+    );
+
+    let (driver, handle) = WidgetDriver::new(widget_settings);
+    let capabilities = element_call_capabilities(&own_user_id, &own_device_id);
+    let capabilities_provider = StaticCapabilitiesProvider { capabilities };
+    tokio::spawn(async move {
+        if driver.run(room, capabilities_provider).await.is_err() {
+            info!("element call widget driver stopped");
+        }
+    });
+
+    let outbound_handle = handle.clone();
+    tokio::spawn(async move {
+        while let Some(message) = outbound_handle.recv().await {
+            info!("widget -> rust-sdk message forwarded to stdout");
+            println!("{message}");
+        }
+        info!("widget -> rust-sdk message stream closed");
+    });
+
+    let inbound_handle = handle.clone();
+    tokio::spawn(async move {
+        let stdin = BufReader::new(tokio::io::stdin());
+        let mut lines = stdin.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !inbound_handle.send(line).await {
+                break;
+            }
+            info!("stdin -> widget message forwarded");
+        }
+        info!("stdin -> widget message stream closed");
+    });
+
+    Ok(())
+}
+
+#[cfg(not(feature = "experimental-widgets"))]
+async fn start_element_call_widget(
+    _room: matrix_sdk::Room,
+    _element_call_url: String,
+) -> anyhow::Result<()> {
+    info!("ELEMENT_CALL_URL set but experimental-widgets feature is disabled");
+    Ok(())
 }
 
 fn via_servers_from_env() -> anyhow::Result<Vec<OwnedServerName>> {
@@ -643,6 +1026,25 @@ async fn build_per_participant_e2ee(
         OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
     };
 
+    let encryption_state = room
+        .latest_encryption_state()
+        .await
+        .context("load room encryption state")?;
+    if !encryption_state.is_encrypted() {
+        info!("room is not encrypted; per-participant E2EE disabled");
+        return Ok(None);
+    }
+    info!("room encryption enabled; attempting per-participant E2EE setup");
+
+    let force_download = bool_env("PER_PARTICIPANT_FORCE_BACKUP_DOWNLOAD");
+    if force_download {
+        let backups = room.client().encryption().backups();
+        match backups.download_room_keys_for_room(room.room_id()).await {
+            Ok(()) => info!("requested room keys from backup for per-participant E2EE"),
+            Err(err) => info!(?err, "failed to request room keys from backup"),
+        }
+    }
+
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
         Err(err) => {
@@ -651,14 +1053,44 @@ async fn build_per_participant_e2ee(
         }
     };
     let provider = OlmMachineKeyMaterialProvider::new(olm_machine);
-    let bundle = provider
-        .per_participant_key_bundle(room.room_id())
-        .await
-        .context("build per-participant key bundle")?;
-    if bundle.is_empty() {
-        info!("per-participant key bundle is empty; E2EE disabled");
-        return Ok(None);
-    }
+    let retries = retry_attempts_from_env("PER_PARTICIPANT_KEY_RETRIES", 0);
+    let mut attempt = 0usize;
+    let bundle = loop {
+        let bundle = provider
+            .per_participant_key_bundle(room.room_id())
+            .await
+            .context("build per-participant key bundle")?;
+        if !bundle.is_empty() {
+            break bundle;
+        }
+        if attempt >= retries {
+            info!(
+                retries,
+                "per-participant key bundle is empty; E2EE disabled"
+            );
+            return Ok(None);
+        }
+        attempt += 1;
+        if force_download {
+            let backups = room.client().encryption().backups();
+            match backups.download_room_keys_for_room(room.room_id()).await {
+                Ok(()) => info!("requested room keys from backup for per-participant E2EE"),
+                Err(err) => info!(?err, "failed to request room keys from backup"),
+            }
+        }
+        info!(
+            attempt,
+            retries,
+            "per-participant key bundle empty; retrying after delay"
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    };
+    info!(
+        room_keys = bundle.room_keys.len(),
+        withheld_keys = bundle.withheld.len(),
+        "per-participant key bundle details"
+    );
+    info!("per-participant key bundle available; enabling E2EE");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
     let local_key = derive_per_participant_key(&bundle)?;
     send_per_participant_keys(room, 0, &local_key).await?;
@@ -720,6 +1152,13 @@ async fn send_per_participant_keys(
     key_index: i32,
     key: &[u8],
 ) -> anyhow::Result<()> {
+    if key.is_empty() {
+        info!(
+            key_index,
+            "per-participant E2EE key payload is empty; skipping send"
+        );
+        return Ok(());
+    }
     let client = room.client();
     let own_device_id = client
         .device_id()
@@ -732,7 +1171,13 @@ async fn send_per_participant_keys(
     for member in members {
         let user_id = member.user_id();
         let devices = client.encryption().get_user_devices(user_id).await?;
-        for device in devices.devices() {
+        let device_list: Vec<_> = devices.devices().collect();
+        info!(
+            user_id = %user_id,
+            device_count = device_list.len(),
+            "per-participant E2EE device discovery"
+        );
+        for device in device_list {
             if let Some(own_user_id) = own_user_id.as_ref() {
                 if device.user_id() == own_user_id && device.device_id() == &own_device_id {
                     continue;
@@ -746,12 +1191,23 @@ async fn send_per_participant_keys(
         info!("no recipient devices for per-participant E2EE to-device");
         return Ok(());
     }
+    info!(
+        recipients = recipients.len(),
+        key_index,
+        room_id = %room.room_id(),
+        "sending per-participant E2EE keys to devices"
+    );
 
     let key_b64 = STANDARD_NO_PAD.encode(key);
     let sent_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
+    info!(
+        key_index,
+        key_len = key.len(),
+        "preparing per-participant E2EE key payload"
+    );
     let content_raw = Raw::new(&serde_json::json!({
         "keys": [{ "index": key_index, "key": key_b64 }],
         "device_id": own_device_id.as_str(),
