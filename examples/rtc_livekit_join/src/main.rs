@@ -25,6 +25,14 @@ use matrix_sdk::{
         },
     },
 };
+#[cfg(feature = "experimental-widgets")]
+use ruma::events::{
+    TimelineEventType,
+    call::member::{
+        ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
+        CallMemberEventContent, CallMemberStateKey, CallScope, Focus, LivekitFocus,
+    },
+};
 use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
@@ -74,6 +82,16 @@ struct DefaultRoomOptionsProvider;
 struct StaticCapabilitiesProvider {
     capabilities: Capabilities,
 }
+
+#[cfg(feature = "experimental-widgets")]
+#[derive(Clone)]
+struct ElementCallWidget {
+    handle: matrix_sdk::widget::WidgetDriverHandle,
+    widget_id: String,
+}
+
+#[cfg(not(feature = "experimental-widgets"))]
+struct ElementCallWidget;
 
 #[cfg(feature = "experimental-widgets")]
 impl CapabilitiesProvider for StaticCapabilitiesProvider {
@@ -494,14 +512,19 @@ async fn main() -> anyhow::Result<()> {
     spawn_backup_diagnostics(client.clone(), room.room_id().to_owned());
     let element_call_url = optional_env("ELEMENT_CALL_URL")
         .or_else(|| optional_env("ELEMENT_CALL_WIDGET"));
-    if let Some(element_call_url) = element_call_url {
+    let widget = if let Some(element_call_url) = element_call_url {
         info!(%element_call_url, "Element Call widget URL set; starting widget bridge");
         start_element_call_widget(room.clone(), element_call_url)
             .await
-            .context("start element call widget")?;
+            .context("start element call widget")?
     } else if optional_env("ELEMENT_CALL_WIDGET_ID").is_some() {
         info!("ELEMENT_CALL_WIDGET_ID set but no Element Call URL provided");
-    }
+        None
+    } else {
+        None
+    };
+    #[cfg(not(feature = "experimental-widgets"))]
+    let _ = &widget;
 
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move {
@@ -509,11 +532,11 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // NOTE: Joining a call requires publishing MatrixRTC memberships (m.call.member) for
-    // this device. This example does not implement that step; you can integrate your own
-    // membership publisher (or Element Call) before starting the driver so that the room
-    // contains active call memberships.
+    // this device. When the optional Element Call widget wiring is enabled, this example
+    // publishes a membership via the widget API before starting the driver so the
+    // membership is visible to other clients.
     //
-    // The optional Element Call widget wiring below is how a Rust client can integrate
+    // The optional Element Call widget wiring is how a Rust client can integrate
     // with the Element Call webapp:
     // - The widget driver bridges postMessage traffic to/from the webview/iframe.
     // - Capabilities allow Element Call to send/receive to-device encryption keys
@@ -544,6 +567,13 @@ async fn main() -> anyhow::Result<()> {
         };
         (service_url, token)
     };
+
+    #[cfg(feature = "experimental-widgets")]
+    if let Some(widget) = widget.as_ref() {
+        publish_call_membership_via_widget(room.clone(), &widget.handle, &widget.widget_id, &service_url)
+            .await
+            .context("publish MatrixRTC membership via widget api")?;
+    }
 
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
     #[cfg(feature = "e2ee-per-participant")]
@@ -760,6 +790,13 @@ fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> 
 
     let user_id = own_user_id.as_str();
     let device_id = own_device_id.as_str();
+    let membership_state_key = CallMemberStateKey::new(
+        own_user_id.to_owned(),
+        Some(format!("{own_device_id}_m.call")),
+        false,
+    )
+    .as_ref()
+    .to_owned();
 
     Capabilities {
         read: vec![
@@ -789,6 +826,10 @@ fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> 
             )),
             Filter::State(StateEventFilter::WithTypeAndStateKey(
                 StateEventType::CallMember,
+                membership_state_key,
+            )),
+            Filter::State(StateEventFilter::WithTypeAndStateKey(
+                StateEventType::CallMember,
                 format!("{user_id}_{device_id}_m.call"),
             )),
             Filter::State(StateEventFilter::WithTypeAndStateKey(
@@ -813,7 +854,7 @@ fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId) -> 
 async fn start_element_call_widget(
     room: matrix_sdk::Room,
     element_call_url: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<ElementCallWidget>> {
     let own_user_id = room
         .client()
         .user_id()
@@ -905,15 +946,79 @@ async fn start_element_call_widget(
         info!("stdin -> widget message stream closed");
     });
 
-    Ok(())
+    Ok(Some(ElementCallWidget {
+        handle,
+        widget_id: widget_settings.widget_id().to_owned(),
+    }))
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
 async fn start_element_call_widget(
     _room: matrix_sdk::Room,
     _element_call_url: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<ElementCallWidget>> {
     info!("ELEMENT_CALL_URL set but experimental-widgets feature is disabled");
+    Ok(None)
+}
+
+#[cfg(feature = "experimental-widgets")]
+async fn publish_call_membership_via_widget(
+    room: matrix_sdk::Room,
+    handle: &matrix_sdk::widget::WidgetDriverHandle,
+    widget_id: &str,
+    service_url: &Url,
+) -> anyhow::Result<()> {
+    let own_user_id = room
+        .client()
+        .user_id()
+        .context("missing user id for widget membership publisher")?
+        .to_owned();
+    let own_device_id = room
+        .client()
+        .device_id()
+        .context("missing device id for widget membership publisher")?
+        .to_owned();
+    let membership_id = format!("{own_device_id}_m.call");
+    let state_key = CallMemberStateKey::new(own_user_id.clone(), Some(membership_id), false);
+    let call_id = room.room_id().to_string();
+    let application = Application::Call(CallApplicationContent::new(call_id.clone(), CallScope::Room));
+    let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
+    let focus_alias = format!("livekit-{}", room.room_id());
+    let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
+        focus_alias,
+        service_url.to_string(),
+    ))];
+    let content = CallMemberEventContent::new(
+        application,
+        own_device_id,
+        focus_active,
+        foci_preferred,
+        None,
+        None,
+    );
+    let request_id = format!(
+        "publish-membership-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let message = serde_json::json!({
+        "api": "fromWidget",
+        "widgetId": widget_id,
+        "requestId": request_id,
+        "action": "send_event",
+        "data": {
+            "type": TimelineEventType::CallMember.to_string(),
+            "room_id": room.room_id().to_string(),
+            "state_key": state_key.as_ref(),
+            "content": content,
+        }
+    });
+    if !handle.send(message.to_string()).await {
+        return Err(anyhow!("widget driver handle closed before sending membership"));
+    }
+    info!("published MatrixRTC membership via widget api");
     Ok(())
 }
 
