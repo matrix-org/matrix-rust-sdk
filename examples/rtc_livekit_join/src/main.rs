@@ -17,12 +17,10 @@ use matrix_sdk::encryption::secret_storage::SecretStore;
 use matrix_sdk::{
     ruma::{DeviceId, UserId},
     widget::{
-        Capabilities, CapabilitiesProvider, ClientProperties, Filter, MessageLikeEventFilter,
-        StateEventFilter, ToDeviceEventFilter, WidgetDriver, WidgetSettings,
-        settings::{
-            EncryptionSystem, Intent, VirtualElementCallWidgetConfig,
-            VirtualElementCallWidgetProperties,
-        },
+        Capabilities, CapabilitiesProvider, ClientProperties, EncryptionSystem, Filter, Intent,
+        MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter,
+        VirtualElementCallWidgetConfig, VirtualElementCallWidgetProperties, WidgetDriver,
+        WidgetSettings,
     },
 };
 #[cfg(feature = "experimental-widgets")]
@@ -570,7 +568,12 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "experimental-widgets")]
     if let Some(widget) = widget.as_ref() {
-        publish_call_membership_via_widget(room.clone(), &widget.handle, &widget.widget_id, &service_url)
+        publish_call_membership_via_widget(
+            room.clone(),
+            &widget.handle,
+            &widget.widget_id,
+            &service_url,
+        )
             .await
             .context("publish MatrixRTC membership via widget api")?;
     }
@@ -904,7 +907,7 @@ async fn start_element_call_widget(
         .context("build element call widget settings")?;
     let widget_url = widget_settings
         .generate_webview_url(
-            room,
+            &room,
             ClientProperties::new("matrix-sdk-rtc-livekit-join", None, None),
         )
         .await
@@ -966,7 +969,7 @@ async fn publish_call_membership_via_widget(
     room: matrix_sdk::Room,
     handle: &matrix_sdk::widget::WidgetDriverHandle,
     widget_id: &str,
-    service_url: &Url,
+    service_url: &str,
 ) -> anyhow::Result<()> {
     let own_user_id = room
         .client()
@@ -986,7 +989,7 @@ async fn publish_call_membership_via_widget(
     let focus_alias = format!("livekit-{}", room.room_id());
     let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
         focus_alias,
-        service_url.to_string(),
+        service_url.to_owned(),
     ))];
     let content = CallMemberEventContent::new(
         application,
