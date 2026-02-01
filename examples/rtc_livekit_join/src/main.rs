@@ -594,6 +594,12 @@ fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
+fn bool_env(name: &str) -> bool {
+    optional_env(name).is_some_and(|value| {
+        matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    })
+}
+
 fn retry_attempts_from_env(name: &str, default: usize) -> usize {
     optional_env(name)
         .and_then(|value| value.parse::<usize>().ok())
@@ -1030,6 +1036,15 @@ async fn build_per_participant_e2ee(
     }
     info!("room encryption enabled; attempting per-participant E2EE setup");
 
+    let force_download = bool_env("PER_PARTICIPANT_FORCE_BACKUP_DOWNLOAD");
+    if force_download {
+        let backups = room.client().encryption().backups();
+        match backups.download_room_keys_for_room(room.room_id()).await {
+            Ok(()) => info!("requested room keys from backup for per-participant E2EE"),
+            Err(err) => info!(?err, "failed to request room keys from backup"),
+        }
+    }
+
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
         Err(err) => {
@@ -1056,6 +1071,13 @@ async fn build_per_participant_e2ee(
             return Ok(None);
         }
         attempt += 1;
+        if force_download {
+            let backups = room.client().encryption().backups();
+            match backups.download_room_keys_for_room(room.room_id()).await {
+                Ok(()) => info!("requested room keys from backup for per-participant E2EE"),
+                Err(err) => info!(?err, "failed to request room keys from backup"),
+            }
+        }
         info!(
             attempt,
             retries,
