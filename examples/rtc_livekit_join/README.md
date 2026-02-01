@@ -3,10 +3,10 @@
 This example shows how to wire `matrix-sdk-rtc` and `matrix-sdk-rtc-livekit` to
 join/leave a LiveKit room based on MatrixRTC call memberships.
 
-**Important:** this example does **not** publish MatrixRTC memberships (e.g.
-`m.call.member`) for your device. You must integrate a membership publisher
-(or Element Call) so the room contains an active call membership before the
-`LiveKitRoomDriver` will connect.
+**Important:** this example needs MatrixRTC memberships (e.g. `m.call.member`)
+for your device before the `LiveKitRoomDriver` will connect. You can either
+publish memberships yourself or enable the optional Element Call widget bridge
+feature (see below), which publishes the membership via the widget API.
 
 ## Usage
 
@@ -21,6 +21,21 @@ LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 RUST_LOG=info \
 cargo run -p example-rtc-livekit-join
+```
+
+### Element Call widget bridge (membership publisher)
+
+To publish the call membership via the Element Call widget API, enable the
+`experimental-widgets` feature and provide the widget URL:
+
+```bash
+HOMESERVER_URL=https://matrix.example.org \
+MATRIX_USERNAME=@alice:example.org \
+MATRIX_PASSWORD=secret \
+ROOM_ID=!roomid:example.org \
+ELEMENT_CALL_URL=https://call.element.io \
+RUST_LOG=info \
+cargo run -p example-rtc-livekit-join --features experimental-widgets
 ```
 
 ## V4L2 camera publishing (Linux)
