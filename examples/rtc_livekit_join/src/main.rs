@@ -473,6 +473,7 @@ async fn main() -> anyhow::Result<()> {
     let username = required_env("MATRIX_USERNAME")?;
     let password = required_env("MATRIX_PASSWORD")?;
     let room_id_or_alias = required_env("ROOM_ID")?;
+    let device_id = optional_env("MATRIX_DEVICE_ID");
     let livekit_service_url_override = optional_env("LIVEKIT_SERVICE_URL");
     let livekit_sfu_get_url = optional_env("LIVEKIT_SFU_GET_URL");
     let v4l2_config = v4l2_config_from_env().context("read V4L2 config")?;
@@ -483,11 +484,11 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("build Matrix client")?;
 
-    client
-        .matrix_auth()
-        .login_username(&username, &password)
-        .await
-        .context("login Matrix user")?;
+    let mut login_builder = client.matrix_auth().login_username(&username, &password);
+    if let Some(device_id) = device_id.as_deref() {
+        login_builder = login_builder.device_id(device_id);
+    }
+    login_builder.send().await.context("login Matrix user")?;
     import_recovery_key_if_set(&client)
         .await
         .context("import recovery key")?;
