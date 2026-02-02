@@ -88,7 +88,7 @@ pub use self::{
     error::*,
     event_filter::{TimelineEventCondition, TimelineEventFilter},
     event_item::{
-        AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, EventItemOrigin,
+        AnyOtherStateEventContentChange, EmbeddedEvent, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MediaUploadProgress,
         MemberProfileChange, MembershipChange, Message, MsgLikeContent, MsgLikeKind,
         OtherMessageLike, OtherState, PollResult, PollState, Profile, ReactionInfo, ReactionStatus,

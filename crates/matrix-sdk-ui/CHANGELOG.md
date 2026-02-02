@@ -64,6 +64,8 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Rename `AnyOtherFullStateEventContent` to `AnyOtherStateEventContentChange`
+  to match the name change in the upstream types.
 - [**breaking**] Remove `WithLocking` from `EncryptionSyncService`, the locking mechanism will be taken from the parent 
   `Client` with `Client::cross_process_store_config`. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The [`Timeline::pin_event`] and [`Timeline::unpin_event`] methods have been

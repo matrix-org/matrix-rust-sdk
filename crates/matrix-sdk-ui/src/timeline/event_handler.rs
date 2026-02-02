@@ -26,8 +26,8 @@ use ruma::{
     TransactionId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, FullStateEventContent, MessageLikeEventContent, MessageLikeEventType,
-        StateEventType, SyncStateEvent,
+        AnySyncTimelineEvent, MessageLikeEventContent, MessageLikeEventType,
+        StateEventContentChange, StateEventType, SyncStateEvent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
         },
@@ -51,7 +51,7 @@ use super::{
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
-        AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
+        AnyOtherStateEventContentChange, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
         TimelineEventItemId,
     },
@@ -289,7 +289,7 @@ impl TimelineAction {
                     SyncStateEvent::Original(ev) => {
                         Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
-                            FullStateEventContent::Original {
+                            StateEventContentChange::Original {
                                 content: ev.content,
                                 prev_content: ev.unsigned.prev_content,
                             },
@@ -299,14 +299,16 @@ impl TimelineAction {
                     SyncStateEvent::Redacted(ev) => {
                         Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
-                            FullStateEventContent::Redacted(ev.content),
+                            StateEventContentChange::Redacted(ev.content),
                             ev.sender,
                         ))
                     }
                 },
                 ev => Self::add_item(TimelineItemContent::OtherState(OtherState {
                     state_key: ev.state_key().to_owned(),
-                    content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                    content: AnyOtherStateEventContentChange::with_event_content(
+                        ev.content_change(),
+                    ),
                 })),
             },
         })
