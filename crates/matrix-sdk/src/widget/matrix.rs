@@ -265,13 +265,19 @@ impl MatrixDriver {
                     .map(|s| s.is_encrypted())
                     // Default consider encrypted
                     .unwrap_or(true);
+                let event_type = raw.get_field::<String>("type").ok().flatten();
+
                 if room_encrypted && encryption_info.is_none() {
-                    // The room is encrypted so the to-device traffic should be too.
-                    warn!(
-                        ?room_id,
-                        "Received to-device event in clear for a widget in an e2e room, dropping."
-                    );
-                    return;
+                    // Some widget traffic (like call encryption keys) can be carried in
+                    // clear even when the room is encrypted. Only drop clear to-device
+                    // messages that are not explicitly allowed.
+                    if event_type.as_deref() != Some("io.element.call.encryption_keys") {
+                        warn!(
+                            ?room_id,
+                            "Received to-device event in clear for a widget in an e2e room, dropping."
+                        );
+                        return;
+                    }
                 }
 
                 if encryption_info.is_some() {
