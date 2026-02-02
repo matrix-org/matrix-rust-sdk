@@ -375,6 +375,12 @@ impl MatrixDriver {
         let client = self.room.client();
         let event_type_string = event_type.to_string();
 
+        if event_type_string == "io.element.call.encryption_keys" {
+            let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+            client.send(request).await?;
+            return Ok(Default::default());
+        }
+
         let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
         let room_encrypted = self
@@ -433,17 +439,6 @@ impl MatrixDriver {
 
             match encrypt_result {
                 Ok(response) => Ok(response),
-                Err(error) if event_type_string == "io.element.call.encryption_keys" => {
-                    warn!(
-                        ?error,
-                        room_id = %self.room.room_id(),
-                        "Encrypted send-to-device for call keys failed; falling back to clear send."
-                    );
-                    let request =
-                        RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
-                    client.send(request).await?;
-                    Ok(Default::default())
-                }
                 Err(error) => Err(error),
             }
         } else {
