@@ -47,8 +47,8 @@ use matrix_sdk_base::{
     linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
+    task_monitor::BackgroundTaskHandle,
     timer,
-    watchdog::BackgroundTaskHandle,
 };
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,

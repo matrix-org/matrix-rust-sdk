@@ -17,7 +17,7 @@
 //! monitored for panics, errors, and unexpected termination.
 //!
 //! ```no_run
-//! use matrix_sdk_common::watchdog::TaskMonitor;
+//! use matrix_sdk_common::task_monitor::TaskMonitor;
 //!
 //! let monitor = TaskMonitor::new();
 //!
@@ -32,6 +32,10 @@
 //!             .await;
 //!     }
 //! });
+//!
+//! // It's also possible to have the task be aborted safely (and without a report)
+//! // when the handle is dropped.
+//! let _handle = handle.abort_on_drop();
 //!
 //! // Listen for failures in another task
 //! // while let Ok(failure) = failures.recv().await {
@@ -171,7 +175,7 @@ const FAILURE_CHANNEL_CAPACITY: usize = 8;
 /// # Example
 ///
 /// ```no_run
-/// use matrix_sdk_common::watchdog::TaskMonitor;
+/// use matrix_sdk_common::task_monitor::TaskMonitor;
 ///
 /// let monitor = TaskMonitor::new();
 ///
@@ -193,7 +197,7 @@ pub struct TaskMonitor {
     failure_sender: broadcast::Sender<BackgroundTaskFailure>,
 
     /// Map of active tasks by ID.
-    active_tasks: Arc<RwLock<HashMap<TaskId, ActiveTask>>>,
+    active_task_handles: Arc<RwLock<HashMap<TaskId, ActiveTask>>>,
 }
 
 impl Default for TaskMonitor {
@@ -206,7 +210,7 @@ impl TaskMonitor {
     /// Create a new task monitor.
     pub fn new() -> Self {
         let (failure_sender, _) = broadcast::channel(FAILURE_CHANNEL_CAPACITY);
-        Self { failure_sender, active_tasks: Default::default() }
+        Self { failure_sender, active_task_handles: Default::default() }
     }
 
     /// Subscribe to failure notifications.
@@ -252,7 +256,7 @@ impl TaskMonitor {
 
         let intentionally_aborted = Arc::new(AtomicBool::new(false));
 
-        let active_tasks = self.active_tasks.clone();
+        let active_tasks = self.active_task_handles.clone();
         let failure_sender = self.failure_sender.clone();
         let aborted_flag = intentionally_aborted.clone();
 
@@ -290,7 +294,7 @@ impl TaskMonitor {
         let abort_handle = join_handle.abort_handle();
 
         // Register the task.
-        self.active_tasks
+        self.active_task_handles
             .write()
             .insert(task_id, ActiveTask { _abort_handle: abort_handle.clone() });
 
@@ -329,7 +333,7 @@ impl TaskMonitor {
 
         let intentionally_aborted = Arc::new(AtomicBool::new(false));
 
-        let active_tasks = self.active_tasks.clone();
+        let active_tasks = self.active_task_handles.clone();
         let failure_sender = self.failure_sender.clone();
         let aborted_flag = intentionally_aborted.clone();
 
@@ -366,7 +370,7 @@ impl TaskMonitor {
         let abort_handle = join_handle.abort_handle();
 
         // Register the task.
-        self.active_tasks
+        self.active_task_handles
             .write()
             .insert(task_id, ActiveTask { _abort_handle: abort_handle.clone() });
 

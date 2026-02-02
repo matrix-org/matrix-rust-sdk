@@ -42,7 +42,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    watchdog::BackgroundTaskFailureReason,
+    task_monitor::BackgroundTaskFailureReason,
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
