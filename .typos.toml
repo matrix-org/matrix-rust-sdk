@@ -24,6 +24,8 @@ singed = "signed"
 singing = "signing"
 # crate name
 ratatui = "ratatui"
+# path name
+consts = "consts"
 # base64 false positives
 Nd = "Nd"
 Abl = "Abl"

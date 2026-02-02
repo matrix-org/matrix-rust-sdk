@@ -35,7 +35,7 @@ use vodozemac::{
 
 use crate::authentication::oauth::qrcode::SecureChannelError as Error;
 
-/// A cryptograhpic communication channel.
+/// A cryptographic communication channel.
 pub(super) enum CryptoChannel {
     Ecies(Ecies),
 }
@@ -82,7 +82,7 @@ impl CryptoChannelCreationResult {
     }
 }
 
-/// A fully established cryptograhpic communication channel.
+/// A fully established cryptographic communication channel.
 ///
 /// This channel allows you to seal/encrypt as well as open/decrypt
 /// cryptographic messages.
