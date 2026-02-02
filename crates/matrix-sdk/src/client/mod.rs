@@ -39,7 +39,7 @@ use matrix_sdk_base::{
         WellKnownResponse,
     },
     sync::{Notification, RoomUpdates},
-    watchdog::TaskMonitor,
+    task_monitor::TaskMonitor,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]

@@ -132,8 +132,8 @@ use matrix_sdk_base::{
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
     event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
+    task_monitor::BackgroundTaskHandle,
     timer,
-    watchdog::BackgroundTaskHandle,
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
