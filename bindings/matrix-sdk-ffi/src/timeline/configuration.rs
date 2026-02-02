@@ -127,10 +127,7 @@ pub enum TimelineFocus {
         /// The thread root event ID to focus on.
         root_event_id: String,
     },
-    PinnedEvents {
-        max_events_to_load: u16,
-        max_concurrent_requests: u16,
-    },
+    PinnedEvents,
 }
 
 impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
@@ -160,9 +157,7 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
 
                 Ok(Self::Thread { root_event_id: parsed_root_event_id })
             }
-            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
-                Ok(Self::PinnedEvents { max_events_to_load, max_concurrent_requests })
-            }
+            TimelineFocus::PinnedEvents => Ok(Self::PinnedEvents),
         }
     }
 }

@@ -480,9 +480,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
 
         match &self.focus {
-            TimelineFocusKind::PinnedEvents { .. } => {
-                // Only add pinned events for the pinned events timeline.
-                room_data_provider.is_pinned_event(event.event_id())
+            TimelineFocusKind::PinnedEvents => {
+                // The pinned events timeline only receives updates for, well, pinned events.
+                true
             }
 
             TimelineFocusKind::Event { paginator } => {

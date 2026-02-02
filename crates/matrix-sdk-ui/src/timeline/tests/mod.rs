@@ -310,14 +310,6 @@ impl PinnedEventsRoom for TestRoomDataProvider {
     ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
         unimplemented!();
     }
-
-    fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
-        unimplemented!();
-    }
-
-    fn is_pinned_event(&self, _event_id: &EventId) -> bool {
-        unimplemented!();
-    }
 }
 
 impl RoomDataProvider for TestRoomDataProvider {

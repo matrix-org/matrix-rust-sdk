@@ -188,10 +188,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .unwrap();
 
             let timeline = TimelineBuilder::new(&room)
-                .with_focus(TimelineFocus::PinnedEvents {
-                    max_events_to_load: 100,
-                    max_concurrent_requests: 10,
-                })
+                .with_focus(TimelineFocus::PinnedEvents)
                 .build()
                 .await
                 .expect("Could not create timeline");

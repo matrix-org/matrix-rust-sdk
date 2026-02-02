@@ -16,8 +16,6 @@
 
 use std::collections::BTreeSet;
 
-use futures_core::Stream;
-use futures_util::pin_mut;
 use matrix_sdk::{
     event_cache::{
         EventsOrigin, RoomEventCache, RoomEventCacheSubscriber, RoomEventCacheUpdate,
@@ -27,7 +25,6 @@ use matrix_sdk::{
 };
 use ruma::OwnedEventId;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
-use tokio_stream::StreamExt as _;
 use tracing::{error, instrument, trace, warn};
 
 use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEventOrigin};
@@ -40,7 +37,7 @@ use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEvent
         room_id = %timeline_controller.room().room_id(),
     )
 )]
-pub(in crate::timeline) async fn pinned_events_task2(
+pub(in crate::timeline) async fn pinned_events_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
     mut pinned_events_recv: Receiver<RoomEventCacheUpdate>,
@@ -100,45 +97,6 @@ pub(in crate::timeline) async fn pinned_events_task2(
             | RoomEventCacheUpdate::UpdateMembers { .. } => {
                 // Nothing to do; these shouldn't happen for a pinned event sub.
                 // TODO(bnjbvr): then use a different type :)
-            }
-        }
-    }
-}
-
-/// Long-lived task, in the pinned events focus mode, that updates the timeline
-/// after any changes in the pinned events.
-#[instrument(
-    skip_all,
-    fields(
-        room_id = %timeline_controller.room().room_id(),
-    )
-)]
-pub(in crate::timeline) async fn pinned_events_task<S>(
-    pinned_event_ids_stream: S,
-    timeline_controller: TimelineController,
-) where
-    S: Stream<Item = Vec<OwnedEventId>>,
-{
-    pin_mut!(pinned_event_ids_stream);
-
-    while pinned_event_ids_stream.next().await.is_some() {
-        trace!("received a pinned events update");
-
-        match timeline_controller.reload_pinned_events().await {
-            Ok(Some(events)) => {
-                trace!("successfully reloaded pinned events");
-                timeline_controller
-                    .replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
-                    .await;
-            }
-
-            Ok(None) => {
-                // The list of pinned events hasn't changed since the previous
-                // time.
-            }
-
-            Err(err) => {
-                warn!("Failed to reload pinned events: {err}");
             }
         }
     }
