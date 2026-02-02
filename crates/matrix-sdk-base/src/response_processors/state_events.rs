@@ -20,8 +20,7 @@ use ruma::{
     events::{AnySyncStateEvent, SyncStateEvent},
     serde::Raw,
 };
-use serde::Deserialize;
-use tracing::{error, warn};
+use tracing::error;
 
 use super::Context;
 #[cfg(feature = "experimental-encrypted-state-events")]
@@ -262,22 +261,31 @@ pub mod sync {
 
 /// Collect [`AnyStrippedStateEvent`].
 pub mod stripped {
-    use std::{collections::BTreeMap, iter};
+    use std::collections::BTreeMap;
 
-    use ruma::{RoomId, UserId, events::AnyStrippedStateEvent, push::Action};
+    use ruma::{
+        RoomId, UserId,
+        events::{AnyStrippedStateEvent, StateEventType},
+        push::Action,
+    };
     use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
         Context, Raw,
     };
-    use crate::{Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
+    use crate::{RawStateEventWithKeys, Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
 
-    /// Collect [`Raw<AnyStrippedStateEvent>`] to [`AnyStrippedStateEvent`].
+    /// Collect [`Raw<AnyStrippedStateEvent>`] to
+    /// [`RawStateEventWithKeys<AnyStrippedStateEvent>`].
     pub fn collect(
         raw_events: &[Raw<AnyStrippedStateEvent>],
-    ) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
-        super::collect(raw_events)
+    ) -> Vec<RawStateEventWithKeys<AnyStrippedStateEvent>> {
+        raw_events
+            .iter()
+            .cloned()
+            .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
+            .collect()
     }
 
     /// Dispatch the stripped state events.
@@ -299,7 +307,7 @@ pub mod stripped {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
-        (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
+        raw_events: Vec<RawStateEventWithKeys<AnyStrippedStateEvent>>,
         room: &Room,
         room_info: &mut RoomInfo,
         user_id: &UserId,
@@ -307,16 +315,16 @@ pub mod stripped {
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
-        for (raw_event, event) in iter::zip(raw_events, events) {
-            room_info.handle_stripped_state_event(event);
+        own_membership(context, room.room_id(), user_id, &raw_events);
+
+        for mut raw_event in raw_events {
+            room_info.handle_stripped_state_event(&mut raw_event);
 
             state_events
-                .entry(event.event_type())
+                .entry(raw_event.event_type)
                 .or_insert_with(BTreeMap::new)
-                .insert(event.state_key().to_owned(), raw_event.clone());
+                .insert(raw_event.state_key, raw_event.raw);
         }
-
-        own_membership(context, room.room_id(), user_id, events);
 
         context
             .state_changes
@@ -349,20 +357,15 @@ pub mod stripped {
         context: &mut Context,
         room_id: &RoomId,
         user_id: &UserId,
-        state_events: &[AnyStrippedStateEvent],
+        raw_state_events: &[RawStateEventWithKeys<AnyStrippedStateEvent>],
     ) {
         // Start from the last event; the first membership event we see in that order is
         // the last in the regular order, so that's the only one we need to
         // consider.
-        if state_events.iter().rev().any(|event| {
+        if raw_state_events.iter().rev().any(|raw_event| {
             // Find the event that updates the current user's membership.
-            if let AnyStrippedStateEvent::RoomMember(member) = &event
-                && member.state_key.as_str() == user_id.as_str()
-            {
-                true
-            } else {
-                false
-            }
+            raw_event.event_type == StateEventType::RoomMember
+                && raw_event.state_key == user_id.as_str()
         }) {
             // Update an existing notable update entry or create a new one
             context
@@ -372,23 +375,6 @@ pub mod stripped {
                 .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
     }
-}
-
-fn collect<'a, I, T>(raw_events: I) -> (Vec<Raw<T>>, Vec<T>)
-where
-    I: IntoIterator<Item = &'a Raw<T>>,
-    T: Deserialize<'a> + 'a,
-{
-    raw_events
-        .into_iter()
-        .filter_map(|raw_event| match raw_event.deserialize() {
-            Ok(event) => Some((raw_event.clone(), event)),
-            Err(e) => {
-                warn!("Couldn't deserialize stripped state event: {e}");
-                None
-            }
-        })
-        .unzip()
 }
 
 /// Check if the `predecessor` in `m.room.create` isn't creating a loop of
