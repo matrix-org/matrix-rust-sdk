@@ -53,6 +53,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Latest Event is correctly computed when multiple edits exist for the same event candidate.
+  ([#6096](https://github.com/matrix-org/matrix-rust-sdk/pull/6096))
 - Restrict which `m.room.member` can be a `LatestEventValue` candidate by relying on `MembershipChange` for more control.
   ([#6143](https://github.com/matrix-org/matrix-rust-sdk/pull/6143))
 - Add manual WAL checkpoints when opening Sqlite DBs and when vacuuming them, since the WAL files aren't automatically shrinking. ([#6004](https://github.com/matrix-org/matrix-rust-sdk/pull/6004))
