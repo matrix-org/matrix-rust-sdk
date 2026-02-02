@@ -259,25 +259,27 @@ impl MatrixDriver {
                     return;
                 };
 
-                let room_encrypted = room.latest_encryption_state().await
+                let room_encrypted = room
+                    .latest_encryption_state()
+                    .await
                     .map(|s| s.is_encrypted())
                     // Default consider encrypted
                     .unwrap_or(true);
-                if room_encrypted {
+                if room_encrypted && encryption_info.is_none() {
                     // The room is encrypted so the to-device traffic should be too.
-                    if encryption_info.is_none() {
-                        warn!(
-                            ?room_id,
-                            "Received to-device event in clear for a widget in an e2e room, dropping."
-                        );
-                        return;
-                    }
+                    warn!(
+                        ?room_id,
+                        "Received to-device event in clear for a widget in an e2e room, dropping."
+                    );
+                    return;
+                }
 
-                    // There are no per-room specific decryption settings (trust requirements), so we can just send it to the
-                    // widget.
+                if encryption_info.is_some() {
+                    // There are no per-room specific decryption settings (trust requirements),
+                    // so we can just send it to the widget.
 
-                    // The raw to-device event contains more fields than the widget needs, so we need to clean it up
-                    // to only type/content/sender.
+                    // The raw to-device event contains more fields than the widget needs, so we
+                    // need to clean it up to only type/content/sender.
                     #[derive(Deserialize, Serialize)]
                     struct CleanEventHelper<'a> {
                         #[serde(rename = "type")]
@@ -291,14 +293,12 @@ impl MatrixDriver {
                         .and_then(|clean_event_helper| {
                             serde_json::value::to_raw_value(&clean_event_helper)
                         })
-                        .map_err(|err| warn!(?room_id, "Unable to process to-device message for widget: {err}"))
-                        .map(|box_value | {
-                            tx.send(Raw::from_json(box_value))
-                        });
-
+                        .map_err(|err| {
+                            warn!(?room_id, "Unable to process to-device message for widget: {err}")
+                        })
+                        .map(|box_value| tx.send(Raw::from_json(box_value)));
                 } else {
-                    // forward to the widget
-                    // It is ok to send an encrypted to-device message even if the room is clear.
+                    // Forward to the widget.
                     let _ = tx.send(raw);
                 }
             },
