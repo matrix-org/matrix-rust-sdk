@@ -40,6 +40,79 @@ use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEvent
         room_id = %timeline_controller.room().room_id(),
     )
 )]
+pub(in crate::timeline) async fn pinned_events_task2(
+    room_event_cache: RoomEventCache,
+    timeline_controller: TimelineController,
+    mut pinned_events_recv: Receiver<RoomEventCacheUpdate>,
+) {
+    loop {
+        trace!("Waiting for an event.");
+
+        let update = match pinned_events_recv.recv().await {
+            Ok(up) => up,
+            Err(RecvError::Closed) => break,
+            Err(RecvError::Lagged(num_skipped)) => {
+                warn!(num_skipped, "Lagged behind event cache updates, resetting timeline");
+
+                // The updates might have lagged, but the room event cache might have
+                // events, so retrieve them and add them back again to the timeline,
+                // after clearing it.
+                let (initial_events, _) = match room_event_cache.subscribe_to_pinned_events().await
+                {
+                    Ok(initial_events) => initial_events,
+                    Err(err) => {
+                        error!(
+                            ?err,
+                            "Failed to replace the initial remote events in the event cache"
+                        );
+                        break;
+                    }
+                };
+
+                timeline_controller
+                    .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
+                    .await;
+
+                continue;
+            }
+        };
+
+        match update {
+            RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
+                trace!("Received new timeline events diffs");
+                let origin = match origin {
+                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                    EventsOrigin::Cache => RemoteEventOrigin::Cache,
+                };
+
+                let has_diffs = !diffs.is_empty();
+
+                timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
+
+                if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
+                    timeline_controller.retry_event_decryption(None).await;
+                }
+            }
+
+            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
+            | RoomEventCacheUpdate::AddEphemeralEvents { .. }
+            | RoomEventCacheUpdate::UpdateMembers { .. } => {
+                // Nothing to do; these shouldn't happen for a pinned event sub.
+                // TODO(bnjbvr): then use a different type :)
+            }
+        }
+    }
+}
+
+/// Long-lived task, in the pinned events focus mode, that updates the timeline
+/// after any changes in the pinned events.
+#[instrument(
+    skip_all,
+    fields(
+        room_id = %timeline_controller.room().room_id(),
+    )
+)]
 pub(in crate::timeline) async fn pinned_events_task<S>(
     pinned_event_ids_stream: S,
     timeline_controller: TimelineController,
@@ -189,8 +262,9 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
 
                 if matches!(timeline_focus, TimelineFocus::Live { .. }) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
-                } else {
-                    // Only handle the remote aggregation for a non-live timeline.
+                } else if !matches!(timeline_focus, TimelineFocus::PinnedEvents) {
+                    // Only handle the remote aggregation for a non-live timeline, that's not the
+                    // pinned events one (since this one handles its own remote events diffs).
                     timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 

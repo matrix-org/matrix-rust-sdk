@@ -623,23 +623,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
 
-            TimelineFocus::PinnedEvents { .. } => {
-                let TimelineFocusKind::PinnedEvents { loader } = &*self.focus else {
-                    // NOTE: this is sync'd with code in the ctor.
-                    unreachable!();
-                };
+            TimelineFocus::PinnedEvents => {
+                let (initial_events, _update_receiver) =
+                    room_event_cache.subscribe_to_pinned_events().await?;
 
-                let Some(loaded_events) =
-                    loader.load_events().await.map_err(Error::PinnedEventsError)?
-                else {
-                    // There wasn't any events.
-                    return Ok(false);
-                };
-
-                let has_events = !loaded_events.is_empty();
+                let has_events = !initial_events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    loaded_events,
+                    initial_events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;

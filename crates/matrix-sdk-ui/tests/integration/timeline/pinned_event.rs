@@ -4,12 +4,13 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
-    Client, Room,
+    Client, Room, assert_let_timeout,
     config::SyncSettings,
     test_utils::{
         logged_in_client_with_server,
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate},
     },
+    timeout::timeout,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
@@ -88,7 +89,14 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -158,7 +166,14 @@ async fn test_pinned_event_with_reaction() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     // Verify that the timeline contains the pinned event and its reaction.
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
@@ -230,7 +245,14 @@ async fn test_pinned_event_with_paginated_reactions() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     // Verify that the timeline contains the pinned event and its reactions.
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
@@ -306,7 +328,16 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    // Wait for the event cache to handle initialization of the pinned events
+    // timeline.
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -345,7 +376,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .await
         .expect("Sync failed");
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
 
@@ -429,9 +460,15 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert!(!items.is_empty()); // We just loaded some events
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
+
     assert_pending!(timeline_stream);
 
     assert!(room_cache.find_event(event_id!("$1")).await.unwrap().is_some());
@@ -476,10 +513,17 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
-    let ret = TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await;
 
-    // The timeline couldn't load any events so it fails to initialise
-    assert!(ret.is_err());
+    // While the timeline gets initialized, it will fail to be updated by the
+    // background pinned cache task, after one second.
+    let timeline =
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let result = timeout(timeline_stream.next(), Duration::from_secs(1)).await;
+
+    assert!(result.is_err());
 }
 
 #[async_test]
@@ -675,7 +719,14 @@ async fn test_edited_events_are_reflected_in_sync() {
     );
 
     // Load timeline items.
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -702,7 +753,7 @@ async fn test_edited_events_are_reflected_in_sync() {
         .await
         .expect("Sync failed");
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // The edit does replace the original event.
@@ -758,7 +809,14 @@ async fn test_redacted_events_are_reflected_in_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    if items.is_empty() {
+        assert_let_timeout!(Some(updates) = timeline_stream.next());
+        for up in updates {
+            up.apply(&mut items);
+        }
+    }
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -781,7 +839,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .await
         .expect("Sync failed");
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // The redaction takes place.
