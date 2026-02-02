@@ -258,11 +258,29 @@ impl RoomMember {
 
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
-        if let Some(p) = self.profile.as_ref() {
-            p.as_original().and_then(|e| e.content.displayname.as_deref())
-        } else {
-            self.event.displayname_value()
+        // Profile cache first
+        // Not to fond of this double as_ref() chain, but it avoids an extra clone.
+        if let Some(name) = self
+            .profile
+            .as_ref()
+            .as_ref()
+            .and_then(|p| p.as_original())
+            .and_then(|ev| ev.content.displayname.as_deref())
+        {
+            return Some(name);
         }
+
+        // Then current event content
+        if let Some(name) = self.event.original_content().and_then(|c| c.displayname.as_deref()) {
+            return Some(name);
+        }
+
+        // Last resort: prev_content
+        self.event
+            .as_sync()
+            .and_then(|e| e.as_original())
+            .and_then(|e| e.prev_content())
+            .and_then(|p| p.displayname.as_deref())
     }
 
     /// Get the name of the member.
@@ -275,11 +293,25 @@ impl RoomMember {
 
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        if let Some(p) = self.profile.as_ref() {
-            p.as_original().and_then(|e| e.content.avatar_url.as_deref())
-        } else {
-            self.event.avatar_url()
+        if let Some(url) = self
+            .profile
+            .as_ref()
+            .as_ref()
+            .and_then(|p| p.as_original())
+            .and_then(|ev| ev.content.avatar_url.as_deref())
+        {
+            return Some(url);
         }
+
+        if let Some(url) = self.event.original_content().and_then(|c| c.avatar_url.as_deref()) {
+            return Some(url);
+        }
+
+        self.event
+            .as_sync()
+            .and_then(|e| e.as_original())
+            .and_then(|e| e.prev_content())
+            .and_then(|p| p.avatar_url.as_deref())
     }
 
     /// Get the normalized power level of this member.
