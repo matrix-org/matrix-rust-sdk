@@ -316,6 +316,7 @@ impl Timeline {
     pub async fn send(&self, mut content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
         // If this is a room event we're sending in a threaded timeline, we add the
         // thread relation ourselves.
+        panic!("Test panic for debug symbols again");
         if content.relation().is_none()
             && let Some(reply) = self.infer_reply(None).await
         {
