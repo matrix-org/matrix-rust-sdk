@@ -95,6 +95,7 @@ sentry = { workspace = true, optional = true, default-features = false, features
   # Most default features enabled otherwise.
   "backtrace",
   "contexts",
+  "debug-images",
   "panic",
   "reqwest",
   "sentry-debug-images",
