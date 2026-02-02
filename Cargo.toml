@@ -188,6 +188,17 @@ debug = 2
 [profile.reldbg]
 inherits = "dbg"
 opt-level = 3
+strip = "debuginfo"
+
+[profile.dist]
+# Use release profile as a base
+inherits = "release"
+# Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
+strip = "debuginfo"
+# Use link time optimizations
+lto = true
+# Use binary size optimization, since this is intended for distributed copies of the SDK
+opt-level = "s"
 
 [profile.profiling]
 inherits = "release"
