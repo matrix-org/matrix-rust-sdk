@@ -284,10 +284,7 @@ async fn test_timeline_is_threaded() {
     {
         // A pinned events timeline isn't threaded.
         let timeline = TimelineBuilder::new(&room)
-            .with_focus(TimelineFocus::PinnedEvents {
-                max_events_to_load: 0,
-                max_concurrent_requests: 10,
-            })
+            .with_focus(TimelineFocus::PinnedEvents)
             .build()
             .await
             .unwrap();

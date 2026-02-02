@@ -1188,14 +1188,8 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     assert!(event.kind.is_utd());
 
     // Alright, let's now get to the timeline with a PinnedEvents focus.
-    let pinned_timeline = room
-        .timeline_builder()
-        .with_focus(TimelineFocus::PinnedEvents {
-            max_events_to_load: 100,
-            max_concurrent_requests: 10,
-        })
-        .build()
-        .await?;
+    let pinned_timeline =
+        room.timeline_builder().with_focus(TimelineFocus::PinnedEvents).build().await?;
 
     let (items, mut stream) = pinned_timeline.subscribe_filter_map(|i| i.as_event().cloned()).await;
 

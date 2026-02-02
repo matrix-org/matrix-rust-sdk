@@ -18,7 +18,7 @@ use matrix_sdk::{
 };
 use thiserror::Error;
 
-use crate::timeline::{TimelineEventItemId, pinned_events_loader::PinnedEventsLoaderError};
+use crate::timeline::TimelineEventItemId;
 
 /// Errors specific to the timeline.
 #[derive(Error, Debug)]
@@ -59,10 +59,6 @@ pub enum Error {
     /// An error happened during pagination.
     #[error(transparent)]
     PaginationError(#[from] PaginationError),
-
-    /// An error happened during pagination.
-    #[error(transparent)]
-    PinnedEventsError(#[from] PinnedEventsLoaderError),
 
     /// An error happened while operating the room's send queue.
     #[error(transparent)]

@@ -28,7 +28,7 @@ use crate::{
         TimelineReadReceiptTracking,
         controller::spawn_crypto_tasks,
         tasks::{
-            pinned_events_task2, room_event_cache_updates_task, room_send_queue_update_task,
+            pinned_events_task, room_event_cache_updates_task, room_send_queue_update_task,
             thread_updates_task,
         },
     },
@@ -189,7 +189,7 @@ impl TimelineBuilder {
             let (_initial_events, pinned_events_recv) =
                 room_event_cache.subscribe_to_pinned_events().await?;
 
-            Some(spawn(pinned_events_task2(
+            Some(spawn(pinned_events_task(
                 room_event_cache.clone(),
                 controller.clone(),
                 pinned_events_recv,
