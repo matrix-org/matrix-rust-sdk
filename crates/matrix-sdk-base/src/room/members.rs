@@ -271,7 +271,7 @@ impl RoomMember {
         }
 
         // Then current event content
-        if let Some(name) = self.event.original_content().and_then(|c| c.displayname.as_deref()) {
+        if let Some(name) = self.event.displayname_value() {
             return Some(name);
         }
 
@@ -303,7 +303,7 @@ impl RoomMember {
             return Some(url);
         }
 
-        if let Some(url) = self.event.original_content().and_then(|c| c.avatar_url.as_deref()) {
+        if let Some(url) = self.event.avatar_url() {
             return Some(url);
         }
 
