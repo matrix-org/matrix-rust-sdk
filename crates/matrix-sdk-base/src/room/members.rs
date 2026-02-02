@@ -258,24 +258,19 @@ impl RoomMember {
 
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
-        // Profile cache first
-        // Not to fond of this double as_ref() chain, but it avoids an extra clone.
-        if let Some(name) = self
-            .profile
-            .as_ref()
-            .as_ref()
-            .and_then(|p| p.as_original())
-            .and_then(|ev| ev.content.displayname.as_deref())
-        {
-            return Some(name);
+        // Try from the cached profile first.
+        if let Some(p) = self.profile.as_ref() {
+            if let Some(name) = p.as_original().and_then(|e| e.content.displayname.as_deref()) {
+                return Some(name);
+            }
         }
 
-        // Then current event content
+        // Then from the current event's content.
         if let Some(name) = self.event.displayname_value() {
             return Some(name);
         }
 
-        // Last resort: prev_content
+        // As a last resort, try the previous content.
         self.event
             .as_sync()
             .and_then(|e| e.as_original())
@@ -293,20 +288,19 @@ impl RoomMember {
 
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        if let Some(url) = self
-            .profile
-            .as_ref()
-            .as_ref()
-            .and_then(|p| p.as_original())
-            .and_then(|ev| ev.content.avatar_url.as_deref())
-        {
-            return Some(url);
+        // Try from the cached profile first.
+        if let Some(p) = self.profile.as_ref() {
+            if let Some(url) = p.as_original().and_then(|e| e.content.avatar_url.as_deref()) {
+                return Some(url);
+            }
         }
 
+        // Then from the current event's content.
         if let Some(url) = self.event.avatar_url() {
             return Some(url);
         }
 
+        // As a last resort, try the previous content.
         self.event
             .as_sync()
             .and_then(|e| e.as_original())
