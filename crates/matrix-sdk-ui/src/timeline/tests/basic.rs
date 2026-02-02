@@ -26,7 +26,7 @@ use matrix_sdk_test::{
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id,
     events::{
-        FullStateEventContent,
+        StateEventContentChange,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             ImageInfo,
@@ -44,7 +44,7 @@ use crate::timeline::{
     MembershipChange, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails, TimelineFocus,
     TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking, VirtualTimelineItem,
     controller::TimelineSettings,
-    event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
+    event_item::{AnyOtherStateEventContentChange, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
 };
 
@@ -170,7 +170,7 @@ async fn test_room_member() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
     assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
-    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.content(), StateEventContentChange::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
     timeline
@@ -184,7 +184,7 @@ async fn test_room_member() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
-    assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+    assert_matches!(membership.content(), StateEventContentChange::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
     timeline
@@ -239,7 +239,7 @@ async fn test_room_member() {
             membership.avatar_url().map(|url| url.to_string()).as_deref(),
             Some("mxc://lolcathost.io/abc")
         );
-        assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+        assert_matches!(membership.content(), StateEventContentChange::Original { .. });
         assert_matches!(membership.change(), Some(MembershipChange::Left));
     }
 
@@ -253,7 +253,7 @@ async fn test_room_member() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
-    assert_matches!(membership.content(), FullStateEventContent::Redacted(_));
+    assert_matches!(membership.content(), StateEventContentChange::Redacted(_));
     assert_matches!(membership.change(), None);
 }
 
@@ -267,8 +267,8 @@ async fn test_other_state() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
-    assert_let!(AnyOtherFullStateEventContent::RoomName(full_content) = ev.content());
-    assert_let!(FullStateEventContent::Original { content, prev_content } = full_content);
+    assert_let!(AnyOtherStateEventContentChange::RoomName(full_content) = ev.content());
+    assert_let!(StateEventContentChange::Original { content, prev_content } = full_content);
     assert_eq!(content.name, "Alice's room");
     assert_matches!(prev_content, None);
 
@@ -281,8 +281,8 @@ async fn test_other_state() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
-    assert_let!(AnyOtherFullStateEventContent::RoomTopic(full_content) = ev.content());
-    assert_matches!(full_content, FullStateEventContent::Redacted(_));
+    assert_let!(AnyOtherStateEventContentChange::RoomTopic(full_content) = ev.content());
+    assert_matches!(full_content, StateEventContentChange::Redacted(_));
 }
 
 #[async_test]
