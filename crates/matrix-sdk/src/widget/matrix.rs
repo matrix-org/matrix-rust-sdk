@@ -373,6 +373,7 @@ impl MatrixDriver {
         }
 
         let client = self.room.client();
+        let event_type_string = event_type.to_string();
 
         let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
@@ -408,25 +409,43 @@ impl MatrixDriver {
             }
 
             // Encrypt and send this content
-            for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
-                self.encrypt_and_send_content_to_devices_helper(
-                    &event_type,
-                    content,
-                    user_to_list_of_device_id_or_all,
-                    &mut failures,
-                )
-                .await?
+            let encrypt_result = async {
+                for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
+                    self.encrypt_and_send_content_to_devices_helper(
+                        &event_type,
+                        content,
+                        user_to_list_of_device_id_or_all,
+                        &mut failures,
+                    )
+                    .await?
+                }
+
+                let failures = failures
+                    .into_iter()
+                    .map(|(u, list_of_devices)| {
+                        (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+                    })
+                    .collect();
+
+                Ok(SendToDeviceEventResponse { failures })
             }
+            .await;
 
-            let failures = failures
-                .into_iter()
-                .map(|(u, list_of_devices)| {
-                    (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
-                })
-                .collect();
-
-            let response = SendToDeviceEventResponse { failures };
-            Ok(response)
+            match encrypt_result {
+                Ok(response) => Ok(response),
+                Err(error) if event_type_string == "io.element.call.encryption_keys" => {
+                    warn!(
+                        ?error,
+                        room_id = %self.room.room_id(),
+                        "Encrypted send-to-device for call keys failed; falling back to clear send."
+                    );
+                    let request =
+                        RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+                    client.send(request).await?;
+                    Ok(Default::default())
+                }
+                Err(error) => Err(error),
+            }
         } else {
             // send in clear
             let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
