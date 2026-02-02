@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
 
+use as_variant::as_variant;
 use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -27,8 +28,8 @@ use ruma::{
     },
     assign,
     events::{
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
-        room::member::{MembershipState, PossiblyRedactedRoomMemberEventContent},
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
+        room::member::MembershipState,
     },
     serde::Raw,
 };
@@ -81,14 +82,14 @@ pub async fn update_any_room(
     // Find or create the room in the store
     let is_new_room = !state_store.room_exists(room_id);
 
-    let invite_state_events =
+    let mut raw_invite_state_events =
         room_response.invite_state.as_ref().map(|events| state_events::stripped::collect(events));
 
     #[allow(unused_mut)] // Required for some feature flag combinations
     let (mut room, mut room_info, maybe_room_update_kind) = membership(
         context,
         &mut raw_state_events,
-        &invite_state_events,
+        raw_invite_state_events.as_deref_mut(),
         state_store,
         user_id,
         room_id,
@@ -125,10 +126,10 @@ pub async fn update_any_room(
     .await?;
 
     // This will be used for both invited and knocked rooms.
-    if let Some((raw_events, events)) = invite_state_events {
+    if let Some(raw_state_events) = raw_invite_state_events {
         state_events::stripped::dispatch_invite_or_knock(
             context,
-            (&raw_events, &events),
+            raw_state_events,
             &room,
             &mut room_info,
             user_id,
@@ -225,7 +226,7 @@ pub async fn update_any_room(
 fn membership(
     context: &mut Context,
     state_events: &mut [RawStateEventWithKeys<AnySyncStateEvent>],
-    invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
+    invite_state_events: Option<&mut [RawStateEventWithKeys<AnyStrippedStateEvent>]>,
     store: &BaseStateStore,
     user_id: &UserId,
     room_id: &RoomId,
@@ -239,28 +240,30 @@ fn membership(
     if let Some(state_events) = invite_state_events {
         // We need to find the membership event since it could be for either an invited
         // or knocked room.
-        let own_membership_event = state_events.1.iter().find_map(|event| {
-            if let AnyStrippedStateEvent::RoomMember(membership_event) = event
-                && membership_event.state_key == user_id
+        let own_membership = state_events.iter_mut().find_map(|raw_event| {
+            if raw_event.event_type == StateEventType::RoomMember
+                && raw_event.state_key == user_id.as_str()
             {
-                return Some(membership_event.content.clone());
+                raw_event
+                    .deserialize_as(|any_event| {
+                        as_variant!(any_event, AnyStrippedStateEvent::RoomMember)
+                    })
+                    .map(|event| event.content.membership.clone())
+            } else {
+                None
             }
-
-            None
         });
 
-        match own_membership_event {
+        let raw_events = state_events.iter().map(|event| event.raw.clone()).collect();
+
+        match own_membership {
             // There is a membership event indicating it's a knocked room.
-            Some(PossiblyRedactedRoomMemberEventContent {
-                membership: MembershipState::Knock,
-                ..
-            }) => {
+            Some(MembershipState::Knock) => {
                 let room = store.get_or_create_room(room_id, RoomState::Knocked);
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_knocked();
 
-                let raw_events = state_events.0.clone();
                 let knock_state = assign!(KnockState::default(), { events: raw_events });
                 let knocked_room = assign!(KnockedRoom::default(), { knock_state: knock_state });
 
@@ -274,7 +277,6 @@ fn membership(
                 // Override the room state if the room already exists.
                 room_info.mark_as_invited();
 
-                let raw_events = state_events.0.clone();
                 let invited_room = InvitedRoom::from(InviteState::from(raw_events));
 
                 (room, room_info, Some(RoomUpdateKind::Invited(invited_room)))

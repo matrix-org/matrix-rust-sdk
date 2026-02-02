@@ -1,10 +1,10 @@
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     events::{
-        AnyPossiblyRedactedStateEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
-        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventType, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
-        SyncStateEvent,
+        AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
+        RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
+        StrippedStateEvent, SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             member::PossiblyRedactedRoomMemberEventContent,
@@ -374,6 +374,41 @@ impl RawStateEventWithKeys<AnySyncStateEvent> {
     }
 }
 
+impl RawStateEventWithKeys<AnyStrippedStateEvent> {
+    /// Try to deserialize the raw event and return the selected variant of
+    /// [`AnyStrippedStateEvent`].
+    ///
+    /// This method should only be called if the variant is already known. It is
+    /// considered a developer error for `as_variant_fn` to return `None`, but
+    /// this API was chosen to simplify closures that use the
+    /// [`as_variant!`](as_variant::as_variant) macro.
+    ///
+    /// The result of the event deserialization is cached for future calls to
+    /// this method.
+    ///
+    /// Returns `None` if the deserialization failed or if `as_variant_fn`
+    /// returns `None`.
+    pub fn deserialize_as<F, C>(&mut self, as_variant_fn: F) -> Option<&StrippedStateEvent<C>>
+    where
+        F: FnOnce(&AnyStrippedStateEvent) -> Option<&StrippedStateEvent<C>>,
+        C: StaticEventContent + PossiblyRedactedStateEventContent,
+    {
+        let any_event = self.deserialize()?;
+        let event = as_variant_fn(any_event);
+
+        if event.is_none() {
+            // This should be a developer error, or an upstream error.
+            error!(
+                expected_event_type = ?C::TYPE,
+                actual_event_type = ?any_event.event_type().to_string(),
+                "Couldn't deserialize stripped state event: unexpected type",
+            );
+        }
+
+        event
+    }
+}
+
 /// Helper type to deserialize a [`RawStateEventWithKeys`].
 #[derive(Deserialize)]
 struct StateEventWithKeysDeHelper {
@@ -422,6 +457,29 @@ impl AnyStateEventEnum for AnySyncStateEvent {
 
     fn get_origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         Some(self.origin_server_ts())
+    }
+}
+
+impl AnyStateEventEnum for AnyStrippedStateEvent {
+    /// Get the type of the state event.
+    fn get_event_type(&self) -> StateEventType {
+        self.event_type()
+    }
+
+    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+        self.content()
+    }
+
+    fn get_event_id(&self) -> Option<&EventId> {
+        None
+    }
+
+    fn get_sender(&self) -> &UserId {
+        self.sender()
+    }
+
+    fn get_origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        None
     }
 }
 

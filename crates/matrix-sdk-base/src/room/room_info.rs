@@ -53,7 +53,7 @@ use ruma::{
         tag::{TagEventContent, TagName, Tags},
     },
     room::RoomType,
-    room_version_rules::{AuthorizationRules, RedactionRules, RoomVersionRules},
+    room_version_rules::{RedactionRules, RoomVersionRules},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -416,71 +416,6 @@ impl BaseRoomInfo {
             }
             _ => false,
         }
-    }
-
-    /// Handle a stripped state event for this room and update our info
-    /// accordingly.
-    ///
-    /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_stripped_state_event(&mut self, ev: &AnyStrippedStateEvent) -> bool {
-        match ev {
-            AnyStrippedStateEvent::RoomEncryption(encryption) => {
-                if encryption.content.algorithm.is_some() {
-                    self.encryption = Some(encryption.content.clone());
-                }
-                // If encryption event is redacted, we don't care much. When
-                // entering the room, we will fetch the proper event before
-                // sending any messages.
-            }
-            AnyStrippedStateEvent::RoomAvatar(a) => {
-                self.avatar = Some(a.into());
-            }
-            AnyStrippedStateEvent::RoomName(n) => {
-                self.name = Some(n.into());
-            }
-            AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.into());
-            }
-            AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = Some(h.into());
-            }
-            AnyStrippedStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = Some(g.into());
-            }
-            AnyStrippedStateEvent::RoomJoinRules(c) => match &c.content.join_rule {
-                JoinRule::Invite
-                | JoinRule::Knock
-                | JoinRule::Private
-                | JoinRule::Restricted(_)
-                | JoinRule::KnockRestricted(_)
-                | JoinRule::Public => self.join_rules = Some(c.into()),
-                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
-            },
-            AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = Some(a.into());
-            }
-            AnyStrippedStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.into());
-            }
-            AnyStrippedStateEvent::RoomTombstone(t) => {
-                self.tombstone = Some(t.into());
-            }
-            AnyStrippedStateEvent::RoomPowerLevels(p) => {
-                // The rules and creators do not affect the max power level.
-                self.max_power_level = p.power_levels(&AuthorizationRules::V1, vec![]).max().into();
-            }
-            AnyStrippedStateEvent::CallMember(_) => {
-                // Ignore stripped call state events. Rooms that are not in Joined or Left state
-                // wont have call information.
-                return false;
-            }
-            AnyStrippedStateEvent::RoomPinnedEvents(p) => {
-                self.pinned_events = Some(p.content.clone());
-            }
-            _ => return false,
-        }
-
-        true
     }
 
     pub(super) fn handle_redaction(&mut self, redacts: &EventId) {
@@ -852,8 +787,11 @@ impl RoomInfo {
     /// Handle the given stripped state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
-        self.base_info.handle_stripped_state_event(event)
+    pub fn handle_stripped_state_event(
+        &mut self,
+        raw_event: &mut RawStateEventWithKeys<AnyStrippedStateEvent>,
+    ) -> bool {
+        self.base_info.handle_state_event(raw_event)
     }
 
     /// Handle the given redaction.
