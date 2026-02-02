@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use as_variant::as_variant;
 use matrix_sdk_base::{
+    RoomMemberships,
     crypto::CollectStrategy,
     deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
     sync::State,
@@ -376,7 +377,30 @@ impl MatrixDriver {
         let event_type_string = event_type.to_string();
 
         if event_type_string == "io.element.call.encryption_keys" {
-            let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+            let Some(content) = messages
+                .values()
+                .flat_map(|devices| devices.values())
+                .next()
+                .cloned()
+            else {
+                warn!(
+                    room_id = %self.room.room_id(),
+                    "Call encryption keys were sent without any content."
+                );
+                return Ok(Default::default());
+            };
+
+            let mut fanout_messages = BTreeMap::new();
+            let members = self.room.members(RoomMemberships::JOIN).await?;
+
+            for member in members {
+                let mut device_map = BTreeMap::new();
+                device_map.insert(DeviceIdOrAllDevices::AllDevices, content.clone());
+                fanout_messages.insert(member.user_id().to_owned(), device_map);
+            }
+
+            let request =
+                RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), fanout_messages);
             client.send(request).await?;
             return Ok(Default::default());
         }
