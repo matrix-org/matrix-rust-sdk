@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
-    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
+    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, StateEventContentChange,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
-                    FullStateEventContent::Original { content, .. } => content.reason.clone(),
+                    StateEventContentChange::Original { content, .. } => content.reason.clone(),
                     _ => None,
                 };
                 TimelineItemContent::RoomMembership {
@@ -310,10 +310,10 @@ pub enum OtherState {
     },
 }
 
-impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
-    fn from(content: &matrix_sdk_ui::timeline::AnyOtherFullStateEventContent) -> Self {
-        use matrix_sdk::ruma::events::FullStateEventContent as FullContent;
-        use matrix_sdk_ui::timeline::AnyOtherFullStateEventContent as Content;
+impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherState {
+    fn from(content: &matrix_sdk_ui::timeline::AnyOtherStateEventContentChange) -> Self {
+        use matrix_sdk::ruma::events::StateEventContentChange as FullContent;
+        use matrix_sdk_ui::timeline::AnyOtherStateEventContentChange as Content;
 
         match content {
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,

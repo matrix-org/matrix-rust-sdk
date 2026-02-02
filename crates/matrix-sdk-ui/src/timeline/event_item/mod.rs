@@ -40,7 +40,7 @@ mod remote;
 
 pub use self::{
     content::{
-        AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, InReplyToDetails,
+        AnyOtherStateEventContentChange, EmbeddedEvent, EncryptedMessage, InReplyToDetails,
         MemberProfileChange, MembershipChange, Message, MsgLikeContent, MsgLikeKind,
         OtherMessageLike, OtherState, PollResult, PollState, RoomMembershipChange,
         RoomPinnedEventsChange, Sticker, ThreadSummary, TimelineItemContent,
