@@ -21,6 +21,7 @@ use std::{
 };
 
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use thiserror::Error;
 
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::{
@@ -85,6 +86,18 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
 
     /// The items' content themselves.
     items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
+}
+
+/// An error type for representing the possible failures
+/// in operations on a [`RelationalLinkedChunk`].
+#[derive(Debug, Error)]
+pub enum RelationalLinkedChunkError {
+    /// A chunk identifier is invalid.
+    #[error("invalid chunk identifier: `{identifier:?}`")]
+    InvalidChunkIdentifier {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
