@@ -478,10 +478,11 @@ async fn main() -> anyhow::Result<()> {
     let livekit_sfu_get_url = optional_env("LIVEKIT_SFU_GET_URL");
     let v4l2_config = v4l2_config_from_env().context("read V4L2 config")?;
 
-    let store_path = std::env::current_dir()
+    let store_dir = std::env::current_dir()
         .context("read current directory")?
         .join("matrix-sdk-store");
-    fs::create_dir_all(&store_path).context("create crypto store directory")?;
+    fs::create_dir_all(&store_dir).context("create crypto store directory")?;
+    let store_path = store_dir.join("matrix-sdk.sqlite");
 
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
