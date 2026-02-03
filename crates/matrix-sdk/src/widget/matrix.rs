@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use as_variant::as_variant;
 use matrix_sdk_base::{
+    RoomMemberships,
     crypto::CollectStrategy,
     deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
     sync::State,
@@ -259,25 +260,33 @@ impl MatrixDriver {
                     return;
                 };
 
-                let room_encrypted = room.latest_encryption_state().await
+                let room_encrypted = room
+                    .latest_encryption_state()
+                    .await
                     .map(|s| s.is_encrypted())
                     // Default consider encrypted
                     .unwrap_or(true);
-                if room_encrypted {
-                    // The room is encrypted so the to-device traffic should be too.
-                    if encryption_info.is_none() {
+                let event_type = raw.get_field::<String>("type").ok().flatten();
+
+                if room_encrypted && encryption_info.is_none() {
+                    // Some widget traffic (like call encryption keys) can be carried in
+                    // clear even when the room is encrypted. Only drop clear to-device
+                    // messages that are not explicitly allowed.
+                    if event_type.as_deref() != Some("io.element.call.encryption_keys") {
                         warn!(
                             ?room_id,
                             "Received to-device event in clear for a widget in an e2e room, dropping."
                         );
                         return;
                     }
+                }
 
-                    // There are no per-room specific decryption settings (trust requirements), so we can just send it to the
-                    // widget.
+                if encryption_info.is_some() {
+                    // There are no per-room specific decryption settings (trust requirements),
+                    // so we can just send it to the widget.
 
-                    // The raw to-device event contains more fields than the widget needs, so we need to clean it up
-                    // to only type/content/sender.
+                    // The raw to-device event contains more fields than the widget needs, so we
+                    // need to clean it up to only type/content/sender.
                     #[derive(Deserialize, Serialize)]
                     struct CleanEventHelper<'a> {
                         #[serde(rename = "type")]
@@ -291,14 +300,12 @@ impl MatrixDriver {
                         .and_then(|clean_event_helper| {
                             serde_json::value::to_raw_value(&clean_event_helper)
                         })
-                        .map_err(|err| warn!(?room_id, "Unable to process to-device message for widget: {err}"))
-                        .map(|box_value | {
-                            tx.send(Raw::from_json(box_value))
-                        });
-
+                        .map_err(|err| {
+                            warn!(?room_id, "Unable to process to-device message for widget: {err}")
+                        })
+                        .map(|box_value| tx.send(Raw::from_json(box_value)));
                 } else {
-                    // forward to the widget
-                    // It is ok to send an encrypted to-device message even if the room is clear.
+                    // Forward to the widget.
                     let _ = tx.send(raw);
                 }
             },
@@ -367,6 +374,36 @@ impl MatrixDriver {
         }
 
         let client = self.room.client();
+        let event_type_string = event_type.to_string();
+
+        if event_type_string == "io.element.call.encryption_keys" {
+            let Some(content) = messages
+                .values()
+                .flat_map(|devices| devices.values())
+                .next()
+                .cloned()
+            else {
+                warn!(
+                    room_id = %self.room.room_id(),
+                    "Call encryption keys were sent without any content."
+                );
+                return Ok(Default::default());
+            };
+
+            let mut fanout_messages = BTreeMap::new();
+            let members = self.room.members(RoomMemberships::JOIN).await?;
+
+            for member in members {
+                let mut device_map = BTreeMap::new();
+                device_map.insert(DeviceIdOrAllDevices::AllDevices, content.clone());
+                fanout_messages.insert(member.user_id().to_owned(), device_map);
+            }
+
+            let request =
+                RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), fanout_messages);
+            client.send(request).await?;
+            return Ok(Default::default());
+        }
 
         let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
@@ -402,25 +439,32 @@ impl MatrixDriver {
             }
 
             // Encrypt and send this content
-            for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
-                self.encrypt_and_send_content_to_devices_helper(
-                    &event_type,
-                    content,
-                    user_to_list_of_device_id_or_all,
-                    &mut failures,
-                )
-                .await?
+            let encrypt_result = async {
+                for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
+                    self.encrypt_and_send_content_to_devices_helper(
+                        &event_type,
+                        content,
+                        user_to_list_of_device_id_or_all,
+                        &mut failures,
+                    )
+                    .await?
+                }
+
+                let failures = failures
+                    .into_iter()
+                    .map(|(u, list_of_devices)| {
+                        (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+                    })
+                    .collect();
+
+                Ok(SendToDeviceEventResponse { failures })
             }
+            .await;
 
-            let failures = failures
-                .into_iter()
-                .map(|(u, list_of_devices)| {
-                    (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
-                })
-                .collect();
-
-            let response = SendToDeviceEventResponse { failures };
-            Ok(response)
+            match encrypt_result {
+                Ok(response) => Ok(response),
+                Err(error) => Err(error),
+            }
         } else {
             // send in clear
             let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
