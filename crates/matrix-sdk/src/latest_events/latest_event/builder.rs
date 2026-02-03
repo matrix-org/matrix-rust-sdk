@@ -2196,6 +2196,87 @@ mod builder_tests {
         );
     }
 
+    #[async_test]
+    async fn test_remote_latest_edit_targets_older_event() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+        let event_id_3 = event_id!("$ev3");
+        let event_id_4 = event_id!("$ev4");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a text message
+                                event_factory.text_msg("A").event_id(event_id_0).into(),
+                                // another text message
+                                event_factory.text_msg("B").event_id(event_id_1).into(),
+                                // and a third text message
+                                event_factory.text_msg("C").event_id(event_id_2).into(),
+                                // a replacement of the last message
+                                event_factory
+                                    .text_msg("* D")
+                                    .event_id(event_id_3)
+                                    .edit(
+                                        event_id_2,
+                                        RoomMessageEventContent::text_plain("D").into(),
+                                    )
+                                    .into(),
+                                // another replacement but this time for the first message
+                                event_factory
+                                    .text_msg("* X")
+                                    .event_id(event_id_4)
+                                    .edit(
+                                        event_id_0,
+                                        RoomMessageEventContent::text_plain("X").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_3` because `event_id_4` edits an older event.
+            Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "* D"
+        );
+    }
+
     async fn local_prelude() -> (Client, OwnedRoomId, RoomSendQueue, RoomEventCache) {
         let room_id = room_id!("!r0").to_owned();
 
