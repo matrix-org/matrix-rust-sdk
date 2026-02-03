@@ -13,7 +13,7 @@ name = "xtask"
 test = false
 
 [dependencies]
-camino = "1.2.2"
+camino = { version = "1.2.2", default-features = false, features = ["serde1"] }
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 fs_extra = "1"

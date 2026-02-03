@@ -38,7 +38,7 @@ bitflags = { version = "2.10.0", default-features = false }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 cfg-if = { version = "1.0.4", default-features = false }
 clap = { version = "4.5.53", default-features = false, features = ["std", "help", "usage"] }
-chrono = { version = "0.4.42", default-features = false }
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
 dirs = { version = "6.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
 eyeball-im = { version = "0.8.0", default-features = false, features = ["tracing"] }
@@ -95,7 +95,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "d4f29e2a70dbfb0bd4fdb839ca
 ] }
 sentry = { version = "0.46.0", default-features = false }
 sentry-tracing = { version = "0.46.0", default-features = false }
-serde = { version = "1.0.228", default-features = false, features = ["std", "rc"] }
+serde = { version = "1.0.228", default-features = false, features = ["std", "rc", "derive"] }
 serde_html_form = { version = "0.2.8", default-features = false }
 serde_json = { version = "1.0.145", default-features = false, features = ["std"] }
 sha2 = { version = "0.10.9", default-features = false }
