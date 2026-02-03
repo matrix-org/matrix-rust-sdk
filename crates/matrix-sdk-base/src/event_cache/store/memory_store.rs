@@ -94,7 +94,10 @@ impl EventCacheStore for MemoryStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
-        inner.events.apply_updates(linked_chunk_id, updates);
+        inner
+            .events
+            .apply_updates(linked_chunk_id, updates)
+            .map_err(|e| Self::Error::Backend(Box::new(e)))?;
 
         Ok(())
     }
