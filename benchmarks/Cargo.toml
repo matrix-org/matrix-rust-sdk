@@ -28,7 +28,7 @@ ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 wiremock.workspace = true
 
 [[bench]]
