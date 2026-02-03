@@ -34,7 +34,7 @@ experimental-encrypted-state-events = [
 
 [dependencies]
 as_variant.workspace = true
-async-rx.workspace = true
+async-rx = { workspace = true, features = ["alloc"] }
 async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true

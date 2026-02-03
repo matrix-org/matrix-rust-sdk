@@ -100,7 +100,7 @@ eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
 futures-core.workspace = true
-futures-util.workspace = true
+futures-util = { workspace = true, features = ["async-await-macro"] }
 http.workspace = true
 imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
