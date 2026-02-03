@@ -90,7 +90,6 @@ assert_matches.workspace = true
 assert_matches2.workspace = true
 futures-executor.workspace = true
 http.workspace = true
-indoc = "2.0.7"
 insta.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
