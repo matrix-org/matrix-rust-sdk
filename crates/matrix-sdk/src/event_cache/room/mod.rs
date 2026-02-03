@@ -252,7 +252,7 @@ impl RoomEventCache {
         let mut state = self.inner.state.write().await?;
         let event_cache = self.clone();
 
-        Ok(state.subscribe_to_pinned_events(room, event_cache).await)
+        state.subscribe_to_pinned_events(room, event_cache).await
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -1867,7 +1867,7 @@ mod private {
             &mut self,
             room: Room,
             event_cache: RoomEventCache,
-        ) -> (Vec<Event>, Receiver<RoomEventCacheUpdate>) {
+        ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
             let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
                 PinnedEventCache::new(
                     room,
