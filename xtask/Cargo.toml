@@ -15,7 +15,7 @@ test = false
 [dependencies]
 camino = "1.0.8"
 chrono.workspace = true
-clap = { version = "4.0.18", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 fs_extra = "1"
 indexmap.workspace = true
 regex = "1"
