@@ -259,10 +259,10 @@ impl RoomMember {
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         // Try from the cached profile first.
-        if let Some(p) = self.profile.as_ref() {
-            if let Some(name) = p.as_original().and_then(|e| e.content.displayname.as_deref()) {
-                return Some(name);
-            }
+        if let Some(p) = self.profile.as_ref()
+            && let Some(name) = p.as_original().and_then(|e| e.content.displayname.as_deref())
+        {
+            return Some(name);
         }
 
         // Then from the current event's content.
@@ -289,10 +289,10 @@ impl RoomMember {
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         // Try from the cached profile first.
-        if let Some(p) = self.profile.as_ref() {
-            if let Some(url) = p.as_original().and_then(|e| e.content.avatar_url.as_deref()) {
-                return Some(url);
-            }
+        if let Some(p) = self.profile.as_ref()
+            && let Some(url) = p.as_original().and_then(|e| e.content.avatar_url.as_deref())
+        {
+            return Some(url);
         }
 
         // Then from the current event's content.
