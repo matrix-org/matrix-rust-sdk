@@ -1428,7 +1428,7 @@ async fn send_per_participant_keys(
         "preparing per-participant E2EE key payload"
     );
     let content_raw = Raw::new(&serde_json::json!({
-        "keys": [{ "index": key_index, "key": key_b64 }],
+        "keys": { "index": key_index, "key": key_b64 },
         "device_id": own_device_id.as_str(),
         "call_id": "",
         "room_id": room.room_id().to_string(),
@@ -1491,12 +1491,19 @@ fn register_e2ee_to_device_handler(
             let Some(device_id) = content.get("device_id").and_then(|v| v.as_str()) else {
                 return;
             };
-            let Some(keys) = content.get("keys").and_then(|v| v.as_array()) else {
-                return;
+            let keys = content.get("keys");
+            let key_entries: Vec<&serde_json::Value> = match keys {
+                Some(value) if value.is_array() => {
+                    value.as_array().map(|values| values.iter().collect()).unwrap_or_default()
+                }
+                Some(value) if value.is_object() => vec![value],
+                _ => {
+                    return;
+                }
             };
 
             let identity = ParticipantIdentity(format!("{sender}:{device_id}"));
-            for key_entry in keys {
+            for key_entry in key_entries {
                 let Some(index) = key_entry.get("index").and_then(|v| v.as_i64()) else {
                     continue;
                 };
