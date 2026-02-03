@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::pin_event` and `Room::unpin_event`, which allow pinning and unpinning events from a
+  room. These were extracted from the `matrix_sdk_ui` crate, with no changes in functionality.
+  ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))
 - `LatestEventValue::RemoteInvite` is added to handle a Latest Event for invite room.
   ([#6056](https://github.com/matrix-org/matrix-rust-sdk/pull/6056))
 - Add `Room::set_own_member_display_name` to set the current user's display name

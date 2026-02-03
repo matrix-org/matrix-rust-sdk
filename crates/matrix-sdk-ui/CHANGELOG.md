@@ -58,6 +58,10 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] The [`Timeline::pin_event`] and [`Timeline::unpin_event`] methods have been
+  moved to the SDK crate, in the `Room` object. Users can replace previous uses with
+  `timeline.room().pin_event()` etc.
+  ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))
 - [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
   account also for v12 rooms, where creators and users with PL 150 matter.
   ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))

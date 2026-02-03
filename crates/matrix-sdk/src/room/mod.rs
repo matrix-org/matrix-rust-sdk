@@ -4480,6 +4480,58 @@ impl Room {
                 })
             })?)
     }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event containing the new event id.
+    ///
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we pinned the event, `false` if the event was already
+    /// pinned.
+    pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = if let Some(event_ids) = self.pinned_event_ids() {
+            event_ids
+        } else {
+            self.load_pinned_events().await?.unwrap_or_default()
+        };
+        let event_id = event_id.to_owned();
+        if pinned_event_ids.contains(&event_id) {
+            Ok(false)
+        } else {
+            pinned_event_ids.push(event_id);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.send_state_event(content).await?;
+            Ok(true)
+        }
+    }
+
+    /// Removes a pinned event by sending an updated `m.room.pinned_events`
+    /// event without the event id we want to remove.
+    ///
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we unpinned the event, `false` if the event wasn't
+    /// pinned before.
+    pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = if let Some(event_ids) = self.pinned_event_ids() {
+            event_ids
+        } else {
+            self.load_pinned_events().await?.unwrap_or_default()
+        };
+        let event_id = event_id.to_owned();
+        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
+            pinned_event_ids.remove(idx);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.send_state_event(content).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(feature = "e2e-encryption")]
