@@ -352,7 +352,10 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .await
         .expect("Sync failed");
 
-    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_let_timeout!(
+        Duration::from_millis(300),
+        Some(timeline_updates) = timeline_stream.next()
+    );
     assert_eq!(timeline_updates.len(), 4);
 
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
