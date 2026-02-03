@@ -13,71 +13,12 @@
 // limitations under the License
 
 use matrix_sdk_base::{
-    event_cache::{Gap, store::EventCacheStore},
+    event_cache::store::EventCacheStore,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
 };
 use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
 
 use crate::event_cache_store::IndexeddbEventCacheStore;
-
-pub async fn test_linked_chunk_exists_before_referenced(store: IndexeddbEventCacheStore) {
-    let room_id = *DEFAULT_TEST_ROOM_ID;
-    let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-    // Fails to add the chunk because previous chunk is not in the store
-    store
-        .handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![Update::NewItemsChunk {
-                previous: Some(ChunkIdentifier::new(41)),
-                new: ChunkIdentifier::new(42),
-                next: None,
-            }],
-        )
-        .await
-        .unwrap_err();
-
-    // Fails to add the chunk because next chunk is not in the store
-    store
-        .handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![Update::NewItemsChunk {
-                previous: None,
-                new: ChunkIdentifier::new(42),
-                next: Some(ChunkIdentifier::new(43)),
-            }],
-        )
-        .await
-        .unwrap_err();
-
-    // Fails to add the chunk because previous chunk is not in the store
-    store
-        .handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![Update::NewGapChunk {
-                previous: Some(ChunkIdentifier::new(41)),
-                new: ChunkIdentifier::new(42),
-                next: None,
-                gap: Gap { prev_token: "gap".to_owned() },
-            }],
-        )
-        .await
-        .unwrap_err();
-
-    // Fails to add the chunk because next chunk is not in the store
-    store
-        .handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![Update::NewGapChunk {
-                previous: None,
-                new: ChunkIdentifier::new(42),
-                next: Some(ChunkIdentifier::new(43)),
-                gap: Gap { prev_token: "gap".to_owned() },
-            }],
-        )
-        .await
-        .unwrap_err();
-}
 
 pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCacheStore) {
     let linked_chunk_id = LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID);
@@ -131,13 +72,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
             use matrix_sdk_test::async_test;
 
             use super::get_event_cache_store;
-
-            #[async_test]
-            async fn test_linked_chunk_exists_before_referenced() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_linked_chunk_exists_before_referenced(store)
-                    .await
-            }
 
            #[async_test]
             async fn test_linked_chunk_update_is_a_transaction() {

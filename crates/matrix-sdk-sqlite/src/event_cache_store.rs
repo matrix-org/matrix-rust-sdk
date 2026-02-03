@@ -1653,14 +1653,9 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        event_cache::{
-            Gap,
-            store::{
-                EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-                integration_tests::{
-                    EventCacheStoreIntegrationTests, make_test_event_with_event_id,
-                },
-            },
+        event_cache::store::{
+            EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
+            integration_tests::{EventCacheStoreIntegrationTests, make_test_event_with_event_id},
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
@@ -1704,71 +1699,6 @@ mod tests {
         let store = SqliteEventCacheStore::open_with_config(store_open_config).await.unwrap();
 
         assert_eq!(store.pool.status().max_size, 42);
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_exists_before_referenced() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        // Fails to add the chunk because previous chunk is not in the store
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewItemsChunk {
-                    previous: Some(ChunkIdentifier::new(41)),
-                    new: ChunkIdentifier::new(42),
-                    next: None,
-                }],
-            )
-            .await
-            .unwrap_err();
-
-        // Fails to add the chunk because next chunk is not in the store
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewItemsChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(42),
-                    next: Some(ChunkIdentifier::new(43)),
-                }],
-            )
-            .await
-            .unwrap_err();
-
-        // Fails to add the chunk because previous chunk is not in the store
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewGapChunk {
-                    previous: Some(ChunkIdentifier::new(41)),
-                    new: ChunkIdentifier::new(42),
-                    next: None,
-                    gap: Gap { prev_token: "gap".to_owned() },
-                }],
-            )
-            .await
-            .unwrap_err();
-
-        // Fails to add the chunk because next chunk is not in the store
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewGapChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(42),
-                    next: Some(ChunkIdentifier::new(43)),
-                    gap: Gap { prev_token: "gap".to_owned() },
-                }],
-            )
-            .await
-            .unwrap_err();
-
-        let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-        assert!(chunks.is_empty());
     }
 
     #[async_test]

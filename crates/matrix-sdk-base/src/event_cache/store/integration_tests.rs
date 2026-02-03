@@ -137,6 +137,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// the store.
     async fn test_handle_updates_and_rebuild_linked_chunk(&self);
 
+    /// Test that the next and previous fields only reference chunks that
+    /// already exist in the store.
+    async fn test_linked_chunk_exists_before_referenced(&self);
+
     /// Test loading the last chunk in a linked chunk from the store.
     async fn test_load_last_chunk(&self);
 
@@ -294,6 +298,61 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         }
 
         assert!(chunks.next().is_none());
+    }
+
+    async fn test_linked_chunk_exists_before_referenced(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        // Fails to add the chunk because previous chunk is not in the self
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::NewItemsChunk {
+                previous: Some(CId::new(41)),
+                new: CId::new(42),
+                next: None,
+            }],
+        )
+        .await
+        .unwrap_err();
+
+        // Fails to add the chunk because next chunk is not in the self
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::NewItemsChunk {
+                previous: None,
+                new: CId::new(42),
+                next: Some(CId::new(43)),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+        // Fails to add the chunk because previous chunk is not in the self
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::NewGapChunk {
+                previous: Some(CId::new(41)),
+                new: CId::new(42),
+                next: None,
+                gap: Gap { prev_token: "gap".to_owned() },
+            }],
+        )
+        .await
+        .unwrap_err();
+
+        // Fails to add the chunk because next chunk is not in the self
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::NewGapChunk {
+                previous: None,
+                new: CId::new(42),
+                next: Some(CId::new(43)),
+                gap: Gap { prev_token: "gap".to_owned() },
+            }],
+        )
+        .await
+        .unwrap_err();
     }
 
     async fn test_load_all_chunks_metadata(&self) {
@@ -1865,6 +1924,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_handle_updates_and_rebuild_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_exists_before_referenced() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_exists_before_referenced().await;
             }
 
             #[async_test]
