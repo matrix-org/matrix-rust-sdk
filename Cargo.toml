@@ -169,6 +169,19 @@ unused_async = "warn"
 # Saves a lot of disk space. If symbols are needed, use the dbg profile.
 debug = 0
 
+# Profile for debug builds with full optimization and minimal debug symbols.
+# This should be just enough to have proper backtraces, having way smaller binaries
+# (10% of the size with full debug symbols profile, like `reldbg`).
+# This profile differs from `reldbg` in not containing the debug symbols needed for
+# debugging with LLDB/GDB, trading that for binary size, allowing quick iterations
+# of building the bindings, installing in a real device, testing your changes, repeat.
+# It's also different from `dev` in having enough debug symbols to display backtraces.
+[profile.reldev]
+inherits = "dev"
+opt-level = 3
+debug = "line-tables-only"
+strip = "debuginfo"
+
 [profile.dev.package]
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
@@ -188,7 +201,6 @@ debug = 2
 [profile.reldbg]
 inherits = "dbg"
 opt-level = 3
-strip = "debuginfo"
 
 [profile.dist]
 # Use release profile as a base
