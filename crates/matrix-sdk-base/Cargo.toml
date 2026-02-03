@@ -70,7 +70,7 @@ assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
-decancer = "3.3.3"
+decancer = { version = "3.3.3", default-features = false }
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true
