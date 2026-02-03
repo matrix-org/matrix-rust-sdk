@@ -475,21 +475,18 @@ impl PinnedEventCache {
         room: Room,
         event_cache: RoomEventCache,
     ) -> Result<Option<Vec<Event>>> {
-        /// The maximum number of pinned events to load.
-        // TODO: make this configurable, at the EventCache level?
-        const MAX_EVENTS_TO_LOAD: usize = 100;
-
-        /// The maximum number of concurrent requests to perform when loading
-        /// the pinned events. TODO: make this configurable, at the
-        /// EventCache level?
-        const MAX_CONCURRENT_REQUESTS: usize = 8;
+        let (max_events_to_load, max_concurrent_requests) = {
+            let client = room.client();
+            let config = client.event_cache().config().await;
+            (config.max_pinned_events_to_load, config.max_pinned_events_concurrent_requests)
+        };
 
         let pinned_event_ids: Vec<OwnedEventId> = room
             .pinned_event_ids()
             .unwrap_or_default()
             .into_iter()
             .rev()
-            .take(MAX_EVENTS_TO_LOAD)
+            .take(max_events_to_load)
             .rev()
             .collect();
 
@@ -503,7 +500,7 @@ impl PinnedEventCache {
                 let event_cache = event_cache.clone();
                 Self::load_event_with_relations(event_id, room, event_cache)
             }))
-            .buffer_unordered(MAX_CONCURRENT_REQUESTS)
+            .buffer_unordered(max_concurrent_requests)
             // Flatten all the vectors.
             .flat_map(stream::iter)
             .collect()

@@ -389,6 +389,8 @@ async fn test_max_events_to_load_is_honored() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
+    client.event_cache().config_mut().await.max_pinned_events_to_load = 1;
+
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
         .text_msg("in the end")
@@ -405,11 +407,16 @@ async fn test_max_events_to_load_is_honored() {
         .await
         .expect("Sync failed");
 
-    let ret = TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await;
+    let timeline =
+        TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await.unwrap();
 
     // We're only taking the last event id, `$2`, and it's not available so the
-    // timeline fails to initialise.
-    assert!(ret.is_err());
+    // timeline fails to fill itself with events.
+    let (items, mut stream) = timeline.subscribe().await;
+
+    assert!(items.is_empty());
+    sleep(Duration::from_millis(100)).await;
+    assert_pending!(stream);
 }
 
 #[async_test]
@@ -858,7 +865,11 @@ async fn test_ensure_max_concurrency_is_observed() {
 
     let pinned_event_ids: Vec<String> = (0..100).map(|idx| format!("${idx}")).collect();
 
-    let max_concurrent_requests: u16 = 10;
+    let max_concurrent_requests = 10;
+
+    // Define the max concurrent requests allowed for the event cache.
+    client.event_cache().config_mut().await.max_pinned_events_concurrent_requests =
+        max_concurrent_requests;
 
     let joined_room_builder = JoinedRoomBuilder::new(&room_id)
         // Set up encryption
