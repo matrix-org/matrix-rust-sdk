@@ -721,14 +721,14 @@ mod private {
     /// the same time.
     pub struct RoomEventCacheStateLock {
         /// The per-thread lock around the real state.
-        locked_state: RwLock<RoomEventCacheStateLockInner>,
+        locked_state: RwLock<RoomEventCacheState>,
 
         /// Please see inline comment of [`Self::read`] to understand why it
         /// exists.
         read_lock_acquisition: Mutex<()>,
     }
 
-    struct RoomEventCacheStateLockInner {
+    struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
         enabled_thread_support: bool,
 
@@ -864,7 +864,7 @@ mod private {
             let waited_for_initial_prev_token = Arc::new(AtomicBool::new(false));
 
             Ok(Self {
-                locked_state: RwLock::new(RoomEventCacheStateLockInner {
+                locked_state: RwLock::new(RoomEventCacheState {
                     enabled_thread_support,
                     room_id,
                     store,
@@ -1053,9 +1053,8 @@ mod private {
 
     /// The read lock guard returned by [`RoomEventCacheStateLock::read`].
     pub struct RoomEventCacheStateLockReadGuard<'a> {
-        /// The per-thread read lock guard over the
-        /// [`RoomEventCacheStateLockInner`].
-        state: RwLockReadGuard<'a, RoomEventCacheStateLockInner>,
+        /// The per-thread read lock guard over the [`RoomEventCacheState`].
+        state: RwLockReadGuard<'a, RoomEventCacheState>,
 
         /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
@@ -1063,9 +1062,8 @@ mod private {
 
     /// The write lock guard return by [`RoomEventCacheStateLock::write`].
     pub struct RoomEventCacheStateLockWriteGuard<'a> {
-        /// The per-thread write lock guard over the
-        /// [`RoomEventCacheStateLockInner`].
-        state: RwLockWriteGuard<'a, RoomEventCacheStateLockInner>,
+        /// The per-thread write lock guard over the [`RoomEventCacheState`].
+        state: RwLockWriteGuard<'a, RoomEventCacheState>,
 
         /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
