@@ -145,11 +145,13 @@ where
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next)
+                        .expect("insert a new items chunk");
                 }
 
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next)
+                        .expect("insert a new gap chunk");
                     self.items_chunks.push(ItemRow {
                         linked_chunk_id: linked_chunk_id.to_owned(),
                         position: Position::new(new, 0),
@@ -295,7 +297,7 @@ where
         previous: Option<ChunkIdentifier>,
         new: ChunkIdentifier,
         next: Option<ChunkIdentifier>,
-    ) {
+    ) -> Result<(), RelationalLinkedChunkError> {
         // Find the previous chunk, and update its next chunk.
         if let Some(previous) = previous {
             let entry_for_previous_chunk = chunks
@@ -303,7 +305,9 @@ where
                 .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
                     linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
                 })
-                .expect("Previous chunk should be present");
+                .ok_or(RelationalLinkedChunkError::InvalidChunkIdentifier {
+                    identifier: previous,
+                })?;
 
             // Link the chunk.
             entry_for_previous_chunk.next_chunk = Some(new);
@@ -316,7 +320,7 @@ where
                 .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
                     linked_chunk_id == linked_chunk_id_candidate && *chunk == next
                 })
-                .expect("Next chunk should be present");
+                .ok_or(RelationalLinkedChunkError::InvalidChunkIdentifier { identifier: next })?;
 
             // Link the chunk.
             entry_for_next_chunk.previous_chunk = Some(new);
@@ -329,6 +333,8 @@ where
             chunk: new,
             next_chunk: next,
         });
+
+        Ok(())
     }
 
     fn remove_chunk(
