@@ -60,7 +60,7 @@ async fn test_user_profile_after_leaving() {
         .avatar_url("mxc://...".into());
 
     // Build a simple timeline with Bob creating the room, Alice accepting an invite
-    // and sending a message, Bob sending a message, and Alice leaving.
+    // and sending a message, Bob sending a message, and Alice leaving
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
             // Bob create the room
@@ -95,7 +95,7 @@ async fn test_user_profile_after_leaving() {
     assert_eq!(timeline_items.len(), 6);
 
     // Alice's profile, and therefore display name, should be still available after
-    // she left the room, thanks to the previous content in the leave event.
+    // she left the room, thanks to the previous content in the leave event
     let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
     match alice_profile {
         TimelineDetails::Ready(profile) => {
