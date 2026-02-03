@@ -112,8 +112,8 @@ tracing-core = { version = "0.1.34", default-features = false }
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "smallvec", "fmt"] }
 unicode-normalization = { version = "0.1.25", default-features = false }
 unicode-segmentation = { version = "1.12.0", default-features = false }
-uniffi = { version = "0.31.0", default-features = false }
-uniffi_bindgen = { version = "0.31.0", default-features = false }
+uniffi = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
+uniffi_bindgen = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
 url = { version = "2.5.7", default-features = false }
 uuid = { version = "1.18.1", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
