@@ -1112,7 +1112,7 @@ async fn prepare_room_with_pinned_events(
     let event_id = result.response.event_id;
 
     let timeline = room.timeline().await?;
-    timeline.pin_event(&event_id).await?;
+    timeline.room().pin_event(&event_id).await?;
 
     // Now send a bunch of normal events, this ensures that our pinned event isn't
     // in the main timeline when we restore things.

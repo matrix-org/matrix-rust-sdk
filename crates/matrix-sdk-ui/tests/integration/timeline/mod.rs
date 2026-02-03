@@ -28,14 +28,11 @@ use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, async_test,
     event_factory::EventFactory,
 };
-use matrix_sdk_ui::{
-    Timeline,
-    timeline::{
-        AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
-        RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
-        TimelineEventShieldState, TimelineFocus, TimelineItemContent, VirtualTimelineItem,
-        default_event_filter,
-    },
+use matrix_sdk_ui::timeline::{
+    AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
+    RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
+    TimelineEventShieldState, TimelineFocus, TimelineItemContent, VirtualTimelineItem,
+    default_event_filter,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, event_id,
@@ -50,13 +47,8 @@ use ruma::{
     serde::Raw,
     user_id,
 };
-use serde_json::json;
 use sliding_sync::assert_timeline_stream;
 use stream_assert::assert_pending;
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{header, method, path_regex},
-};
 
 mod decryption;
 mod echo;
@@ -781,90 +773,6 @@ async fn test_duplicate_maintains_correct_order() {
 }
 
 #[async_test]
-async fn test_pin_event_is_sent_successfully() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(false).await;
-    assert!(!timeline.items().await.is_empty());
-
-    // Pinning a remote event succeeds.
-    setup.server.mock_set_room_pinned_events().ok(owned_event_id!("$42")).mock_once().mount().await;
-
-    let event_id = setup.event_id();
-    assert!(timeline.pin_event(event_id).await.unwrap());
-}
-
-#[async_test]
-async fn test_pin_event_is_returning_false_because_is_already_pinned() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(true).await;
-    assert!(!timeline.items().await.is_empty());
-
-    let event_id = setup.event_id();
-    assert!(!timeline.pin_event(event_id).await.unwrap());
-}
-
-#[async_test]
-async fn test_pin_event_is_returning_an_error() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(false).await;
-    assert!(!timeline.items().await.is_empty());
-
-    // Pinning a remote event fails.
-    setup.server.mock_set_room_pinned_events().unauthorized().mock_once().mount().await;
-
-    let event_id = setup.event_id();
-    assert!(timeline.pin_event(event_id).await.is_err());
-}
-
-#[async_test]
-async fn test_unpin_event_is_sent_successfully() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(true).await;
-    assert!(!timeline.items().await.is_empty());
-
-    // Unpinning a remote event succeeds.
-    setup.server.mock_set_room_pinned_events().ok(owned_event_id!("$42")).mock_once().mount().await;
-
-    let event_id = setup.event_id();
-    assert!(timeline.unpin_event(event_id).await.unwrap());
-}
-
-#[async_test]
-async fn test_unpin_event_is_returning_false_because_is_not_pinned() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(false).await;
-    assert!(!timeline.items().await.is_empty());
-
-    let event_id = setup.event_id();
-    assert!(!timeline.unpin_event(event_id).await.unwrap());
-}
-
-#[async_test]
-async fn test_unpin_event_is_returning_an_error() {
-    let mut setup = PinningTestSetup::new().await;
-    let timeline = setup.timeline().await;
-
-    setup.mock_sync(true).await;
-    assert!(!timeline.items().await.is_empty());
-
-    // Unpinning a remote event fails.
-    setup.server.mock_set_room_pinned_events().unauthorized().mock_once().mount().await;
-
-    let event_id = setup.event_id();
-    assert!(timeline.unpin_event(event_id).await.is_err());
-}
-
-#[async_test]
 async fn test_timeline_without_encryption_info() {
     // The room encryption state is NOT mocked on purpose.
     let server = MatrixMockServer::new().await;
@@ -1073,58 +981,4 @@ async fn test_custom_msglike_event_in_timeline() {
            assert_eq!(observed_other, other_msglike);
        }
     );
-}
-
-struct PinningTestSetup<'a> {
-    event_id: &'a EventId,
-    room_id: &'a ruma::RoomId,
-    client: matrix_sdk::Client,
-    server: MatrixMockServer,
-}
-
-impl PinningTestSetup<'_> {
-    async fn new() -> Self {
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-
-        let room_id = room_id!("!a98sd12bjh:example.org");
-        server.sync_joined_room(&client, room_id).await;
-
-        server.mock_room_state_encryption().plain().mount().await;
-
-        // This is necessary to get an empty list of pinned events when there are no
-        // pinned events state event in the required state
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.pinned_events/.*"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({})))
-            .mount(server.server())
-            .await;
-
-        let event_id = event_id!("$a");
-        Self { event_id, room_id, client, server }
-    }
-
-    async fn timeline(&self) -> Timeline {
-        let room = self.client.get_room(self.room_id).unwrap();
-        room.timeline().await.unwrap()
-    }
-
-    async fn mock_sync(&mut self, is_using_pinned_state_event: bool) {
-        let f = EventFactory::new().sender(user_id!("@a:b.c"));
-
-        let mut joined_room_builder = JoinedRoomBuilder::new(self.room_id)
-            .add_timeline_event(f.text_msg("A").event_id(self.event_id).into_raw_sync());
-
-        if is_using_pinned_state_event {
-            joined_room_builder =
-                joined_room_builder.add_state_event(StateTestEvent::RoomPinnedEvents);
-        }
-
-        self.server.sync_room(&self.client, joined_room_builder).await;
-    }
-
-    fn event_id(&self) -> &EventId {
-        self.event_id
-    }
 }

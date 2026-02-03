@@ -723,7 +723,7 @@ impl Timeline {
     /// pinned.
     async fn pin_event(&self, event_id: String) -> Result<bool, ClientError> {
         let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
-        self.inner.pin_event(&event_id).await.map_err(ClientError::from)
+        self.inner.room().pin_event(&event_id).await.map_err(ClientError::from)
     }
 
     /// Adds a new pinned event by sending an updated `m.room.pinned_events`
@@ -733,7 +733,7 @@ impl Timeline {
     /// pinned
     async fn unpin_event(&self, event_id: String) -> Result<bool, ClientError> {
         let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
-        self.inner.unpin_event(&event_id).await.map_err(ClientError::from)
+        self.inner.room().unpin_event(&event_id).await.map_err(ClientError::from)
     }
 
     pub fn create_message_content(
