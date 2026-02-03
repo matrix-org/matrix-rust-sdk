@@ -30,6 +30,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
+    ops::{Deref, DerefMut},
     sync::{Arc, OnceLock, Weak},
 };
 
@@ -230,6 +231,7 @@ impl EventCache {
         Self {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
+                config: RwLock::new(EventCacheConfig::default()),
                 store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
@@ -245,6 +247,17 @@ impl EventCache {
                 thread_subscriber_receiver,
             }),
         }
+    }
+
+    /// Get a read-only handle to the global configuration of the
+    /// [`EventCache`].
+    pub async fn config(&self) -> impl Deref<Target = EventCacheConfig> + '_ {
+        self.inner.config.read().await
+    }
+
+    /// Get a writable handle to the global configuration of the [`EventCache`].
+    pub async fn config_mut(&self) -> impl DerefMut<Target = EventCacheConfig> + '_ {
+        self.inner.config.write().await
     }
 
     /// Subscribes to updates that a thread subscription has been sent.
@@ -825,10 +838,41 @@ impl EventCache {
     }
 }
 
+/// Global configuration for the [`EventCache`], applied to every single room.
+#[derive(Clone, Copy, Debug)]
+pub struct EventCacheConfig {
+    /// Maximum number of concurrent /event requests when loading pinned events.
+    pub max_pinned_events_concurrent_requests: usize,
+
+    /// Maximum number of pinned events to load, for any room.
+    pub max_pinned_events_to_load: usize,
+}
+
+impl EventCacheConfig {
+    /// The default maximum number of pinned events to load.
+    const DEFAULT_MAX_EVENTS_TO_LOAD: usize = 128;
+
+    /// The default maximum number of concurrent requests to perform when
+    /// loading the pinned events.
+    const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
+}
+
+impl Default for EventCacheConfig {
+    fn default() -> Self {
+        Self {
+            max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
+            max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
+        }
+    }
+}
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
     client: WeakClient,
+
+    /// Global configuration for the event cache.
+    config: RwLock<EventCacheConfig>,
 
     /// Reference to the underlying store.
     store: EventCacheStoreLock,
