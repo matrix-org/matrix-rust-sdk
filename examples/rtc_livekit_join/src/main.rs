@@ -481,28 +481,56 @@ async fn main() -> anyhow::Result<()> {
     let store_dir = std::env::current_dir()
         .context("read current directory")?
         .join("matrix-sdk-store");
-    fs::create_dir_all(&store_dir).context("create crypto store directory")?;
-    let store_path = store_dir.join("matrix-sdk.sqlite");
-    if store_path.is_dir() {
+    if store_dir.is_file() {
         warn!(
-            store_path = %store_path.display(),
-            "Removing directory that conflicts with sqlite store file path."
+            store_path = %store_dir.display(),
+            "Removing file that conflicts with sqlite store directory."
         );
-        fs::remove_dir_all(&store_path).context("remove sqlite store directory")?;
+        fs::remove_file(&store_dir).context("remove sqlite store file")?;
     }
-    if store_path.is_file() {
+    fs::create_dir_all(&store_dir).context("create crypto store directory")?;
+
+    let legacy_store_path = store_dir.join("matrix-sdk.sqlite");
+    if legacy_store_path.exists() {
         warn!(
-            store_path = %store_path.display(),
-            "Removing existing sqlite store file to recover from migration errors."
+            store_path = %legacy_store_path.display(),
+            "Removing legacy sqlite file path."
         );
-        fs::remove_file(&store_path).context("remove sqlite store file")?;
+        if legacy_store_path.is_dir() {
+            fs::remove_dir_all(&legacy_store_path).context("remove legacy sqlite directory")?;
+        } else {
+            fs::remove_file(&legacy_store_path).context("remove legacy sqlite file")?;
+        }
+    }
+
+    for sqlite_file in [
+        "matrix-sdk-state.sqlite3",
+        "matrix-sdk-crypto.sqlite3",
+        "matrix-sdk-event-cache.sqlite3",
+        "matrix-sdk-media.sqlite3",
+    ] {
+        let db_path = store_dir.join(sqlite_file);
+        if db_path.is_file() {
+            let header = fs::read(&db_path)
+                .context("read sqlite header")?
+                .into_iter()
+                .take(16)
+                .collect::<Vec<_>>();
+            if header != b"SQLite format 3\0" {
+                warn!(
+                    store_path = %db_path.display(),
+                    "Removing invalid sqlite store file."
+                );
+                fs::remove_file(&db_path).context("remove invalid sqlite file")?;
+            }
+        }
     }
 
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
     #[cfg(feature = "sqlite")]
     {
-        client_builder = client_builder.sqlite_store(store_path, None);
+        client_builder = client_builder.sqlite_store(store_dir, None);
     }
     #[cfg(not(feature = "sqlite"))]
     {
