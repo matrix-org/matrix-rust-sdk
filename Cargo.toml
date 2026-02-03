@@ -63,7 +63,9 @@ oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "
 once_cell = { version = "1.21.3", default-features = false }
 pbkdf2 = { version = "0.12.2", default-features = false }
 pin-project-lite = { version = "0.2.16", default-features = false }
+proc-macro2 = { version = "1.0.106", default-features = false }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+quote = { version = "1.0.37", default-features = false }
 rand = { version = "0.8.5", default-features = false }
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.12.24", default-features = false }
@@ -98,6 +100,7 @@ serde_json = { version = "1.0.145", default-features = false, features = ["std"]
 sha2 = { version = "0.10.9", default-features = false }
 similar-asserts = { version = "1.7.0", default-features = false }
 stream_assert = { version = "0.1.1", default-features = false }
+syn = { version = "2.0.43", default-features = false, features = ["derive", "parsing", "printing", "clone-impls"] }
 tempfile = { version = "3.23.0", default-features = false }
 thiserror = { version = "2.0.17", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
