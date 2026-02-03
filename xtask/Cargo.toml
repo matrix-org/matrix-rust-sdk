@@ -13,7 +13,7 @@ name = "xtask"
 test = false
 
 [dependencies]
-camino = "1.0.8"
+camino = "1.2.2"
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 fs_extra = "1"
