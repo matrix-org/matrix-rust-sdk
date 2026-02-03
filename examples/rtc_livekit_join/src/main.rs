@@ -481,14 +481,56 @@ async fn main() -> anyhow::Result<()> {
     let store_dir = std::env::current_dir()
         .context("read current directory")?
         .join("matrix-sdk-store");
+    if store_dir.is_file() {
+        warn!(
+            store_path = %store_dir.display(),
+            "Removing file that conflicts with sqlite store directory."
+        );
+        fs::remove_file(&store_dir).context("remove sqlite store file")?;
+    }
     fs::create_dir_all(&store_dir).context("create crypto store directory")?;
-    let store_path = store_dir.join("matrix-sdk.sqlite");
+
+    let legacy_store_path = store_dir.join("matrix-sdk.sqlite");
+    if legacy_store_path.exists() {
+        warn!(
+            store_path = %legacy_store_path.display(),
+            "Removing legacy sqlite file path."
+        );
+        if legacy_store_path.is_dir() {
+            fs::remove_dir_all(&legacy_store_path).context("remove legacy sqlite directory")?;
+        } else {
+            fs::remove_file(&legacy_store_path).context("remove legacy sqlite file")?;
+        }
+    }
+
+    for sqlite_file in [
+        "matrix-sdk-state.sqlite3",
+        "matrix-sdk-crypto.sqlite3",
+        "matrix-sdk-event-cache.sqlite3",
+        "matrix-sdk-media.sqlite3",
+    ] {
+        let db_path = store_dir.join(sqlite_file);
+        if db_path.is_file() {
+            let header = fs::read(&db_path)
+                .context("read sqlite header")?
+                .into_iter()
+                .take(16)
+                .collect::<Vec<_>>();
+            if header != b"SQLite format 3\0" {
+                warn!(
+                    store_path = %db_path.display(),
+                    "Removing invalid sqlite store file."
+                );
+                fs::remove_file(&db_path).context("remove invalid sqlite file")?;
+            }
+        }
+    }
 
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
     #[cfg(feature = "sqlite")]
     {
-        client_builder = client_builder.sqlite_store(store_path, None);
+        client_builder = client_builder.sqlite_store(store_dir, None);
     }
     #[cfg(not(feature = "sqlite"))]
     {
@@ -1386,7 +1428,7 @@ async fn send_per_participant_keys(
         "preparing per-participant E2EE key payload"
     );
     let content_raw = Raw::new(&serde_json::json!({
-        "keys": [{ "index": key_index, "key": key_b64 }],
+        "keys": { "index": key_index, "key": key_b64 },
         "device_id": own_device_id.as_str(),
         "call_id": "",
         "room_id": room.room_id().to_string(),
@@ -1449,12 +1491,19 @@ fn register_e2ee_to_device_handler(
             let Some(device_id) = content.get("device_id").and_then(|v| v.as_str()) else {
                 return;
             };
-            let Some(keys) = content.get("keys").and_then(|v| v.as_array()) else {
-                return;
+            let keys = content.get("keys");
+            let key_entries: Vec<&serde_json::Value> = match keys {
+                Some(value) if value.is_array() => {
+                    value.as_array().map(|values| values.iter().collect()).unwrap_or_default()
+                }
+                Some(value) if value.is_object() => vec![value],
+                _ => {
+                    return;
+                }
             };
 
             let identity = ParticipantIdentity(format!("{sender}:{device_id}"));
-            for key_entry in keys {
+            for key_entry in key_entries {
                 let Some(index) = key_entry.get("index").and_then(|v| v.as_i64()) else {
                     continue;
                 };
