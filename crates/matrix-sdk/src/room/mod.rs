@@ -109,6 +109,7 @@ use ruma::{
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        relation::RelationType,
         room::{
             ImageInfo, MediaSource, ThumbnailInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -137,6 +138,7 @@ use ruma::{
     push::{Action, AnyPushRuleRef, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
+    uint,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
@@ -826,6 +828,101 @@ impl Room {
             }
         }
         self.event(event_id, request_config).await
+    }
+
+    /// Try to load the event and its relations from the
+    /// [`EventCache`][crate::event_cache], if it's enabled, or fetch it
+    /// from the homeserver.
+    ///
+    /// You can control which types of related events are retrieved using
+    /// `filter`. A `None` value will retrieve any type of related event.
+    ///
+    /// If the event is found in the event cache, but we can't find any
+    /// relations for it there, then we will still attempt to fetch the
+    /// relations from the homeserver.
+    ///
+    /// When running any request against the homeserver, it uses the given
+    /// [`RequestConfig`] if provided, or the client's default one
+    /// otherwise.
+    ///
+    /// Returns a tuple formed of the event and a vector of its relations (that
+    /// can be empty).
+    pub async fn load_or_fetch_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+        request_config: Option<RequestConfig>,
+    ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
+        let fetch_relations = async || {
+            let mut opts = RelationsOptions {
+                include_relations: IncludeRelations::AllRelations,
+                recurse: true,
+                limit: Some(uint!(256)),
+                ..Default::default()
+            };
+
+            let mut events = Vec::new();
+            loop {
+                match self.relations(event_id.to_owned(), opts.clone()).await {
+                    Ok(relations) => {
+                        events.extend(relations.chunk);
+                        if let Some(next_from) = relations.next_batch_token {
+                            opts.from = Some(next_from);
+                        } else {
+                            break events;
+                        }
+                    }
+
+                    Err(err) => {
+                        warn!(%event_id, "error when loading relations of pinned event from server: {err}");
+                        break events;
+                    }
+                }
+            }
+        };
+
+        // First, try to load the event *and* its relations from the event cache, all at
+        // once.
+        let event_cache = match self.event_cache().await {
+            Ok((event_cache, drop_handles)) => {
+                if let Some((event, mut relations)) =
+                    event_cache.find_event_with_relations(event_id, filter.clone()).await?
+                {
+                    if relations.is_empty() {
+                        // The event cache doesn't have any relations for this event, try to fetch
+                        // them from the server instead.
+                        relations = fetch_relations().await;
+                    }
+
+                    return Ok((event, relations));
+                }
+
+                // Otherwise, get the event from the server.
+                Some((event_cache, drop_handles))
+            }
+
+            Err(err) => {
+                debug!("error when getting the event cache: {err}");
+                // Fallthrough: try with a request.
+                None
+            }
+        };
+
+        // Fetch the event from the server. A failure here is fatal, as we must return
+        // the target event.
+        let event = self.event(event_id, request_config).await?;
+
+        // Try to get the relations from the event cache (if we have one).
+        if let Some((event_cache, _drop_handles)) = event_cache
+            && let Some(relations) = event_cache.find_event_relations(event_id, filter).await.ok()
+            && !relations.is_empty()
+        {
+            return Ok((event, relations));
+        }
+
+        // We couldn't find the relations in the event cache; fetch them from the
+        // server.
+        Ok((event, fetch_relations().await))
     }
 
     /// Fetch the event with the given `EventId` in this room, using the
@@ -4115,7 +4212,7 @@ impl Room {
     }
 
     /// Retrieve a list of relations for the given event, according to the given
-    /// options.
+    /// options, using the network.
     ///
     /// Since this client-server API is paginated, the return type may include a
     /// token used to resuming back-pagination into the list of results, in
