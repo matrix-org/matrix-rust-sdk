@@ -723,9 +723,12 @@ mod private {
         /// The per-thread lock around the real state.
         locked_state: RwLock<RoomEventCacheState>,
 
+        /// A lock taken to avoid multiple attempts to upgrade from a read lock
+        /// to a write lock.
+        ///
         /// Please see inline comment of [`Self::read`] to understand why it
         /// exists.
-        read_lock_acquisition: Mutex<()>,
+        state_lock_upgrade_mutex: Mutex<()>,
     }
 
     struct RoomEventCacheState {
@@ -885,7 +888,7 @@ mod private {
                     waited_for_initial_prev_token,
                     subscriber_count: Default::default(),
                 }),
-                read_lock_acquisition: Mutex::new(()),
+                state_lock_upgrade_mutex: Mutex::new(()),
             })
         }
 
@@ -945,7 +948,7 @@ mod private {
             //
             // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
             // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-            let _one_reader_guard = self.read_lock_acquisition.lock().await;
+            let _state_lock_upgrade_guard = self.state_lock_upgrade_mutex.lock().await;
 
             // Obtain a read lock.
             let state_guard = self.locked_state.read().await;
@@ -957,7 +960,7 @@ mod private {
                 EventCacheStoreLockState::Dirty(store_guard) => {
                     // Drop the read lock, and take a write lock to modify the state.
                     // This is safe because only one reader at a time (see
-                    // `Self::read_lock_acquisition`) is allowed.
+                    // `Self::state_lock_upgrade_mutex`) is allowed.
                     drop(state_guard);
                     let state_guard = self.locked_state.write().await;
 
