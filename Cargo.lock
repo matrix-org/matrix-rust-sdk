@@ -3217,7 +3217,6 @@ dependencies = [
  "hkdf",
  "hmac",
  "http",
- "indoc",
  "insta",
  "itertools 0.14.0",
  "js_option",
