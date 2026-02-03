@@ -26,19 +26,19 @@ experimental-encrypted-state-events = [
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
-deadpool = { version = "0.12.3", features = ["rt_tokio_1"] }
-deadpool-sync = "0.1.4"
+deadpool = { version = "0.12.3", default-features = false, features = ["managed", "rt_tokio_1"] }
+deadpool-sync = { version = "0.1.4", default-features = false }
 itertools.workspace = true
 matrix-sdk-base = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
-num_cpus = "1.17.0"
+num_cpus = { version = "1.17.0", default-features = false }
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.37.0", features = ["limits"] }
+rusqlite = { version = "0.37.0", default-features = false, features = ["limits"] }
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error = "0.1.20"
+serde_path_to_error = { version = "0.1.20", default-features = false }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true

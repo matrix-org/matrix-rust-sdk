@@ -39,12 +39,13 @@ async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true
 chrono.workspace = true
+emojis = { version = "0.8.0", default-features = false }
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyeball-im-util.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
-fuzzy-matcher = "0.3.7"
+fuzzy-matcher = { version = "0.3.7", default-features = false }
 growable-bloom-filter.workspace = true
 imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
@@ -63,10 +64,8 @@ tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization.workspace = true
+unicode-segmentation.workspace = true
 uniffi = { workspace = true, optional = true }
-
-emojis = "0.8.0"
-unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
 anyhow.workspace = true
