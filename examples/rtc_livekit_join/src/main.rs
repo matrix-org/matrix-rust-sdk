@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 
-use std::env;
+use std::{env, fs};
 
 use anyhow::{Context, anyhow};
 use matrix_sdk::{
@@ -473,21 +473,43 @@ async fn main() -> anyhow::Result<()> {
     let username = required_env("MATRIX_USERNAME")?;
     let password = required_env("MATRIX_PASSWORD")?;
     let room_id_or_alias = required_env("ROOM_ID")?;
+    let device_id = optional_env("MATRIX_DEVICE_ID");
     let livekit_service_url_override = optional_env("LIVEKIT_SERVICE_URL");
     let livekit_sfu_get_url = optional_env("LIVEKIT_SFU_GET_URL");
     let v4l2_config = v4l2_config_from_env().context("read V4L2 config")?;
 
-    let client = Client::builder()
-        .homeserver_url(homeserver_url)
-        .build()
-        .await
-        .context("build Matrix client")?;
+    let store_dir = std::env::current_dir()
+        .context("read current directory")?
+        .join("matrix-sdk-store");
+    fs::create_dir_all(&store_dir).context("create crypto store directory")?;
+    let store_path = store_dir.join("matrix-sdk.sqlite");
+    if store_path.is_dir() {
+        warn!(
+            store_path = %store_path.display(),
+            "Removing directory that conflicts with sqlite store file path."
+        );
+        fs::remove_dir_all(&store_path).context("remove sqlite store directory")?;
+    }
 
-    client
-        .matrix_auth()
-        .login_username(&username, &password)
-        .await
-        .context("login Matrix user")?;
+    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
+
+    #[cfg(feature = "sqlite")]
+    {
+        client_builder = client_builder.sqlite_store(store_path, None);
+    }
+    #[cfg(not(feature = "sqlite"))]
+    {
+        let _ = &store_path;
+        warn!("sqlite feature disabled; crypto store will be in-memory.");
+    }
+
+    let client = client_builder.build().await.context("build Matrix client")?;
+
+    let mut login_builder = client.matrix_auth().login_username(&username, &password);
+    if let Some(device_id) = device_id.as_deref() {
+        login_builder = login_builder.device_id(device_id);
+    }
+    login_builder.send().await.context("login Matrix user")?;
     import_recovery_key_if_set(&client)
         .await
         .context("import recovery key")?;
