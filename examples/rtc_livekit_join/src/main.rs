@@ -490,6 +490,13 @@ async fn main() -> anyhow::Result<()> {
         );
         fs::remove_dir_all(&store_path).context("remove sqlite store directory")?;
     }
+    if store_path.is_file() {
+        warn!(
+            store_path = %store_path.display(),
+            "Removing existing sqlite store file to recover from migration errors."
+        );
+        fs::remove_file(&store_path).context("remove sqlite store file")?;
+    }
 
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
