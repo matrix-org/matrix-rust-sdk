@@ -184,7 +184,7 @@
 
       /* domain and path */
       > :nth-child(5) { --_column-width: 15ch; --_dir: ltr }
-      > :nth-child(6) { --_column-width: 20ch; --_dir: rtl }
+      > :nth-child(6) { --_column-width: 18ch; --_dir: rtl }
       > :nth-child(5),
       > :nth-child(6) {
         direction: var(--_dir);
@@ -193,14 +193,15 @@
         overflow: hidden;
       }
 
-      /* request size and response size */
+      /* request timeout, request size and response size */
       > :nth-child(7),
-      > :nth-child(8) {
+      > :nth-child(8),
+      > :nth-child(9) {
         text-align: end;
       }
 
       /* time */
-      > :nth-child(9) {
+      > :nth-child(10) {
         font-size: small;
         font-variant-numeric: slashed-zero tabular-nums;
       }
@@ -302,6 +303,14 @@
     font-size: .9em;
   }
 
+  .text-overflow {
+    display: inline-block;
+    max-width: 25ch;
+    text-overflow: ellipsis ellipsis;
+    overflow-x: auto;
+    vertical-align: text-bottom;
+  }
+
   .hidden {
     display: none;
   }
@@ -327,6 +336,7 @@
       <th scope="col"><abbr title="Method">Meth.</abbr></th>
       <th scope="col">Domain</th>
       <th scope="col">Path</th>
+      <th scope="col"><abbr title="Request">Req.</abbr> timeout</th>
       <th scope="col"><abbr title="Request">Req.</abbr> size</th>
       <th scope="col"><abbr title="Response">Resp.</abbr> size</th>
       <th scope="col">Time</th>
