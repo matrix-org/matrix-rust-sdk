@@ -1260,9 +1260,6 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_in_timelin
 /// event isn't part of the main timeline and thus wasn't put into the event
 /// cache by the main timeline backpaginating.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-// FIXME: This test is ignored because R2D2 can't decrypt this pinned event as it's never put into
-// the event cache.
-#[ignore]
 async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_timeline() -> TestResult
 {
     test_pinned_events_are_decrypted_after_recovering_with_event_count(30).await
