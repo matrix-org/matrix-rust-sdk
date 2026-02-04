@@ -19,6 +19,7 @@ WeeChat = "WeeChat"
 [default.extend-words]
 # all of these are valid words, but should never appear in this repo
 bellow = "below"
+stat = "state"
 sing = "sign"
 singed = "signed"
 singing = "signing"
