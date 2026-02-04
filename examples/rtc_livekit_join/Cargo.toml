@@ -32,6 +32,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 v4l = { version = "0.14", optional = true }
+rand = { version = "0.8.0" }
 
 [lints]
 workspace = true

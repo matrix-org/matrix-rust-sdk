@@ -579,6 +579,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+
+
     #[cfg(not(feature = "experimental-widgets"))]
     let _ = &widget;
 
@@ -740,16 +742,6 @@ async fn log_backup_state(client: &Client) {
             "backup exists on the server but backups are not enabled; ensure the recovery key is available"
         );
     }
-}
-
-#[cfg(not(feature = "e2e-encryption"))]
-async fn import_recovery_key_if_set(_client: &Client) -> anyhow::Result<()> {
-    if optional_env("MATRIX_RECOVERY_KEY").is_some() {
-        info!(
-            "MATRIX_RECOVERY_KEY set but e2e-encryption feature is disabled; enable the example's e2e-encryption feature"
-        );
-    }
-    Ok(())
 }
 
 #[cfg(not(feature = "e2e-encryption"))]
@@ -1322,6 +1314,22 @@ async fn build_per_participant_e2ee(
 }
 
 #[cfg(feature = "e2ee-per-participant")]
+fn derive_per_participant_key(_bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>> {
+    // Element Call / MatrixRTC uses fresh random key material for per-participant media E2EE
+    // and distributes it via `io.element.call.encryption_keys`.
+    //
+    // In Element Call (matrix-js-sdk), the sender key seed is 16 bytes.
+    // Keeping this at 16 bytes is important for interoperability with the LiveKit E2EE ratchet.
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+
+    let mut key = [0u8; 16];
+    OsRng.fill_bytes(&mut key);
+    Ok(key.to_vec())
+}
+
+/*
+#[cfg(feature = "e2ee-per-participant")]
 fn derive_per_participant_key(bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>> {
     let room_keys = canonicalize_bundle_entries(&bundle.room_keys)
         .context("canonicalize per-participant room keys")?;
@@ -1340,6 +1348,7 @@ fn derive_per_participant_key(bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>>
 
     Ok(digest.to_vec())
 }
+*/
 
 #[cfg(feature = "e2ee-per-participant")]
 fn canonicalize_bundle_entries<T: serde::Serialize>(
@@ -1365,25 +1374,32 @@ fn canonicalize_bundle_entries<T: serde::Serialize>(
         .collect())
 }
 
+
 #[cfg(feature = "e2ee-per-participant")]
 async fn send_per_participant_keys(
     room: &matrix_sdk::Room,
     key_index: i32,
     key: &[u8],
 ) -> anyhow::Result<()> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+
     if key.is_empty() {
-        info!(
-            key_index,
-            "per-participant E2EE key payload is empty; skipping send"
-        );
+        info!(key_index, "per-participant E2EE key payload is empty; skipping send");
         return Ok(());
     }
+
+    // Element Call / MatrixRTC typically expects a fixed-size key seed.
+    // Observed Element Call keys decode to ~16 bytes (22 chars base64url-no-pad).
+    let key = if key.len() >= 16 { &key[..16] } else { key };
+
     let client = room.client();
     let own_device_id = client
         .device_id()
         .context("missing device id for per-participant E2EE")?
         .to_owned();
     let own_user_id = client.user_id().map(|id| id.to_owned());
+
     let members = room.members(RoomMemberships::JOIN).await?;
     let mut recipients = Vec::new();
 
@@ -1391,11 +1407,9 @@ async fn send_per_participant_keys(
         let user_id = member.user_id();
         let devices = client.encryption().get_user_devices(user_id).await?;
         let device_list: Vec<_> = devices.devices().collect();
-        info!(
-            user_id = %user_id,
-            device_count = device_list.len(),
-            "per-participant E2EE device discovery"
-        );
+
+        info!(user_id = %user_id, device_count = device_list.len(), "per-participant E2EE device discovery");
+
         for device in device_list {
             if let Some(own_user_id) = own_user_id.as_ref() {
                 if device.user_id() == own_user_id && device.device_id() == &own_device_id {
@@ -1410,28 +1424,35 @@ async fn send_per_participant_keys(
         info!("no recipient devices for per-participant E2EE to-device");
         return Ok(());
     }
-    info!(
-        recipients = recipients.len(),
-        key_index,
-        room_id = %room.room_id(),
-        "sending per-participant E2EE keys to devices"
-    );
 
-    let key_b64 = STANDARD_NO_PAD.encode(key);
+    let key_b64 = URL_SAFE_NO_PAD.encode(key);
     let sent_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
+
     info!(
+        recipients = recipients.len(),
         key_index,
         key_len = key.len(),
-        "preparing per-participant E2EE key payload"
+        room_id = %room.room_id(),
+        "sending per-participant E2EE keys to devices"
     );
+
+
+    let own_user_id = client.user_id().context("missing user id")?;
+    let claimed = own_device_id.as_str();
+    let member_id = format!("{own_user_id}:{claimed}");
+
     let content_raw = Raw::new(&serde_json::json!({
         "keys": { "index": key_index, "key": key_b64 },
-        "device_id": own_device_id.as_str(),
-        "call_id": "",
+        "member": { "claimed_device_id": claimed, "id": member_id },
         "room_id": room.room_id().to_string(),
+        "session": {
+            "application": "m.call",
+            "call_id": "",
+            "scope": "m.room"
+        },
         "sent_ts": sent_ts,
     }))
     .context("serialize per-participant to-device payload")?
@@ -1455,6 +1476,7 @@ async fn send_per_participant_keys(
 
     Ok(())
 }
+
 
 #[cfg(feature = "e2ee-per-participant")]
 fn register_e2ee_to_device_handler(
