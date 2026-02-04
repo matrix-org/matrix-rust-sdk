@@ -250,9 +250,8 @@ impl RoomEventCache {
     ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
         let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let mut state = self.inner.state.write().await?;
-        let event_cache = self.clone();
 
-        state.subscribe_to_pinned_events(room, event_cache).await
+        state.subscribe_to_pinned_events(room).await
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -734,10 +733,7 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::{
-        Room,
-        event_cache::{RoomEventCache, room::pinned_events::PinnedEventCache},
-    };
+    use crate::{Room, event_cache::room::pinned_events::PinnedEventCache};
 
     /// State for a single room's event cache.
     ///
@@ -1866,12 +1862,10 @@ mod private {
         pub async fn subscribe_to_pinned_events(
             &mut self,
             room: Room,
-            event_cache: RoomEventCache,
         ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
             let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
                 PinnedEventCache::new(
                     room,
-                    event_cache,
                     self.state.linked_chunk_update_sender.clone(),
                     self.state.store.clone(),
                 )

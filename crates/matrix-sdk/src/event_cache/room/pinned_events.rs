@@ -30,7 +30,6 @@ use ruma::{
     },
     room_version_rules::RedactionRules,
     serde::Raw,
-    uint,
 };
 use serde::Deserialize;
 use tokio::sync::{
@@ -44,10 +43,11 @@ use crate::{
     client::WeakClient,
     config::RequestConfig,
     event_cache::{
-        EventCacheError, EventsOrigin, Result, RoomEventCache, RoomEventCacheLinkedChunkUpdate,
+        EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
         RoomEventCacheUpdate, room::events::EventLinkedChunk,
     },
-    room::{IncludeRelations, RelationsOptions, WeakRoom},
+    executor::{JoinHandle, spawn},
+    room::WeakRoom,
 };
 
 struct PinnedEventCacheState {
@@ -402,7 +402,6 @@ impl PinnedEventCache {
     /// Creates a new [`PinnedEventCache`] for the given room.
     pub(super) fn new(
         room: Room,
-        event_cache: RoomEventCache,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
     ) -> Self {
@@ -419,8 +418,7 @@ impl PinnedEventCache {
             state_lock_upgrade_mutex: Mutex::new(()),
         });
 
-        let task =
-            Arc::new(spawn(Self::pinned_event_listener_task(room, state.clone(), event_cache)));
+        let task = Arc::new(spawn(Self::pinned_event_listener_task(room, state.clone())));
 
         Self { state, _task: task }
     }
@@ -544,16 +542,12 @@ impl PinnedEventCache {
         Ok(())
     }
 
-    #[instrument(fields(%room_id = room.room_id()), skip(room, state, event_cache))]
-    async fn pinned_event_listener_task(
-        room: Room,
-        state: Arc<PinnedEventCacheStateLock>,
-        event_cache: RoomEventCache,
-    ) {
+    #[instrument(fields(%room_id = room.room_id()), skip(room, state))]
+    async fn pinned_event_listener_task(room: Room, state: Arc<PinnedEventCacheStateLock>) {
         debug!("pinned events listener task started");
 
         let reload_from_network = async |room: Room| {
-            let events = match Self::reload_pinned_events(room, event_cache.clone()).await {
+            let events = match Self::reload_pinned_events(room).await {
                 Ok(Some(events)) => events,
                 Ok(None) => Vec::new(),
                 Err(err) => {
@@ -635,10 +629,7 @@ impl PinnedEventCache {
     /// Returns `None` if the list of pinned events hasn't changed since the
     /// previous time we loaded them. May return an error if there was an
     /// issue fetching the full events.
-    async fn reload_pinned_events(
-        room: Room,
-        event_cache: RoomEventCache,
-    ) -> Result<Option<Vec<Event>>> {
+    async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
         let (max_events_to_load, max_concurrent_requests) = {
             let client = room.client();
             let config = client.event_cache().config().await;
@@ -661,11 +652,25 @@ impl PinnedEventCache {
         let mut loaded_events: Vec<Event> =
             stream::iter(pinned_event_ids.clone().into_iter().map(|event_id| {
                 let room = room.clone();
-                let event_cache = event_cache.clone();
-                Self::load_event_with_relations(event_id, room, event_cache)
+                let filter = vec![RelationType::Annotation, RelationType::Replacement];
+                let request_config = RequestConfig::default().retry_limit(3);
+
+                async move {
+                    let (target, mut relations) = room
+                        .load_or_fetch_event_with_relations(
+                            &event_id,
+                            Some(filter),
+                            Some(request_config),
+                        )
+                        .await?;
+
+                    relations.insert(0, target);
+                    Ok::<_, crate::Error>(relations)
+                }
             }))
             .buffer_unordered(max_concurrent_requests)
             // Flatten all the vectors.
+            .flat_map(stream::iter)
             .flat_map(stream::iter)
             .collect()
             .await;
@@ -688,100 +693,5 @@ impl PinnedEventCache {
         });
 
         Ok(Some(loaded_events))
-    }
-
-    /// Load a single event with its relations, using the cache first and
-    /// defaulting to the homeserver otherwise.
-    // TODO(bnjbvr): consider sharing this in the Room/RoomEventCache impl,
-    // instead?
-    async fn load_event_with_relations(
-        event_id: OwnedEventId,
-        room: Room,
-        event_cache: RoomEventCache,
-    ) -> Vec<Event> {
-        let fetch_relations = async || {
-            let mut events = Vec::new();
-            let mut opts = RelationsOptions {
-                include_relations: IncludeRelations::AllRelations,
-                recurse: true,
-                limit: Some(uint!(256)),
-                ..Default::default()
-            };
-
-            loop {
-                match room.relations(event_id.to_owned(), opts.clone()).await {
-                    Ok(relations) => {
-                        events.extend(relations.chunk);
-                        if let Some(next_from) = relations.next_batch_token {
-                            opts.from = Some(next_from);
-                        } else {
-                            break events;
-                        }
-                    }
-
-                    Err(err) => {
-                        warn!(%event_id, "error when loading relations of pinned event from server: {err}");
-                        break events;
-                    }
-                }
-            }
-        };
-
-        let relations_filter = Some(vec![RelationType::Annotation, RelationType::Replacement]);
-
-        // Try to load the event and all its relations from the event cache first.
-        match event_cache.find_event_with_relations(&event_id, relations_filter).await {
-            Ok(Some((event, relations))) => {
-                trace!(%event_id, "Loaded pinned event and related events from cache");
-                let mut events = vec![event];
-                if relations.is_empty() {
-                    events.extend(fetch_relations().await);
-                } else {
-                    events.extend(relations);
-                }
-                return events;
-            }
-
-            Ok(None) => {
-                // Fallback to loading the event from the server.
-            }
-
-            Err(err) => {
-                warn!(%event_id, "error when loading pinned event from cache: {err}; falling back to server");
-            }
-        }
-
-        // Load the event from the server otherwise.
-        trace!(%event_id, "Loading pinned event from homeserver");
-        let request_config = Some(RequestConfig::default().retry_limit(3));
-        let event = match room.event(&event_id, request_config).await {
-            Ok(event) => event,
-            Err(err) => {
-                warn!(%event_id, "error when loading a single pinned event from server: {err}");
-                return Vec::new();
-            }
-        };
-
-        // Try to load the related events from the cache first…
-        let filter = None;
-        match event_cache.find_event_relations(&event_id, filter).await {
-            Ok(relations) => {
-                if !relations.is_empty() {
-                    let mut events = vec![event];
-                    events.extend(relations);
-                    return events;
-                }
-            }
-
-            Err(err) => {
-                warn!(%event_id, "error when loading relations of pinned event from cache: {err}; falling back to server");
-            }
-        }
-
-        // …Otherwise fall back to loading them from the server.
-        trace!(%event_id, "Loading relations of pinned event from homeserver");
-        let mut events = vec![event];
-        events.extend(fetch_relations().await);
-        events
     }
 }
