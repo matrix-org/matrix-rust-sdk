@@ -3,7 +3,7 @@ use std::sync::Arc;
 use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::ruma::{
-    OwnedUserId, UserId,
+    OwnedUserId,
     events::{receipt::Receipt, room::message::MessageType},
 };
 use matrix_sdk_ui::timeline::{
@@ -95,7 +95,11 @@ impl StatefulWidget for &mut TimelineView<'_> {
 fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<ListItem<'_>> {
     let item = match item.kind() {
         TimelineItemKind::Event(ev) => {
-            let sender = ev.sender();
+            let profile_name = match ev.sender_profile() {
+                TimelineDetails::Ready(profile) => profile.display_name.clone(),
+                _ => None,
+            };
+            let sender = profile_name.as_deref().unwrap_or_else(|| ev.sender().as_str());
 
             match ev.content() {
                 TimelineItemContent::MsgLike(MsgLikeContent {
@@ -152,7 +156,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
 }
 
 fn format_text_message(
-    sender: &UserId,
+    sender: &str,
     message: &Message,
     thread_summary: Option<ThreadSummary>,
     read_receipts: &IndexMap<OwnedUserId, Receipt>,
@@ -170,7 +174,11 @@ fn format_text_message(
                     lines.push(thread_line);
                 }
                 TimelineDetails::Ready(e) => {
-                    let sender = e.sender;
+                    let profile_name = match e.sender_profile {
+                        TimelineDetails::Ready(profile) => profile.display_name,
+                        _ => None,
+                    };
+                    let sender = profile_name.as_deref().unwrap_or_else(|| e.sender.as_str());
                     let content = e.content.as_message().map(|m| m.msgtype());
 
                     if let Some(MessageType::Text(text)) = content {
