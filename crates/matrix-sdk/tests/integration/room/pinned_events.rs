@@ -1,9 +1,18 @@
-use std::ops::Not as _;
+use std::{ops::Not as _, sync::Arc};
 
-use matrix_sdk::{Room, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    Room,
+    event_cache::RoomEventCacheUpdate,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
+    test_utils::mocks::MatrixMockServer,
+    timeout::timeout,
+};
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
 use ruma::{EventId, event_id, owned_event_id, room_id, user_id};
 use serde_json::json;
+use tokio::time::Duration;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{header, method, path_regex},
@@ -119,4 +128,94 @@ async fn test_unpin_event_is_returning_an_error() {
     setup.server.mock_set_room_pinned_events().unauthorized().mock_once().mount().await;
 
     assert!(setup.room.unpin_event(setup.event_id).await.is_err());
+}
+
+#[async_test]
+async fn test_pinned_events_are_reloaded_from_storage() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let pinned_event_id = event_id!("$pinned_event");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+
+    // Create the pinned event.
+    let pinned_event = f.text_msg("I'm pinned!").event_id(pinned_event_id).into_event();
+
+    // Create an event cache store, pre-populated with the pinned event.
+    let event_cache_store = Arc::new(MemoryStore::new());
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::PinnedEvents(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![pinned_event.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    // Create a client with the pre-populated store.
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("test_store".to_owned()).event_cache_store(event_cache_store),
+            )
+        })
+        .build()
+        .await;
+
+    // Subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    // Sync the room with the pinned event ID in the room state.
+    //
+    // This is important: the pinned events list must include our event ID,
+    // otherwise the initial reload from network will clear the storage-loaded
+    // events.
+    let pinned_events_state = StateTestEvent::Custom(json!({
+        "content": {
+            "pinned": [pinned_event_id]
+        },
+        "event_id": "$pinned_events_state",
+        "origin_server_ts": 151393755,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.room.pinned_events",
+    }));
+
+    let room = server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_event(pinned_events_state))
+        .await;
+
+    // Get the room event cache and subscribe to pinned events.
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+    // spawns a task that calls reload_from_storage() first.
+    let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+    let mut events = events.into();
+
+    // Wait for the background task to reload the events.
+    while let Ok(Ok(up)) = timeout(subscriber.recv(), Duration::from_millis(300)).await {
+        if let RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } = up {
+            for diff in diffs {
+                diff.apply(&mut events);
+            }
+        }
+        if !events.is_empty() {
+            break;
+        }
+    }
+
+    // Verify the pinned event was reloaded from storage.
+    assert_eq!(events.len(), 1, "Expected pinned events to be loaded");
+    assert_eq!(
+        events[0].event_id().unwrap(),
+        pinned_event_id,
+        "The pinned event should have been loaded"
+    );
 }

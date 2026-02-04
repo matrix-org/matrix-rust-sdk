@@ -127,28 +127,17 @@ impl PinnedEventCacheStateLock {
                 drop(state_guard);
                 let state_guard = self.locked_state.write().await;
 
-                let guard =
+                let mut guard =
                     PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard };
 
                 // Force to reload by shrinking to the last chunk.
-                // TODO: reload the full pinned events list from the store.
-                //let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
-                let updates_as_vector_diffs = Vec::new();
+                guard.reload_from_storage().await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
 
                 // Downgrade the guard as soon as possible.
                 let guard = guard.downgrade();
-
-                // Now let the world know about the reload.
-                if !updates_as_vector_diffs.is_empty() {
-                    // Notify observers about the update.
-                    let _ = guard.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs: updates_as_vector_diffs,
-                        origin: EventsOrigin::Cache,
-                    });
-                }
 
                 Ok(guard)
             }
@@ -174,24 +163,14 @@ impl PinnedEventCacheStateLock {
             }
 
             EventCacheStoreLockState::Dirty(store_guard) => {
-                let guard =
+                let mut guard =
                     PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard };
 
-                // TODO: reload the full pinned events list from the store.
-                //let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
-                let updates_as_vector_diffs = Vec::new();
+                // Reload the full pinned events list from the store.
+                guard.reload_from_storage().await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                // Now let the world know about the reload.
-                if !updates_as_vector_diffs.is_empty() {
-                    // Notify observers about the update.
-                    let _ = guard.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs: updates_as_vector_diffs,
-                        origin: EventsOrigin::Cache,
-                    });
-                }
 
                 Ok(guard)
             }
@@ -239,9 +218,60 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
     fn downgrade(self) -> PinnedEventCacheStateLockReadGuard<'a> {
         PinnedEventCacheStateLockReadGuard { state: self.state.downgrade(), _store: self.store }
     }
-}
 
-impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
+    /// Reload all the pinned events from storage, replacing the current linked
+    /// chunk.
+    async fn reload_from_storage(&mut self) -> Result<()> {
+        let room_id = self.state.room_id.clone();
+        let linked_chunk_id = LinkedChunkId::PinnedEvents(&room_id);
+
+        let (last_chunk, chunk_id_gen) = self.store.load_last_chunk(linked_chunk_id).await?;
+
+        let Some(last_chunk) = last_chunk else {
+            // No pinned events stored, make sure the in-memory linked chunk is sync'd (i.e.
+            // empty), and return.
+            if self.state.chunk.events().next().is_some() {
+                self.state.chunk.reset();
+
+                let diffs = self.state.chunk.updates_as_vector_diffs();
+                if !diffs.is_empty() {
+                    let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                        diffs,
+                        origin: EventsOrigin::Sync,
+                    });
+                }
+            }
+
+            return Ok(());
+        };
+
+        let mut previous = last_chunk.previous;
+        self.state.chunk.replace_with(Some(last_chunk), chunk_id_gen)?;
+
+        // Reload the entire chunk.
+        while let Some(previous_chunk_id) = previous {
+            let prev = self.store.load_previous_chunk(linked_chunk_id, previous_chunk_id).await?;
+            if let Some(prev_chunk) = prev {
+                previous = prev_chunk.previous;
+                self.state.chunk.insert_new_chunk_as_first(prev_chunk)?;
+            }
+        }
+
+        // Empty store updates, since we just reloaded from storage.
+        self.state.chunk.store_updates().take();
+
+        // Let observers know about it.
+        let diffs = self.state.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs,
+                origin: EventsOrigin::Sync,
+            });
+        }
+
+        Ok(())
+    }
+
     async fn replace_all_events(&mut self, new_events: Vec<Event>) -> Result<()> {
         trace!("resetting all pinned events in linked chunk");
 
@@ -254,7 +284,9 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         }
 
-        self.state.chunk.reset();
+        if self.state.chunk.events().next().is_some() {
+            self.state.chunk.reset();
+        }
         self.state.chunk.push_live_events(None, &new_events);
 
         self.propagate_changes().await?;
@@ -627,7 +659,7 @@ impl PinnedEventCache {
                 Ok(Some(events)) => events,
                 Ok(None) => Vec::new(),
                 Err(err) => {
-                    warn!("error when loading initial pinned events: {err}");
+                    warn!("error when loading pinned events: {err}");
                     return;
                 }
             };
@@ -637,22 +669,42 @@ impl PinnedEventCache {
             match state.write().await {
                 Ok(mut guard) => {
                     guard.replace_all_events(events).await.unwrap_or_else(|err| {
-                        warn!("error when replacing initial pinned events: {err}");
+                        warn!("error when replacing pinned events: {err}");
                     });
                 }
 
                 Err(err) => {
-                    warn!(
-                        "error when acquiring write lock to replace initial pinned events: {err}"
-                    );
+                    warn!("error when acquiring write lock to replace pinned events: {err}");
                 }
             }
         };
 
-        // TODO: reload from persisted cache!
+        // Reload the pinned events from the storage first.
+        match state.write().await {
+            Ok(mut guard) => {
+                // On startup, reload the pinned events from storage.
+                guard.reload_from_storage().await.unwrap_or_else(|err| {
+                    warn!("error when reloading pinned events from storage, at start: {err}");
+                });
 
-        // Initial state: load the list of pinned events from network.
-        reload_from_network(room.clone()).await;
+                // Compare the initial list of pinned events to the one in the linked chunk.
+                let actual_pinned_events = room.pinned_event_ids().unwrap_or_default();
+                let reloaded_set =
+                    guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
+
+                if actual_pinned_events.len() != reloaded_set.len()
+                    || actual_pinned_events.iter().any(|event_id| !reloaded_set.contains(event_id))
+                {
+                    // Reload the list of pinned events from network.
+                    drop(guard);
+                    reload_from_network(room.clone()).await;
+                }
+            }
+
+            Err(err) => {
+                warn!("error when acquiring write lock to initialize pinned events: {err}");
+            }
+        }
 
         let weak_room =
             WeakRoom::new(WeakClient::from_client(&room.client()), room.room_id().to_owned());
