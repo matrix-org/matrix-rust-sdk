@@ -15,6 +15,8 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::linked_chunk::Position;
 use matrix_sdk_base::{
     deserialized_responses::TimelineEventKind,
     event_cache::{
@@ -23,6 +25,8 @@ use matrix_sdk_base::{
     },
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::EventId;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
     events::{
@@ -38,6 +42,8 @@ use tokio::sync::{
 };
 use tracing::{debug, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor::ResolvedUtd;
 use crate::{
     Room,
     client::WeakClient,
@@ -378,6 +384,24 @@ impl PinnedEventCacheState {
     fn current_event_ids(&self) -> Vec<OwnedEventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
     }
+
+    /// Find an event in the linked chunk by its event ID, and return its
+    /// location.
+    ///
+    /// Note: the in-memory content is always the same as the one in the store,
+    /// since the store is updated synchronously with changes in the linked
+    /// chunk, so we can afford to only look for the event in the memory
+    /// linked chunk.
+    #[cfg(feature = "e2e-encryption")]
+    fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
+        for (position, event) in self.chunk.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Some((position, event.clone()));
+            }
+        }
+
+        None
+    }
 }
 
 /// All the information related to a room's pinned events cache.
@@ -431,6 +455,58 @@ impl PinnedEventCache {
         let recv = guard.state.sender.subscribe();
 
         Ok((events, recv))
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them, while alerting observers
+    /// about the update.
+    #[cfg(feature = "e2e-encryption")]
+    pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+        let mut guard = self.state.write().await?;
+
+        let pinned_events_set =
+            guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
+
+        let mut replaced_some = false;
+
+        for (event_id, decrypted, actions) in events {
+            // As a performance optimization, do a lookup in the current pinned events
+            // check, before looking for the event in the linked chunk.
+            if !pinned_events_set.contains(event_id) {
+                continue;
+            }
+
+            // The event should be in the linked chunk.
+            let Some((position, mut target_event)) = guard.state.find_event(event_id) else {
+                continue;
+            };
+
+            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+            if let Some(actions) = actions {
+                target_event.set_push_actions(actions.clone());
+            }
+
+            guard
+                .state
+                .chunk
+                .replace_event_at(position, target_event.clone())
+                .expect("position should be valid");
+
+            replaced_some = true;
+        }
+
+        if replaced_some {
+            guard.propagate_changes().await?;
+
+            let diffs = guard.state.chunk.updates_as_vector_diffs();
+            let _ = guard.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs,
+                origin: EventsOrigin::Cache,
+            });
+        }
+
+        Ok(())
     }
 
     /// Given a raw event, try to extract the target event ID of a relation as

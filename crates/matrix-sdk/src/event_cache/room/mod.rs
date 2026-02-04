@@ -1224,6 +1224,13 @@ mod private {
             &mut self.state.room_linked_chunk
         }
 
+        /// Get a reference to the [`pinned_event_cache`] if it has been
+        /// initialized.
+        #[cfg(any(feature = "e2e-encryption", test))]
+        pub fn pinned_event_cache(&self) -> Option<&PinnedEventCache> {
+            self.state.pinned_event_cache.get()
+        }
+
         /// Get a reference to the `waited_for_initial_prev_token` atomic bool.
         pub fn waited_for_initial_prev_token(&self) -> &Arc<AtomicBool> {
             &self.state.waited_for_initial_prev_token

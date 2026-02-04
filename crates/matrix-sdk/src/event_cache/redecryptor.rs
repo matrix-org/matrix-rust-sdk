@@ -167,7 +167,8 @@ type OwnedSessionId = String;
 
 type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
 type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-type ResolvedUtd = (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+pub(in crate::event_cache) type ResolvedUtd =
+    (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
@@ -372,6 +373,12 @@ impl EventCache {
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
         let mut new_events = Vec::with_capacity(events.len());
 
+        // Consider the pinned event linked chunk, if it's been initialized.
+        if let Some(pinned_cache) = state.pinned_event_cache() {
+            pinned_cache.replace_utds(&events).await?;
+        }
+
+        // Consider the room linked chunk.
         for (event_id, decrypted, actions) in events {
             // The event isn't in the cache, nothing to replace. Realistically this can't
             // happen since we retrieved the list of events from the cache itself and
