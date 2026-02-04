@@ -1,6 +1,4 @@
 [bindings.kotlin]
-package_name = "uniffi.matrix_sdk_base"
-cdylib_name = "matrix_sdk_base"
 android_cleaner = true
 # Checksums are incorrectly failing for users with 32bit (and sometimes 64bit?) devices at the moment
 # Remove once https://github.com/mozilla/uniffi-rs/issues/2740 is fixed or JNI is used instead of JNA
