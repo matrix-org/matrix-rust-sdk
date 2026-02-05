@@ -57,8 +57,6 @@ use serde_json::Value as JsonValue;
 use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_base::crypto::CollectStrategy;
-#[cfg(feature = "e2ee-per-participant")]
-use sha2::{Digest, Sha256};
 #[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(feature = "experimental-widgets")]
@@ -1113,7 +1111,7 @@ async fn publish_call_membership_via_widget(
         None,
     );
     let send_response = room
-        .send_state_event_for_key(state_key.as_ref(), content)
+        .send_state_event_for_key(&state_key, content)
         .await
         .context("send MatrixRTC membership state event")?;
     info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
