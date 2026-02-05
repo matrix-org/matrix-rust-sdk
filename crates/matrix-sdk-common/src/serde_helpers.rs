@@ -27,12 +27,24 @@ use serde::Deserialize;
 
 use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
-#[derive(Deserialize)]
-enum RelationsType {
+/// The type of relation an event has to another one, if any.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum RelationsType {
+    /// The event is part of a thread, and the related event is the thread root.
     #[serde(rename = "m.thread")]
     Thread,
+    /// The event is an edit of another event, and the related event is the one
+    /// being edited.
     #[serde(rename = "m.replace")]
     Edit,
+    /// The event is an annotation of (reaction to) another event, and the
+    /// related event is the one being annotated.
+    #[serde(rename = "m.annotation")]
+    Annotation,
+    /// The event is referencing another event, and the related event is the one
+    /// being referenced.
+    #[serde(rename = "m.reference")]
+    Reference,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +75,7 @@ pub fn extract_thread_root_from_content(
     let relates_to = content.deserialize_as_unchecked::<SimplifiedContent>().ok()?.relates_to?;
     match relates_to.rel_type {
         RelationsType::Thread => relates_to.event_id,
-        RelationsType::Edit => None,
+        RelationsType::Edit | RelationsType::Reference | RelationsType::Annotation => None,
     }
 }
 
@@ -91,8 +103,17 @@ pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     match relates_to.rel_type {
         RelationsType::Edit => relates_to.event_id,
-        RelationsType::Thread => None,
+        RelationsType::Thread | RelationsType::Reference | RelationsType::Annotation => None,
     }
+}
+
+/// Try to extract the type and target of a relation, from a raw timeline event,
+/// if provided.
+pub fn extract_relation(
+    event: &Raw<AnySyncTimelineEvent>,
+) -> Option<(RelationsType, OwnedEventId)> {
+    let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
+    Some((relates_to.rel_type, relates_to.event_id?))
 }
 
 #[allow(missing_debug_implementations)]
@@ -154,14 +175,17 @@ pub fn extract_timestamp(
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use ruma::{UInt, event_id};
+    use ruma::{UInt, event_id, owned_event_id};
     use serde_json::json;
 
     use super::{
         MilliSecondsSinceUnixEpoch, Raw, extract_bundled_thread_summary, extract_thread_root,
         extract_timestamp,
     };
-    use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
+    use crate::{
+        deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
+        serde_helpers::{RelationsType, extract_relation},
+    };
 
     #[test]
     fn test_extract_thread_root() {
@@ -188,6 +212,8 @@ mod tests {
 
         let observed_thread_root = extract_thread_root(&event);
         assert_eq!(observed_thread_root.as_deref(), Some(thread_root));
+        let observed_relation = extract_relation(&event).unwrap();
+        assert_eq!(observed_relation, (RelationsType::Thread, thread_root.to_owned()));
 
         // If the event doesn't have a content for some reason (redacted), it returns
         // None.
@@ -202,6 +228,7 @@ mod tests {
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
+        assert_matches!(extract_relation(&event), None);
 
         // If the event has a content but with no `m.relates_to` field, it returns None.
         let event = Raw::new(&json!({
@@ -218,6 +245,7 @@ mod tests {
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
+        assert_matches!(extract_relation(&event), None);
 
         // If the event has a relation, but it's not a thread reply, it returns None.
         let event = Raw::new(&json!({
@@ -238,6 +266,11 @@ mod tests {
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
+        let observed_relation = extract_relation(&event).unwrap();
+        assert_eq!(
+            observed_relation,
+            (RelationsType::Reference, owned_event_id!("$referenced_event_id:example.com"))
+        );
     }
 
     #[test]
