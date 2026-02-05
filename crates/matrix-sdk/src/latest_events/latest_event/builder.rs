@@ -62,7 +62,7 @@ impl Builder {
         let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, _| {
+            .rfind_map_event_in_memory_by(|event| {
                 // At least one event lives in-memory: we consider the room is not empty.
                 room_has_been_emptied = false;
 
