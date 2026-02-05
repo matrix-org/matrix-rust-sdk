@@ -602,10 +602,11 @@ fn filter_continue_with_erasing() -> ControlFlow<(), FilterContinue> {
 
 /// Build the [`ControlFlow::Continue`] with an edited event ID, for the
 /// filters.
-fn filter_continue_with_edit(
-    edited_event_id: Option<OwnedEventId>,
-) -> ControlFlow<(), FilterContinue> {
-    ControlFlow::Continue(FilterContinue { current_value_must_be_erased: false, edited_event_id })
+fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), FilterContinue> {
+    ControlFlow::Continue(FilterContinue {
+        current_value_must_be_erased: false,
+        edited_event_id: Some(edited_event_id),
+    })
 }
 
 /// Filter a [`TimelineEvent`].
@@ -676,7 +677,7 @@ fn filter_any_message_like_event_content(
                     // Edits are only suitable as latest events when the replaced event would
                     // otherwise be the latest event. We pass the target event ID up from here
                     // so that it can be tracked in the outer loop.
-                    filter_continue_with_edit(Some(event_id))
+                    filter_continue_with_edit(event_id)
                 }
 
                 _ => filter_break(),
