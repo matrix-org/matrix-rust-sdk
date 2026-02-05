@@ -41,21 +41,21 @@ test-send-sync = []
 testing = ["matrix-sdk-test"]
 
 [dependencies]
-aes = "0.8.4"
+aes = { version = "0.8.4", default-features = false }
 aquamarine.workspace = true
 as_variant.workspace = true
 async-trait.workspace = true
-bs58 = { version = "0.5.1" }
+bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
-ctr = "0.9.2"
+ctr = { version = "0.9.2", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 itertools.workspace = true
-js_option = "0.2.0"
+js_option = { version = "0.2.0", default-features = false }
 matrix-sdk-common.workspace = true
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only
@@ -66,13 +66,13 @@ ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true
-subtle = "2.6.1"
+subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
-time = { version = "0.3.44", features = ["formatting"] }
+time = { version = "0.3.44", default-features = false, features = ["std", "formatting"] }
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-ulid = { version = "1.1.4" }
+ulid = { version = "1.1.4", default-features = false, features = ["std"] }
 uniffi = { workspace = true, optional = true }
 url.workspace = true
 vodozemac.workspace = true
@@ -90,7 +90,6 @@ assert_matches.workspace = true
 assert_matches2.workspace = true
 futures-executor.workspace = true
 http.workspace = true
-indoc = "2.0.7"
 insta.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
