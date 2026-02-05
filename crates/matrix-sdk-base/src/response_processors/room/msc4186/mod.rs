@@ -204,6 +204,13 @@ pub async fn update_any_room(
             Ok(Some((room_info, update)))
         }
 
+        (RoomState::Invited, None) => {
+            Ok(Some((room_info, RoomUpdateKind::Invited(InvitedRoom::default()))))
+        }
+        (RoomState::Knocked, None) => {
+            Ok(Some((room_info, RoomUpdateKind::Knocked(KnockedRoom::default()))))
+        }
+
         _ => Ok(None),
     }
 }
