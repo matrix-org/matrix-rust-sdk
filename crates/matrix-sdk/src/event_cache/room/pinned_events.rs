@@ -24,6 +24,7 @@ use matrix_sdk_base::{
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
+    serde_helpers::{RelationsType, extract_relation},
     task_monitor::BackgroundTaskHandle,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -36,7 +37,6 @@ use ruma::{
     room_version_rules::RedactionRules,
     serde::Raw,
 };
-use serde::Deserialize;
 use tokio::sync::{
     Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
     broadcast::{Receiver, Sender},
@@ -553,24 +553,15 @@ impl PinnedEventCache {
     /// Given a raw event, try to extract the target event ID of a relation as
     /// defined with `m.relates_to`.
     fn extract_relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
-        #[derive(Deserialize)]
-        struct SimplifiedRelation {
-            event_id: OwnedEventId,
+        let (rel_type, event_id) = extract_relation(raw)?;
+
+        // Don't include thread responses in the pinned event chunk.
+        match rel_type {
+            RelationsType::Thread => None,
+            RelationsType::Edit | RelationsType::Annotation | RelationsType::Reference => {
+                Some(event_id)
+            }
         }
-
-        #[derive(Deserialize)]
-        struct SimplifiedContent {
-            #[serde(rename = "m.relates_to")]
-            relates_to: Option<SimplifiedRelation>,
-        }
-
-        let SimplifiedContent { relates_to: Some(relation) } =
-            raw.get_field::<SimplifiedContent>("content").ok()??
-        else {
-            return None;
-        };
-
-        Some(relation.event_id)
     }
 
     /// Given a raw event, try to extract the target event ID of a live

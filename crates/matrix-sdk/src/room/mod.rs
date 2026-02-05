@@ -46,6 +46,7 @@ use matrix_sdk_base::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     media::{MediaThumbnailSettings, store::IgnoreMediaRetentionPolicy},
+    serde_helpers::{RelationsType, extract_relation},
     store::{StateStoreExt, ThreadSubscriptionStatus},
 };
 #[cfg(feature = "e2e-encryption")]
@@ -854,8 +855,22 @@ impl Room {
         request_config: Option<RequestConfig>,
     ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
         let fetch_relations = async || {
+            // If there's only a single filter, we can use a more efficient request,
+            // specialized on the filter type.
+            //
+            // Otherwise, we need to get all the relations:
+            // - either because no filters implies we fetch all relations,
+            // - or because there are multiple filters and we must filter out manually.
+            let include_relations = if let Some(filter) = &filter
+                && filter.len() == 1
+            {
+                IncludeRelations::RelationsOfType(filter[0].clone())
+            } else {
+                IncludeRelations::AllRelations
+            };
+
             let mut opts = RelationsOptions {
-                include_relations: IncludeRelations::AllRelations,
+                include_relations,
                 recurse: true,
                 limit: Some(uint!(256)),
                 ..Default::default()
@@ -865,7 +880,32 @@ impl Room {
             loop {
                 match self.relations(event_id.to_owned(), opts.clone()).await {
                     Ok(relations) => {
-                        events.extend(relations.chunk);
+                        if let Some(filter) = filter.as_ref() {
+                            // Manually filter out the relation types we're interested in.
+                            events.extend(relations.chunk.into_iter().filter_map(|ev| {
+                                let (rel_type, _) = extract_relation(ev.raw())?;
+                                filter
+                                    .iter()
+                                    .any(|ruma_filter| match ruma_filter {
+                                        RelationType::Annotation => {
+                                            rel_type == RelationsType::Annotation
+                                        }
+                                        RelationType::Replacement => {
+                                            rel_type == RelationsType::Edit
+                                        }
+                                        RelationType::Thread => rel_type == RelationsType::Thread,
+                                        RelationType::Reference => {
+                                            rel_type == RelationsType::Reference
+                                        }
+                                        _ => false,
+                                    })
+                                    .then_some(ev)
+                            }));
+                        } else {
+                            // No filter: include all events from the response.
+                            events.extend(relations.chunk);
+                        }
+
                         if let Some(next_from) = relations.next_batch_token {
                             opts.from = Some(next_from);
                         } else {
@@ -914,7 +954,8 @@ impl Room {
 
         // Try to get the relations from the event cache (if we have one).
         if let Some((event_cache, _drop_handles)) = event_cache
-            && let Some(relations) = event_cache.find_event_relations(event_id, filter).await.ok()
+            && let Some(relations) =
+                event_cache.find_event_relations(event_id, filter.clone()).await.ok()
             && !relations.is_empty()
         {
             return Ok((event, relations));
