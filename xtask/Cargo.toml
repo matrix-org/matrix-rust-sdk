@@ -18,6 +18,7 @@ chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 fs_extra = "1"
 indexmap.workspace = true
+lazy_static = "1.5.0"
 regex = "1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
