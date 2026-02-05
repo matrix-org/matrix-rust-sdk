@@ -905,46 +905,50 @@ impl Client {
                         .collect();
 
                     // Convert SDK event to FFI type
-                    let (sender, event, thread_id) = match notification.event {
-                        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => match raw.deserialize() {
-                            Ok(deserialized) => {
-                                let sender = deserialized.sender().to_owned();
-                                let thread_id = match &deserialized {
-                                    AnySyncTimelineEvent::MessageLike(event) => {
-                                        match event.original_content() {
-                                            Some(AnyMessageLikeEventContent::RoomMessage(
-                                                content,
-                                            )) => match content.relates_to {
-                                                Some(Relation::Thread(thread)) => {
-                                                    Some(thread.event_id.to_string())
-                                                }
+                    let (sender, event, thread_id, raw_event) = match notification.event {
+                        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => {
+                            let raw_event = raw.json().get().to_owned();
+                            match raw.deserialize() {
+                                Ok(deserialized) => {
+                                    let sender = deserialized.sender().to_owned();
+                                    let thread_id = match &deserialized {
+                                        AnySyncTimelineEvent::MessageLike(event) => {
+                                            match event.original_content() {
+                                                Some(AnyMessageLikeEventContent::RoomMessage(
+                                                    content,
+                                                )) => match content.relates_to {
+                                                    Some(Relation::Thread(thread)) => {
+                                                        Some(thread.event_id.to_string())
+                                                    }
+                                                    _ => None,
+                                                },
                                                 _ => None,
-                                            },
-                                            _ => None,
+                                            }
                                         }
-                                    }
-                                    _ => None,
-                                };
-                                let event = NotificationEvent::Timeline {
-                                    event: Arc::new(crate::event::TimelineEvent(Box::new(
-                                        deserialized,
-                                    ))),
-                                };
-                                (sender, event, thread_id)
+                                        _ => None,
+                                    };
+                                    let event = NotificationEvent::Timeline {
+                                        event: Arc::new(crate::event::TimelineEvent(Box::new(
+                                            deserialized,
+                                        ))),
+                                    };
+                                    (sender, event, thread_id, raw_event)
+                                }
+                                Err(err) => {
+                                    tracing::warn!("Failed to deserialize timeline event: {err}");
+                                    return;
+                                }
                             }
-                            Err(err) => {
-                                tracing::warn!("Failed to deserialize timeline event: {err}");
-                                return;
-                            }
-                        },
+                        }
                         RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
+                            let raw_event = raw.json().get().to_owned();
                             match raw.deserialize() {
                                 Ok(deserialized) => {
                                     let sender = deserialized.sender().to_owned();
                                     let event =
                                         NotificationEvent::Invite { sender: sender.to_string() };
                                     let thread_id = None;
-                                    (sender, event, thread_id)
+                                    (sender, event, thread_id, raw_event)
                                 }
                                 Err(err) => {
                                     tracing::warn!(
@@ -1007,6 +1011,7 @@ impl Client {
                     listener.on_notification(
                         NotificationItem {
                             event,
+                            raw_event,
                             sender_info,
                             room_info,
                             is_noisy: Some(is_noisy),

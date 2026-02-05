@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use matrix_sdk_ui::notification_client::{
     NotificationClient as SdkNotificationClient, NotificationEvent as SdkNotificationEvent,
     NotificationItem as SdkNotificationItem, NotificationStatus as SdkNotificationStatus,
+    RawNotificationEvent as SdkRawNotificationEvent,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 
@@ -43,6 +44,9 @@ pub struct NotificationRoomInfo {
 pub struct NotificationItem {
     pub event: NotificationEvent,
 
+    /// The raw JSON of the underlying event.
+    pub raw_event: String,
+
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
 
@@ -67,8 +71,15 @@ impl NotificationItem {
                 NotificationEvent::Invite { sender: event.sender.to_string() }
             }
         };
+
+        let raw_event = match &item.raw_event {
+            SdkRawNotificationEvent::Timeline(raw) => raw.json().get().to_owned(),
+            SdkRawNotificationEvent::Invite(raw) => raw.json().get().to_owned(),
+        };
+
         Self {
             event,
+            raw_event,
             sender_info: NotificationSenderInfo {
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,
