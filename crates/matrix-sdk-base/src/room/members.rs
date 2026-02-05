@@ -270,21 +270,7 @@ impl RoomMember {
             return Some(name);
         }
 
-        // This is a naive check to avoid showing display names for banned members.
-        // The display name could still be present in the previous content, but
-        // we don't want to use that for banned members, as it might be inappropriate.
-        // This is fine to have the check here, as m.room.member events for banned
-        // members usually don't have display names set.
-        if self.membership() == &MembershipState::Ban {
-            return None;
-        }
-
-        // As a last resort, try the previous content, if the member is not banned.
-        self.event
-            .as_sync()
-            .and_then(|e| e.as_original())
-            .and_then(|e| e.prev_content())
-            .and_then(|p| p.displayname.as_deref())
+        None
     }
 
     /// Get the name of the member.
@@ -309,21 +295,7 @@ impl RoomMember {
             return Some(url);
         }
 
-        // This is a naive check to avoid showing avatar urls for banned members.
-        // The avatar url could still be present in the previous content, but
-        // we don't want to use that for banned members, as it might be inappropriate.
-        // This is fine to have the check here, as m.room.member events for banned
-        // members usually don't have avatar urls set.
-        if self.membership() == &MembershipState::Ban {
-            return None;
-        }
-
-        // As a last resort, try the previous content, if the member is not banned.
-        self.event
-            .as_sync()
-            .and_then(|e| e.as_original())
-            .and_then(|e| e.prev_content())
-            .and_then(|p| p.avatar_url.as_deref())
+        None
     }
 
     /// Get the normalized power level of this member.
