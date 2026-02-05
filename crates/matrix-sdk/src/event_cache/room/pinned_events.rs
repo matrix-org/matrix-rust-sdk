@@ -16,9 +16,8 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::linked_chunk::Position;
+use matrix_sdk_base::{deserialized_responses::TimelineEventKind, linked_chunk::Position};
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEventKind,
     event_cache::{
         Event, Gap,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
@@ -51,7 +50,9 @@ use crate::{
     config::RequestConfig,
     event_cache::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        RoomEventCacheUpdate, room::events::EventLinkedChunk,
+        RoomEventCacheUpdate,
+        persistence::{strip_relations_from_event, strip_relations_from_events},
+        room::events::EventLinkedChunk,
     },
     executor::spawn,
     room::WeakRoom,
@@ -323,8 +324,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         // Strip relations from updates which insert or replace items.
         for update in updates.iter_mut() {
             match update {
-                Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
-                Update::ReplaceItem { item, .. } => Self::strip_relations_from_event(item),
+                Update::PushItems { items, .. } => strip_relations_from_events(items),
+                Update::ReplaceItem { item, .. } => strip_relations_from_event(item),
                 // Other update kinds don't involve adding new events.
                 Update::NewItemsChunk { .. }
                 | Update::NewGapChunk { .. }
@@ -366,56 +367,6 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         });
 
         Ok(())
-    }
-
-    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
-    // out as a persistence layer helper.
-    fn strip_relations_from_event(ev: &mut Event) {
-        match &mut ev.kind {
-            TimelineEventKind::Decrypted(decrypted) => {
-                // Remove all information about encryption info for
-                // the bundled events.
-                decrypted.unsigned_encryption_info = None;
-
-                // Remove the `unsigned`/`m.relations` field, if needs be.
-                Self::strip_relations_if_present(&mut decrypted.event);
-            }
-
-            TimelineEventKind::UnableToDecrypt { event, .. }
-            | TimelineEventKind::PlainText { event } => {
-                Self::strip_relations_if_present(event);
-            }
-        }
-    }
-
-    /// Strips the bundled relations from a collection of events.
-    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
-    // out as a persistence layer helper.
-    fn strip_relations_from_events(items: &mut [Event]) {
-        for ev in items.iter_mut() {
-            Self::strip_relations_from_event(ev);
-        }
-    }
-
-    /// Removes the bundled relations from an event, if they were present.
-    ///
-    /// Only replaces the present if it contained bundled relations.
-    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
-    // out as a persistence layer helper.
-    fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-        // We're going to get rid of the `unsigned`/`m.relations` field, if it's
-        // present.
-        // Use a closure that returns an option so we can quickly short-circuit.
-        let mut closure = || -> Option<()> {
-            let mut val: serde_json::Value = event.deserialize_as().ok()?;
-            let unsigned = val.get_mut("unsigned")?;
-            let unsigned_obj = unsigned.as_object_mut()?;
-            if unsigned_obj.remove("m.relations").is_some() {
-                *event = Raw::new(&val).ok()?.cast_unchecked();
-            }
-            None
-        };
-        let _ = closure();
     }
 }
 
@@ -513,6 +464,7 @@ impl PinnedEventCache {
         for (event_id, decrypted, actions) in events {
             // As a performance optimization, do a lookup in the current pinned events
             // check, before looking for the event in the linked chunk.
+
             if !pinned_events_set.contains(event_id) {
                 continue;
             }

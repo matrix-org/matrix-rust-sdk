@@ -693,7 +693,7 @@ mod private {
     use itertools::Itertools;
     use matrix_sdk_base::{
         apply_redaction,
-        deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
+        deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
         event_cache::{
             Event, Gap,
             store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
@@ -713,7 +713,6 @@ mod private {
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
         },
         room_version_rules::RoomVersionRules,
-        serde::Raw,
     };
     use tokio::sync::{
         Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
@@ -733,7 +732,13 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::{Room, event_cache::room::pinned_events::PinnedEventCache};
+    use crate::{
+        Room,
+        event_cache::{
+            persistence::{strip_relations_from_event, strip_relations_from_events},
+            room::pinned_events::PinnedEventCache,
+        },
+    };
 
     /// State for a single room's event cache.
     ///
@@ -2352,50 +2357,6 @@ mod private {
         }
 
         Ok(Some(all_chunks))
-    }
-
-    /// Removes the bundled relations from an event, if they were present.
-    ///
-    /// Only replaces the present if it contained bundled relations.
-    fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-        // We're going to get rid of the `unsigned`/`m.relations` field, if it's
-        // present.
-        // Use a closure that returns an option so we can quickly short-circuit.
-        let mut closure = || -> Option<()> {
-            let mut val: serde_json::Value = event.deserialize_as().ok()?;
-            let unsigned = val.get_mut("unsigned")?;
-            let unsigned_obj = unsigned.as_object_mut()?;
-            if unsigned_obj.remove("m.relations").is_some() {
-                *event = Raw::new(&val).ok()?.cast_unchecked();
-            }
-            None
-        };
-        let _ = closure();
-    }
-
-    fn strip_relations_from_event(ev: &mut Event) {
-        match &mut ev.kind {
-            TimelineEventKind::Decrypted(decrypted) => {
-                // Remove all information about encryption info for
-                // the bundled events.
-                decrypted.unsigned_encryption_info = None;
-
-                // Remove the `unsigned`/`m.relations` field, if needs be.
-                strip_relations_if_present(&mut decrypted.event);
-            }
-
-            TimelineEventKind::UnableToDecrypt { event, .. }
-            | TimelineEventKind::PlainText { event } => {
-                strip_relations_if_present(event);
-            }
-        }
-    }
-
-    /// Strips the bundled relations from a collection of events.
-    fn strip_relations_from_events(items: &mut [Event]) {
-        for ev in items.iter_mut() {
-            strip_relations_from_event(ev);
-        }
     }
 
     /// Implementation of [`RoomEventCacheStateLockReadGuard::find_event`] and

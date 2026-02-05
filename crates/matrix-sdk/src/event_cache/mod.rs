@@ -74,6 +74,7 @@ use crate::{
 
 mod deduplicator;
 mod pagination;
+mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
 mod room;
