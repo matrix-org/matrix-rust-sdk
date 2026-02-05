@@ -258,19 +258,11 @@ impl RoomMember {
 
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
-        // Try from the cached profile first.
-        if let Some(p) = self.profile.as_ref()
-            && let Some(name) = p.content.displayname.as_deref()
-        {
-            return Some(name);
+        if let Some(p) = self.profile.as_ref() {
+            p.content.displayname.as_deref()
+        } else {
+            self.event.displayname_value()
         }
-
-        // Then from the current event's content.
-        if let Some(name) = self.event.displayname_value() {
-            return Some(name);
-        }
-
-        None
     }
 
     /// Get the name of the member.
@@ -283,19 +275,11 @@ impl RoomMember {
 
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        // Try from the cached profile first.
-        if let Some(p) = self.profile.as_ref()
-            && let Some(url) = p.content.avatar_url.as_deref()
-        {
-            return Some(url);
+        if let Some(p) = self.profile.as_ref() {
+            p.content.avatar_url.as_deref()
+        } else {
+            self.event.avatar_url()
         }
-
-        // Then from the current event's content.
-        if let Some(url) = self.event.avatar_url() {
-            return Some(url);
-        }
-
-        None
     }
 
     /// Get the normalized power level of this member.
