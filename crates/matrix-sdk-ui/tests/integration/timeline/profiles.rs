@@ -36,6 +36,100 @@ use wiremock::{
 use crate::mock_sync;
 
 #[async_test]
+async fn test_user_profile_after_being_banned() {
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+
+    let f = EventFactory::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    // Previous content of Alice's leave event
+    let prev_content_alice = PreviousMembership::new(MembershipState::Join)
+        .display_name("*profanities*")
+        .avatar_url("mxc://456".into());
+
+    // Same, but for Carol.
+    let prev_content_carol = PreviousMembership::new(MembershipState::Join)
+        .display_name("Carol")
+        .avatar_url("mxc://789".into());
+
+    // Build a simple timeline with Bob creating the room, Alice accepting an invite
+    // and sending a message, Bob sending a message, and Alice leaving
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            // Bob create the room
+            .add_timeline_event(
+                f.member(&BOB)
+                    .display_name("Bob")
+                    .avatar_url("mxc://123".into())
+                    .membership(MembershipState::Join),
+            )
+            // Alice accepts an invite into the room
+            .add_timeline_event(
+                f.member(&ALICE)
+                    .display_name("*profanities*")
+                    .avatar_url("mxc://456".into())
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
+            // Bob sends a text message
+            .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+            // Alice send some insults and gets banned
+            .add_timeline_event(f.text_msg("*insults*").sender(&ALICE))
+            .add_timeline_event(f.text_msg("Nope. You are out.").sender(&BOB))
+            .add_timeline_event(
+                f.member(&ALICE).membership(MembershipState::Ban).previous(prev_content_alice),
+            )
+            // Carol accepts an invite into the room
+            .add_timeline_event(
+                f.member(&CAROL)
+                    .display_name("Carol")
+                    .avatar_url("mxc://789".into())
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
+            // Carol sends a text message
+            .add_timeline_event(f.text_msg("hi!").sender(&CAROL))
+            // Carol leaves the room
+            .add_timeline_event(
+                f.member(&CAROL).membership(MembershipState::Leave).previous(prev_content_carol),
+            ),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    let timeline_items = timeline.items().await;
+    // Date divider + 9 events
+    assert_eq!(timeline_items.len(), 10);
+
+    // Bob is still in the room, his profile should be available.
+    let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
+    println!("Bob's profile: {bob_profile:#?}");
+
+    // Carol has left the room, but we have her previous content in the leave event.
+    let carol_profile = timeline_items[8].as_event().unwrap().sender_profile();
+    println!("Carol's profile: {carol_profile:#?}");
+
+    // Alice's profile, and therefore display name, should be empty,
+    // as she has been banned. The SDK **should not** use the previous content
+    // of the ban event to fill in the profile information in those cases.
+    let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
+    println!("Alice's profile: {alice_profile:#?}");
+}
+
+#[async_test]
 async fn test_user_profile_after_leaving() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings =

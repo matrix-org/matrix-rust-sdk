@@ -260,7 +260,7 @@ impl RoomMember {
     pub fn display_name(&self) -> Option<&str> {
         // Try from the cached profile first.
         if let Some(p) = self.profile.as_ref()
-            && let Some(name) = p.as_original().and_then(|e| e.content.displayname.as_deref())
+            && let Some(name) = p.content.displayname.as_deref()
         {
             return Some(name);
         }
@@ -270,7 +270,16 @@ impl RoomMember {
             return Some(name);
         }
 
-        // As a last resort, try the previous content.
+        // This is a naive check to avoid showing display names for banned members.
+        // The display name could still be present in the previous content, but
+        // we don't want to use that for banned members, as it might be inappropriate.
+        // This is fine to have the check here, as m.room.member events for banned members
+        // usually don't have display names set.
+        if self.membership() == &MembershipState::Ban {
+            return None;
+        }
+
+        // As a last resort, try the previous content, if the member is not banned.
         self.event
             .as_sync()
             .and_then(|e| e.as_original())
@@ -290,7 +299,7 @@ impl RoomMember {
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         // Try from the cached profile first.
         if let Some(p) = self.profile.as_ref()
-            && let Some(url) = p.as_original().and_then(|e| e.content.avatar_url.as_deref())
+            && let Some(url) = p.content.avatar_url.as_deref()
         {
             return Some(url);
         }
@@ -300,7 +309,16 @@ impl RoomMember {
             return Some(url);
         }
 
-        // As a last resort, try the previous content.
+        // This is a naive check to avoid showing avatar urls for banned members.
+        // The avatar url could still be present in the previous content, but
+        // we don't want to use that for banned members, as it might be inappropriate.
+        // This is fine to have the check here, as m.room.member events for banned members
+        // usually don't have avatar urls set.
+        if self.membership() == &MembershipState::Ban {
+            return None;
+        }
+
+        // As a last resort, try the previous content, if the member is not banned.
         self.event
             .as_sync()
             .and_then(|e| e.as_original())
