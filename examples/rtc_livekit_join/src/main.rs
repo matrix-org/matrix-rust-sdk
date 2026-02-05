@@ -1112,13 +1112,12 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let request_id = format!(
-        "publish-membership-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let request_id = format!("publish-membership-{now_ms}");
+    let event_id = format!("$local-call-member-{now_ms}");
     let message = serde_json::json!({
         "api": "toWidget",
         "widgetId": widget.widget_id,
@@ -1131,6 +1130,7 @@ async fn publish_call_membership_via_widget(
                 "content": content,
                 "state_key": state_key.as_ref(),
                 "room_id": room.room_id().to_string(),
+                "event_id": event_id,
             }],
         },
         "response": {}
