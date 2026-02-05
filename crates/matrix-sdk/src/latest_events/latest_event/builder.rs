@@ -575,8 +575,7 @@ impl BufferOfValuesForLocalEvents {
 struct FilterContinue {
     /// Whether the current [`LatestEventValue`] must be erased or not.
     current_value_must_be_erased: bool,
-    /// When the event is a replacement, the edited event ID for tracking
-    /// in the outer iteration.
+    /// When the event is a replacement, this is the targeted event ID.
     edited_event_id: Option<OwnedEventId>,
 }
 
