@@ -203,7 +203,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
       <td>{timeout}</td>
       <td>{request_size}</td>
       <td>{response_size}</td>
-      <td>{time}</td>
+      <td><time datetime=\"{date_time}\">{time}</time></td>
       <td>
         <div class=\"span\" style=\"--start-at: {start_at}; --duration: {duration}\"><span>{duration_label}</span></div>
         <details>
@@ -243,6 +243,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .clone()
                             .map(|response_size| response_size.to_string())
                             .unwrap_or_else(|| "".to_owned()),
+                        date_time = start_at.format("%+"),
                         time = start_at.format("%H:%M:%S%.3f"),
                         start_at = start_at
                             .timestamp_millis()
