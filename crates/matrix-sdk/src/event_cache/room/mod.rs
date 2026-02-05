@@ -236,15 +236,15 @@ impl RoomEventCache {
         Ok(state.subscribe_to_thread(thread_root))
     }
 
-    /// Get the pinned event cache for this room.
+    /// Subscribe to the pinned event cache for this room.
     ///
-    /// This is a persisted view over the pinned events of a room. The pinned
-    /// events will be initially loaded from a network request to fetch the
-    /// latest pinned events will be performed, to update it as needed. The
-    /// list of pinned events will also be kept up-to-date as new events are
-    /// pinned, and new related events show up from sync or backpagination.
+    /// This is a persisted view over the pinned events of a room.
     ///
-    /// This requires that the room's event cache be initialized.
+    /// The pinned events will be initially reloaded from storage, and/or loaded
+    /// from a network request to fetch the latest pinned events and their
+    /// relations, to update it as needed. The list of pinned events will
+    /// also be kept up-to-date as new events are pinned, and new
+    /// related events show up from other sources.
     pub async fn subscribe_to_pinned_events(
         &self,
     ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {

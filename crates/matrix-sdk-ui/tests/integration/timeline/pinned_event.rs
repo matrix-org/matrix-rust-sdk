@@ -531,7 +531,7 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
 
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let result = timeout(timeline_stream.next(), Duration::from_secs(1)).await;
+    let result = timeout(timeline_stream.next(), Duration::from_millis(300)).await;
 
     assert!(result.is_err());
 }

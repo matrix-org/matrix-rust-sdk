@@ -65,7 +65,10 @@ struct PinnedEventCacheState {
 
     /// The linked chunk representing this room's pinned events.
     ///
-    /// Does not contain related events by default.
+    /// This linked chunk also contains related events. The events are sorted in
+    /// the chronological order (oldest to newest), since it would be otherwise
+    /// impossible to order them correctly, given that we fetch their
+    /// relations over time.
     chunk: EventLinkedChunk,
 
     /// Reference to the underlying backing store.
@@ -130,7 +133,7 @@ impl PinnedEventCacheStateLock {
                 let mut guard =
                     PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard };
 
-                // Force to reload by shrinking to the last chunk.
+                // Reload all the pinned events from storage.
                 guard.reload_from_storage().await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
@@ -309,7 +312,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         self.send_updates_to_store(updates).await
     }
 
-    // NOTE: copy/paste
+    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
+    // out as a persistence layer helper.
     async fn send_updates_to_store(&mut self, mut updates: Vec<Update<Event, Gap>>) -> Result<()> {
         if updates.is_empty() {
             return Ok(());
@@ -363,7 +367,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    // NOTE: copy/paste
+    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
+    // out as a persistence layer helper.
     fn strip_relations_from_event(ev: &mut Event) {
         match &mut ev.kind {
             TimelineEventKind::Decrypted(decrypted) => {
@@ -383,7 +388,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
     }
 
     /// Strips the bundled relations from a collection of events.
-    // NOTE: copy/paste
+    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
+    // out as a persistence layer helper.
     fn strip_relations_from_events(items: &mut [Event]) {
         for ev in items.iter_mut() {
             Self::strip_relations_from_event(ev);
@@ -393,7 +399,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
     /// Removes the bundled relations from an event, if they were present.
     ///
     /// Only replaces the present if it contained bundled relations.
-    // NOTE: copy/paste
+    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
+    // out as a persistence layer helper.
     fn strip_relations_if_present<T>(event: &mut Raw<T>) {
         // We're going to get rid of the `unsigned`/`m.relations` field, if it's
         // present.
@@ -802,6 +809,14 @@ impl PinnedEventCache {
             .flat_map(stream::iter)
             .collect()
             .await;
+
+        if loaded_events.len() != pinned_event_ids.len() {
+            warn!(
+                "only successfully loaded {} out of {} pinned events",
+                loaded_events.len(),
+                pinned_event_ids.len()
+            );
+        }
 
         if loaded_events.is_empty() {
             // If the list of loaded events is empty, we ran into an error to load *all* the
