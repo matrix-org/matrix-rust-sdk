@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta http-equiv="content-security-policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+  <meta name="viewport" content="width=device-width, minimum-scale=1">
+
+  <style>
+  /* Reset */
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  * { margin: 0 }
+
+  :root {
+    --space-very-small: .25rem;
+    --space-small: .5rem;
+    --space: 1rem;
+    --space-large: 2rem;
+    --space-very-large: 4rem;
+
+    --border-radius: 3px;
+
+    --line-height: 1.5rem;
+
+    --color-accent: oklch(59.1% .236 10.25);
+    --color-text: oklch(.84 0 0);
+    --color-canvas: oklch(0.258 0.007 285.867);
+    --color-canvas-lighter: oklch(0.303 0.007 285.966);
+    --color-canvas-lighter-2: oklch(0.343 0.009 285.935);
+    --color-canvas-lighter-3: oklch(.6 0 0);
+
+    --color-white: oklch(1 0 0);
+    --color-red: oklch(.503 .172 25);
+    --color-orange: oklch(.793 .171 70.67);
+    --color-blue: oklch(0.579 0.191 252.0);
+    --color-green: oklch(0.571 0.181 145.0);
+    --color-back: oklch(0 0 0);
+
+    --color-yellow: oklch(.968 .211 109.769);
+    --color-yellow-light: oklch(.568 .211 109.769);
+  }
+
+  .content-grid {
+    --padding-inline: 1rem;
+    --content-max-width: 70ch;
+    --breakout-max-width: 85ch;
+
+    --breakout-size: calc((var(--breakout-max-width) - var(--content-max-width)) / 2);
+
+    display: grid;
+    grid-template-columns:
+      [full-width-start]
+        minmax(var(--padding-inline), 1fr)
+        [breakout-start]
+          minmax(0, var(--breakout-size))
+          [content-start]
+            min(
+              100% - (var(--padding-inline) * 2),
+              var(--content-max-width)
+            )
+          [content-end]
+          minmax(0, var(--breakout-size))
+        [breakout-end]
+        minmax(var(--padding-inline), 1fr)
+      [full-width-end];
+
+    > * {
+      grid-column: content;
+    }
+
+    > .breakout {
+      grid-column: breakout;
+    }
+
+    > .full-width {
+      grid-column: full-width;
+    }
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-padding-top: var(--space-very-large);
+  }
+
+  body {
+    font-size: .95rem;
+    /* Thanks modernfontstacks.com */
+    font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif;
+    font-weight: normal;
+    font-variant-numeric: proportional-nums slashed-zero;
+    color: var(--color-text);
+    background: var(--color-canvas);
+    scroll-behaviour: smooth;
+  }
+
+  header {
+    text-align: center;
+    text-wrap: balanced;
+    margin-block: var(--space) var(--space-large);
+  }
+
+  code {
+    /* Thanks modernfontstacks.com */
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-weight: normal;
+    font-size: .9em;
+    line-height: var(--line-height);
+  }
+
+  main {
+    --_aside-column-width: 10rem;
+
+    position: relative;
+
+    line-height: var(--line-height);
+
+    & > ul {
+      padding-inline-start: calc(var(--_aside-column-width) + var(--space));
+      background-image: linear-gradient(var(--color-canvas-lighter) 50%, var(--color-canvas) 50%);
+      background-size: 100% calc(var(--line-height) * 2);
+    }
+
+    ul {
+      list-style: none;
+
+      ul {
+        padding-inline-start: var(--space);
+      }
+    }
+
+    ul.fields {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: var(--space-large);
+
+      > li {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+      }
+    }
+
+    ol.spans {
+      --_line-width: 2px;
+      --_color: var(--color-canvas-lighter-3);
+
+      list-style-type: "●";
+      list-style-position: outside;
+      margin-inline-start: .2rem;
+      padding-inline-start: var(--space);
+
+      border: var(--_color) solid;
+      border-width: 0 0 0 var(--_line-width);
+
+      > li {
+        margin-inline-start: calc(-1ch - var(--_line-width) / 2);
+        padding-inline-start: var(--space);
+
+        &::marker { color: var(--_color) }
+
+        > time {
+          position: absolute;
+          transform: translateX(calc(-100% - var(--space) * 2 - .8rem));
+          font-variant-numeric: slashed-zero tabular-nums;
+       }
+      }
+    }
+
+    summary {
+      cursor: pointer;
+      height: var(--line-height);
+    }
+
+    code {
+      line-height: var(--line-height);
+    }
+
+    .aside {
+      position: absolute;
+      left: 0;
+      width: var(--_aside-column-width);
+      font-variant-numeric: slashed-zero tabular-nums;
+
+      > * {
+        display: inline-block;
+
+        &.highlight {
+          min-width: 1.5rem;
+          text-align: center;
+
+          /* hide the highlight box by default */
+          input { visibility: hidden }
+
+          /* highlight the line when the input is checked */
+          &:has(input:checked)::before {
+            position: absolute;
+            content: "";
+            left: 0;
+            height: var(--line-height);
+            width: 100vw;
+            border: var(--color-yellow) solid;
+            border-width: 1px 0;
+            pointer-events: none;
+          }
+        }
+
+        &.error, &.warn {
+          min-width: 3.5rem;
+          margin-inline: .2rem;
+          text-align: end;
+        }
+      }
+
+      /* shows the highlight checkbox on `:hover` */
+      :is(summary:hover, li:hover) > & > .highlight > input { visibility: visible }
+    }
+
+    /* highlight the parent node if a child line is checked */
+    details:not([open]):has(.highlight > input:checked)::before {
+      position: absolute;
+      content: "";
+      left: 0;
+      height: var(--line-height);
+      width: 100vw;
+      border: oklch(.568 .211 109.769) solid;
+      border-width: 0 0 2px 0;
+      pointer-events: none;
+    }
+
+    .error, .warn, .info, .debug, .trace {
+      display: inline-block;
+      font-size: .9em;
+      vertical-align: center;
+      line-height: 1.4em;
+      padding-inline: var(--space-very-small);
+      border-radius: var(--border-radius);
+      color: var(--color-white);
+    }
+
+    .error { background: var(--color-red) }
+    .warn { background: var(--color-orange) }
+    .info { background: var(--color-blue) }
+    .debug { background: var(--color-green) }
+    .trace { background: var(--color-black) }
+  }
+</style>
+
+  <title>Overview</title>
+</head>
+
+<body class="content-grid">
+
+<header>
+  <h1>Overview of <code>{log_file}</code></h1>
+</header>
+
+<main class="full-width">
+
+<!--
+the tree and the end of file is written by Rust for performance reason:
+
+</main>
+
+</body>
+</html>
+-->
