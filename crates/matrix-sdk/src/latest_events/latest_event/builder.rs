@@ -2111,9 +2111,7 @@ mod builder_tests {
         let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
-            // We get `event_id_1` because `event_id_2` isn't a candidate,
-            // and `event_id_0` hasn't been read yet (because events are read
-            // backwards).
+            // We get `event_id_1` because it edits `event_id_0` which is a candidate.
             Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "* goodbye"
         );
     }
