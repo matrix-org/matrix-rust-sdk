@@ -35,10 +35,11 @@
     --color-canvas-lighter-2: oklch(0.343 0.009 285.935);
     --color-canvas-lighter-3: oklch(0.6 0 0);
 
-    --color-green: oklch(0.524 0.164 145.0);
-    --color-red : oklch(0.503 0.172 25.0);
-    --color-orange: oklch(0.793 0.171 70.670);
-    --color-yellow: oklch(0.968 0.211 109.769);
+    --color-green: oklch(.524 .164 145);
+    --color-red: oklch(.503 .172 25);
+    --color-orange: oklch(.793 .171 70.67);
+    --color-yellow: oklch(.968 .211 109.769);
+    --color-violet: oklch(.39 .193 328.363);
   }
 
   .content-grid {
@@ -224,8 +225,8 @@
 
         .span {
           --_start-at: var(--start-at, 0);
-          --_duration: var(--duration);
-          --_background: var(--color-accent);
+          --_timeout: var(--timeout, 0);
+          --_duration: var(--duration, 0);
           --_end-gutter: 10ch; /* spaces for the labels */
 
           display: block;
@@ -235,11 +236,24 @@
           width: max(1px, calc((var(--_duration) * (100% - var(--_end-gutter))) / var(--_end-at)));
           height: 1.2rem;
           background: var(--_background);
+
+          --_duration-color: var(--color-accent);
+          --_timeout-color: var(--color-violet);
+          --_timeout-stop: calc(
+            (var(--_timeout) * 100%) / var(--_duration)
+            + 1px /* in case 100% is rounded to the nearest sub-pixel */
+          );
+
+          background: linear-gradient(
+            90deg,
+            var(--_timeout-color) var(--_timeout-stop),
+            var(--_duration-color) var(--_timeout-stop)
+          );
           border-radius: var(--border-radius);
 
           tr:has(> td[data-status-family="cancelled"]) & {
-            width: 3px;
-            --_background: var(--color-orange);
+            width: 3px; /* to be sure it is seen */
+            --_duration-color: var(--color-orange);
           }
 
           > span {

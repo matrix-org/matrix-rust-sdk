@@ -189,8 +189,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     },
                 )| {
                     let uri = Url::parse(uri);
-                    let duration = duration.num_milliseconds();
-                    let timeout = timeout.map(|timeout| timeout.as_millis());
+                    let duration = duration.num_milliseconds().abs() as u64;
+                    let timeout: Option<u64> = timeout.map(|timeout| timeout.as_millis().try_into().expect("Failed to cast a u128 to u64"));
 
                     format!(
                         "    <tr id=\"{connection_id}-{request_id}\">
@@ -200,12 +200,12 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
       <td><code>{method}</code></td>
       <td title=\"{domain}\">{domain}</td>
       <td title=\"{path}\">{path}</td>
-      <td>{timeout}</td>
+      <td>{timeout_label}</td>
       <td>{request_size}</td>
       <td>{response_size}</td>
       <td><time datetime=\"{date_time}\">{time}</time></td>
       <td>
-        <div class=\"span\" style=\"--start-at: {start_at}; --duration: {duration}\"><span>{duration_label}</span></div>
+        <div class=\"span\" style=\"--start-at: {start_at}; --timeout: {timeout}; --duration: {duration}\"><span>{duration_label}</span></div>
         <details>
           <summary><span class=\"hidden\">information</span></summary>
           <ul>
@@ -232,9 +232,19 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .as_ref()
                             .map(|uri| uri[UrlPosition::BeforePath..].to_owned())
                             .unwrap_or_default(),
-                        timeout = timeout
+                        timeout_label = timeout
                             .map(|timeout| format!("{timeout}ms"))
                             .unwrap_or_else(|| "(unknown)".to_owned()),
+                        timeout = timeout
+                            .map(|timeout| {
+                                // The response was received before hitting the timeout.
+                                if duration < timeout {
+                                    0
+                                } else {
+                                    timeout
+                                }
+                            })
+                            .unwrap_or(0),
                         request_size = request_size
                             .clone()
                             .map(|request_size| request_size.to_string())
