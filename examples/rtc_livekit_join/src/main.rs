@@ -24,12 +24,9 @@ use matrix_sdk::{
     },
 };
 #[cfg(feature = "experimental-widgets")]
-use ruma::events::{
-    TimelineEventType,
-    call::member::{
-        ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
-        CallMemberEventContent, CallMemberStateKey, CallScope, Focus, LivekitFocus,
-    },
+use ruma::events::call::member::{
+    ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent, CallMemberEventContent,
+    CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
 use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -1020,6 +1017,19 @@ async fn start_element_call_widget(
                 }
                 let _ = capabilities_ready_tx.send(true);
             }
+            if action == "update_state" {
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "update_state",
+                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "response": {},
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
+            }
         }
         info!("widget -> rust-sdk message stream closed");
     });
@@ -1110,16 +1120,20 @@ async fn publish_call_membership_via_widget(
             .as_millis()
     );
     let message = serde_json::json!({
-        "api": "fromWidget",
+        "api": "toWidget",
         "widgetId": widget.widget_id,
         "requestId": request_id,
-        "action": "send_event",
+        "action": "update_state",
         "data": {
-            "type": TimelineEventType::CallMember.to_string(),
-            "room_id": room.room_id().to_string(),
-            "state_key": state_key.as_ref(),
-            "content": content,
-        }
+            "state": [{
+                "type": "org.matrix.msc3401.call.member",
+                "sender": own_user_id.to_string(),
+                "content": content,
+                "state_key": state_key.as_ref(),
+                "room_id": room.room_id().to_string(),
+            }],
+        },
+        "response": {}
     });
     if !widget.handle.send(message.to_string()).await {
         return Err(anyhow!("widget driver handle closed before sending membership"));
