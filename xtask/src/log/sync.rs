@@ -4,6 +4,7 @@ use std::{
     io::{self, BufRead, Write},
     ops::Sub,
     path,
+    time::Duration,
 };
 
 use chrono::{DateTime, FixedOffset, TimeDelta};
@@ -25,7 +26,18 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             .*matrix_sdk::http_client
 
             # Ensure it's about a sync.
-            .*>\ssync_once\{conn_id="(?<connection_id>[^"]+)"\}
+            .*>\ssync_once\{
+                conn_id="(?<connection_id>[^"]+)"
+
+                # Since https://github.com/matrix-org/matrix-rust-sdk/pull/6118,
+                # we have `pos` and `timeout`. We must consider they are
+                # optional.
+                (
+                    .*
+                    \spos="(?<pos>[^"]+)"
+                    \stimeout=(?<timeout>\d+)
+                )?
+            \}
 
             # Let's capture some data about `send()`!
             \s>\ssend\{
@@ -74,6 +86,11 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             .expect("Failed to parse `datetime`");
             let connection_id =
                 captures.name("connection_id").expect("Failed to capture `connection_id`").as_str();
+            let pos = captures.name("pos").map(|pos| pos.as_str());
+            let timeout = captures
+                .name("timeout")
+                .map(|timeout| timeout.as_str().parse::<u64>().ok().map(Duration::from_millis))
+                .flatten();
             let request_id = captures
                 .name("request_id")
                 .expect("Failed to capture `request_id`")
@@ -86,7 +103,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 captures.name("request_size").map(|request_size| request_size.as_str());
             let response_size =
                 captures.name("response_size").map(|response_size| response_size.as_str());
-            let status = captures.name("status").map(|status| status.as_str());
+            let status =
+                captures.name("status").map(|status| status.as_str().parse().ok()).flatten();
 
             if let Some(smallest_start_at_inner) = smallest_start_at {
                 if smallest_start_at_inner > date_time {
@@ -112,6 +130,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                         status: None,
                         method: method.to_owned(),
                         uri: uri.to_owned(),
+                        pos: pos.map(ToOwned::to_owned),
+                        timeout,
                         request_size: request_size.map(ToOwned::to_owned),
                         response_size: response_size.map(ToOwned::to_owned),
                         start_at: date_time,
@@ -124,9 +144,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     let span = entry.get_mut();
 
                     if let Some(status) = status {
-                        if let Ok(status) = status.parse() {
-                            span.status = Some(status);
-                        }
+                        span.status = Some(status);
                     }
 
                     span.duration = date_time.sub(&span.start_at);
@@ -160,6 +178,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                         status,
                         method,
                         uri,
+                        pos,
+                        timeout,
                         request_size,
                         response_size,
                         start_at,
@@ -169,7 +189,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     },
                 )| {
                     let uri = Url::parse(uri);
-                    let duration = duration.num_milliseconds();
+                    let duration = duration.num_milliseconds().abs() as u64;
+                    let timeout: Option<u64> = timeout.map(|timeout| timeout.as_millis().try_into().expect("Failed to cast a u128 to u64"));
 
                     format!(
                         "    <tr id=\"{connection_id}-{request_id}\">
@@ -179,16 +200,18 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
       <td><code>{method}</code></td>
       <td title=\"{domain}\">{domain}</td>
       <td title=\"{path}\">{path}</td>
+      <td>{timeout_label}</td>
       <td>{request_size}</td>
       <td>{response_size}</td>
-      <td>{time}</td>
+      <td><time datetime=\"{date_time}\">{time}</time></td>
       <td>
-        <div class=\"span\" style=\"--start-at: {start_at}; --duration: {duration}\"><span>{duration_label}</span></div>
+        <div class=\"span\" style=\"--start-at: {start_at}; --timeout: {timeout}; --duration: {duration}\"><span>{duration_label}</span></div>
         <details>
           <summary><span class=\"hidden\">information</span></summary>
           <ul>
             <li>Request log line number: {request_log_line}</li>
             <li>Response log line number: {response_log_line}</li>
+            <li>Sliding Sync <code>pos</code>: <span class=\"text-overflow\">{pos}</span></li>
           </ul>
         </details>
       </td>
@@ -209,6 +232,19 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .as_ref()
                             .map(|uri| uri[UrlPosition::BeforePath..].to_owned())
                             .unwrap_or_default(),
+                        timeout_label = timeout
+                            .map(|timeout| format!("{timeout}ms"))
+                            .unwrap_or_else(|| "(unknown)".to_owned()),
+                        timeout = timeout
+                            .map(|timeout| {
+                                // The response was received before hitting the timeout.
+                                if duration < timeout {
+                                    0
+                                } else {
+                                    timeout
+                                }
+                            })
+                            .unwrap_or(0),
                         request_size = request_size
                             .clone()
                             .map(|request_size| request_size.to_string())
@@ -217,12 +253,14 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .clone()
                             .map(|response_size| response_size.to_string())
                             .unwrap_or_else(|| "".to_owned()),
+                        date_time = start_at.format("%+"),
                         time = start_at.format("%H:%M:%S%.3f"),
                         start_at = start_at
                             .timestamp_millis()
                             .saturating_sub(smallest_start_at),
                         duration_label = if duration > 0 { format!("{duration}ms") } else { "<em>cancelled</em>".to_owned() },
                         response_log_line = response_log_line.map(|line| line.to_string()).unwrap_or_else(|| "(none)".to_owned()),
+                        pos = pos.clone().unwrap_or_else(|| "(unknown)".to_owned())
                     )
                 },
             )
@@ -255,6 +293,8 @@ struct Span {
     status: Option<u8>,
     method: String,
     uri: String,
+    pos: Option<String>,
+    timeout: Option<Duration>,
     request_size: Option<String>,
     response_size: Option<String>,
     start_at: DateTime<FixedOffset>,

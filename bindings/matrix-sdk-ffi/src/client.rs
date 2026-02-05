@@ -17,6 +17,7 @@ use matrix_sdk::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
+    executor::AbortOnDrop,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -41,6 +42,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
+    task_monitor::BackgroundTaskFailureReason,
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -187,7 +189,19 @@ impl From<PushFormat> for RumaPushFormat {
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
+    /// A callback invoked whenever the SDK runs into an unknown token error.
     fn did_receive_auth_error(&self, is_soft_logout: bool);
+
+    /// A callback invoked when a background task registered with the client's
+    /// task monitor encounters an error.
+    ///
+    /// Can default to an empty implementation, if the embedder doesn't care
+    /// about handling background jobs errors.
+    fn on_background_task_error_report(
+        &self,
+        task_name: String,
+        error: BackgroundTaskFailureReason,
+    );
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -255,11 +269,20 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
+struct ClientDelegateData {
+    /// The delegate itself, that will receive the callbacks.
+    delegate: Arc<dyn ClientDelegate>,
+
+    // The background task error listener task, that will forward errors occurring in background
+    // jobs to the delegate.
+    _background_error_listener_task: Arc<AbortOnDrop<()>>,
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
 
-    delegate: OnceLock<Arc<dyn ClientDelegate>>,
+    delegate_data: OnceLock<ClientDelegateData>,
 
     pub(crate) utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
 
@@ -313,7 +336,7 @@ impl Client {
 
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
-            delegate: OnceLock::new(),
+            delegate_data: OnceLock::new(),
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
             store_path,
@@ -1131,14 +1154,14 @@ impl Client {
         self: Arc<Self>,
         delegate: Option<Box<dyn ClientDelegate>>,
     ) -> Result<Option<Arc<TaskHandle>>, ClientError> {
-        if self.delegate.get().is_some() {
+        if self.delegate_data.get().is_some() {
             return Err(ClientError::Generic {
                 msg: "Delegate already initialized".to_owned(),
                 details: None,
             });
         }
 
-        Ok(delegate.map(|delegate| {
+        let handle = delegate.map(|delegate| {
             let mut session_change_receiver = self.inner.subscribe_to_session_changes();
             let client_clone = self.clone();
             let session_change_task = get_runtime_handle().spawn(async move {
@@ -1154,13 +1177,29 @@ impl Client {
                 }
             });
 
-            self.delegate.get_or_init(|| Arc::from(delegate));
+            let delegate: Arc<dyn ClientDelegate> = delegate.into();
+
+            let client = self.inner.clone();
+            let delegate_clone = delegate.clone();
+            let task = Arc::new(AbortOnDrop::new(get_runtime_handle().spawn(async move {
+                let mut receiver = client.task_monitor().subscribe();
+                while let Ok(error) = receiver.recv().await {
+                    delegate_clone.on_background_task_error_report(error.task.name, error.reason);
+                }
+            })));
+
+            let delegate_data =
+                ClientDelegateData { delegate, _background_error_listener_task: task };
+
+            self.delegate_data.get_or_init(|| delegate_data);
 
             Arc::new(TaskHandle::new(session_change_task))
-        }))
+        });
+
+        Ok(handle)
     }
 
-    /// Sets the [UnableToDecryptDelegate] which will inform about UTDs.
+    /// Sets the [`UnableToDecryptDelegate`] which will inform about UTDs.
     /// Returns an error if the delegate was already set.
     pub async fn set_utd_delegate(
         self: Arc<Self>,
@@ -2130,8 +2169,9 @@ impl From<&search_users::v3::User> for UserProfile {
 
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
-        if let Some(delegate) = self.delegate.get().cloned() {
+        if let Some(delegate_data) = self.delegate_data.get() {
             debug!("Applying session change: {session_change:?}");
+            let delegate = delegate_data.delegate.clone();
             get_runtime_handle().spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);

@@ -113,8 +113,12 @@ pub use updates::*;
 /// An identifier for a linked chunk; borrowed variant.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LinkedChunkId<'a> {
+    /// A room's unthreaded timeline.
     Room(&'a RoomId),
+    /// A room's thread.
     Thread(&'a RoomId, &'a EventId),
+    /// A room's list of pinned events.
+    PinnedEvents(&'a RoomId),
 }
 
 impl Display for LinkedChunkId<'_> {
@@ -123,6 +127,9 @@ impl Display for LinkedChunkId<'_> {
             Self::Room(room_id) => write!(f, "{room_id}"),
             Self::Thread(room_id, thread_root) => {
                 write!(f, "{room_id}:thread:{thread_root}")
+            }
+            Self::PinnedEvents(room_id) => {
+                write!(f, "{room_id}:pinned")
             }
         }
     }
@@ -133,6 +140,7 @@ impl LinkedChunkId<'_> {
         match self {
             LinkedChunkId::Room(room_id) => room_id.to_string(),
             LinkedChunkId::Thread(room_id, event_id) => format!("t:{room_id}:{event_id}"),
+            LinkedChunkId::PinnedEvents(room_id) => format!("pinned:{room_id}"),
         }
     }
 
@@ -141,6 +149,9 @@ impl LinkedChunkId<'_> {
             LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
             LinkedChunkId::Thread(room_id, event_id) => {
                 OwnedLinkedChunkId::Thread((*room_id).to_owned(), (*event_id).to_owned())
+            }
+            LinkedChunkId::PinnedEvents(room_id) => {
+                OwnedLinkedChunkId::PinnedEvents((*room_id).to_owned())
             }
         }
     }
@@ -156,11 +167,11 @@ impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
     fn eq(&self, other: &&OwnedLinkedChunkId) -> bool {
         match (self, other) {
             (LinkedChunkId::Room(a), OwnedLinkedChunkId::Room(b)) => *a == b,
+            (LinkedChunkId::PinnedEvents(a), OwnedLinkedChunkId::PinnedEvents(b)) => *a == b,
             (LinkedChunkId::Thread(r, ev), OwnedLinkedChunkId::Thread(r2, ev2)) => {
                 r == r2 && ev == ev2
             }
-            (LinkedChunkId::Room(..), OwnedLinkedChunkId::Thread(..))
-            | (LinkedChunkId::Thread(..), OwnedLinkedChunkId::Room(..)) => false,
+            _ => false,
         }
     }
 }
@@ -176,6 +187,7 @@ impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
 pub enum OwnedLinkedChunkId {
     Room(OwnedRoomId),
     Thread(OwnedRoomId, OwnedEventId),
+    PinnedEvents(OwnedRoomId),
 }
 
 impl Display for OwnedLinkedChunkId {
@@ -191,13 +203,17 @@ impl OwnedLinkedChunkId {
             OwnedLinkedChunkId::Thread(room_id, event_id) => {
                 LinkedChunkId::Thread(room_id.as_ref(), event_id.as_ref())
             }
+            OwnedLinkedChunkId::PinnedEvents(room_id) => {
+                LinkedChunkId::PinnedEvents(room_id.as_ref())
+            }
         }
     }
 
     pub fn room_id(&self) -> &RoomId {
         match self {
-            OwnedLinkedChunkId::Room(room_id) => room_id,
-            OwnedLinkedChunkId::Thread(room_id, ..) => room_id,
+            OwnedLinkedChunkId::Room(room_id)
+            | OwnedLinkedChunkId::Thread(room_id, ..)
+            | OwnedLinkedChunkId::PinnedEvents(room_id, ..) => room_id,
         }
     }
 }

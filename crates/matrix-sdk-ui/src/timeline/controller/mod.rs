@@ -75,9 +75,7 @@ use crate::{
         MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn, TimelineEventFocusThreadMode,
         algorithms::rfind_event_by_item_id,
         controller::decryption_retry_task::compute_redecryption_candidates,
-        date_dividers::DateDividerAdjuster,
-        event_item::TimelineItemHandle,
-        pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
+        date_dividers::DateDividerAdjuster, event_item::TimelineItemHandle,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -121,9 +119,7 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
         root_event_id: OwnedEventId,
     },
 
-    PinnedEvents {
-        loader: PinnedEventsLoader,
-    },
+    PinnedEvents,
 }
 
 #[derive(Debug)]
@@ -225,7 +221,7 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
             TimelineFocusKind::Event { paginator } => {
                 paginator.get().is_some_and(|paginator| paginator.hide_threaded_events())
             }
-            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => false,
         }
     }
 
@@ -241,7 +237,7 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
             TimelineFocusKind::Event { paginator, .. } => {
                 paginator.get().and_then(|paginator| paginator.thread_root())
             }
-            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents => None,
             TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
         }
     }
@@ -404,15 +400,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 TimelineFocusKind::Thread { root_event_id }
             }
 
-            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
-                TimelineFocusKind::PinnedEvents {
-                    loader: PinnedEventsLoader::new(
-                        Arc::new(room_data_provider.clone()),
-                        max_events_to_load as usize,
-                        max_concurrent_requests as usize,
-                    ),
-                }
-            }
+            TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents,
         };
 
         let focus = Arc::new(focus);
@@ -623,23 +611,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
 
-            TimelineFocus::PinnedEvents { .. } => {
-                let TimelineFocusKind::PinnedEvents { loader } = &*self.focus else {
-                    // NOTE: this is sync'd with code in the ctor.
-                    unreachable!();
-                };
+            TimelineFocus::PinnedEvents => {
+                let (initial_events, _update_receiver) =
+                    room_event_cache.subscribe_to_pinned_events().await?;
 
-                let Some(loaded_events) =
-                    loader.load_events().await.map_err(Error::PinnedEventsError)?
-                else {
-                    // There wasn't any events.
-                    return Ok(false);
-                };
-
-                let has_events = !loaded_events.is_empty();
+                let has_events = !initial_events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    loaded_events,
+                    initial_events,
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -680,16 +659,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
     }
 
-    pub(crate) async fn reload_pinned_events(
-        &self,
-    ) -> Result<Option<Vec<TimelineEvent>>, PinnedEventsLoaderError> {
-        if let TimelineFocusKind::PinnedEvents { loader } = &*self.focus {
-            loader.load_events().await
-        } else {
-            Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents)
-        }
-    }
-
     /// Run a lazy backwards pagination (in live mode).
     ///
     /// It adjusts the `count` value of the `Skip` higher-order stream so that
@@ -723,7 +692,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
             TimelineFocusKind::Live { .. }
-            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::PinnedEvents
             | TimelineFocusKind::Thread { .. } => {
                 return Err(PaginationError::NotSupported);
             }
@@ -756,7 +725,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
             TimelineFocusKind::Live { .. }
-            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::PinnedEvents
             | TimelineFocusKind::Thread { .. } => return Err(PaginationError::NotSupported),
 
             TimelineFocusKind::Event { paginator, .. } => paginator

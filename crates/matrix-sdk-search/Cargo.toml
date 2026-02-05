@@ -15,16 +15,16 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
-aes = { version = "0.8.4" }
+aes = { version = "0.8.4", default-features = false }
 byteorder.workspace = true
-ctr = { version = "0.9.2" }
+ctr = { version = "0.9.2", default-features = false}
 hmac = { workspace = true, features = ["reset"] }
 hkdf.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 pbkdf2.workspace = true
 rand.workspace = true
 sha2.workspace = true
-tantivy = "0.25.0"
+tantivy = { version = "0.25.0", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "columnar-zstd-compression"] }
 tracing = { workspace = true, features = ["attributes"] }
 thiserror.workspace = true
 ruma = { workspace = true , features = [

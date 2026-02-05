@@ -57,6 +57,7 @@ use crate::{
 };
 
 pub(super) mod events;
+mod pinned_events;
 mod threads;
 
 pub use threads::ThreadEventCacheUpdate;
@@ -233,6 +234,24 @@ impl RoomEventCache {
     ) -> Result<(Vec<Event>, Receiver<ThreadEventCacheUpdate>)> {
         let mut state = self.inner.state.write().await?;
         Ok(state.subscribe_to_thread(thread_root))
+    }
+
+    /// Subscribe to the pinned event cache for this room.
+    ///
+    /// This is a persisted view over the pinned events of a room.
+    ///
+    /// The pinned events will be initially reloaded from storage, and/or loaded
+    /// from a network request to fetch the latest pinned events and their
+    /// relations, to update it as needed. The list of pinned events will
+    /// also be kept up-to-date as new events are pinned, and new
+    /// related events show up from other sources.
+    pub async fn subscribe_to_pinned_events(
+        &self,
+    ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
+        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+        let mut state = self.inner.state.write().await?;
+
+        state.subscribe_to_pinned_events(room).await
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -664,7 +683,7 @@ mod private {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
         sync::{
-            Arc,
+            Arc, OnceLock,
             atomic::{AtomicBool, AtomicUsize, Ordering},
         },
     };
@@ -714,6 +733,7 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
+    use crate::{Room, event_cache::room::pinned_events::PinnedEventCache};
 
     /// State for a single room's event cache.
     ///
@@ -721,14 +741,17 @@ mod private {
     /// the same time.
     pub struct RoomEventCacheStateLock {
         /// The per-thread lock around the real state.
-        locked_state: RwLock<RoomEventCacheStateLockInner>,
+        locked_state: RwLock<RoomEventCacheState>,
 
+        /// A lock taken to avoid multiple attempts to upgrade from a read lock
+        /// to a write lock.
+        ///
         /// Please see inline comment of [`Self::read`] to understand why it
         /// exists.
-        read_lock_acquisition: Mutex<()>,
+        state_lock_upgrade_mutex: Mutex<()>,
     }
 
-    struct RoomEventCacheStateLockInner {
+    struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
         enabled_thread_support: bool,
 
@@ -746,6 +769,9 @@ mod private {
         ///
         /// Keyed by the thread root event ID.
         threads: HashMap<OwnedEventId, ThreadEventCache>,
+
+        /// Cache for pinned events in this room, initialized on-demand.
+        pinned_event_cache: OnceLock<PinnedEventCache>,
 
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
@@ -864,7 +890,7 @@ mod private {
             let waited_for_initial_prev_token = Arc::new(AtomicBool::new(false));
 
             Ok(Self {
-                locked_state: RwLock::new(RoomEventCacheStateLockInner {
+                locked_state: RwLock::new(RoomEventCacheState {
                     enabled_thread_support,
                     room_id,
                     store,
@@ -884,8 +910,9 @@ mod private {
                     room_version_rules,
                     waited_for_initial_prev_token,
                     subscriber_count: Default::default(),
+                    pinned_event_cache: OnceLock::new(),
                 }),
-                read_lock_acquisition: Mutex::new(()),
+                state_lock_upgrade_mutex: Mutex::new(()),
             })
         }
 
@@ -945,7 +972,7 @@ mod private {
             //
             // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
             // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-            let _one_reader_guard = self.read_lock_acquisition.lock().await;
+            let _state_lock_upgrade_guard = self.state_lock_upgrade_mutex.lock().await;
 
             // Obtain a read lock.
             let state_guard = self.locked_state.read().await;
@@ -957,7 +984,7 @@ mod private {
                 EventCacheStoreLockState::Dirty(store_guard) => {
                     // Drop the read lock, and take a write lock to modify the state.
                     // This is safe because only one reader at a time (see
-                    // `Self::read_lock_acquisition`) is allowed.
+                    // `Self::state_lock_upgrade_mutex`) is allowed.
                     drop(state_guard);
                     let state_guard = self.locked_state.write().await;
 
@@ -1053,9 +1080,8 @@ mod private {
 
     /// The read lock guard returned by [`RoomEventCacheStateLock::read`].
     pub struct RoomEventCacheStateLockReadGuard<'a> {
-        /// The per-thread read lock guard over the
-        /// [`RoomEventCacheStateLockInner`].
-        state: RwLockReadGuard<'a, RoomEventCacheStateLockInner>,
+        /// The per-thread read lock guard over the [`RoomEventCacheState`].
+        state: RwLockReadGuard<'a, RoomEventCacheState>,
 
         /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
@@ -1063,9 +1089,8 @@ mod private {
 
     /// The write lock guard return by [`RoomEventCacheStateLock::write`].
     pub struct RoomEventCacheStateLockWriteGuard<'a> {
-        /// The per-thread write lock guard over the
-        /// [`RoomEventCacheStateLockInner`].
-        state: RwLockWriteGuard<'a, RoomEventCacheStateLockInner>,
+        /// The per-thread write lock guard over the [`RoomEventCacheState`].
+        state: RwLockWriteGuard<'a, RoomEventCacheState>,
 
         /// The cross-process lock guard over the store.
         store: EventCacheStoreLockGuard,
@@ -1197,6 +1222,13 @@ mod private {
         #[cfg(any(feature = "e2e-encryption", test))]
         pub fn room_linked_chunk(&mut self) -> &mut EventLinkedChunk {
             &mut self.state.room_linked_chunk
+        }
+
+        /// Get a reference to the [`pinned_event_cache`] if it has been
+        /// initialized.
+        #[cfg(any(feature = "e2e-encryption", test))]
+        pub fn pinned_event_cache(&self) -> Option<&PinnedEventCache> {
+            self.state.pinned_event_cache.get()
         }
 
         /// Get a reference to the `waited_for_initial_prev_token` atomic bool.
@@ -1823,6 +1855,32 @@ mod private {
             self.get_or_reload_thread(root).subscribe()
         }
 
+        /// Subscribe to the lazily initialized pinned event cache for this
+        /// room.
+        ///
+        /// This is a persisted view over the pinned events of a room. The
+        /// pinned events will be initially loaded from a network
+        /// request to fetch the latest pinned events will be performed,
+        /// to update it as needed. The list of pinned events will also
+        /// be kept up-to-date as new events are pinned, and new related
+        /// events show up from sync or backpagination.
+        ///
+        /// This requires that the room's event cache be initialized.
+        pub async fn subscribe_to_pinned_events(
+            &mut self,
+            room: Room,
+        ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
+            let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
+                PinnedEventCache::new(
+                    room,
+                    self.state.linked_chunk_update_sender.clone(),
+                    self.state.store.clone(),
+                )
+            });
+
+            pinned_event_cache.subscribe().await
+        }
+
         /// Back paginate in the given thread.
         ///
         /// Will always start from the end, unless we previously paginated.
@@ -1858,6 +1916,16 @@ mod private {
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
+
+            // Need an explicit re-borrow to avoid a deref vs deref-mut borrowck conflict
+            // below.
+            let state = &mut *self.state;
+
+            if let Some(pinned_event_cache) = state.pinned_event_cache.get_mut() {
+                pinned_event_cache
+                    .maybe_add_live_related_events(&events, &state.room_version_rules.redaction)
+                    .await?;
+            }
 
             let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 

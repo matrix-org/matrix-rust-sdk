@@ -19,55 +19,58 @@ resolver = "3"
 rust-version = "1.88"
 
 [workspace.dependencies]
-anyhow = "1.0.100"
-aquamarine = "0.6.0"
-as_variant = "1.3.0"
-assert-json-diff = "2.0.2"
-assert_matches = "1.5.0"
-assert_matches2 = "0.1.2"
-async_cell = "0.2.3"
-async-compat = "0.2.5"
-async-once-cell = "0.5.4"
-async-rx = "0.1.3"
+anyhow = { version = "1.0.100", default-features = false }
+aquamarine = { version = "0.6.0", default-features = false }
+as_variant = { version = "1.3.0", default-features = false }
+assert-json-diff = { version = "2.0.2", default-features = false }
+assert_matches = { version = "1.5.0", default-features = false }
+assert_matches2 = { version = "0.1.2", default-features = false }
+async_cell = { version = "0.2.3", default-features = false }
+async-compat = { version = "0.2.5", default-features = false }
+async-once-cell = { version = "0.5.4", default-features = false }
+async-rx = { version = "0.1.3", default-features = false }
 # Bumping this to 0.3.6 produces a test failure because the semantic between the
 # versions changed subtly: https://github.com/matrix-org/matrix-rust-sdk/issues/4599
-async-stream = "0.3.6"
-async-trait = "0.1.89"
-base64 = "0.22.1"
-bitflags = "2.10.0"
-byteorder = "1.5.0"
-cfg-if = "1.0.4"
-clap = "4.5.53"
-chrono = "0.4.42"
-dirs = "6.0.0"
-eyeball = { version = "0.8.8", features = ["tracing"] }
-eyeball-im = { version = "0.8.0", features = ["tracing"] }
-eyeball-im-util = "0.10.0"
-futures-core = "0.3.31"
-futures-executor = "0.3.31"
-futures-util = "0.3.31"
+async-stream = { version = "0.3.6", default-features = false }
+async-trait = { version = "0.1.89", default-features = false }
+base64 = { version = "0.22.1", default-features = false, features = ["std"] }
+bitflags = { version = "2.10.0", default-features = false }
+byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
+cfg-if = { version = "1.0.4", default-features = false }
+clap = { version = "4.5.53", default-features = false, features = ["std", "help", "usage"] }
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
+dirs = { version = "6.0.0", default-features = false }
+eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
+eyeball-im = { version = "0.8.0", default-features = false, features = ["tracing"] }
+eyeball-im-util = { version = "0.10.0", default-features = false }
+futures-core = { version = "0.3.31", default-features = false, features = ["std"] }
+futures-executor = { version = "0.3.31", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.31", default-features = false, features = ["std"] }
 getrandom = { version = "0.2.15", default-features = false }
-gloo-timers = "0.3.0"
-growable-bloom-filter = "2.1.1"
-hkdf = "0.12.4"
-hmac = "0.12.1"
-http = "1.3.1"
-imbl = "6.1.0"
-indexed_db_futures = { version = "0.7.0", package = "matrix_indexed_db_futures" }
-indexmap = "2.12.1"
+gloo-timers = { version = "0.3.0", default-features = false }
+gloo-utils = { version = "0.2.0", default-features = false, features = ["serde"] }
+growable-bloom-filter = { version = "2.1.1", default-features = false }
+hkdf = { version = "0.12.4", default-features = false }
+hmac = { version = "0.12.1", default-features = false }
+http = { version = "1.3.1", default-features = false }
+imbl = { version = "6.1.0", default-features = false }
+indexed_db_futures = { version = "0.7.0", package = "matrix_indexed_db_futures", default-features = false }
+indexmap = { version = "2.12.1", default-features = false }
 insta = { version = "1.44.1", features = ["json", "redactions"] }
-itertools = "0.14.0"
-js-sys = "0.3.82"
-mime = "0.3.17"
+itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
+js-sys = { version = "0.3.82", default-features = false, features = ["std"] }
+mime = { version = "0.3.17", default-features = false }
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
-once_cell = "1.21.3"
-pbkdf2 = { version = "0.12.2" }
-pin-project-lite = "0.2.16"
+once_cell = { version = "1.21.3", default-features = false }
+pbkdf2 = { version = "0.12.2", default-features = false }
+pin-project-lite = { version = "0.2.16", default-features = false }
+proc-macro2 = { version = "1.0.106", default-features = false }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-rand = "0.8.5"
-regex = "1.12.2"
+quote = { version = "1.0.37", default-features = false }
+rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.12.24", default-features = false }
-rmp-serde = "1.3.0"
+rmp-serde = { version = "1.3.0", default-features = false }
 ruma = { git = "https://github.com/ruma/ruma", rev = "d4f29e2a70dbfb0bd4fdb839ca4629794644ba97", features = [
     "client-api-c",
     "compat-upload-signatures",
@@ -91,33 +94,35 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "d4f29e2a70dbfb0bd4fdb839ca
     "unstable-msc4310",
 ] }
 sentry = { version = "0.46.0", default-features = false }
-sentry-tracing = "0.46.0"
-serde = { version = "1.0.228", features = ["rc"] }
-serde_html_form = "0.2.8"
-serde_json = "1.0.145"
-sha2 = "0.10.9"
-similar-asserts = "1.7.0"
-stream_assert = "0.1.1"
-tempfile = "3.23.0"
-thiserror = "2.0.17"
+sentry-tracing = { version = "0.46.0", default-features = false }
+serde = { version = "1.0.228", default-features = false, features = ["std", "rc", "derive"] }
+serde_html_form = { version = "0.2.8", default-features = false }
+serde_json = { version = "1.0.145", default-features = false, features = ["std"] }
+sha2 = { version = "0.10.9", default-features = false }
+similar-asserts = { version = "1.7.0", default-features = false }
+stream_assert = { version = "0.1.1", default-features = false }
+syn = { version = "2.0.43", default-features = false, features = ["derive", "parsing", "printing", "clone-impls"] }
+tempfile = { version = "3.23.0", default-features = false }
+thiserror = { version = "2.0.17", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
-tokio-stream = "0.1.17"
+tokio-stream = { version = "0.1.17", default-features = false }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
-tracing-appender = "0.2.3"
-tracing-core = "0.1.34"
-tracing-subscriber = "0.3.20"
-unicode-normalization = "0.1.25"
-uniffi = "0.31.0"
-uniffi_bindgen = "0.31.0"
-url = "2.5.7"
-uuid = "1.18.1"
-vergen-gitcl = "1.0.8"
-vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
-wasm-bindgen = "0.2.105"
-wasm-bindgen-test = "0.3.55"
-web-sys = "0.3.82"
-wiremock = "0.6.5"
-zeroize = "1.8.2"
+tracing-appender = { version = "0.2.3", default-features = false }
+tracing-core = { version = "0.1.34", default-features = false }
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "smallvec", "fmt"] }
+unicode-normalization = { version = "0.1.25", default-features = false }
+unicode-segmentation = { version = "1.12.0", default-features = false }
+uniffi = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
+uniffi_bindgen = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
+url = { version = "2.5.7", default-features = false }
+uuid = { version = "1.18.1", default-features = false }
+vergen-gitcl = { version = "1.0.8", default-features = false }
+vodozemac = { version = "0.9.0", default-features = false, features = ["libolm-compat", "insecure-pk-encryption"] }
+wasm-bindgen = { version = "0.2.105", default-features = false }
+wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
+web-sys = { version = "0.3.82", default-features = false }
+wiremock = { version = "0.6.5", default-features = false }
+zeroize = { version = "1.8.2", default-features = false }
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.16.0", default-features = false }
 matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.16.0" }
@@ -169,6 +174,19 @@ unused_async = "warn"
 # Saves a lot of disk space. If symbols are needed, use the dbg profile.
 debug = 0
 
+# Profile for debug builds with full optimization and minimal debug symbols.
+# This should be just enough to have proper backtraces, having way smaller binaries
+# (10% of the size with full debug symbols profile, like `reldbg`).
+# This profile differs from `reldbg` in not containing the debug symbols needed for
+# debugging with LLDB/GDB, trading that for binary size, allowing quick iterations
+# of building the bindings, installing in a real device, testing your changes, repeat.
+# It's also different from `dev` in having enough debug symbols to display backtraces.
+[profile.reldev]
+inherits = "dev"
+opt-level = 3
+debug = "line-tables-only"
+strip = "debuginfo"
+
 [profile.dev.package]
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
@@ -188,6 +206,16 @@ debug = 2
 [profile.reldbg]
 inherits = "dbg"
 opt-level = 3
+
+[profile.dist]
+# Use release profile as a base
+inherits = "release"
+# Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
+strip = "debuginfo"
+# Use link time optimizations
+lto = true
+# Use binary size optimization, since this is intended for distributed copies of the SDK
+opt-level = "s"
 
 [profile.profiling]
 inherits = "release"

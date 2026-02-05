@@ -55,9 +55,7 @@ use super::{
     TimelineItem, algorithms::rfind_event_by_item_id, controller::TimelineSettings,
     event_item::RemoteEventOrigin, traits::RoomDataProvider,
 };
-use crate::{
-    timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,
-};
+use crate::unable_to_decrypt_hook::UtdHookManager;
 
 mod basic;
 mod echo;
@@ -301,25 +299,6 @@ impl PaginableThread for TestRoomDataProvider {
     }
 }
 
-impl PinnedEventsRoom for TestRoomDataProvider {
-    fn load_event_with_relations<'a>(
-        &'a self,
-        _event_id: &'a EventId,
-        _request_config: Option<RequestConfig>,
-        _related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
-        unimplemented!();
-    }
-
-    fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
-        unimplemented!();
-    }
-
-    fn is_pinned_event(&self, _event_id: &EventId) -> bool {
-        unimplemented!();
-    }
-}
-
 impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
         self.own_user_id.as_deref().unwrap_or(&ALICE)
@@ -401,6 +380,15 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
+        unimplemented!();
+    }
+
+    fn load_event_with_relations<'a>(
+        &'a self,
+        _event_id: &'a EventId,
+        _request_config: Option<RequestConfig>,
+        _related_event_filters: Option<Vec<RelationType>>,
+    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
         unimplemented!();
     }
 }

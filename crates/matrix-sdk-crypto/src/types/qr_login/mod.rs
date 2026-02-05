@@ -140,6 +140,15 @@ impl From<msc_4388::QrCodeIntent> for QrCodeIntent {
     }
 }
 
+impl From<QrCodeIntent> for msc_4388::QrCodeIntent {
+    fn from(value: QrCodeIntent) -> Self {
+        match value {
+            QrCodeIntent::Login => msc_4388::QrCodeIntent::Login,
+            QrCodeIntent::Reciprocate => msc_4388::QrCodeIntent::Reciprocate,
+        }
+    }
+}
+
 /// Data for the QR code login mechanism.
 ///
 /// The [`QrCodeData`] can be serialized and encoded as a QR code or it can be
@@ -164,6 +173,26 @@ impl QrCodeData {
                 public_key,
                 rendezvous_url,
                 intent_data,
+            }),
+        }
+    }
+
+    /// Create a new [`QrCodeData`] object which conforms to the data format
+    /// specified in [MSC4388].
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    pub fn new_msc4388(
+        public_key: Curve25519PublicKey,
+        rendezvous_id: String,
+        base_url: Url,
+        intent: QrCodeIntent,
+    ) -> Self {
+        Self {
+            inner: QrCodeDataInner::Msc4388(msc_4388::QrCodeData {
+                intent: intent.into(),
+                public_key,
+                rendezvous_id,
+                base_url,
             }),
         }
     }

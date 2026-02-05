@@ -51,6 +51,7 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dependencies.js_int]
 version = "0.2.2"
+default-features = false
 features = ["lax_deserialize"]
 
 [dependencies.matrix-sdk-crypto]
@@ -63,12 +64,11 @@ features = ["crypto-store"]
 
 [dependencies.tokio]
 workspace = true
-default-features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-uniffi = { workspace = true, features = ["build"] }
-vergen-gitcl = { workspace = true, features = ["build"] }
+uniffi = { workspace = true, default-features = false, features = ["build"] }
+vergen-gitcl = { workspace = true, default-features = false, features = ["build"] }
 
 [dev-dependencies]
 assert_matches2.workspace = true

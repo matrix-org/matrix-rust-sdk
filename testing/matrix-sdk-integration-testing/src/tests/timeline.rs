@@ -1083,6 +1083,10 @@ async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     Ok(())
 }
 
+/// Setup a pinned events test.
+///
+/// Let Alice create an encrypted room, send an event that is immediately
+/// pinned, and a number of normal events as well.
 async fn prepare_room_with_pinned_events(
     alice: &Client,
     recovery_passphrase: &str,
@@ -1112,7 +1116,7 @@ async fn prepare_room_with_pinned_events(
     let event_id = result.response.event_id;
 
     let timeline = room.timeline().await?;
-    timeline.pin_event(&event_id).await?;
+    timeline.room().pin_event(&event_id).await?;
 
     // Now send a bunch of normal events, this ensures that our pinned event isn't
     // in the main timeline when we restore things.
@@ -1163,9 +1167,9 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
-    // `m.room.pinned_events` stat event.
+    // `m.room.pinned_events` state event.
     //
-    // Additionally if we subscribe to the room after we already synced, we'll won't
+    // Additionally if we subscribe to the room after we already synced, we won't
     // receive the event, likely due to a Synapse bug.
     sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
     sync_service.start().await;
@@ -1188,20 +1192,16 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     assert!(event.kind.is_utd());
 
     // Alright, let's now get to the timeline with a PinnedEvents focus.
-    let pinned_timeline = room
-        .timeline_builder()
-        .with_focus(TimelineFocus::PinnedEvents {
-            max_events_to_load: 100,
-            max_concurrent_requests: 10,
-        })
-        .build()
-        .await?;
+    let pinned_timeline =
+        room.timeline_builder().with_focus(TimelineFocus::PinnedEvents).build().await?;
 
     let (items, mut stream) = pinned_timeline.subscribe_filter_map(|i| i.as_event().cloned()).await;
 
     // If we don't have any items as of yet, wait on the stream.
     if items.is_empty() {
-        let _ = assert_next_with_timeout!(stream, 5000);
+        while let Ok(Some(_)) = timeout(Duration::from_secs(5), stream.next()).await {
+            // Wait until the timeline stabilizes.
+        }
     }
 
     // Alright, let's get the event from the timeline.
@@ -1256,13 +1256,10 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_in_timelin
 }
 
 /// Test that pinned UTD events, once decrypted by R2D2 (the redecryptor), get
-/// replaced in the timeline with the decrypted variant even if the pinened UTD
+/// replaced in the timeline with the decrypted variant even if the pinned UTD
 /// event isn't part of the main timeline and thus wasn't put into the event
 /// cache by the main timeline backpaginating.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-// FIXME: This test is ignored because R2D2 can't decrypt this pinned event as it's never put into
-// the event cache.
-#[ignore]
 async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_timeline() -> TestResult
 {
     test_pinned_events_are_decrypted_after_recovering_with_event_count(30).await

@@ -1607,7 +1607,7 @@ fn insert_chunk(
 
     // If this chunk has a previous one, update its `next` field.
     if let Some(previous) = previous {
-        txn.execute(
+        let updated = txn.execute(
             r#"
                 UPDATE linked_chunks
                 SET next = ?
@@ -1615,11 +1615,17 @@ fn insert_chunk(
             "#,
             (new, previous, linked_chunk_id),
         )?;
+        if updated < 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        if updated > 1 {
+            return Err(rusqlite::Error::QueryReturnedMoreThanOneRow);
+        }
     }
 
     // If this chunk has a next one, update its `previous` field.
     if let Some(next) = next {
-        txn.execute(
+        let updated = txn.execute(
             r#"
                 UPDATE linked_chunks
                 SET previous = ?
@@ -1627,6 +1633,12 @@ fn insert_chunk(
             "#,
             (new, next, linked_chunk_id),
         )?;
+        if updated < 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        if updated > 1 {
+            return Err(rusqlite::Error::QueryReturnedMoreThanOneRow);
+        }
     }
 
     Ok(())
@@ -1641,21 +1653,16 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        event_cache::{
-            Gap,
-            store::{
-                EventCacheStore, EventCacheStoreError,
-                integration_tests::{
-                    check_test_event, make_test_event, make_test_event_with_event_id,
-                },
-            },
+        event_cache::store::{
+            EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
+            integration_tests::{EventCacheStoreIntegrationTests, make_test_event_with_event_id},
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
-    use ruma::{event_id, room_id};
+    use ruma::event_id;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1695,206 +1702,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_linked_chunk_new_items_chunk() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None, // Note: the store must link the next entry itself.
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(42)),
-                        new: ChunkIdentifier::new(13),
-                        next: Some(ChunkIdentifier::new(37)), /* But it's fine to explicitly pass
-                                                               * the next link ahead of time. */
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(13)),
-                        new: ChunkIdentifier::new(37),
-                        next: None,
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 3);
-
-        {
-            // Chunks are ordered from smaller to bigger IDs.
-            let c = chunks.remove(0);
-            assert_eq!(c.identifier, ChunkIdentifier::new(13));
-            assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
-            assert_eq!(c.next, Some(ChunkIdentifier::new(37)));
-            assert_matches!(c.content, ChunkContent::Items(events) => {
-                assert!(events.is_empty());
-            });
-
-            let c = chunks.remove(0);
-            assert_eq!(c.identifier, ChunkIdentifier::new(37));
-            assert_eq!(c.previous, Some(ChunkIdentifier::new(13)));
-            assert_eq!(c.next, None);
-            assert_matches!(c.content, ChunkContent::Items(events) => {
-                assert!(events.is_empty());
-            });
-
-            let c = chunks.remove(0);
-            assert_eq!(c.identifier, ChunkIdentifier::new(42));
-            assert_eq!(c.previous, None);
-            assert_eq!(c.next, Some(ChunkIdentifier::new(13)));
-            assert_matches!(c.content, ChunkContent::Items(events) => {
-                assert!(events.is_empty());
-            });
-        }
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_new_gap_chunk() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![Update::NewGapChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(42),
-                    next: None,
-                    gap: Gap { prev_token: "raclette".to_owned() },
-                }],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        // Chunks are ordered from smaller to bigger IDs.
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "raclette");
-        });
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_replace_item() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event_id = event_id!("$world");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event_with_event_id(room_id, "world", Some(event_id)),
-                        ],
-                    },
-                    Update::ReplaceItem {
-                        at: Position::new(ChunkIdentifier::new(42), 1),
-                        item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 2);
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "yolo");
-        });
-    }
-
-    #[async_test]
     async fn test_linked_chunk_remove_chunk() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewGapChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                        gap: Gap { prev_token: "raclette".to_owned() },
-                    },
-                    Update::NewGapChunk {
-                        previous: Some(ChunkIdentifier::new(42)),
-                        new: ChunkIdentifier::new(43),
-                        next: None,
-                        gap: Gap { prev_token: "fondue".to_owned() },
-                    },
-                    Update::NewGapChunk {
-                        previous: Some(ChunkIdentifier::new(43)),
-                        new: ChunkIdentifier::new(44),
-                        next: None,
-                        gap: Gap { prev_token: "tartiflette".to_owned() },
-                    },
-                    Update::RemoveChunk(ChunkIdentifier::new(43)),
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 2);
-
-        // Chunks are ordered from smaller to bigger IDs.
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, Some(ChunkIdentifier::new(44)));
-        assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "raclette");
-        });
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(44));
-        assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "tartiflette");
-        });
+        // Run corresponding integration test
+        store.clone().into_event_cache_store().test_linked_chunk_remove_chunk().await;
 
         // Check that cascading worked. Yes, SQLite, I doubt you.
         let gaps = store
@@ -1914,109 +1726,20 @@ mod tests {
             .await
             .unwrap();
 
+        // Check that the gaps match those set up in the corresponding integration test
+        // above
         assert_eq!(gaps, vec![42, 44]);
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_push_items() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                        ],
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 2),
-                        items: vec![make_test_event(room_id, "who?")],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 3);
-
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "world");
-            check_test_event(&events[2], "who?");
-        });
     }
 
     #[async_test]
     async fn test_linked_chunk_remove_item() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
+        // Run corresponding integration test
+        store.clone().into_event_cache_store().test_linked_chunk_remove_item().await;
+
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "one"),
-                            make_test_event(room_id, "two"),
-                            make_test_event(room_id, "three"),
-                            make_test_event(room_id, "four"),
-                            make_test_event(room_id, "five"),
-                            make_test_event(room_id, "six"),
-                        ],
-                    },
-                    Update::RemoveItem {
-                        at: Position::new(ChunkIdentifier::new(42), 2), /* "three" */
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 5);
-            check_test_event(&events[0], "one");
-            check_test_event(&events[1], "two");
-            check_test_event(&events[2], "four");
-            check_test_event(&events[3], "five");
-            check_test_event(&events[4], "six");
-        });
 
         // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store
@@ -2036,136 +1759,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_linked_chunk_detach_last_items() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
-                    },
-                    Update::DetachLastItems { at: Position::new(ChunkIdentifier::new(42), 1) },
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
-            check_test_event(&events[0], "hello");
-        });
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_start_end_reattach_items() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        // Same updates and checks as test_linked_chunk_push_items, but with extra
-        // `StartReattachItems` and `EndReattachItems` updates, which must have no
-        // effects.
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
-                    },
-                    Update::StartReattachItems,
-                    Update::EndReattachItems,
-                ],
-            )
-            .await
-            .unwrap();
-
-        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-
-        assert_eq!(chunks.len(), 1);
-
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, ChunkIdentifier::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 3);
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "world");
-            check_test_event(&events[2], "howdy");
-        });
-    }
-
-    #[async_test]
     async fn test_linked_chunk_clear() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event_0 = make_test_event(room_id, "hello");
-        let event_1 = make_test_event(room_id, "world");
-        let event_2 = make_test_event(room_id, "howdy");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::NewGapChunk {
-                        previous: Some(ChunkIdentifier::new(42)),
-                        new: ChunkIdentifier::new(54),
-                        next: None,
-                        gap: Gap { prev_token: "fondue".to_owned() },
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![event_0.clone(), event_1, event_2],
-                    },
-                    Update::Clear,
-                ],
-            )
-            .await
-            .unwrap();
-
-        let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
-        assert!(chunks.is_empty());
+        // Run corresponding integration test
+        store.clone().into_event_cache_store().test_linked_chunk_clear().await;
 
         // Check that cascading worked. Yes, SQLite, I doubt you.
         store
@@ -2187,98 +1785,6 @@ mod tests {
             })
             .await
             .unwrap();
-
-        // It's okay to re-insert a past event.
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![event_0],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-    }
-
-    #[async_test]
-    async fn test_linked_chunk_multiple_rooms() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room1 = room_id!("!realcheeselovers:raclette.fr");
-        let linked_chunk_id1 = LinkedChunkId::Room(room1);
-        let room2 = room_id!("!realcheeselovers:fondue.ch");
-        let linked_chunk_id2 = LinkedChunkId::Room(room2);
-
-        // Check that applying updates to one room doesn't affect the others.
-        // Use the same chunk identifier in both rooms to battle-test search.
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id1,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room1, "best cheese is raclette"),
-                            make_test_event(room1, "obviously"),
-                        ],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id2,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![make_test_event(room1, "beaufort is the best")],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        // Check chunks from room 1.
-        let mut chunks_room1 = store.load_all_chunks(linked_chunk_id1).await.unwrap();
-        assert_eq!(chunks_room1.len(), 1);
-
-        let c = chunks_room1.remove(0);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 2);
-            check_test_event(&events[0], "best cheese is raclette");
-            check_test_event(&events[1], "obviously");
-        });
-
-        // Check chunks from room 2.
-        let mut chunks_room2 = store.load_all_chunks(linked_chunk_id2).await.unwrap();
-        assert_eq!(chunks_room2.len(), 1);
-
-        let c = chunks_room2.remove(0);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
-            check_test_event(&events[0], "beaufort is the best");
-        });
     }
 
     #[async_test]
@@ -2319,217 +1825,6 @@ mod tests {
         // rolled back.
         let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
-    }
-
-    #[async_test]
-    async fn test_filter_duplicate_events_no_events() {
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let duplicates = store.filter_duplicated_events(linked_chunk_id, Vec::new()).await.unwrap();
-        assert!(duplicates.is_empty());
-    }
-
-    #[async_test]
-    async fn test_load_last_chunk() {
-        let room_id = room_id!("!r0:matrix.org");
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event = |msg: &str| make_test_event(room_id, msg);
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        // Case #1: no last chunk.
-        {
-            let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(linked_chunk_id).await.unwrap();
-
-            assert!(last_chunk.is_none());
-            assert_eq!(chunk_identifier_generator.current(), 0);
-        }
-
-        // Case #2: only one chunk is present.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(42),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(42), 0),
-                            items: vec![event("saucisse de morteau"), event("comté")],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-
-            let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(linked_chunk_id).await.unwrap();
-
-            assert_matches!(last_chunk, Some(last_chunk) => {
-                assert_eq!(last_chunk.identifier, 42);
-                assert!(last_chunk.previous.is_none());
-                assert!(last_chunk.next.is_none());
-                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
-                    assert_eq!(items.len(), 2);
-                    check_test_event(&items[0], "saucisse de morteau");
-                    check_test_event(&items[1], "comté");
-                });
-            });
-            assert_eq!(chunk_identifier_generator.current(), 42);
-        }
-
-        // Case #3: more chunks are present.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(42)),
-                            new: ChunkIdentifier::new(7),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(7), 0),
-                            items: vec![event("fondue"), event("gruyère"), event("mont d'or")],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-
-            let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(linked_chunk_id).await.unwrap();
-
-            assert_matches!(last_chunk, Some(last_chunk) => {
-                assert_eq!(last_chunk.identifier, 7);
-                assert_matches!(last_chunk.previous, Some(previous) => {
-                    assert_eq!(previous, 42);
-                });
-                assert!(last_chunk.next.is_none());
-                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
-                    assert_eq!(items.len(), 3);
-                    check_test_event(&items[0], "fondue");
-                    check_test_event(&items[1], "gruyère");
-                    check_test_event(&items[2], "mont d'or");
-                });
-            });
-            assert_eq!(chunk_identifier_generator.current(), 42);
-        }
-    }
-
-    #[async_test]
-    async fn test_load_last_chunk_with_a_cycle() {
-        let room_id = room_id!("!r0:matrix.org");
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        store
-            .handle_linked_chunk_updates(
-                linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::NewItemsChunk {
-                        // Because `previous` connects to chunk #0, it will create a cycle.
-                        // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
-                        // **does not exist**. We have to detect this cycle.
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: Some(ChunkIdentifier::new(0)),
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        store.load_last_chunk(linked_chunk_id).await.unwrap_err();
-    }
-
-    #[async_test]
-    async fn test_load_previous_chunk() {
-        let room_id = room_id!("!r0:matrix.org");
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-        let event = |msg: &str| make_test_event(room_id, msg);
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        // Case #1: no chunk at all, equivalent to having an nonexistent
-        // `before_chunk_identifier`.
-        {
-            let previous_chunk = store
-                .load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(153))
-                .await
-                .unwrap();
-
-            assert!(previous_chunk.is_none());
-        }
-
-        // Case #2: there is one chunk only: we request the previous on this
-        // one, it doesn't exist.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    }],
-                )
-                .await
-                .unwrap();
-
-            let previous_chunk =
-                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
-
-            assert!(previous_chunk.is_none());
-        }
-
-        // Case #3: there are two chunks.
-        {
-            store
-                .handle_linked_chunk_updates(
-                    linked_chunk_id,
-                    vec![
-                        // new chunk before the one that exists.
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(7),
-                            next: Some(ChunkIdentifier::new(42)),
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(7), 0),
-                            items: vec![event("brigand du jorat"), event("morbier")],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-
-            let previous_chunk =
-                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
-
-            assert_matches!(previous_chunk, Some(previous_chunk) => {
-                assert_eq!(previous_chunk.identifier, 7);
-                assert!(previous_chunk.previous.is_none());
-                assert_matches!(previous_chunk.next, Some(next) => {
-                    assert_eq!(next, 42);
-                });
-                assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
-                    assert_eq!(items.len(), 2);
-                    check_test_event(&items[0], "brigand du jorat");
-                    check_test_event(&items[1], "morbier");
-                });
-            });
-        }
     }
 
     #[async_test]

@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- `omit_checksums` option is now enabled for the Kotlin bindings in all FFI-exporting crates. 
+  We enabled them because with JNA direct mapping enabled they result in invalid checks in
+  ARM 32bit devices, preventing the SDK from working altogether (see 
+[this issue](https://github.com/mozilla/uniffi-rs/issues/2740)). 
+([#6069](https://github.com/matrix-org/matrix-rust-sdk/pull/6069), 
+[#6112](https://github.com/matrix-org/matrix-rust-sdk/pull/6112), 
+[#6115](https://github.com/matrix-org/matrix-rust-sdk/pull/6115),
+[#6116](https://github.com/matrix-org/matrix-rust-sdk/pull/6116)).
 - `Client::create_room` now uses `RoomPowerLevelsContentOverride` under the hood instead of 
   `RoomPowerLevelsEventContent` to be able to explicitly set values which would previously be 
   ignored if they matched the default power level values specified by the spec: these may not be 
