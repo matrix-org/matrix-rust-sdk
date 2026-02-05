@@ -51,7 +51,8 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
+    UserId,
     api::client::{
         error::{ErrorBody, StandardErrorBody},
         keys::{
@@ -2001,6 +2002,109 @@ impl Encryption {
         }
 
         Ok(failures)
+    }
+
+    /// Process a DCGKA (Decentralized Continuous Group Key Agreement) update for a room.
+    ///
+    /// This handles incoming `m.room.dcgka.update` events and updates the room's
+    /// cryptographic group key state.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID this update belongs to
+    /// * `update` - The DCGKA update to process
+    ///
+    /// # Returns
+    /// The status of the update after processing (Accepted, Pending, or Rejected)
+    pub async fn handle_dcgka_update(
+        &self,
+        room_id: &RoomId,
+        update: matrix_sdk_base::crypto::dcgka::DcgkaUpdate,
+    ) -> Result<matrix_sdk_base::crypto::dcgka::UpdateStatus, Error> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        Ok(olm.handle_dcgka_event(room_id, update).await?)
+    }
+
+    /// Encrypt data using DCGKA for a specific room.
+    ///
+    /// Uses the room's current DCGKA-derived group key to encrypt plaintext.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID to encrypt for
+    /// * `plaintext` - The data to encrypt
+    ///
+    /// # Returns
+    /// The encrypted ciphertext (includes nonce/IV)
+    pub async fn dcgka_encrypt(
+        &self,
+        room_id: &RoomId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        Ok(olm.dcgka_encrypt(room_id, plaintext).await?)
+    }
+
+    /// Decrypt data using DCGKA for a specific room.
+    ///
+    /// Uses the room's DCGKA-derived group keys (current and historical) to decrypt ciphertext.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID to decrypt for
+    /// * `ciphertext` - The encrypted data to decrypt
+    ///
+    /// # Returns
+    /// The decrypted plaintext
+    pub async fn dcgka_decrypt(
+        &self,
+        room_id: &RoomId,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        Ok(olm.dcgka_decrypt(room_id, ciphertext).await?)
+    }
+
+    /// Enable DCGKA for a room.
+    ///
+    /// After enabling, all messages sent to this room will be encrypted using DCGKA
+    /// instead of Megolm. Incoming DCGKA updates will be processed automatically.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID to enable DCGKA for
+    pub async fn enable_dcgka(&self, room_id: &RoomId) -> Result<(), Error> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+        Ok(olm.enable_dcgka(room_id).await?)
+    }
+
+    /// Disable DCGKA for a room.
+    ///
+    /// Messages will fall back to Megolm encryption.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID to disable DCGKA for
+    pub async fn disable_dcgka(&self, room_id: &RoomId) {
+        let olm = self.client.olm_machine().await;
+        if let Some(olm) = olm.as_ref() {
+            olm.disable_dcgka(room_id).await;
+        }
+    }
+
+    /// Check if DCGKA is enabled for a room.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room ID to check
+    ///
+    /// # Returns
+    /// Returns true if DCGKA is enabled for this room
+    pub async fn is_dcgka_enabled(&self, room_id: &RoomId) -> bool {
+        let olm = self.client.olm_machine().await;
+        if let Some(olm) = olm.as_ref() {
+            olm.is_dcgka_enabled(room_id).await
+        } else {
+            false
+        }
     }
 }
 

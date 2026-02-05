@@ -22,6 +22,7 @@ use serde_json::Value;
 
 use super::EventType;
 
+pub mod dcgka;
 pub mod encrypted;
 
 /// Generic room event with a known type and content.

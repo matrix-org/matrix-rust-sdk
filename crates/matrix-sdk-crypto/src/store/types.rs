@@ -90,6 +90,9 @@ pub struct Changes {
     /// The set of rooms for which we have requested all room keys from the
     /// backup in advance of constructing a room key bundle.
     pub room_key_backups_fully_downloaded: HashSet<OwnedRoomId>,
+
+    /// DCGKA states to be saved (room_id -> state)
+    pub dcgka_states: HashMap<OwnedRoomId, crate::dcgka::DcgkaState>,
 }
 
 /// Information about an [MSC4268] room key bundle.
@@ -142,6 +145,7 @@ impl Changes {
             && self.secrets.is_empty()
             && self.next_batch_token.is_none()
             && self.received_room_key_bundles.is_empty()
+            && self.dcgka_states.is_empty()
     }
 }
 

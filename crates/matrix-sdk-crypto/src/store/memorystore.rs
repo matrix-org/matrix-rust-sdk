@@ -112,6 +112,7 @@ pub struct MemoryStore {
     room_key_bundles:
         StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
     room_key_backups_fully_downloaded: StdRwLock<HashSet<OwnedRoomId>>,
+    dcgka_states: StdRwLock<HashMap<OwnedRoomId, crate::dcgka::DcgkaState>>,
 
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -346,6 +347,11 @@ impl CryptoStore for MemoryStore {
             for room in changes.room_key_backups_fully_downloaded {
                 room_key_backups_fully_downloaded.insert(room);
             }
+        }
+
+        if !changes.dcgka_states.is_empty() {
+            let mut dcgka_states = self.dcgka_states.write();
+            dcgka_states.extend(changes.dcgka_states);
         }
 
         Ok(())
@@ -789,6 +795,19 @@ impl CryptoStore for MemoryStore {
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>> {
         Ok(try_take_leased_lock(&mut self.leases.write(), lease_duration_ms, key, holder))
+    }
+
+    async fn save_dcgka_state(
+        &self,
+        room_id: &RoomId,
+        state: crate::dcgka::DcgkaState,
+    ) -> Result<()> {
+        self.dcgka_states.write().insert(room_id.to_owned(), state);
+        Ok(())
+    }
+
+    async fn load_dcgka_state(&self, room_id: &RoomId) -> Result<Option<crate::dcgka::DcgkaState>> {
+        Ok(self.dcgka_states.read().get(room_id).cloned())
     }
 
     async fn get_size(&self) -> Result<Option<usize>> {
@@ -1629,6 +1648,21 @@ mod integration_tests {
 
         async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
             self.0.get_size().await
+        }
+
+        async fn save_dcgka_state(
+            &self,
+            room_id: &RoomId,
+            state: crate::dcgka::DcgkaState,
+        ) -> Result<(), Self::Error> {
+            self.0.save_dcgka_state(room_id, state).await
+        }
+
+        async fn load_dcgka_state(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Option<crate::dcgka::DcgkaState>, Self::Error> {
+            self.0.load_dcgka_state(room_id).await
         }
     }
 

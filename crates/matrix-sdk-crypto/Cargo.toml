@@ -48,6 +48,7 @@ async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
+chacha20poly1305 = "0.10.1"
 ctr = { version = "0.9.2", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
@@ -72,7 +73,7 @@ time = { version = "0.3.44", default-features = false, features = ["std", "forma
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-ulid = { version = "1.1.4", default-features = false, features = ["std"] }
+ulid = { version = "1.1.4", default-features = false, features = ["std", "serde"] }
 uniffi = { workspace = true, optional = true }
 url.workspace = true
 vodozemac.workspace = true

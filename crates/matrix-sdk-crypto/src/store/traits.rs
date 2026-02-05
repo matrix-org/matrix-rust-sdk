@@ -406,6 +406,32 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Returns the size of the store in bytes, if known.
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
+
+    /// Save DCGKA state for a specific room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID for which to save the state.
+    /// * `state` - The DCGKA state to save.
+    async fn save_dcgka_state(
+        &self,
+        room_id: &RoomId,
+        state: crate::dcgka::DcgkaState,
+    ) -> Result<(), Self::Error>;
+
+    /// Load DCGKA state for a specific room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID for which to load the state.
+    ///
+    /// # Returns
+    ///
+    /// The DCGKA state if found, or None if no state exists for this room.
+    async fn load_dcgka_state(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<crate::dcgka::DcgkaState>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -662,6 +688,21 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.0.get_size().await.map_err(Into::into)
+    }
+
+    async fn save_dcgka_state(
+        &self,
+        room_id: &RoomId,
+        state: crate::dcgka::DcgkaState,
+    ) -> Result<(), Self::Error> {
+        self.0.save_dcgka_state(room_id, state).await.map_err(Into::into)
+    }
+
+    async fn load_dcgka_state(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<crate::dcgka::DcgkaState>, Self::Error> {
+        self.0.load_dcgka_state(room_id).await.map_err(Into::into)
     }
 }
 

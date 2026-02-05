@@ -161,6 +161,8 @@ pub struct OlmMachineInner {
     identity_manager: IdentityManager,
     /// A state machine that handles creating room key backups.
     backup_machine: BackupMachine,
+    /// A state machine that manages DCGKA group sessions for rooms.
+    pub(crate) dcgka_manager: crate::dcgka::DcgkaManager,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -263,6 +265,8 @@ impl OlmMachine {
 
         let backup_machine = BackupMachine::new(store.clone(), maybe_backup_key);
 
+        let dcgka_manager = crate::dcgka::DcgkaManager::new(store.clone());
+
         let inner = Arc::new(OlmMachineInner {
             user_id: store.user_id().to_owned(),
             device_id: device_id.to_owned(),
@@ -274,6 +278,7 @@ impl OlmMachine {
             key_request_machine,
             identity_manager,
             backup_machine,
+            dcgka_manager,
         });
 
         Self { inner }
@@ -1079,6 +1084,9 @@ impl OlmMachine {
     /// method but operates on an arbitrary JSON value instead of strongly-typed
     /// event content struct.
     ///
+    /// If DCGKA is enabled for the room, this will use DCGKA encryption.
+    /// Otherwise, it falls back to Megolm encryption.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -1091,13 +1099,31 @@ impl OlmMachine {
     ///
     /// # Panics
     ///
-    /// Panics if a group session for the given room wasn't shared beforehand.
+    /// Panics if a group session for the given room wasn't shared beforehand
+    /// (for Megolm encryption).
     pub async fn encrypt_room_event_raw(
         &self,
         room_id: &RoomId,
         event_type: &str,
         content: &Raw<AnyMessageLikeEventContent>,
     ) -> MegolmResult<RawEncryptionResult> {
+        // Check if DCGKA is enabled for this room
+        if self.is_dcgka_enabled(room_id).await {
+            // Use DCGKA encryption
+            match self.encrypt_with_dcgka(room_id, event_type, content).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    tracing::warn!(
+                        "DCGKA encryption failed for room {}: {}, falling back to Megolm",
+                        room_id,
+                        e
+                    );
+                    // Fall through to Megolm encryption
+                }
+            }
+        }
+
+        // Use Megolm encryption (default)
         self.inner.group_session_manager.encrypt(room_id, event_type, content).await.map(|result| {
             RawEncryptionResult {
                 content: result.content,
@@ -1107,6 +1133,52 @@ impl OlmMachine {
         })
     }
 
+    /// Encrypt content using DCGKA
+    async fn encrypt_with_dcgka(
+        &self,
+        room_id: &RoomId,
+        _event_type: &str,
+        content: &Raw<AnyMessageLikeEventContent>,
+    ) -> Result<RawEncryptionResult, crate::dcgka::DcgkaError> {
+        // Get the JSON string
+        let plaintext_json = content.json().to_string();
+
+        // Encrypt with DCGKA
+        let ciphertext = self.dcgka_encrypt(room_id, plaintext_json.as_bytes()).await?;
+
+        // Create encrypted event content
+        // For PoC, we store ciphertext as array of bytes in JSON
+        let encrypted_content = serde_json::json!({
+            "algorithm": "org.matrix.dcgka.v1",
+            "ciphertext": ciphertext,
+            "device_id": self.device_id().to_string(),
+            "sender_key": self.identity_keys().curve25519.to_base64(),
+        });
+
+        let raw_encrypted = Raw::from_json(
+            to_raw_value(&encrypted_content)
+                .map_err(|e| crate::dcgka::DcgkaError::InvalidState(e.to_string()))?,
+        );
+
+        let identity_keys = self.identity_keys();
+        Ok(RawEncryptionResult {
+            content: raw_encrypted,
+            encryption_info: EncryptionInfo {
+                sender: self.user_id().to_owned(),
+                sender_device: Some(self.device_id().to_owned()),
+                forwarder: None,
+                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                    curve25519_key: identity_keys.curve25519.to_base64(),
+                    sender_claimed_keys: BTreeMap::from([(
+                        DeviceKeyAlgorithm::Ed25519,
+                        identity_keys.ed25519.to_base64(),
+                    )]),
+                    session_id: Some("dcgka".to_string()),
+                },
+                verification_state: VerificationState::Verified,
+            },
+        })
+    }
     fn own_encryption_info(
         &self,
         algorithm: EventEncryptionAlgorithm,
@@ -2821,6 +2893,138 @@ impl OlmMachine {
     /// the server.
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.inner.backup_machine
+    }
+
+    /// Encrypt plaintext using DCGKA for the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID to encrypt for.
+    /// * `plaintext` - The data to encrypt.
+    ///
+    /// # Returns
+    ///
+    /// Returns the ciphertext that can be sent in the room.
+    pub async fn dcgka_encrypt(
+        &self,
+        room_id: &RoomId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, crate::dcgka::DcgkaError> {
+        let mut engine =
+            self.inner.dcgka_manager.get_or_create_engine(room_id).await.map_err(|_| {
+                crate::dcgka::DcgkaError::InvalidState("Failed to get engine".to_owned())
+            })?;
+        let ciphertext = engine.encrypt(plaintext)?;
+
+        // Save the updated engine (encrypt may cache the derived key)
+        self.inner.dcgka_manager.save_engine_state(room_id, &engine).await.map_err(|_| {
+            crate::dcgka::DcgkaError::InvalidState("Failed to save state".to_owned())
+        })?;
+
+        Ok(ciphertext)
+    }
+
+    /// Decrypt ciphertext using DCGKA for the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID to decrypt for.
+    /// * `ciphertext` - The encrypted data to decrypt.
+    ///
+    /// # Returns
+    ///
+    /// Returns the decrypted plaintext.
+    pub async fn dcgka_decrypt(
+        &self,
+        room_id: &RoomId,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, crate::dcgka::DcgkaError> {
+        let engine =
+            self.inner.dcgka_manager.get_or_create_engine(room_id).await.map_err(|_| {
+                crate::dcgka::DcgkaError::InvalidState("Failed to get engine".to_owned())
+            })?;
+        engine.decrypt(ciphertext)
+    }
+
+    /// Process an incoming DCGKA update event.
+    ///
+    /// This should be called when receiving an `m.room.dcgka.update` event.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID the update belongs to.
+    /// * `update` - The DCGKA update from the event.
+    ///
+    /// # Returns
+    ///
+    /// Returns Ok if the update was successfully applied.
+    pub async fn handle_dcgka_event(
+        &self,
+        room_id: &RoomId,
+        update: crate::dcgka::DcgkaUpdate,
+    ) -> Result<crate::dcgka::UpdateStatus, crate::dcgka::DcgkaError> {
+        let mut engine =
+            self.inner.dcgka_manager.get_or_create_engine(room_id).await.map_err(|_| {
+                crate::dcgka::DcgkaError::InvalidState("Failed to get engine".to_owned())
+            })?;
+
+        let status = engine.apply_update(update)?;
+
+        // Save the updated state
+        self.inner.dcgka_manager.save_engine_state(room_id, &engine).await.map_err(|_| {
+            crate::dcgka::DcgkaError::InvalidState("Failed to save state".to_owned())
+        })?;
+
+        Ok(status)
+    }
+
+    /// Enable DCGKA for a room.
+    ///
+    /// This initializes the DCGKA engine for the room and marks it as using DCGKA
+    /// for message encryption. After enabling, all messages sent to this room will
+    /// be encrypted with DCGKA instead of Megolm.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID to enable DCGKA for.
+    pub async fn enable_dcgka(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), crate::dcgka::DcgkaError> {
+        // Create the engine (this also loads existing state if any)
+        let _engine = self.inner.dcgka_manager.get_or_create_engine(room_id).await.map_err(
+            |_| crate::dcgka::DcgkaError::InvalidState("Failed to create engine".to_owned()),
+        )?;
+
+        // Mark the room as using DCGKA
+        self.inner.dcgka_manager.enable_for_room(room_id).await;
+
+        Ok(())
+    }
+
+    /// Disable DCGKA for a room.
+    ///
+    /// This marks the room as no longer using DCGKA for encryption.
+    /// Messages will fall back to Megolm encryption.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID to disable DCGKA for.
+    pub async fn disable_dcgka(&self, room_id: &RoomId) {
+        self.inner.dcgka_manager.disable_for_room(room_id).await;
+    }
+
+    /// Check if DCGKA is enabled for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room ID to check.
+    ///
+    /// # Returns
+    ///
+    /// Returns true if DCGKA is enabled for this room.
+    pub async fn is_dcgka_enabled(&self, room_id: &RoomId) -> bool {
+        self.inner.dcgka_manager.is_enabled_for_room(room_id).await
     }
 
     /// Syncs the database and in-memory generation counter.

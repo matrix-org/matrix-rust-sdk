@@ -1593,6 +1593,32 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(Some(self.pool.get().await?.get_db_size().await?))
     }
+
+    async fn save_dcgka_state(
+        &self,
+        room_id: &RoomId,
+        state: matrix_sdk_crypto::dcgka::DcgkaState,
+    ) -> Result<()> {
+        let key = format!("dcgka_state_{}", room_id);
+        let serialized = self.serialize_value(&state)?;
+        let conn = self.acquire().await?;
+        conn.set_kv(&key, serialized).await?;
+        Ok(())
+    }
+
+    async fn load_dcgka_state(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<matrix_sdk_crypto::dcgka::DcgkaState>> {
+        let key = format!("dcgka_state_{}", room_id);
+        let conn = self.acquire().await?;
+        if let Some(serialized) = conn.get_kv(&key).await? {
+            let state = self.deserialize_value(&serialized)?;
+            Ok(Some(state))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

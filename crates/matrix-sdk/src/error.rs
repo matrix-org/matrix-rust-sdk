@@ -410,6 +410,11 @@ pub enum Error {
     /// An error happened while attempting to change power levels.
     #[error("power levels error: {0}")]
     PowerLevels(#[from] PowerLevelsError),
+
+    /// An error occurred during a DCGKA operation.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    DcgkaError(Box<matrix_sdk_base::crypto::dcgka::DcgkaError>),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
@@ -530,6 +535,13 @@ impl From<EventCacheError> for Error {
 impl From<QueueWedgeError> for Error {
     fn from(error: QueueWedgeError) -> Self {
         Error::SendQueueWedgeError(Box::new(error))
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl From<matrix_sdk_base::crypto::dcgka::DcgkaError> for Error {
+    fn from(error: matrix_sdk_base::crypto::dcgka::DcgkaError) -> Self {
+        Error::DcgkaError(Box::new(error))
     }
 }
 

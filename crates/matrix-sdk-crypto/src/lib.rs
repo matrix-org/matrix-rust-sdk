@@ -20,6 +20,7 @@
 
 pub mod backups;
 mod ciphers;
+pub mod dcgka;
 pub mod dehydrated_devices;
 mod error;
 mod file_encryption;

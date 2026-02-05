@@ -3235,6 +3235,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "cfg-if",
+ "chacha20poly1305",
  "ctr",
  "eyeball",
  "futures-core",
@@ -6319,6 +6320,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f294bff79170ed1c5633812aff1e565c35d993a36e757f9bc0accf5eec4e6045"
 dependencies = [
  "rand 0.8.5",
+ "serde",
  "web-time",
 ]
 
