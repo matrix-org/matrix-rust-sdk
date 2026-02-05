@@ -46,7 +46,7 @@ use matrix_sdk_base::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     media::{MediaThumbnailSettings, store::IgnoreMediaRetentionPolicy},
-    serde_helpers::{RelationsType, extract_relation},
+    serde_helpers::extract_relation,
     store::{StateStoreExt, ThreadSubscriptionStatus},
 };
 #[cfg(feature = "e2e-encryption")]
@@ -886,19 +886,7 @@ impl Room {
                                 let (rel_type, _) = extract_relation(ev.raw())?;
                                 filter
                                     .iter()
-                                    .any(|ruma_filter| match ruma_filter {
-                                        RelationType::Annotation => {
-                                            rel_type == RelationsType::Annotation
-                                        }
-                                        RelationType::Replacement => {
-                                            rel_type == RelationsType::Edit
-                                        }
-                                        RelationType::Thread => rel_type == RelationsType::Thread,
-                                        RelationType::Reference => {
-                                            rel_type == RelationsType::Reference
-                                        }
-                                        _ => false,
-                                    })
+                                    .any(|ruma_filter| ruma_filter == &rel_type)
                                     .then_some(ev)
                             }));
                         } else {
