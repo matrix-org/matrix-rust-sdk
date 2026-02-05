@@ -1112,32 +1112,11 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let request_id = format!("publish-membership-{now_ms}");
-    let event_id = format!("$local-call-member-{now_ms}");
-    let message = serde_json::json!({
-        "api": "fromWidget",
-        "widgetId": widget.widget_id,
-        "requestId": request_id,
-        "action": "update_state",
-        "data": {
-            "state": [{
-                "type": "org.matrix.msc3401.call.member",
-                "sender": own_user_id.to_string(),
-                "content": content,
-                "state_key": state_key.as_ref(),
-                "room_id": room.room_id().to_string(),
-                "event_id": event_id,
-            }],
-        }
-    });
-    if !widget.handle.send(message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership"));
-    }
-    info!("published MatrixRTC membership via widget api");
+    let send_response = room
+        .send_state_event_for_key(state_key.as_ref(), content)
+        .await
+        .context("send MatrixRTC membership state event")?;
+    info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
     Ok(())
 }
 
