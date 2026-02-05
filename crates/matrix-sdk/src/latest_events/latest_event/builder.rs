@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     iter::once,
     ops::{ControlFlow, Deref},
 };
@@ -58,8 +59,7 @@ impl Builder {
         let mut current_value_must_be_erased = false;
 
         // Track the most recent edit for each event.
-        let mut latest_edit_for_event: std::collections::HashMap<OwnedEventId, TimelineEvent> =
-            std::collections::HashMap::new();
+        let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event, _| {
