@@ -37,6 +37,17 @@ pub(super) async fn send_updates_to_store(
     }
 
     // Strip relations from updates which insert or replace items.
+    //
+    // The reason we're doing this, is that consumers of the event cache might look
+    // into bundled relations, and assume they're up to date. If we were to keep
+    // the relations in the events, when storing them, then it could be that
+    // they become outdated (as soon as a new relation comes over sync), so we'd
+    // need to update the bundled relations in this case, which would
+    // have a non-negligible cost, as we'd need to look up related events for each
+    // forwarded to a listener.
+    //
+    // As a result, we choose to strip bundled relations from events when we forward
+    // them to the store, and consumers have to explicitly ask for relations.
     for update in updates.iter_mut() {
         match update {
             Update::PushItems { items, .. } => strip_relations_from_events(items),
