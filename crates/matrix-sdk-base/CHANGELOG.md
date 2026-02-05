@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix invited/knocked rooms disappearing from the room list after
+  join → leave/kick → re-invite when using Sliding Sync. The SDK now always
+  emits a room update so the room is surfaced correctly again.
+  ([#6126](https://github.com/matrix-org/matrix-rust-sdk/pull/6126))
+
+
 - [**breaking**] New `LatestEventValue::LocalHasBeenSent` variant to represent
   a local event that has been sent successfully.
   ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968))
