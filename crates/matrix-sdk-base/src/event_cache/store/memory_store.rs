@@ -37,6 +37,12 @@ use crate::event_cache::{Event, Gap};
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
 /// Default if no other is configured at startup.
+///
+/// Note that this store is not transactional. This is particularly
+/// relevant when calling [`EventCacheStore::handle_linked_chunk_updates`],
+/// which consumes a list of [`Update`]s. When processing this list, if
+/// one of the [`Update`]s fails, the previous updates in the list
+/// will not be reversed.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     inner: Arc<StdRwLock<MemoryStoreInner>>,
@@ -88,7 +94,10 @@ impl EventCacheStore for MemoryStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
-        inner.events.apply_updates(linked_chunk_id, updates);
+        inner
+            .events
+            .apply_updates(linked_chunk_id, updates)
+            .map_err(|e| Self::Error::Backend(Box::new(e)))?;
 
         Ok(())
     }

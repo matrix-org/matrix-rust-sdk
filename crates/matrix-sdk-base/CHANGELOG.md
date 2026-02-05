@@ -19,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - The `LatestEventValue::LocalHasBeenSent` variant gains a new `event_id:
   OwnedEventId` field.
   ([#5977](https://github.com/matrix-org/matrix-rust-sdk/pull/5977))
+- [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
+  than panicking. This is necessary in order to ensure certain behaviors are disallowed.
+  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
 ### Refactor
 

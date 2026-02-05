@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
+- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks may no longer
+  reference chunk identifiers which do not yet exist in the store
+  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
 ### Bug Fixes
 
