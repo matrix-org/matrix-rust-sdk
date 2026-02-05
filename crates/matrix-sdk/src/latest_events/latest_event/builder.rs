@@ -92,12 +92,11 @@ impl Builder {
                     ControlFlow::Break(()) => {
                         // Return the latest known edit of the event or the event itself if it
                         // hasn't been replaced.
-                        if let Some(event_id) = event.event_id()
-                            && let Some(edit) = latest_edit_for_event.get(&event_id)
-                        {
-                            return Some(edit.clone());
-                        }
-                        Some(event.clone())
+                        event
+                            .event_id()
+                            .and_then(|event_id| latest_edit_for_event.get(&event_id))
+                            .cloned()
+                            .or_else(|| Some(event.clone()))
                     }
                 }
             })
