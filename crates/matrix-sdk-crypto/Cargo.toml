@@ -68,7 +68,7 @@ serde_json.workspace = true
 sha2.workspace = true
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
-time = { version = "0.3.44", default-features = false, features = ["std", "formatting"] }
+time = { version = "0.3.47", default-features = false, features = ["std", "formatting"] }
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
