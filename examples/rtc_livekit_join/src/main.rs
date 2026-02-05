@@ -1015,6 +1015,19 @@ async fn start_element_call_widget(
                 }
                 let _ = capabilities_ready_tx.send(true);
             }
+            if action == "send_event" {
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "send_event",
+                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "response": {},
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
+            }
             if action == "update_state" {
                 let response = serde_json::json!({
                     "api": "toWidget",
