@@ -12,18 +12,84 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::{deserialized_responses::TimelineEventKind, event_cache::Event};
+use matrix_sdk_base::{
+    deserialized_responses::TimelineEventKind,
+    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
+    executor::spawn,
+    linked_chunk::{OwnedLinkedChunkId, Update},
+};
 use ruma::serde::Raw;
+use tokio::sync::broadcast::Sender;
+use tracing::trace;
+
+use crate::event_cache::{Result, RoomEventCacheLinkedChunkUpdate};
+
+/// Propagate linked chunk updates to the store and to the linked chunk update
+/// observers.
+pub(super) async fn send_updates_to_store(
+    store: &EventCacheStoreLockGuard,
+    linked_chunk_id: OwnedLinkedChunkId,
+    linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
+    mut updates: Vec<Update<Event, Gap>>,
+) -> Result<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    // Strip relations from updates which insert or replace items.
+    for update in updates.iter_mut() {
+        match update {
+            Update::PushItems { items, .. } => strip_relations_from_events(items),
+            Update::ReplaceItem { item, .. } => strip_relations_from_event(item),
+            // Other update kinds don't involve adding new events.
+            Update::NewItemsChunk { .. }
+            | Update::NewGapChunk { .. }
+            | Update::RemoveChunk(_)
+            | Update::RemoveItem { .. }
+            | Update::DetachLastItems { .. }
+            | Update::StartReattachItems
+            | Update::EndReattachItems
+            | Update::Clear => {}
+        }
+    }
+
+    // Spawn a task to make sure that all the changes are effectively forwarded to
+    // the store, even if the call to this method gets aborted.
+    //
+    // The store cross-process locking involves an actual mutex, which ensures that
+    // storing updates happens in the expected order.
+
+    let store = store.clone();
+    let cloned_updates = updates.clone();
+    let cloned_linked_chunk_id = linked_chunk_id.clone();
+
+    spawn(async move {
+        trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
+
+        store.handle_linked_chunk_updates(cloned_linked_chunk_id.as_ref(), cloned_updates).await?;
+        trace!("linked chunk updates applied");
+
+        Result::Ok(())
+    })
+    .await
+    .expect("joining failed")?;
+
+    // Forward that the store got updated to observers.
+    let _ = linked_chunk_update_sender
+        .send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
+
+    Ok(())
+}
 
 /// Strips the bundled relations from a collection of events.
-pub(in crate::event_cache) fn strip_relations_from_events(items: &mut [Event]) {
+fn strip_relations_from_events(items: &mut [Event]) {
     for ev in items.iter_mut() {
         strip_relations_from_event(ev);
     }
 }
 
 /// Strips the bundled relations from an event, if they were present.
-pub(in crate::event_cache) fn strip_relations_from_event(ev: &mut Event) {
+fn strip_relations_from_event(ev: &mut Event) {
     match &mut ev.kind {
         TimelineEventKind::Decrypted(decrypted) => {
             // Remove all information about encryption info for

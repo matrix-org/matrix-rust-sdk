@@ -19,10 +19,10 @@ use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{deserialized_responses::TimelineEventKind, linked_chunk::Position};
 use matrix_sdk_base::{
     event_cache::{
-        Event, Gap,
+        Event,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
-    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
     serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
 };
@@ -50,11 +50,8 @@ use crate::{
     config::RequestConfig,
     event_cache::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        RoomEventCacheUpdate,
-        persistence::{strip_relations_from_event, strip_relations_from_events},
-        room::events::EventLinkedChunk,
+        RoomEventCacheUpdate, persistence::send_updates_to_store, room::events::EventLinkedChunk,
     },
-    executor::spawn,
     room::WeakRoom,
 };
 
@@ -311,62 +308,14 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
     /// changes on disk.
     async fn propagate_changes(&mut self) -> Result<()> {
         let updates = self.state.chunk.store_updates().take();
-        self.send_updates_to_store(updates).await
-    }
-
-    // TODO(bnjbvr): copy/pasted from the room implementation; should be factored
-    // out as a persistence layer helper.
-    async fn send_updates_to_store(&mut self, mut updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        if updates.is_empty() {
-            return Ok(());
-        }
-
-        // Strip relations from updates which insert or replace items.
-        for update in updates.iter_mut() {
-            match update {
-                Update::PushItems { items, .. } => strip_relations_from_events(items),
-                Update::ReplaceItem { item, .. } => strip_relations_from_event(item),
-                // Other update kinds don't involve adding new events.
-                Update::NewItemsChunk { .. }
-                | Update::NewGapChunk { .. }
-                | Update::RemoveChunk(_)
-                | Update::RemoveItem { .. }
-                | Update::DetachLastItems { .. }
-                | Update::StartReattachItems
-                | Update::EndReattachItems
-                | Update::Clear => {}
-            }
-        }
-
-        // Spawn a task to make sure that all the changes are effectively forwarded to
-        // the store, even if the call to this method gets aborted.
-        //
-        // The store cross-process locking involves an actual mutex, which ensures that
-        // storing updates happens in the expected order.
-
-        let store = self.store.clone();
-        let room_id = self.state.room_id.clone();
-        let cloned_updates = updates.clone();
-
-        spawn(async move {
-            trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
-            let linked_chunk_id = LinkedChunkId::PinnedEvents(&room_id);
-
-            store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
-            trace!("linked chunk updates applied");
-
-            Result::Ok(())
-        })
-        .await
-        .expect("joining failed")?;
-
-        // Forward that the store got updated to observers.
-        let _ = self.state.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-            linked_chunk_id: OwnedLinkedChunkId::PinnedEvents(self.state.room_id.clone()),
+        let linked_chunk_id = OwnedLinkedChunkId::PinnedEvents(self.state.room_id.clone());
+        send_updates_to_store(
+            &self.store,
+            linked_chunk_id,
+            &self.state.linked_chunk_update_sender,
             updates,
-        });
-
-        Ok(())
+        )
+        .await
     }
 }
 
