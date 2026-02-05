@@ -24,6 +24,7 @@ use matrix_sdk_base::{
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
+    task_monitor::BackgroundTaskHandle,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::EventId;
@@ -52,7 +53,7 @@ use crate::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
         RoomEventCacheUpdate, room::events::EventLinkedChunk,
     },
-    executor::{JoinHandle, spawn},
+    executor::spawn,
     room::WeakRoom,
 };
 
@@ -449,9 +450,7 @@ pub struct PinnedEventCache {
 
     /// The task handling the refreshing of pinned events for this specific
     /// room.
-    // TODO(bnjbvr): use the background job handle for this, when
-    // available in `main`.
-    _task: Arc<JoinHandle<()>>,
+    _task: Arc<BackgroundTaskHandle>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -481,7 +480,10 @@ impl PinnedEventCache {
             state_lock_upgrade_mutex: Mutex::new(()),
         });
 
-        let task = Arc::new(spawn(Self::pinned_event_listener_task(room, state.clone())));
+        let task = Arc::new(room.client().task_monitor().spawn_background_task(
+            "pinned_event_listener_task",
+            Self::pinned_event_listener_task(room, state.clone()),
+        ));
 
         Self { state, _task: task }
     }
