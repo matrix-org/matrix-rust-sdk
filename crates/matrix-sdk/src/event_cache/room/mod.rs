@@ -734,10 +734,7 @@ mod private {
     };
     use crate::{
         Room,
-        event_cache::{
-            persistence::{strip_relations_from_event, strip_relations_from_events},
-            room::pinned_events::PinnedEventCache,
-        },
+        event_cache::{persistence::send_updates_to_store, room::pinned_events::PinnedEventCache},
     };
 
     /// State for a single room's event cache.
@@ -1541,57 +1538,16 @@ mod private {
 
         async fn send_updates_to_store(
             &mut self,
-            mut updates: Vec<Update<Event, Gap>>,
+            updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
-            if updates.is_empty() {
-                return Ok(());
-            }
-
-            // Strip relations from updates which insert or replace items.
-            for update in updates.iter_mut() {
-                match update {
-                    Update::PushItems { items, .. } => strip_relations_from_events(items),
-                    Update::ReplaceItem { item, .. } => strip_relations_from_event(item),
-                    // Other update kinds don't involve adding new events.
-                    Update::NewItemsChunk { .. }
-                    | Update::NewGapChunk { .. }
-                    | Update::RemoveChunk(_)
-                    | Update::RemoveItem { .. }
-                    | Update::DetachLastItems { .. }
-                    | Update::StartReattachItems
-                    | Update::EndReattachItems
-                    | Update::Clear => {}
-                }
-            }
-
-            // Spawn a task to make sure that all the changes are effectively forwarded to
-            // the store, even if the call to this method gets aborted.
-            //
-            // The store cross-process locking involves an actual mutex, which ensures that
-            // storing updates happens in the expected order.
-
-            let store = self.store.clone();
-            let room_id = self.state.room_id.clone();
-            let cloned_updates = updates.clone();
-
-            spawn(async move {
-                trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
-                let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
-                trace!("linked chunk updates applied");
-
-                super::Result::Ok(())
-            })
-            .await
-            .expect("joining failed")?;
-
-            // Forward that the store got updated to observers.
-            let _ = self.state.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-                linked_chunk_id: OwnedLinkedChunkId::Room(self.state.room_id.clone()),
+            let linked_chunk_id = OwnedLinkedChunkId::Room(self.state.room_id.clone());
+            send_updates_to_store(
+                &self.store,
+                linked_chunk_id,
+                &self.state.linked_chunk_update_sender,
                 updates,
-            });
-
-            Ok(())
+            )
+            .await
         }
 
         /// Reset this data structure as if it were brand new.
