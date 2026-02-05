@@ -273,8 +273,8 @@ impl RoomMember {
         // This is a naive check to avoid showing display names for banned members.
         // The display name could still be present in the previous content, but
         // we don't want to use that for banned members, as it might be inappropriate.
-        // This is fine to have the check here, as m.room.member events for banned members
-        // usually don't have display names set.
+        // This is fine to have the check here, as m.room.member events for banned
+        // members usually don't have display names set.
         if self.membership() == &MembershipState::Ban {
             return None;
         }
@@ -312,8 +312,8 @@ impl RoomMember {
         // This is a naive check to avoid showing avatar urls for banned members.
         // The avatar url could still be present in the previous content, but
         // we don't want to use that for banned members, as it might be inappropriate.
-        // This is fine to have the check here, as m.room.member events for banned members
-        // usually don't have avatar urls set.
+        // This is fine to have the check here, as m.room.member events for banned
+        // members usually don't have avatar urls set.
         if self.membership() == &MembershipState::Ban {
             return None;
         }

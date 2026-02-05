@@ -116,17 +116,35 @@ async fn test_user_profile_after_being_banned() {
 
     // Bob is still in the room, his profile should be available.
     let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
-    println!("Bob's profile: {bob_profile:#?}");
+    match bob_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Bob".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://123".into()));
+        }
+        _ => panic!("Expected Bob's profile to be ready"),
+    }
 
     // Carol has left the room, but we have her previous content in the leave event.
     let carol_profile = timeline_items[8].as_event().unwrap().sender_profile();
-    println!("Carol's profile: {carol_profile:#?}");
+    match carol_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Carol".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://789".into()));
+        }
+        _ => panic!("Expected Carol's profile to be ready"),
+    }
 
     // Alice's profile, and therefore display name, should be empty,
     // as she has been banned. The SDK **should not** use the previous content
     // of the ban event to fill in the profile information in those cases.
     let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
-    println!("Alice's profile: {alice_profile:#?}");
+    match alice_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, None);
+            assert_eq!(profile.avatar_url, None);
+        }
+        _ => panic!("Expected Alice's profile to be ready"),
+    }
 }
 
 #[async_test]
