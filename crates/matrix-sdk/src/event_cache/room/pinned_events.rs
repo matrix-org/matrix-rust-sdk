@@ -24,7 +24,7 @@ use matrix_sdk_base::{
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
-    serde_helpers::{RelationsType, extract_relation},
+    serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -557,10 +557,8 @@ impl PinnedEventCache {
 
         // Don't include thread responses in the pinned event chunk.
         match rel_type {
-            RelationsType::Thread => None,
-            RelationsType::Edit | RelationsType::Annotation | RelationsType::Reference => {
-                Some(event_id)
-            }
+            RelationType::Thread => None,
+            _ => Some(event_id),
         }
     }
 

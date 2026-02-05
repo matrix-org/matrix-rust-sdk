@@ -19,7 +19,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        relation::BundledThread,
+        relation::{BundledThread, RelationType},
     },
     serde::Raw,
 };
@@ -27,30 +27,10 @@ use serde::Deserialize;
 
 use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
-/// The type of relation an event has to another one, if any.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-pub enum RelationsType {
-    /// The event is part of a thread, and the related event is the thread root.
-    #[serde(rename = "m.thread")]
-    Thread,
-    /// The event is an edit of another event, and the related event is the one
-    /// being edited.
-    #[serde(rename = "m.replace")]
-    Edit,
-    /// The event is an annotation of (reaction to) another event, and the
-    /// related event is the one being annotated.
-    #[serde(rename = "m.annotation")]
-    Annotation,
-    /// The event is referencing another event, and the related event is the one
-    /// being referenced.
-    #[serde(rename = "m.reference")]
-    Reference,
-}
-
 #[derive(Deserialize)]
 struct RelatesTo {
     #[serde(rename = "rel_type")]
-    rel_type: RelationsType,
+    rel_type: RelationType,
     #[serde(rename = "event_id")]
     event_id: Option<OwnedEventId>,
 }
@@ -74,8 +54,8 @@ pub fn extract_thread_root_from_content(
 ) -> Option<OwnedEventId> {
     let relates_to = content.deserialize_as_unchecked::<SimplifiedContent>().ok()?.relates_to?;
     match relates_to.rel_type {
-        RelationsType::Thread => relates_to.event_id,
-        RelationsType::Edit | RelationsType::Reference | RelationsType::Annotation => None,
+        RelationType::Thread => relates_to.event_id,
+        _ => None,
     }
 }
 
@@ -102,16 +82,14 @@ pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
 pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     match relates_to.rel_type {
-        RelationsType::Edit => relates_to.event_id,
-        RelationsType::Thread | RelationsType::Reference | RelationsType::Annotation => None,
+        RelationType::Replacement => relates_to.event_id,
+        _ => None,
     }
 }
 
 /// Try to extract the type and target of a relation, from a raw timeline event,
 /// if provided.
-pub fn extract_relation(
-    event: &Raw<AnySyncTimelineEvent>,
-) -> Option<(RelationsType, OwnedEventId)> {
+pub fn extract_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(RelationType, OwnedEventId)> {
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     Some((relates_to.rel_type, relates_to.event_id?))
 }
@@ -184,7 +162,7 @@ mod tests {
     };
     use crate::{
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
-        serde_helpers::{RelationsType, extract_relation},
+        serde_helpers::{RelationType, extract_relation},
     };
 
     #[test]
@@ -213,7 +191,7 @@ mod tests {
         let observed_thread_root = extract_thread_root(&event);
         assert_eq!(observed_thread_root.as_deref(), Some(thread_root));
         let observed_relation = extract_relation(&event).unwrap();
-        assert_eq!(observed_relation, (RelationsType::Thread, thread_root.to_owned()));
+        assert_eq!(observed_relation, (RelationType::Thread, thread_root.to_owned()));
 
         // If the event doesn't have a content for some reason (redacted), it returns
         // None.
@@ -269,7 +247,7 @@ mod tests {
         let observed_relation = extract_relation(&event).unwrap();
         assert_eq!(
             observed_relation,
-            (RelationsType::Reference, owned_event_id!("$referenced_event_id:example.com"))
+            (RelationType::Reference, owned_event_id!("$referenced_event_id:example.com"))
         );
     }
 
