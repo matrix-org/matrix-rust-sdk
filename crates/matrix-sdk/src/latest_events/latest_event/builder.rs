@@ -674,9 +674,9 @@ fn filter_any_message_like_event_content(
             // Not all relations are accepted. Let's filter them.
             match relates_to {
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
-                    // Edits are only suitable as latest events when the replaced event would
-                    // otherwise be the latest event. We pass the target event ID up from here
-                    // so that it can be tracked in the outer loop.
+                    // Edits are suitable as latest events if and only if the targeted event is also
+                    // suitable. Let's remember this edit, and the associated
+                    // targeted event ID.
                     filter_continue_with_edit(event_id)
                 }
 
