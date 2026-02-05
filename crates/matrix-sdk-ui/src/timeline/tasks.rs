@@ -82,14 +82,7 @@ pub(in crate::timeline) async fn pinned_events_task(
                     EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
                     EventsOrigin::Cache => RemoteEventOrigin::Cache,
                 };
-
-                let has_diffs = !diffs.is_empty();
-
                 timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
-
-                if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
-                    timeline_controller.retry_event_decryption(None).await;
-                }
             }
 
             RoomEventCacheUpdate::MoveReadMarkerTo { .. }
@@ -222,7 +215,7 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
                 } else if !matches!(timeline_focus, TimelineFocus::PinnedEvents) {
                     // Only handle the remote aggregation for a non-live timeline, that's not the
-                    // pinned events one (since this one handles its own remote events diffs).
+                    // pinned events one (since the latter handles remote aggregations on its own).
                     timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 
