@@ -1167,9 +1167,9 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_map_event_in_memory_by<'i, O, P>(&'i self, mut predicate: P) -> Option<O>
+        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&'i Event) -> Option<O>,
+            P: FnMut(&Event) -> Option<O>,
         {
             self.state.room_linked_chunk.revents().find_map(|(_, event)| predicate(event))
         }
