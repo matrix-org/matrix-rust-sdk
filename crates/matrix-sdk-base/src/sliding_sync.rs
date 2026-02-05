@@ -339,6 +339,44 @@ mod tests {
         store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
     };
+    #[async_test]
+    async fn test_reinvite_after_kick_emits_invited_update_again() {
+        let client = logged_in_base_client(None).await;
+
+        let room_id = room_id!("!reinvite:example.org");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        // join
+        let mut room = http::response::Room::new();
+        set_room_joined(&mut room, &user_id);
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &RequestedRequiredStates::default()).await.unwrap();
+
+        // leave/kick
+        let mut room = http::response::Room::new();
+        set_room_left(&mut room, &user_id);
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &RequestedRequiredStates::default()).await.unwrap();
+
+        // reinvite 
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, &user_id, &user_id);
+
+        let response = response_with_room(room_id, room);
+
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
+
+        // regression check
+        assert!(
+            sync_resp.rooms.invited.contains_key(room_id),
+            "Room must reappear in invited list after re-invite"
+        );
+    }
 
     #[async_test]
     async fn test_notification_count_set() {
