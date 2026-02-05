@@ -124,7 +124,7 @@ async fn test_user_profile_after_being_banned() {
         _ => panic!("Expected Bob's profile to be ready"),
     }
 
-    // Carol has left the room, but we have her previous content in the leave event.
+    // Carol has left the room, but her profile should still be available.
     let carol_profile = timeline_items[8].as_event().unwrap().sender_profile();
     match carol_profile {
         TimelineDetails::Ready(profile) => {
@@ -135,8 +135,8 @@ async fn test_user_profile_after_being_banned() {
     }
 
     // Alice's profile, and therefore display name, should be empty,
-    // as she has been banned. The SDK **should not** use the previous content
-    // of the ban event to fill in the profile information in those cases.
+    // as she has been banned. The SDK **should** return an empty
+    // profile for banned users.
     let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
     match alice_profile {
         TimelineDetails::Ready(profile) => {
@@ -207,7 +207,7 @@ async fn test_user_profile_after_leaving() {
     assert_eq!(timeline_items.len(), 6);
 
     // Alice's profile, and therefore display name, should be still available after
-    // she left the room, thanks to the previous content in the leave event
+    // she left the room.
     let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
     match alice_profile {
         TimelineDetails::Ready(profile) => {
