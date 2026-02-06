@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- [**breaking**] `BaseClient::room_info_notable_update_sender` has
+  moved into `BaseStateStore`. `BaseStateStore::derive_from_other`
+  and `BaseStateStore::get_or_create_room` no longer takes a
+  `room_info_notable_update_sender` argument.
+  ([#6130](https://github.com/matrix-org/matrix-rust-sdk/pull/6130))
 - [**breaking**] New `LatestEventValue::LocalHasBeenSent` variant to represent
   a local event that has been sent successfully.
   ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968))
