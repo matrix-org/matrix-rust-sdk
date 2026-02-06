@@ -1,4 +1,4 @@
-// Copyright 2025 The Matrix.org Foundation C.I.C.
+// Copyright 2025, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,6 @@ use vodozemac::ecies::CheckCode;
 
 use super::{
     LoginProtocolType, QrAuthMessage,
-    messages::LoginProtocolsMessage,
     secure_channel::{EstablishedSecureChannel, SecureChannel},
 };
 use crate::{
@@ -39,7 +38,7 @@ use crate::{
     authentication::oauth::qrcode::{
         CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
         GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
-        SecureChannelError,
+        SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
     },
 };
 
@@ -327,10 +326,21 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             // the homeserver to use.
             //
             // -- MSC4108 OAuth 2.0 login step 1
-            let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
-                protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
-                homeserver: self.client.homeserver(),
-            });
+            let message = match channel.channel_variant() {
+                ChannelVariant::Msc4108 => {
+                    QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        homeserver: self.client.homeserver(),
+                    })
+                }
+                #[cfg(feature = "unstable-msc4388")]
+                ChannelVariant::Msc4388 => {
+                    QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        base_url: self.client.homeserver(),
+                    })
+                }
+            };
             channel.send_json(message).await?;
 
             // Proceed with granting the login.
@@ -355,6 +365,7 @@ pub struct GrantLoginWithGeneratedQrCode<'a> {
     client: &'a Client,
     device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<GeneratedQrProgress>>,
+    msc_4388_support: bool,
 }
 
 impl<'a> GrantLoginWithGeneratedQrCode<'a> {
@@ -362,7 +373,12 @@ impl<'a> GrantLoginWithGeneratedQrCode<'a> {
         client: &'a Client,
         device_creation_timeout: Duration,
     ) -> GrantLoginWithGeneratedQrCode<'a> {
-        GrantLoginWithGeneratedQrCode { client, device_creation_timeout, state: Default::default() }
+        GrantLoginWithGeneratedQrCode {
+            client,
+            device_creation_timeout,
+            state: Default::default(),
+            msc_4388_support: false,
+        }
     }
 }
 
@@ -377,6 +393,15 @@ impl GrantLoginWithGeneratedQrCode<'_> {
         &self,
     ) -> impl Stream<Item = GrantLoginProgress<GeneratedQrProgress>> + use<> {
         self.state.subscribe()
+    }
+
+    /// Enable and generate a QR code which supports [MSC4388].
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "unstable-msc4388")]
+    pub fn with_msc4388_support(&mut self) -> &mut Self {
+        self.msc_4388_support = true;
+        self
     }
 }
 
@@ -393,7 +418,9 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             let homeserver_url = self.client.homeserver();
             let http_client = self.client.inner.http_client.clone();
             let secrets_bundle = export_secrets_bundle(self.client).await?;
-            let channel = SecureChannel::reciprocate(http_client, &homeserver_url).await?;
+            let channel =
+                SecureChannel::reciprocate(http_client, &homeserver_url, self.msc_4388_support)
+                    .await?;
 
             // Extract the QR code data and emit an update so that the caller
             // can present the QR code for scanning by the new device.
@@ -455,7 +482,7 @@ mod test {
     use std::{assert_matches, sync::Arc};
 
     use futures_util::StreamExt;
-    use matrix_sdk_base::crypto::types::SecretsBundle;
+    use matrix_sdk_base::crypto::types::{SecretsBundle, qr_login::QrCodeIntentData};
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
@@ -714,6 +741,11 @@ mod test {
         device_authorization_grant: Option<AuthorizationGrant>,
         secrets_bundle: Option<SecretsBundle>,
     ) {
+        let is_using_msc_4388 = match channel.qr_code_data().intent_data() {
+            QrCodeIntentData::Msc4108 { .. } => false,
+            QrCodeIntentData::Msc4388 { .. } => true,
+        };
+
         // Wait for Alice to scan the qr code and connect the secure channel.
         let channel =
             channel.connect().await.expect("Bob should be able to connect the secure channel");
@@ -730,12 +762,27 @@ mod test {
             .receive_json()
             .await
             .expect("Bob should receive the LoginProtocolAccepted message from Alice");
-        assert_let!(
-            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
-                protocols,
-                homeserver: alice_homeserver
-            }) = message
-        );
+
+        let (protocols, alice_homeserver) = if is_using_msc_4388 {
+            assert_let!(
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols,
+                    base_url,
+                }) = message
+            );
+
+            (protocols, base_url)
+        } else {
+            assert_let!(
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                    protocols,
+                    homeserver,
+                }) = message
+            );
+
+            (protocols, homeserver)
+        };
+
         assert_eq!(protocols, vec![LoginProtocolType::DeviceAuthorizationGrant]);
         assert_eq!(alice_homeserver, homeserver);
 
@@ -1086,7 +1133,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1220,7 +1267,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1474,7 +1521,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1860,7 +1907,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2120,7 +2167,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2314,7 +2361,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2518,7 +2565,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2786,7 +2833,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3073,7 +3120,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3326,7 +3373,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3593,7 +3640,7 @@ mod test {
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
