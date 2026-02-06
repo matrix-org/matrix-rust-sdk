@@ -32,7 +32,6 @@ use ruma::{
     },
     serde::Raw,
 };
-use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
@@ -41,8 +40,7 @@ use super::{
     RoomCreationData,
 };
 use crate::{
-    Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomState,
+    Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
     utils::RawSyncStateEventWithKeys,
@@ -67,12 +65,8 @@ pub async fn update_any_room(
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     let _timer = timer!(tracing::Level::TRACE, "update_any_room");
 
-    let RoomCreationData {
-        room_id,
-        room_info_notable_update_sender,
-        requested_required_states,
-        ambiguity_cache,
-    } = room_creation_data;
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
+        room_creation_data;
 
     // Read state events from the `required_state` field.
     //
@@ -98,7 +92,6 @@ pub async fn update_any_room(
         state_store,
         user_id,
         room_id,
-        room_info_notable_update_sender,
     );
 
     room_info.mark_state_partially_synced();
@@ -220,7 +213,6 @@ fn membership(
     store: &BaseStateStore,
     user_id: &UserId,
     room_id: &RoomId,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
 ) -> (Room, RoomInfo, Option<RoomUpdateKind>) {
     // There are invite state events. It means the room can be:
     //
@@ -247,11 +239,7 @@ fn membership(
                 membership: MembershipState::Knock,
                 ..
             }) => {
-                let room = store.get_or_create_room(
-                    room_id,
-                    RoomState::Knocked,
-                    room_info_notable_update_sender,
-                );
+                let room = store.get_or_create_room(room_id, RoomState::Knocked);
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_knocked();
@@ -265,11 +253,7 @@ fn membership(
 
             // Otherwise, assume it's an invited room because there are invite state events.
             _ => {
-                let room = store.get_or_create_room(
-                    room_id,
-                    RoomState::Invited,
-                    room_info_notable_update_sender,
-                );
+                let room = store.get_or_create_room(room_id, RoomState::Invited);
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_invited();
@@ -284,8 +268,7 @@ fn membership(
     // No invite state events. We assume this is a joined room for the moment. See this block to
     // learn more.
     else {
-        let room =
-            store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
+        let room = store.get_or_create_room(room_id, RoomState::Joined);
         let mut room_info = room.clone_info();
 
         // We default to considering this room joined if it's not an invite. If it's

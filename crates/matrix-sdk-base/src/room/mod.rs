@@ -86,7 +86,13 @@ pub struct Room {
     pub(super) own_user_id: OwnedUserId,
 
     pub(super) info: SharedObservable<RoomInfo>,
+
+    /// A clone of the [`BaseStateStore::room_info_notable_update_sender`].
+    ///
+    /// [`BaseStateStore::room_info_notable_update_sender`]: crate::store::BaseStateStore::room_info_notable_update_sender
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+
+    /// A clone of the state store.
     pub(super) store: Arc<DynStateStore>,
 
     /// A map for ids of room membership events in the knocking state linked to
