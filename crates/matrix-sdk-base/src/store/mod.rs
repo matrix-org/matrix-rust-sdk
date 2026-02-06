@@ -868,7 +868,7 @@ impl StoreConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{ops::Not, sync::Arc};
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
@@ -935,6 +935,14 @@ mod tests {
         assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::One(ref room_id) => {
             assert_eq!(room_id, room_id_0);
         });
+
+        // The `RoomInfoNotableUpdate` is not derived. Every one has its own channel.
+        assert!(
+            store
+                .room_info_notable_update_sender
+                .same_channel(&other.room_info_notable_update_sender)
+                .not()
+        );
     }
 
     #[test]
