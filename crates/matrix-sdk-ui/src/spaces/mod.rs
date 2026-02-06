@@ -72,9 +72,17 @@ pub enum Error {
     #[error("Missing `{0}` for `{1}`")]
     MissingState(StateEventType, OwnedRoomId),
 
-    /// Failed to set the expected m.space.parent or m.space.child state events.
-    #[error("Failed updating space parent/child relationship")]
+    /// Failed to set either of the m.space.parent or m.space.child state
+    /// events.
+    #[error("Failed to set either of the m.space.parent or m.space.child state events")]
     UpdateRelationship(SDKError),
+
+    /// Failed to set the expected m.space.parent state event (but any
+    /// m.space.child changes were successful).
+    #[error(
+        "Failed to set the expected m.space.parent state event (but any m.space.child changes were successful)"
+    )]
+    UpdateInverseRelationship(SDKError),
 
     /// Failed to leave a space.
     #[error("Failed to leave space")]
@@ -375,11 +383,12 @@ impl SpaceService {
 
         // Add the space as parent of the child if allowed.
         if child_power_levels.user_can_send_state(user_id, StateEventType::SpaceParent) {
-            let parent_route = space_room.route().await.map_err(Error::UpdateRelationship)?;
+            let parent_route =
+                space_room.route().await.map_err(Error::UpdateInverseRelationship)?;
             child_room
                 .send_state_event_for_key(&space_id, SpaceParentEventContent::new(parent_route))
                 .await
-                .map_err(Error::UpdateRelationship)?;
+                .map_err(Error::UpdateInverseRelationship)?;
         } else {
             warn!("The current user doesn't have permission to set the child's parent.");
         }
@@ -425,7 +434,7 @@ impl SpaceService {
                         serde_json::json!({}),
                     )
                     .await
-                    .map_err(Error::UpdateRelationship)?;
+                    .map_err(Error::UpdateInverseRelationship)?;
             } else {
                 warn!("A space parent event wasn't found on the child, ignoring.");
             }
