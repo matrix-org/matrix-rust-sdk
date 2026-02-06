@@ -44,7 +44,6 @@ pub(super) enum RendezvousInfo<'a> {
 
 pub(super) enum RendezvousChannel {
     Msc4108(msc_4108::Channel),
-    #[allow(dead_code)]
     Msc4388(msc_4388::Channel),
 }
 
@@ -57,8 +56,13 @@ impl RendezvousChannel {
     pub(super) async fn create_outbound(
         client: HttpClient,
         rendezvous_server: &Url,
+        msc_4388: bool,
     ) -> Result<Self, HttpError> {
-        Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+        if msc_4388 {
+            Ok(Self::Msc4388(msc_4388::Channel::create_outbound(client, rendezvous_server).await?))
+        } else {
+            Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+        }
     }
 
     /// Create a new inbound [`RendezvousChannel`].
@@ -75,6 +79,24 @@ impl RendezvousChannel {
         Ok(InboundChannelCreationResult { channel: Self::Msc4108(channel), initial_message })
     }
 
+    /// Create a new inbound [`RendezvousChannel`].
+    ///
+    /// By inbound we mean that we're going to attempt to read an initial
+    /// message from the rendezvous session on the given [`rendezvous_url`].
+    pub(super) async fn create_inbound_msc4388(
+        client: HttpClient,
+        base_url: &Url,
+        rendezvous_id: &str,
+    ) -> Result<InboundChannelCreationResult, HttpError> {
+        let msc_4388::InboundChannelCreationResult { channel, initial_message } =
+            msc_4388::Channel::create_inbound(client, base_url, rendezvous_id).await?;
+
+        Ok(InboundChannelCreationResult {
+            channel: Self::Msc4388(channel),
+            initial_message: initial_message.into(),
+        })
+    }
+
     /// Get MSC-specific information about the rendezvous session we're using to
     /// exchange messages through the channel.
     pub(super) fn rendezvous_info(&self) -> RendezvousInfo<'_> {
@@ -83,7 +105,7 @@ impl RendezvousChannel {
                 RendezvousInfo::Msc4108 { rendezvous_url: channel.rendezvous_url() }
             }
             RendezvousChannel::Msc4388(channel) => {
-                RendezvousInfo::Msc4388 { rendezvous_id: &channel.rendezvous_id() }
+                RendezvousInfo::Msc4388 { rendezvous_id: channel.rendezvous_id() }
             }
         }
     }
