@@ -1130,34 +1130,51 @@ async fn publish_call_membership_via_widget(
     let request_id = format!("publish-membership-{now_ms}");
     let event_id = format!("$local-call-member-{now_ms}");
 
-    let message = serde_json::json!({
+    let state_event = serde_json::json!({
+        "type": "org.matrix.msc3401.call.member",
+        "sender": own_user_id.to_string(),
+        "content": content,
+        "state_key": state_key.as_ref(),
+        "origin_server_ts": now_ms,
+        "unsigned": {
+            "prev_content": {},
+            "prev_sender": own_user_id.to_string(),
+            "membership": "join",
+            "age": 0,
+        },
+        "event_id": event_id,
+        "room_id": room.room_id().to_string(),
+    });
+
+    let send_event_message = serde_json::json!({
         "api": "toWidget",
         "widgetId": widget.widget_id,
         "requestId": request_id,
         "action": "send_event",
+        "data": state_event.clone(),
+        "response": {},
+    });
+
+    if !widget.handle.send(send_event_message.to_string()).await {
+        return Err(anyhow!("widget driver handle closed before sending membership send_event"));
+    }
+
+    let update_state_message = serde_json::json!({
+        "api": "toWidget",
+        "widgetId": widget.widget_id,
+        "requestId": format!("{request_id}-state"),
+        "action": "update_state",
         "data": {
-            "type": "org.matrix.msc3401.call.member",
-            "sender": own_user_id.to_string(),
-            "content": content,
-            "state_key": state_key.as_ref(),
-            "origin_server_ts": now_ms,
-            "unsigned": {
-                "prev_content": {},
-                "prev_sender": own_user_id.to_string(),
-                "membership": "join",
-                "age": 0,
-            },
-            "event_id": event_id,
-            "room_id": room.room_id().to_string(),
+            "state": [state_event],
         },
         "response": {},
     });
 
-    if !widget.handle.send(message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership"));
+    if !widget.handle.send(update_state_message.to_string()).await {
+        return Err(anyhow!("widget driver handle closed before sending membership update_state"));
     }
 
-    info!("published MatrixRTC membership via widget send_event");
+    info!("published MatrixRTC membership via widget send_event and update_state");
     Ok(())
 }
 
