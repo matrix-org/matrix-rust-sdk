@@ -1127,7 +1127,8 @@ async fn publish_call_membership_via_widget(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let request_id = format!("publish-membership-{now_ms}");
+    let request_id = format!("00000000-0000-4000-8000-{now_ms:012x}");
+    let update_state_request_id = format!("00000000-0000-4000-8001-{now_ms:012x}");
     let event_id = format!("$local-call-member-{now_ms}");
 
     let state_event = serde_json::json!({
@@ -1162,7 +1163,7 @@ async fn publish_call_membership_via_widget(
     let update_state_message = serde_json::json!({
         "api": "toWidget",
         "widgetId": widget.widget_id,
-        "requestId": format!("{request_id}-state"),
+        "requestId": update_state_request_id,
         "action": "update_state",
         "data": {
             "state": [state_event],
