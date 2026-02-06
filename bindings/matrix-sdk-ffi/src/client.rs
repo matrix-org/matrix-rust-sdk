@@ -237,6 +237,14 @@ pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_change(&self, event: AccountDataEvent);
 }
 
+/// A listener for duplicate key upload errors triggered by requests to
+/// /keys/upload.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait DuplicateKeyUploadErrorListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called once when uploading keys fails.
+    fn on_duplicate_key_upload_error(&self);
+}
+
 /// A listener for changes of room account data events.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
@@ -742,6 +750,26 @@ impl Client {
                         .on_error(report.room_id.to_string(), ClientError::from_err(report.error)),
                     Err(err) => {
                         error!("error when listening to the send queue error reporter: {err}");
+                    }
+                }
+            }
+        })))
+    }
+
+    /// Subscribe to duplicate key upload errors triggered by requests to
+    /// /keys/upload.
+    pub fn subscribe_to_duplicate_key_upload_errors(
+        &self,
+        listener: Box<dyn DuplicateKeyUploadErrorListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_to_duplicate_key_upload_errors();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            loop {
+                match subscriber.recv().await {
+                    Ok(_) => listener.on_duplicate_key_upload_error(),
+                    Err(err) => {
+                        error!("error when listening to key upload errors: {err}");
                     }
                 }
             }

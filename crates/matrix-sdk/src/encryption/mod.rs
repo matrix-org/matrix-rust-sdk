@@ -700,6 +700,15 @@ impl Client {
                                                 StateStoreDataValue::OneTimeKeyAlreadyUploaded,
                                             )
                                             .await?;
+
+                                        if let Err(e) =
+                                            self.inner.duplicate_key_upload_error_sender.send(())
+                                        {
+                                            error!(
+                                                "Failed to dispatch duplicate key upload error notification: {}",
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                             }

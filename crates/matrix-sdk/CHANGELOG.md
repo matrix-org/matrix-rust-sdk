@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
+  upload errors from `/keys/upload`.
+  ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
 - Add `Room::pin_event` and `Room::unpin_event`, which allow pinning and unpinning events from a
   room. These were extracted from the `matrix_sdk_ui` crate, with no changes in functionality.
   ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))

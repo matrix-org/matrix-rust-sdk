@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
+  upload errors from `/keys/upload`.
+  ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
 - Add `NotificationItem::raw_event` to get the raw event content of the event that triggered the notification, which can be useful for debugging and to support clients that want to implement custom handling for certain notifications. ([#6122](https://github.com/matrix-org/matrix-rust-sdk/pull/6122))
 - [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
   event as the root of a thread.
