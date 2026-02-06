@@ -987,6 +987,7 @@ async fn start_element_call_widget(
                 continue;
             };
             if action == "capabilities" {
+                info!(request_id, "widget requested capabilities");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1002,6 +1003,7 @@ async fn start_element_call_widget(
                 }
             }
             if action == "notify_capabilities" {
+                info!(request_id, "widget acknowledged capabilities");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1016,6 +1018,7 @@ async fn start_element_call_widget(
                 let _ = capabilities_ready_tx.send(true);
             }
             if action == "send_event" {
+                info!(request_id, "widget send_event received");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1029,6 +1032,7 @@ async fn start_element_call_widget(
                 }
             }
             if action == "update_state" {
+                info!(request_id, "widget update_state received");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1127,6 +1131,7 @@ async fn publish_call_membership_via_widget(
         .send_state_event_for_key(&state_key, content)
         .await
         .context("send MatrixRTC membership state event")?;
+    info!(state_key = state_key.as_ref(), "published MatrixRTC membership state event");
     info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
     Ok(())
 }
