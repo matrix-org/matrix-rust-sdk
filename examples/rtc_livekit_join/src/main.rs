@@ -1123,59 +1123,11 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let request_id = format!("00000000-0000-4000-8000-{now_ms:012x}");
-    let update_state_request_id = format!("00000000-0000-4000-8001-{now_ms:012x}");
-    let event_id = format!("$local-call-member-{now_ms}");
-
-    let state_event = serde_json::json!({
-        "type": "org.matrix.msc3401.call.member",
-        "sender": own_user_id.to_string(),
-        "content": content,
-        "state_key": state_key.as_ref(),
-        "origin_server_ts": now_ms,
-        "unsigned": {
-            "prev_content": {},
-            "prev_sender": own_user_id.to_string(),
-            "membership": "join",
-            "age": 0,
-        },
-        "event_id": event_id,
-        "room_id": room.room_id().to_string(),
-    });
-
-    let send_event_message = serde_json::json!({
-        "api": "toWidget",
-        "widgetId": widget.widget_id,
-        "requestId": request_id,
-        "action": "send_event",
-        "data": state_event.clone(),
-        "response": {},
-    });
-
-    if !widget.handle.send(send_event_message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership send_event"));
-    }
-
-    let update_state_message = serde_json::json!({
-        "api": "toWidget",
-        "widgetId": widget.widget_id,
-        "requestId": update_state_request_id,
-        "action": "update_state",
-        "data": {
-            "state": [state_event],
-        },
-        "response": {},
-    });
-
-    if !widget.handle.send(update_state_message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership update_state"));
-    }
-
-    info!("published MatrixRTC membership via widget send_event and update_state");
+    let send_response = room
+        .send_state_event_for_key(&state_key, content)
+        .await
+        .context("send MatrixRTC membership state event")?;
+    info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
     Ok(())
 }
 
