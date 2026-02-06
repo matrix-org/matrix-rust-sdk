@@ -544,11 +544,9 @@ mod tests {
         events::{
             StateEventType,
             room::{
-                canonical_alias::{
-                    PossiblyRedactedRoomCanonicalAliasEventContent, RoomCanonicalAliasEventContent,
-                },
+                canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent},
-                name::{PossiblyRedactedRoomNameEventContent, RoomNameEventContent},
+                name::RoomNameEventContent,
             },
         },
         room_alias_id, room_id,
@@ -559,7 +557,8 @@ mod tests {
 
     use super::{Room, RoomDisplayName, compute_display_name_from_heroes};
     use crate::{
-        MinimalStateEvent, RoomHero, RoomState, StateChanges, StateStore, store::MemoryStore,
+        MinimalStateEvent, OriginalMinimalStateEvent, RoomHero, RoomState, StateChanges,
+        StateStore, store::MemoryStore,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -585,22 +584,22 @@ mod tests {
     }
 
     fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {
-        MinimalStateEvent {
-            content: assign!(PossiblyRedactedRoomCanonicalAliasEventContent::new(), {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: assign!(RoomCanonicalAliasEventContent::new(), {
                 alias: Some(room_alias_id!("#test:example.com").to_owned()),
             }),
             event_id: None,
-        }
+        })
     }
 
-    fn make_name_event_with(name: &str) -> MinimalStateEvent<PossiblyRedactedRoomNameEventContent> {
-        MinimalStateEvent {
-            content: RoomNameEventContent::new(name.to_owned()).into(),
+    fn make_name_event_with(name: &str) -> MinimalStateEvent<RoomNameEventContent> {
+        MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(name.to_owned()),
             event_id: None,
-        }
+        })
     }
 
-    fn make_name_event() -> MinimalStateEvent<PossiblyRedactedRoomNameEventContent> {
+    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
         make_name_event_with("Test Room")
     }
 
@@ -698,7 +697,10 @@ mod tests {
     async fn test_display_name_for_invited_room_is_empty_if_room_name_empty() {
         let (_, room) = make_room_test_helper(RoomState::Invited);
 
-        let room_name = make_name_event_with("");
+        let room_name = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(String::new()),
+            event_id: None,
+        });
         room.info.update(|info| info.base_info.name = Some(room_name));
 
         assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);

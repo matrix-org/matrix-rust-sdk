@@ -20,24 +20,27 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId,
     events::{
+        EmptyStateKey, RedactContent, StateEventContent, StateEventType,
         direct::OwnedDirectUserIdentifier,
         room::{
-            avatar::PossiblyRedactedRoomAvatarEventContent,
-            canonical_alias::PossiblyRedactedRoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::PossiblyRedactedRoomGuestAccessEventContent,
-            history_visibility::PossiblyRedactedRoomHistoryVisibilityEventContent,
-            join_rules::PossiblyRedactedRoomJoinRulesEventContent,
-            name::PossiblyRedactedRoomNameEventContent,
-            tombstone::PossiblyRedactedRoomTombstoneEventContent,
-            topic::PossiblyRedactedRoomTopicEventContent,
+            avatar::RoomAvatarEventContent,
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent,
+            encryption::RoomEncryptionEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent,
+            name::{RedactedRoomNameEventContent, RoomNameEventContent},
+            tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
     },
+    room_version_rules::RedactionRules,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    MinimalStateEvent, RoomInfo, RoomState,
+    MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
     deserialized_responses::SyncOrStrippedState,
     latest_event::LatestEventValue,
     room::{BaseRoomInfo, RoomSummary, SyncInfo},
@@ -140,18 +143,17 @@ fn encryption_state_default() -> bool {
 /// [`BaseRoomInfo`] version 1.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct BaseRoomInfoV1 {
-    avatar: Option<MinimalStateEvent<PossiblyRedactedRoomAvatarEventContent>>,
-    canonical_alias: Option<MinimalStateEvent<PossiblyRedactedRoomCanonicalAliasEventContent>>,
+    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
+    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     dm_targets: HashSet<OwnedUserId>,
     encryption: Option<RoomEncryptionEventContent>,
-    guest_access: Option<MinimalStateEvent<PossiblyRedactedRoomGuestAccessEventContent>>,
-    history_visibility:
-        Option<MinimalStateEvent<PossiblyRedactedRoomHistoryVisibilityEventContent>>,
-    join_rules: Option<MinimalStateEvent<PossiblyRedactedRoomJoinRulesEventContent>>,
+    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
+    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
+    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     max_power_level: i64,
-    name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
-    tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
-    topic: Option<MinimalStateEvent<PossiblyRedactedRoomTopicEventContent>>,
+    name: Option<MinimalStateEvent<RoomNameEventContentV1>>,
+    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
+    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
 }
 
 impl BaseRoomInfoV1 {
@@ -178,6 +180,15 @@ impl BaseRoomInfoV1 {
             SyncOrStrippedState::Sync(e) => e.into(),
             SyncOrStrippedState::Stripped(e) => e.into(),
         });
+        let name = name.map(|name| match name {
+            MinimalStateEvent::Original(ev) => {
+                MinimalStateEvent::Original(OriginalMinimalStateEvent {
+                    content: ev.content.into(),
+                    event_id: ev.event_id,
+                })
+            }
+            MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
+        });
 
         let mut converted_dm_targets = HashSet::new();
         for dm_target in dm_targets {
@@ -199,5 +210,33 @@ impl BaseRoomInfoV1 {
             topic,
             ..Default::default()
         })
+    }
+}
+
+/// [`RoomNameEventContent`] version 1, with an optional `name`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RoomNameEventContentV1 {
+    name: Option<String>,
+}
+
+impl StateEventContent for RoomNameEventContentV1 {
+    type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomName
+    }
+}
+
+impl RedactContent for RoomNameEventContentV1 {
+    type Redacted = RedactedRoomNameEventContent;
+
+    fn redact(self, _rules: &RedactionRules) -> Self::Redacted {
+        RedactedRoomNameEventContent::new()
+    }
+}
+
+impl From<RoomNameEventContentV1> for RoomNameEventContent {
+    fn from(value: RoomNameEventContentV1) -> Self {
+        RoomNameEventContent::new(value.name.unwrap_or_default())
     }
 }

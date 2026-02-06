@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{OwnedRoomId, events::room::tombstone::PossiblyRedactedRoomTombstoneEventContent};
+use std::ops::Not;
+
+use ruma::{OwnedRoomId, events::room::tombstone::RoomTombstoneEventContent};
 
 use super::Room;
 
@@ -34,7 +36,7 @@ impl Room {
     /// event has been received. It's faster than using this method.
     ///
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
-    pub fn tombstone_content(&self) -> Option<PossiblyRedactedRoomTombstoneEventContent> {
+    pub fn tombstone_content(&self) -> Option<RoomTombstoneEventContent> {
         self.info.read().tombstone().cloned()
     }
 
@@ -46,11 +48,9 @@ impl Room {
     ///
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
     pub fn successor_room(&self) -> Option<SuccessorRoom> {
-        self.tombstone_content().and_then(|tombstone_event| {
-            Some(SuccessorRoom {
-                room_id: tombstone_event.replacement_room?,
-                reason: tombstone_event.body.filter(|body| !body.is_empty()),
-            })
+        self.tombstone_content().map(|tombstone_event| SuccessorRoom {
+            room_id: tombstone_event.replacement_room,
+            reason: tombstone_event.body.is_empty().not().then_some(tombstone_event.body),
         })
     }
 

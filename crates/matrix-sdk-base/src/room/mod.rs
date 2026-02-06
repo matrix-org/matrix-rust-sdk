@@ -67,7 +67,7 @@ pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
-    Error,
+    Error, MinimalStateEvent,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
@@ -250,7 +250,10 @@ impl Room {
     /// redacted, all fields except `creator` will be set to their default
     /// value.
     pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
-        Some(self.info.read().base_info.create.as_ref()?.content.clone())
+        match self.info.read().base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => Some(ev.content.clone()),
+            MinimalStateEvent::Redacted(ev) => Some(ev.content.clone()),
+        }
     }
 
     /// Is this room considered a direct message.

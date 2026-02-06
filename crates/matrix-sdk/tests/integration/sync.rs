@@ -1331,10 +1331,7 @@ async fn test_receive_room_tombstone_event_via_sync() {
         .await;
 
     // The room info is set and the valid state event is in the store.
-    assert_eq!(
-        room.tombstone_content().unwrap().replacement_room.as_deref(),
-        Some(tombstone_replacement)
-    );
+    assert_eq!(room.tombstone_content().unwrap().replacement_room, tombstone_replacement);
     assert_matches!(
         room.get_state_event_static::<RoomTombstoneEventContent>().await,
         Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
