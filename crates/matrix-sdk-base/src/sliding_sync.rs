@@ -138,7 +138,6 @@ impl BaseClient {
                 &user_id,
                 processors::room::RoomCreationData::new(
                     room_id,
-                    self.room_info_notable_update_sender.clone(),
                     requested_required_states,
                     &mut ambiguity_cache,
                 ),

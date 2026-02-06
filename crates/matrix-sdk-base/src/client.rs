@@ -112,10 +112,6 @@ pub struct BaseClient {
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
-    /// A sender that is used to communicate changes to room information. Each
-    /// tick contains the room ID and the reasons that have generated this tick.
-    pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
-
     /// The strategy to use for picking recipient devices, when sending an
     /// encrypted message.
     #[cfg(feature = "e2e-encryption")]
@@ -179,18 +175,6 @@ impl BaseClient {
     pub fn new(config: StoreConfig, threading_support: ThreadingSupport) -> Self {
         let store = BaseStateStore::new(config.state_store);
 
-        // Create the channel to receive `RoomInfoNotableUpdate`.
-        //
-        // Let's consider the channel will receive 5 updates for 100 rooms maximum. This
-        // is unrealistic in practise, as the sync mechanism is pretty unlikely to
-        // trigger such amount of updates, it's a safe value.
-        //
-        // Also, note that it must not be
-        // zero, because (i) it will panic, (ii) a new user has no room, but can create
-        // rooms; remember that the channel's capacity is immutable.
-        let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
-            broadcast::channel(500);
-
         BaseClient {
             state_store: store,
             event_cache_store: config.event_cache_store,
@@ -200,7 +184,6 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
-            room_info_notable_update_sender,
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
@@ -238,16 +221,13 @@ impl BaseClient {
             crypto_store: self.crypto_store.clone(),
             olm_machine: self.olm_machine.clone(),
             ignore_user_list_changes: Default::default(),
-            room_info_notable_update_sender: self.room_info_notable_update_sender.clone(),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
             threading_support: self.threading_support,
         };
 
-        copy.state_store
-            .derive_from_other(&self.state_store, &copy.room_info_notable_update_sender)
-            .await?;
+        copy.state_store.derive_from_other(&self.state_store).await?;
 
         Ok(copy)
     }
@@ -296,11 +276,7 @@ impl BaseClient {
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
     pub fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
-        self.state_store.get_or_create_room(
-            room_id,
-            room_state,
-            self.room_info_notable_update_sender.clone(),
-        )
+        self.state_store.get_or_create_room(room_id, room_state)
     }
 
     /// Get a reference to the state store.
@@ -366,13 +342,7 @@ impl BaseClient {
     ) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Activating the client");
 
-        self.state_store
-            .load_rooms(
-                &session_meta.user_id,
-                room_load_settings,
-                &self.room_info_notable_update_sender,
-            )
-            .await?;
+        self.state_store.load_rooms(&session_meta.user_id, room_load_settings).await?;
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
 
@@ -418,11 +388,7 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_knocked(&self, room_id: &RoomId) -> Result<Room> {
-        let room = self.state_store.get_or_create_room(
-            room_id,
-            RoomState::Knocked,
-            self.room_info_notable_update_sender.clone(),
-        );
+        let room = self.state_store.get_or_create_room(room_id, RoomState::Knocked);
 
         if room.state() != RoomState::Knocked {
             let _state_store_lock = self.state_store_lock().lock().await;
@@ -483,11 +449,7 @@ impl BaseClient {
         room_id: &RoomId,
         inviter: Option<OwnedUserId>,
     ) -> Result<Room> {
-        let room = self.state_store.get_or_create_room(
-            room_id,
-            RoomState::Joined,
-            self.room_info_notable_update_sender.clone(),
-        );
+        let room = self.state_store.get_or_create_room(room_id, RoomState::Joined);
 
         // If the state isn't `RoomState::Joined` then this means that we knew about
         // this room before. Let's modify the existing state now.
@@ -536,11 +498,7 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<()> {
-        let room = self.state_store.get_or_create_room(
-            room_id,
-            RoomState::Left,
-            self.room_info_notable_update_sender.clone(),
-        );
+        let room = self.state_store.get_or_create_room(room_id, RoomState::Left);
 
         if room.state() != RoomState::Left {
             let _state_store_lock = self.state_store_lock().lock().await;
@@ -672,7 +630,6 @@ impl BaseClient {
                 &mut context,
                 processors::room::RoomCreationData::new(
                     &room_id,
-                    self.room_info_notable_update_sender.clone(),
                     requested_required_states,
                     &mut ambiguity_cache,
                 ),
@@ -700,7 +657,6 @@ impl BaseClient {
                 &mut context,
                 processors::room::RoomCreationData::new(
                     &room_id,
-                    self.room_info_notable_update_sender.clone(),
                     requested_required_states,
                     &mut ambiguity_cache,
                 ),
@@ -728,7 +684,6 @@ impl BaseClient {
                 &room_id,
                 &user_id,
                 invited_room,
-                self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
@@ -746,7 +701,6 @@ impl BaseClient {
                 &room_id,
                 &user_id,
                 knocked_room,
-                self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
@@ -1107,7 +1061,7 @@ impl BaseClient {
     ///
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
-        self.room_info_notable_update_sender.subscribe()
+        self.state_store.room_info_notable_update_sender.subscribe()
     }
 
     /// Checks whether the provided `user_id` belongs to an ignored user.
