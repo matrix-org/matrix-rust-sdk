@@ -1,4 +1,4 @@
-// Copyright 2024 The Matrix.org Foundation C.I.C.
+// Copyright 2024, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,8 +52,10 @@ impl SecureChannel {
     pub(super) async fn login(
         http_client: HttpClient,
         homeserver_url: &Url,
+        msc_4388: bool,
     ) -> Result<Self, Error> {
-        let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
+        let channel =
+            RendezvousChannel::create_outbound(http_client, homeserver_url, msc_4388).await?;
 
         let (crypto_channel, qr_code_data) = match channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -68,8 +70,17 @@ impl SecureChannel {
 
                 (crypto_channel, qr_code_data)
             }
-            RendezvousInfo::Msc4388 { .. } => {
-                unreachable!("We don't create an MSC4388 conforming channel as of yet")
+            RendezvousInfo::Msc4388 { rendezvous_id } => {
+                let crypto_channel = CryptoChannel::new_hpke();
+
+                let qr_code_data = QrCodeData::new_msc4388(
+                    crypto_channel.public_key(),
+                    rendezvous_id.to_owned(),
+                    homeserver_url.clone(),
+                    QrCodeIntent::Login,
+                );
+
+                (crypto_channel, qr_code_data)
             }
         };
 
@@ -80,8 +91,9 @@ impl SecureChannel {
     pub(super) async fn reciprocate(
         http_client: HttpClient,
         homeserver_url: &Url,
+        msc_4388: bool,
     ) -> Result<Self, Error> {
-        let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
+        let mut channel = SecureChannel::login(http_client, homeserver_url, msc_4388).await?;
 
         match channel.channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -94,8 +106,13 @@ impl SecureChannel {
                     mode_data,
                 );
             }
-            RendezvousInfo::Msc4388 { .. } => {
-                unreachable!("We don't create an MSC4388 conforming channel as of yet")
+            RendezvousInfo::Msc4388 { rendezvous_id } => {
+                channel.qr_code_data = QrCodeData::new_msc4388(
+                    channel.crypto_channel.public_key(),
+                    rendezvous_id.to_owned(),
+                    homeserver_url.clone(),
+                    QrCodeIntent::Reciprocate,
+                );
             }
         }
 
@@ -200,25 +217,28 @@ impl EstablishedSecureChannel {
             // it's talking to us, the device that scanned the QR code, until it
             // receives and successfully decrypts the initial message. We're here encrypting
             // the `LOGIN_INITIATE_MESSAGE`.
-            let (crypto_channel, encoded_message) = if true {
-                let ecies = Ecies::new();
+            let (crypto_channel, encoded_message) = match qr_code_data.intent_data() {
+                QrCodeIntentData::Msc4108 { .. } => {
+                    let ecies = Ecies::new();
 
-                let OutboundCreationResult { ecies, message } = ecies
-                    .establish_outbound_channel(
-                        qr_code_data.public_key(),
-                        LOGIN_INITIATE_MESSAGE.as_bytes(),
-                    )
-                    .map_err(DecryptionError::from)?;
-                (ChannelType::Ecies(ecies), message.encode())
-            } else {
-                let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
-                    .establish_channel(
-                        qr_code_data.public_key(),
-                        LOGIN_INITIATE_MESSAGE.as_bytes(),
-                        // TODO: Do we want to include some additional authenticated data here?
-                        &[],
-                    );
-                (ChannelType::Hpke(channel), message.encode())
+                    let OutboundCreationResult { ecies, message } = ecies
+                        .establish_outbound_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                        )
+                        .map_err(DecryptionError::from)?;
+                    (ChannelType::Ecies(ecies), message.encode())
+                }
+                QrCodeIntentData::Msc4388 { .. } => {
+                    let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
+                        .establish_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                            // TODO: Do we want to include some additional authenticated data here?
+                            &[],
+                        );
+                    (ChannelType::Hpke(channel), message.encode())
+                }
             };
 
             // The other side has crated a rendezvous channel, we're going to connect to it
@@ -231,9 +251,12 @@ impl EstablishedSecureChannel {
                         RendezvousChannel::create_inbound(client, rendezvous_url).await?;
                     channel
                 }
-                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
-                // channel when we encounter this QR code variant.
-                QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
+                QrCodeIntentData::Msc4388 { rendezvous_id, base_url } => {
+                    let InboundChannelCreationResult { channel, .. } =
+                        RendezvousChannel::create_inbound_msc4388(client, base_url, rendezvous_id)
+                            .await?;
+                    channel
+                }
             };
 
             trace!(
@@ -491,7 +514,7 @@ pub(super) mod test {
             MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX).await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url)
+        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, false)
             .await
             .expect("Alice should be able to create a secure channel.");
 
