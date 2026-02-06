@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `NotificationItem::raw_event` to get the raw event content of the event that triggered the notification, which can be useful for debugging and to support clients that want to implement custom handling for certain notifications. ([#6122](https://github.com/matrix-org/matrix-rust-sdk/pull/6122))
 - [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
   event as the root of a thread.
   [#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050)
@@ -71,8 +72,6 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
-- Add `NotificationItem::raw_event` to get the raw event content of the event that triggered the notification, which can be useful for debugging and to support clients that want to implement custom handling for certain notifications.
-  ([#6122](https://github.com/matrix-org/matrix-rust-sdk/pull/6122))
 
 ### Refactor
 
