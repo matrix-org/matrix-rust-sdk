@@ -25,7 +25,7 @@ use vodozemac::ecies::{
 
 use super::{
     SecureChannelError as Error,
-    rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel},
+    rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
 use crate::{config::RequestConfig, http_client::HttpClient};
 mod crypto_channel;
@@ -46,13 +46,21 @@ impl SecureChannel {
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
-        let rendezvous_url = channel.rendezvous_url().to_owned();
-        let intent_data = Msc4108IntentData::Login;
 
-        let crypto_channel = CryptoChannel::new_ecies();
+        let (crypto_channel, qr_code_data) = match channel.rendezvous_info() {
+            RendezvousInfo::Msc4108 { rendezvous_url } => {
+                let intent_data = Msc4108IntentData::Login;
+                let crypto_channel = CryptoChannel::new_ecies();
 
-        let public_key = crypto_channel.public_key();
-        let qr_code_data = QrCodeData::new_msc4108(public_key, rendezvous_url, intent_data);
+                let qr_code_data = QrCodeData::new_msc4108(
+                    crypto_channel.public_key(),
+                    rendezvous_url.clone(),
+                    intent_data,
+                );
+
+                (crypto_channel, qr_code_data)
+            }
+        };
 
         Ok(Self { channel, qr_code_data, crypto_channel })
     }
@@ -63,13 +71,19 @@ impl SecureChannel {
         homeserver_url: &Url,
     ) -> Result<Self, Error> {
         let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
-        let mode_data = Msc4108IntentData::Reciprocate { server_name: homeserver_url.to_string() };
 
-        channel.qr_code_data = QrCodeData::new_msc4108(
-            channel.crypto_channel.public_key(),
-            channel.channel.rendezvous_url().clone(),
-            mode_data,
-        );
+        match channel.channel.rendezvous_info() {
+            RendezvousInfo::Msc4108 { rendezvous_url } => {
+                let mode_data =
+                    Msc4108IntentData::Reciprocate { server_name: homeserver_url.to_string() };
+
+                channel.qr_code_data = QrCodeData::new_msc4108(
+                    channel.crypto_channel.public_key(),
+                    rendezvous_url.clone(),
+                    mode_data,
+                );
+            }
+        }
 
         Ok(channel)
     }
@@ -454,6 +468,6 @@ pub(super) mod test {
             .confirm(bob.check_code().to_digit())
             .expect("Alice should be able to confirm the established secure channel.");
 
-        assert_eq!(bob.channel.rendezvous_url(), alice.channel.rendezvous_url());
+        assert_eq!(bob.channel.rendezvous_info(), alice.channel.rendezvous_info());
     }
 }
