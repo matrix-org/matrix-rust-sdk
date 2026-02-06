@@ -401,6 +401,7 @@ impl SpaceService {
         child_id: OwnedRoomId,
         space_id: OwnedRoomId,
     ) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
         let space_room =
             self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
 
@@ -422,9 +423,14 @@ impl SpaceService {
         }
 
         if let Some(child_room) = self.client.get_room(&child_id) {
-            if let Ok(Some(_)) = child_room
-                .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
-                .await
+            let power_levels = child_room.power_levels().await.map_err(|error| {
+                Error::UpdateInverseRelationship(matrix_sdk::Error::from(error))
+            })?;
+
+            if power_levels.user_can_send_state(user_id, StateEventType::SpaceParent)
+                && let Ok(Some(_)) = child_room
+                    .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
+                    .await
             {
                 // Same as the comment above.
                 child_room
