@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "unstable-msc4388")]
+use matrix_sdk_base::crypto::types::qr_login::{LimitedUrl, RendezvousId};
 use tracing::instrument;
 use url::Url;
 
@@ -44,14 +46,13 @@ pub(super) enum RendezvousInfo<'a> {
     },
     #[cfg(feature = "unstable-msc4388")]
     Msc4388 {
-        rendezvous_id: &'a str,
+        rendezvous_id: &'a RendezvousId,
     },
 }
 
 pub(super) enum RendezvousChannel {
     Msc4108(msc_4108::Channel),
     #[cfg(feature = "unstable-msc4388")]
-    #[allow(dead_code)]
     Msc4388(msc_4388::Channel),
 }
 
@@ -64,7 +65,18 @@ impl RendezvousChannel {
     pub(super) async fn create_outbound(
         client: HttpClient,
         rendezvous_server: &Url,
-    ) -> Result<Self, HttpError> {
+        #[allow(unused_variables)] msc_4388: bool,
+    ) -> Result<Self, SecureChannelError> {
+        #[cfg(feature = "unstable-msc4388")]
+        if msc_4388 {
+            let rendezvous_server = LimitedUrl::new(rendezvous_server.clone())
+                .map_err(MessageDecodeError::TooLongBaseUrl)?;
+            Ok(Self::Msc4388(msc_4388::Channel::create_outbound(client, &rendezvous_server).await?))
+        } else {
+            Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+        }
+
+        #[cfg(not(feature = "unstable-msc4388"))]
         Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
     }
 
@@ -82,6 +94,28 @@ impl RendezvousChannel {
         Ok(InboundChannelCreationResult { channel: Self::Msc4108(channel), initial_message })
     }
 
+    /// Create a new inbound [`RendezvousChannel`].
+    ///
+    /// By inbound we mean that we're going to attempt to read an initial
+    /// message from the rendezvous session on the given [`rendezvous_url`].
+    #[cfg(feature = "unstable-msc4388")]
+    pub(super) async fn create_inbound_msc4388(
+        client: HttpClient,
+        base_url: &Url,
+        rendezvous_id: &RendezvousId,
+    ) -> Result<InboundChannelCreationResult, SecureChannelError> {
+        let base_url =
+            LimitedUrl::new(base_url.clone()).map_err(MessageDecodeError::TooLongBaseUrl)?;
+
+        let msc_4388::InboundChannelCreationResult { channel, initial_message } =
+            msc_4388::Channel::create_inbound(client, &base_url, rendezvous_id).await?;
+
+        Ok(InboundChannelCreationResult {
+            channel: Self::Msc4388(channel),
+            initial_message: initial_message.into(),
+        })
+    }
+
     /// Get MSC-specific information about the rendezvous session we're using to
     /// exchange messages through the channel.
     pub(super) fn rendezvous_info(&self) -> RendezvousInfo<'_> {
@@ -91,7 +125,7 @@ impl RendezvousChannel {
             }
             #[cfg(feature = "unstable-msc4388")]
             RendezvousChannel::Msc4388(channel) => {
-                RendezvousInfo::Msc4388 { rendezvous_id: &channel.rendezvous_id() }
+                RendezvousInfo::Msc4388 { rendezvous_id: channel.rendezvous_id() }
             }
         }
     }
@@ -101,11 +135,11 @@ impl RendezvousChannel {
     ///
     /// The message must be of the `text/plain` content type.
     #[instrument(skip_all)]
-    pub(super) async fn send(&mut self, message: String) -> Result<(), HttpError> {
+    pub(super) async fn send(&mut self, message: String) -> Result<(), SecureChannelError> {
         match self {
-            RendezvousChannel::Msc4108(channel) => channel.send(message.into_bytes()).await,
+            RendezvousChannel::Msc4108(channel) => Ok(channel.send(message.into_bytes()).await?),
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousChannel::Msc4388(channel) => channel.send(message).await,
+            RendezvousChannel::Msc4388(channel) => Ok(channel.send(message).await?),
         }
     }
 
