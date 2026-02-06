@@ -700,6 +700,14 @@ impl Client {
                                                 StateStoreDataValue::OneTimeKeyAlreadyUploaded,
                                             )
                                             .await?;
+
+                                        if let Err(e) = self.inner.key_upload_error_sender.send(())
+                                        {
+                                            error!(
+                                                "Failed to dispatch key upload error notification: {}",
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                             }
