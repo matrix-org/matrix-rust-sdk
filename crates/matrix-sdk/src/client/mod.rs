@@ -387,6 +387,10 @@ pub(crate) struct ClientInner {
 
     /// A monitor for background tasks spawned by the client.
     pub(crate) task_monitor: TaskMonitor,
+
+    /// A sender to notify subscribers about key upload errors triggered by
+    /// requests to /keys/upload.
+    pub(crate) key_upload_error_sender: broadcast::Sender<()>,
 }
 
 impl ClientInner {
@@ -454,6 +458,7 @@ impl ClientInner {
             search_index: search_index_handler,
             thread_subscription_catchup,
             task_monitor: TaskMonitor::new(),
+            key_upload_error_sender: broadcast::channel(1).0,
         };
 
         #[allow(clippy::let_and_return)]
@@ -3319,6 +3324,12 @@ impl Client {
     /// tasks.
     pub fn task_monitor(&self) -> &TaskMonitor {
         &self.inner.task_monitor
+    }
+
+    /// Add a subscriber for key upload error notifications triggered by
+    /// requests to /keys/upload.
+    pub fn subscribe_to_key_upload_errors(&self) -> broadcast::Receiver<()> {
+        self.inner.key_upload_error_sender.subscribe()
     }
 }
 
