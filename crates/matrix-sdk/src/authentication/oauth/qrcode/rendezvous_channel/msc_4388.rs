@@ -343,7 +343,7 @@ mod test {
 
             let client = HttpClient::new(reqwest::Client::new(), RequestConfig::short_retry());
             let InboundChannelCreationResult { channel: bob, initial_message: _ } =
-                Channel::create_inbound(client, &base_url, &rendezvous_id.to_owned()).await.expect(
+                Channel::create_inbound(client, &base_url, rendezvous_id).await.expect(
                     "We should be able to create a rendezvous channel from a received message",
                 );
 

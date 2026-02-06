@@ -363,8 +363,10 @@ pub(super) mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use ruma::time::Instant;
+    use serde::Deserialize;
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use tracing::trace;
     use url::Url;
     use wiremock::{
         Mock, MockGuard, MockServer, ResponseTemplate,
@@ -388,7 +390,24 @@ pub(super) mod test {
     }
 
     impl MockedRendezvousServer {
-        pub async fn new(server: &MockServer, location: &str, expiration: Duration) -> Self {
+        pub async fn new(
+            server: &MockServer,
+            location: &str,
+            expiration: Duration,
+            msc_4388: bool,
+        ) -> Self {
+            if msc_4388 {
+                Self::new_msc4388(server, expiration).await
+            } else {
+                Self::new_msc4108(server, location, expiration).await
+            }
+        }
+
+        pub async fn new_msc4108(
+            server: &MockServer,
+            location: &str,
+            expiration: Duration,
+        ) -> Self {
             let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
             let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
             let etag = Arc::new(AtomicU8::new(0));
@@ -505,16 +524,140 @@ pub(super) mod test {
                 rendezvous_url,
             }
         }
+
+        pub async fn new_msc4388(server: &MockServer, expiration: Duration) -> Self {
+            #[derive(Debug, Deserialize)]
+            struct PutContent {
+                #[allow(dead_code)]
+                sequence_token: String,
+                data: String,
+            }
+
+            const RENDEZVOUS_ID: &str = "abcdEFG12345";
+
+            let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
+            let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
+            let sequence_token = Arc::new(AtomicU8::new(0));
+
+            let homeserver_url = Url::parse(&server.uri())
+                .expect("We should be able to parse the example homeserver");
+
+            let rendezvous_url = homeserver_url
+                .join(RENDEZVOUS_ID)
+                .expect("We should be able to create a rendezvous URL");
+
+            let post_guard = server
+                .register_as_scoped(
+                    Mock::given(method("POST"))
+                        .and(path("/_matrix/client/unstable/io.element.msc4388/rendezvous"))
+                        .respond_with({
+                            *created.lock().unwrap() = Some(Instant::now());
+
+                            trace!("Creating a new rendezvous channel ID: {RENDEZVOUS_ID}");
+
+                            ResponseTemplate::new(200).set_body_json(json!({
+                                "id": RENDEZVOUS_ID,
+                                "sequence_token": "0",
+                                "expires_in_ms": 100_000,
+                            }))
+                        }),
+                )
+                .await;
+
+            let put_guard = server
+                .register_as_scoped(
+                    Mock::given(method("PUT"))
+                        .and(path(format!(
+                            "/_matrix/client/unstable/io.element.msc4388/rendezvous/{RENDEZVOUS_ID}"
+                        )))
+                        .respond_with({
+                            let content = content.clone();
+                            let created = created.clone();
+                            let sequence_token = sequence_token.clone();
+
+
+                            move |request: &wiremock::Request| {
+                                // Fail the request if the session has expired.
+                                if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                    return ResponseTemplate::new(404).set_body_json(json!({
+                                        "errcode": "M_NOT_FOUND",
+                                        "error": "This rendezvous session does not exist.",
+                                    }));
+                                }
+
+                                let request_content: PutContent = request.body_json().unwrap();
+                                *content.lock().unwrap() = Some(request_content.data);
+
+                                let prev_token =
+                                    sequence_token.fetch_add(1, Ordering::SeqCst);
+
+                                trace!("Putting new content into the rendezvous channel ID: {RENDEZVOUS_ID}");
+
+                                ResponseTemplate::new(200).set_body_json(json!({
+                                    "sequence_token": (prev_token + 1 ).to_string(),
+
+                                }))
+                            }
+                        }),
+                )
+                .await;
+
+            let get_guard = server
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(format!(
+                            "/_matrix/client/unstable/io.element.msc4388/rendezvous/{RENDEZVOUS_ID}"
+                        )))
+                        .respond_with({
+                            let content = content.clone();
+                            let created = created.clone();
+                            let sequence_token = sequence_token.clone();
+
+                            move |_: &wiremock::Request| {
+                                // Fail the request if the session has expired.
+                                if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                    return ResponseTemplate::new(404).set_body_json(json!({
+                                        "errcode": "M_NOT_FOUND",
+                                        "error": "This rendezvous session does not exist.",
+                                    }));
+                                }
+
+                                let content = content.lock().unwrap();
+                                let current_sequence_token = sequence_token.load(Ordering::SeqCst);
+
+                                let content = content.clone();
+
+                                ResponseTemplate::new(200).set_body_json(json!({
+                                    "data": content.unwrap_or_default(),
+                                    "sequence_token": current_sequence_token.to_string(),
+                                    "expires_in_ms": 100_000,
+                                }))
+                            }
+                        }),
+                )
+                .await;
+
+            Self {
+                expiration,
+                content,
+                created,
+                etag: sequence_token,
+                post_guard,
+                put_guard,
+                get_guard,
+                homeserver_url,
+                rendezvous_url,
+            }
+        }
     }
 
-    #[async_test]
-    async fn test_creation() {
+    async fn test_creation(msc_4388: bool) {
         let server = MockServer::start().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX).await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, false)
+        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, msc_4388)
             .await
             .expect("Alice should be able to create a secure channel.");
 
@@ -547,5 +690,15 @@ pub(super) mod test {
             .expect("Alice should be able to confirm the established secure channel.");
 
         assert_eq!(bob.channel.rendezvous_info(), alice.channel.rendezvous_info());
+    }
+
+    #[async_test]
+    async fn test_creation_msc4388() {
+        test_creation(true).await;
+    }
+
+    #[async_test]
+    async fn test_creation_msc4108() {
+        test_creation(false).await;
     }
 }
