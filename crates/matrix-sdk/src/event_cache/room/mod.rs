@@ -693,7 +693,7 @@ mod private {
     use itertools::Itertools;
     use matrix_sdk_base::{
         apply_redaction,
-        deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
+        deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
         event_cache::{
             Event, Gap,
             store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
@@ -713,7 +713,6 @@ mod private {
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
         },
         room_version_rules::RoomVersionRules,
-        serde::Raw,
     };
     use tokio::sync::{
         Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
@@ -733,7 +732,10 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::{Room, event_cache::room::pinned_events::PinnedEventCache};
+    use crate::{
+        Room,
+        event_cache::{persistence::send_updates_to_store, room::pinned_events::PinnedEventCache},
+    };
 
     /// State for a single room's event cache.
     ///
@@ -1536,57 +1538,16 @@ mod private {
 
         async fn send_updates_to_store(
             &mut self,
-            mut updates: Vec<Update<Event, Gap>>,
+            updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
-            if updates.is_empty() {
-                return Ok(());
-            }
-
-            // Strip relations from updates which insert or replace items.
-            for update in updates.iter_mut() {
-                match update {
-                    Update::PushItems { items, .. } => strip_relations_from_events(items),
-                    Update::ReplaceItem { item, .. } => strip_relations_from_event(item),
-                    // Other update kinds don't involve adding new events.
-                    Update::NewItemsChunk { .. }
-                    | Update::NewGapChunk { .. }
-                    | Update::RemoveChunk(_)
-                    | Update::RemoveItem { .. }
-                    | Update::DetachLastItems { .. }
-                    | Update::StartReattachItems
-                    | Update::EndReattachItems
-                    | Update::Clear => {}
-                }
-            }
-
-            // Spawn a task to make sure that all the changes are effectively forwarded to
-            // the store, even if the call to this method gets aborted.
-            //
-            // The store cross-process locking involves an actual mutex, which ensures that
-            // storing updates happens in the expected order.
-
-            let store = self.store.clone();
-            let room_id = self.state.room_id.clone();
-            let cloned_updates = updates.clone();
-
-            spawn(async move {
-                trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
-                let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
-                trace!("linked chunk updates applied");
-
-                super::Result::Ok(())
-            })
-            .await
-            .expect("joining failed")?;
-
-            // Forward that the store got updated to observers.
-            let _ = self.state.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-                linked_chunk_id: OwnedLinkedChunkId::Room(self.state.room_id.clone()),
+            let linked_chunk_id = OwnedLinkedChunkId::Room(self.state.room_id.clone());
+            send_updates_to_store(
+                &self.store,
+                linked_chunk_id,
+                &self.state.linked_chunk_update_sender,
                 updates,
-            });
-
-            Ok(())
+            )
+            .await
         }
 
         /// Reset this data structure as if it were brand new.
@@ -2352,50 +2313,6 @@ mod private {
         }
 
         Ok(Some(all_chunks))
-    }
-
-    /// Removes the bundled relations from an event, if they were present.
-    ///
-    /// Only replaces the present if it contained bundled relations.
-    fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-        // We're going to get rid of the `unsigned`/`m.relations` field, if it's
-        // present.
-        // Use a closure that returns an option so we can quickly short-circuit.
-        let mut closure = || -> Option<()> {
-            let mut val: serde_json::Value = event.deserialize_as().ok()?;
-            let unsigned = val.get_mut("unsigned")?;
-            let unsigned_obj = unsigned.as_object_mut()?;
-            if unsigned_obj.remove("m.relations").is_some() {
-                *event = Raw::new(&val).ok()?.cast_unchecked();
-            }
-            None
-        };
-        let _ = closure();
-    }
-
-    fn strip_relations_from_event(ev: &mut Event) {
-        match &mut ev.kind {
-            TimelineEventKind::Decrypted(decrypted) => {
-                // Remove all information about encryption info for
-                // the bundled events.
-                decrypted.unsigned_encryption_info = None;
-
-                // Remove the `unsigned`/`m.relations` field, if needs be.
-                strip_relations_if_present(&mut decrypted.event);
-            }
-
-            TimelineEventKind::UnableToDecrypt { event, .. }
-            | TimelineEventKind::PlainText { event } => {
-                strip_relations_if_present(event);
-            }
-        }
-    }
-
-    /// Strips the bundled relations from a collection of events.
-    fn strip_relations_from_events(items: &mut [Event]) {
-        for ev in items.iter_mut() {
-            strip_relations_from_event(ev);
-        }
     }
 
     /// Implementation of [`RoomEventCacheStateLockReadGuard::find_event`] and
