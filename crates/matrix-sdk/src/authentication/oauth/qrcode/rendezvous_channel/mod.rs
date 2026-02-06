@@ -33,8 +33,13 @@ pub(super) struct InboundChannelCreationResult {
     pub initial_message: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum RendezvousInfo<'a> {
+    Msc4108 { rendezvous_url: &'a Url },
+}
+
 pub(super) enum RendezvousChannel {
-    MSC4108(msc_4108::Channel),
+    Msc4108(msc_4108::Channel),
 }
 
 impl RendezvousChannel {
@@ -47,7 +52,7 @@ impl RendezvousChannel {
         client: HttpClient,
         rendezvous_server: &Url,
     ) -> Result<Self, HttpError> {
-        Ok(Self::MSC4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+        Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
     }
 
     /// Create a new inbound [`RendezvousChannel`].
@@ -61,14 +66,16 @@ impl RendezvousChannel {
         let msc_4108::InboundChannelCreationResult { channel, initial_message } =
             msc_4108::Channel::create_inbound(client, rendezvous_url).await?;
 
-        Ok(InboundChannelCreationResult { channel: Self::MSC4108(channel), initial_message })
+        Ok(InboundChannelCreationResult { channel: Self::Msc4108(channel), initial_message })
     }
 
-    /// Get the URL of the rendezvous session we're using to exchange messages
-    /// through the channel.
-    pub(super) fn rendezvous_url(&self) -> &Url {
+    /// Get MSC-specific information about the rendezvous session we're using to
+    /// exchange messages through the channel.
+    pub(super) fn rendezvous_info(&self) -> RendezvousInfo<'_> {
         match self {
-            RendezvousChannel::MSC4108(channel) => channel.rendezvous_url(),
+            RendezvousChannel::Msc4108(channel) => {
+                RendezvousInfo::Msc4108 { rendezvous_url: channel.rendezvous_url() }
+            }
         }
     }
 
@@ -79,7 +86,7 @@ impl RendezvousChannel {
     #[instrument(skip_all)]
     pub(super) async fn send(&mut self, message: String) -> Result<(), HttpError> {
         match self {
-            RendezvousChannel::MSC4108(channel) => channel.send(message.into_bytes()).await,
+            RendezvousChannel::Msc4108(channel) => channel.send(message.into_bytes()).await,
         }
     }
 
@@ -93,7 +100,7 @@ impl RendezvousChannel {
     /// message.
     pub(super) async fn receive(&mut self) -> Result<String, SecureChannelError> {
         let message = match self {
-            RendezvousChannel::MSC4108(channel) => channel.receive().await?,
+            RendezvousChannel::Msc4108(channel) => channel.receive().await?,
         };
 
         Ok(String::from_utf8(message).map_err(|e| e.utf8_error())?)
