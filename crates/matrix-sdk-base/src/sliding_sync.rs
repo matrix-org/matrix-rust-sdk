@@ -358,9 +358,7 @@ mod tests {
         assert!(sync_resp.rooms.invited.contains_key(room_id));
     }
 
-    use ruma::{
-        events::AnyStrippedStateEvent,
-    };
+    use ruma::events::AnyStrippedStateEvent;
 
     fn invite_state_for(
         user_id: &UserId,
