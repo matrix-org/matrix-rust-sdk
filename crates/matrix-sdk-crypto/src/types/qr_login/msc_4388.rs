@@ -27,7 +27,7 @@ use vodozemac::Curve25519PublicKey;
 
 use super::LoginQrCodeDecodeError;
 
-/// The prefix that is used in the QR code data.
+/// The unstable prefix that is used in the QR code data.
 const PREFIX: &[u8] = b"IO_ELEMENT_MSC4388";
 /// The type of the QR code data, used to identify MSC4388.
 const TYPE: u8 = 0x03;
@@ -90,7 +90,7 @@ impl QrCodeData {
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
         // The QR data consists of the following values:
-        // 1. The ASCII string IO_ELEMENT_MSC4388.
+        // 1. The unstable ASCII string IO_ELEMENT_MSC4388.
         // 2. One byte type, 0x03 is for the format specified in MSC4388.
         // 3. One byte intent, either 0x00 or 0x01.
         // 4. 32 bytes for the ephemeral Curve25519 key.

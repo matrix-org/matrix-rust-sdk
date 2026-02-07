@@ -185,8 +185,15 @@ impl TimelineBuilder {
 
         let has_events = controller.init_focus(&focus, &room_event_cache).await?;
 
-        let pinned_events_join_handle = if matches!(focus, TimelineFocus::PinnedEvents { .. }) {
-            Some(spawn(pinned_events_task(room.pinned_event_ids_stream(), controller.clone())))
+        let pinned_events_join_handle = if matches!(focus, TimelineFocus::PinnedEvents) {
+            let (_initial_events, pinned_events_recv) =
+                room_event_cache.subscribe_to_pinned_events().await?;
+
+            Some(spawn(pinned_events_task(
+                room_event_cache.clone(),
+                controller.clone(),
+                pinned_events_recv,
+            )))
         } else {
             None
         };

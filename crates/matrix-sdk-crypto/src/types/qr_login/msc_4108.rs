@@ -141,7 +141,7 @@ impl QrCodeData {
         // 2. Next up is the version, we continue only if the version matches.
         let version = reader.read_u8()?;
         if version == VERSION {
-            // 3. The intent is the next one to parse, we return an error imediatelly the
+            // 3. The intent is the next one to parse, we return an error immediately the
             //    intent isn't 0x03 or 0x04.
             let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 

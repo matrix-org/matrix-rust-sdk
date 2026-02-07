@@ -193,14 +193,11 @@ impl AmbiguityCache {
             let display_name = if let Some(d) = changes
                 .profiles
                 .get(room_id)
-                .and_then(|p| p.get(user_id)?.as_original()?.content.displayname.as_deref())
+                .and_then(|p| p.get(user_id)?.content.displayname.as_deref())
             {
                 Some(d.to_owned())
-            } else if let Some(d) = self
-                .store
-                .get_profile(room_id, user_id)
-                .await?
-                .and_then(|p| p.into_original()?.content.displayname)
+            } else if let Some(d) =
+                self.store.get_profile(room_id, user_id).await?.and_then(|p| p.content.displayname)
             {
                 Some(d)
             } else {

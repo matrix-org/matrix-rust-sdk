@@ -35,10 +35,11 @@
     --color-canvas-lighter-2: oklch(0.343 0.009 285.935);
     --color-canvas-lighter-3: oklch(0.6 0 0);
 
-    --color-green: oklch(0.524 0.164 145.0);
-    --color-red : oklch(0.503 0.172 25.0);
-    --color-orange: oklch(0.793 0.171 70.670);
-    --color-yellow: oklch(0.968 0.211 109.769);
+    --color-green: oklch(.524 .164 145);
+    --color-red: oklch(.503 .172 25);
+    --color-orange: oklch(.793 .171 70.67);
+    --color-yellow: oklch(.968 .211 109.769);
+    --color-violet: oklch(.39 .193 328.363);
   }
 
   .content-grid {
@@ -184,7 +185,7 @@
 
       /* domain and path */
       > :nth-child(5) { --_column-width: 15ch; --_dir: ltr }
-      > :nth-child(6) { --_column-width: 20ch; --_dir: rtl }
+      > :nth-child(6) { --_column-width: 18ch; --_dir: rtl }
       > :nth-child(5),
       > :nth-child(6) {
         direction: var(--_dir);
@@ -193,14 +194,15 @@
         overflow: hidden;
       }
 
-      /* request size and response size */
+      /* request timeout, request size and response size */
       > :nth-child(7),
-      > :nth-child(8) {
+      > :nth-child(8),
+      > :nth-child(9) {
         text-align: end;
       }
 
       /* time */
-      > :nth-child(9) {
+      > :nth-child(10) {
         font-size: small;
         font-variant-numeric: slashed-zero tabular-nums;
       }
@@ -223,8 +225,8 @@
 
         .span {
           --_start-at: var(--start-at, 0);
-          --_duration: var(--duration);
-          --_background: var(--color-accent);
+          --_timeout: var(--timeout, 0);
+          --_duration: var(--duration, 0);
           --_end-gutter: 10ch; /* spaces for the labels */
 
           display: block;
@@ -234,11 +236,24 @@
           width: max(1px, calc((var(--_duration) * (100% - var(--_end-gutter))) / var(--_end-at)));
           height: 1.2rem;
           background: var(--_background);
+
+          --_duration-color: var(--color-accent);
+          --_timeout-color: var(--color-violet);
+          --_timeout-stop: calc(
+            (var(--_timeout) * 100%) / var(--_duration)
+            + 1px /* in case 100% is rounded to the nearest sub-pixel */
+          );
+
+          background: linear-gradient(
+            90deg,
+            var(--_timeout-color) var(--_timeout-stop),
+            var(--_duration-color) var(--_timeout-stop)
+          );
           border-radius: var(--border-radius);
 
           tr:has(> td[data-status-family="cancelled"]) & {
-            width: 3px;
-            --_background: var(--color-orange);
+            width: 3px; /* to be sure it is seen */
+            --_duration-color: var(--color-orange);
           }
 
           > span {
@@ -302,6 +317,14 @@
     font-size: .9em;
   }
 
+  .text-overflow {
+    display: inline-block;
+    max-width: 25ch;
+    text-overflow: ellipsis ellipsis;
+    overflow-x: auto;
+    vertical-align: text-bottom;
+  }
+
   .hidden {
     display: none;
   }
@@ -327,6 +350,7 @@
       <th scope="col"><abbr title="Method">Meth.</abbr></th>
       <th scope="col">Domain</th>
       <th scope="col">Path</th>
+      <th scope="col"><abbr title="Request">Req.</abbr> timeout</th>
       <th scope="col"><abbr title="Request">Req.</abbr> size</th>
       <th scope="col"><abbr title="Response">Resp.</abbr> size</th>
       <th scope="col">Time</th>

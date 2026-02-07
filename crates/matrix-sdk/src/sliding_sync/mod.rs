@@ -400,7 +400,6 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
-    #[instrument(skip_all)]
     async fn generate_sync_request(
         &self,
     ) -> Result<(http::Request, RequestConfig, OwnedMutexGuard<SlidingSyncPositionMarkers>)> {
@@ -467,8 +466,6 @@ impl SlidingSync {
             position_guard.pos.clone()
         };
 
-        Span::current().record("pos", &pos);
-
         // When the client sends a request with no `pos`, MSC4186 returns no device
         // lists updates, as it only returns changes since the provided `pos`
         // (which is `null` in this case); this is in line with sync v2.
@@ -495,6 +492,10 @@ impl SlidingSync {
             PollTimeout::Some(timeout) => Some(Duration::from_secs(timeout.into())),
             PollTimeout::Default => Some(self.inner.poll_timeout),
         };
+
+        Span::current()
+            .record("pos", &pos)
+            .record("timeout", timeout.map(|duration| duration.as_millis()));
 
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
@@ -672,7 +673,7 @@ impl SlidingSync {
     ///
     /// Public for testing purposes only.
     #[doc(hidden)]
-    #[instrument(skip_all, fields(pos, conn_id = self.inner.id))]
+    #[instrument(skip_all, fields(conn_id = self.inner.id, pos, timeout))]
     pub async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, position_guard) = self.generate_sync_request().await?;
 

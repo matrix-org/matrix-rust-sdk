@@ -20,7 +20,6 @@ use ruma::{
         InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, State as RumaState,
     },
 };
-use tokio::sync::broadcast::Sender;
 use tracing::error;
 
 #[cfg(feature = "e2e-encryption")]
@@ -30,7 +29,7 @@ use super::{
     RoomCreationData,
 };
 use crate::{
-    Result, RoomInfoNotableUpdate, RoomState,
+    Result, RoomState,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
 };
 
@@ -44,17 +43,12 @@ pub async fn update_joined_room(
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
-    let RoomCreationData {
-        room_id,
-        room_info_notable_update_sender,
-        requested_required_states,
-        ambiguity_cache,
-    } = room_creation_data;
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
+        room_creation_data;
 
     let state_store = notification.state_store;
 
-    let room =
-        state_store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
+    let room = state_store.get_or_create_room(room_id, RoomState::Joined);
 
     let mut room_info = room.clone_info();
 
@@ -155,17 +149,12 @@ pub async fn update_left_room(
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
-    let RoomCreationData {
-        room_id,
-        room_info_notable_update_sender,
-        requested_required_states,
-        ambiguity_cache,
-    } = room_creation_data;
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
+        room_creation_data;
 
     let state_store = notification.state_store;
 
-    let room =
-        state_store.get_or_create_room(room_id, RoomState::Left, room_info_notable_update_sender);
+    let room = state_store.get_or_create_room(room_id, RoomState::Left);
 
     let mut room_info = room.clone_info();
     room_info.mark_as_left();
@@ -214,16 +203,11 @@ pub async fn update_invited_room(
     room_id: &RoomId,
     user_id: &UserId,
     invited_room: InvitedRoom,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
 ) -> Result<InvitedRoomUpdate> {
     let state_store = notification.state_store;
 
-    let room = state_store.get_or_create_room(
-        room_id,
-        RoomState::Invited,
-        room_info_notable_update_sender,
-    );
+    let room = state_store.get_or_create_room(room_id, RoomState::Invited);
 
     let (raw_events, events) = state_events::stripped::collect(&invited_room.invite_state.events);
 
@@ -252,16 +236,11 @@ pub async fn update_knocked_room(
     room_id: &RoomId,
     user_id: &UserId,
     knocked_room: KnockedRoom,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
 ) -> Result<KnockedRoomUpdate> {
     let state_store = notification.state_store;
 
-    let room = state_store.get_or_create_room(
-        room_id,
-        RoomState::Knocked,
-        room_info_notable_update_sender,
-    );
+    let room = state_store.get_or_create_room(room_id, RoomState::Knocked);
 
     let (raw_events, events) = state_events::stripped::collect(&knocked_room.knock_state.events);
 

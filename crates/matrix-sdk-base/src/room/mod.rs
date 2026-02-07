@@ -67,7 +67,7 @@ pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
-    Error, MinimalStateEvent,
+    Error,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
@@ -86,7 +86,13 @@ pub struct Room {
     pub(super) own_user_id: OwnedUserId,
 
     pub(super) info: SharedObservable<RoomInfo>,
+
+    /// A clone of the [`BaseStateStore::room_info_notable_update_sender`].
+    ///
+    /// [`BaseStateStore::room_info_notable_update_sender`]: crate::store::BaseStateStore::room_info_notable_update_sender
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+
+    /// A clone of the state store.
     pub(super) store: Arc<DynStateStore>,
 
     /// A map for ids of room membership events in the knocking state linked to
@@ -244,10 +250,7 @@ impl Room {
     /// redacted, all fields except `creator` will be set to their default
     /// value.
     pub fn create_content(&self) -> Option<RoomCreateWithCreatorEventContent> {
-        match self.info.read().base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => Some(ev.content.clone()),
-            MinimalStateEvent::Redacted(ev) => Some(ev.content.clone()),
-        }
+        Some(self.info.read().base_info.create.as_ref()?.content.clone())
     }
 
     /// Is this room considered a direct message.
