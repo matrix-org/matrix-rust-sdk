@@ -24,12 +24,9 @@ use matrix_sdk::{
     },
 };
 #[cfg(feature = "experimental-widgets")]
-use ruma::events::{
-    TimelineEventType,
-    call::member::{
-        ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
-        CallMemberEventContent, CallMemberStateKey, CallScope, Focus, LivekitFocus,
-    },
+use ruma::events::call::member::{
+    ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent, CallMemberEventContent,
+    CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
 use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -60,8 +57,6 @@ use serde_json::Value as JsonValue;
 use base64::{Engine as _, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_base::crypto::CollectStrategy;
-#[cfg(feature = "e2ee-per-participant")]
-use sha2::{Digest, Sha256};
 #[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(feature = "experimental-widgets")]
@@ -992,6 +987,7 @@ async fn start_element_call_widget(
                 continue;
             };
             if action == "capabilities" {
+                info!(request_id, "widget requested capabilities");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1007,6 +1003,7 @@ async fn start_element_call_widget(
                 }
             }
             if action == "notify_capabilities" {
+                info!(request_id, "widget acknowledged capabilities");
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
@@ -1019,6 +1016,34 @@ async fn start_element_call_widget(
                     break;
                 }
                 let _ = capabilities_ready_tx.send(true);
+            }
+            if action == "send_event" {
+                info!(request_id, "widget send_event received");
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "send_event",
+                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "response": {},
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
+            }
+            if action == "update_state" {
+                info!(request_id, "widget update_state received");
+                let response = serde_json::json!({
+                    "api": "toWidget",
+                    "widgetId": outbound_widget_id,
+                    "requestId": request_id,
+                    "action": "update_state",
+                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "response": {},
+                });
+                if !outbound_handle.send(response.to_string()).await {
+                    break;
+                }
             }
         }
         info!("widget -> rust-sdk message stream closed");
@@ -1085,7 +1110,8 @@ async fn publish_call_membership_via_widget(
         .device_id()
         .context("missing device id for widget membership publisher")?
         .to_owned();
-    let state_key = CallMemberStateKey::new(own_user_id.clone(), None, false);
+    let state_key =
+        CallMemberStateKey::new(own_user_id.clone(), Some(own_device_id.to_string()), false);
     let call_id = room.room_id().to_string();
     let application = Application::Call(CallApplicationContent::new(call_id.clone(), CallScope::Room));
     let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
@@ -1102,29 +1128,14 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let request_id = format!(
-        "publish-membership-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
-    let message = serde_json::json!({
-        "api": "fromWidget",
-        "widgetId": widget.widget_id,
-        "requestId": request_id,
-        "action": "send_event",
-        "data": {
-            "type": TimelineEventType::CallMember.to_string(),
-            "room_id": room.room_id().to_string(),
-            "state_key": state_key.as_ref(),
-            "content": content,
-        }
-    });
-    if !widget.handle.send(message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership"));
-    }
-    info!("published MatrixRTC membership via widget api");
+    info!("we also arrive here");
+    let send_response = room
+        .send_state_event_for_key(&state_key, content)
+        .await
+        .context("send MatrixRTC membership state event")?;
+    info!(state_key = state_key.as_ref(), "published MatrixRTC membership state event");
+    info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
+    info!("we also arrive here");
     Ok(())
 }
 
