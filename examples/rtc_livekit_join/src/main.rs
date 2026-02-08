@@ -1128,12 +1128,14 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
+    info!("we also arrive here");
     let send_response = room
         .send_state_event_for_key(&state_key, content)
         .await
         .context("send MatrixRTC membership state event")?;
     info!(state_key = state_key.as_ref(), "published MatrixRTC membership state event");
     info!(event_id = %send_response.event_id, "published MatrixRTC membership state event");
+    info!("we also arrive here");
     Ok(())
 }
 
