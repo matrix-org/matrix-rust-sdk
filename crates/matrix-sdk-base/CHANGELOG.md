@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix invited/knocked rooms disappearing from the room list after
+  join → leave/kick → re-invite when using Sliding Sync. The SDK now always
+  emits a room update so the room is surfaced correctly again.
+  ([#6126](https://github.com/matrix-org/matrix-rust-sdk/pull/6126))
+
+
 - [**breaking**] `BaseClient::room_info_notable_update_sender` has
   moved into `BaseStateStore`. `BaseStateStore::derive_from_other`
   and `BaseStateStore::get_or_create_room` no longer takes a

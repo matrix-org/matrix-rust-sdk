@@ -340,6 +340,66 @@ mod tests {
     };
 
     #[async_test]
+    async fn test_invited_state_without_update_emits_invited_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!invite:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Invite));
+
+        let response = response_with_room(room_id, room);
+
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
+
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+    }
+
+    use ruma::events::AnyStrippedStateEvent;
+
+    fn invite_state_for(
+        user_id: &UserId,
+        membership: MembershipState,
+    ) -> Vec<Raw<AnyStrippedStateEvent>> {
+        let content = RoomMemberEventContent::new(membership);
+
+        let raw: Raw<AnyStrippedStateEvent> = Raw::from_json_string(
+            serde_json::json!({
+                "type": "m.room.member",
+                "state_key": user_id,
+                "content": content,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        vec![raw]
+    }
+
+    #[async_test]
+    async fn test_knocked_state_emits_invited_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!knock:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Knock));
+
+        let response = response_with_room(room_id, room);
+
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
+
+        // ✅ Knocked rooms surface as invited rooms in Sliding Sync
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+    }
+
+    #[async_test]
     async fn test_notification_count_set() {
         let client = logged_in_base_client(None).await;
 
