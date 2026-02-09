@@ -1731,13 +1731,15 @@ mod tests {
                 );
             }
 
-            if let Some(power_level) = parameters.power_level {
-                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
+            let mut power_levels = if let Some(power_level) = parameters.power_level {
+                BTreeMap::from([(user_id.to_owned(), power_level.into())])
+            } else {
+                BTreeMap::from([(user_id.to_owned(), 100.into())])
+            };
 
-                builder = builder.add_state_event(
-                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                );
-            }
+            builder = builder.add_state_event(
+                factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+            );
 
             server.sync_room(client, builder).await;
         }
