@@ -66,12 +66,19 @@ async fn finish_login_grant<Q>(
 
     // We wait for the new device to send us the m.login.protocol message with the
     // device authorization grant information. -- MSC4108 OAuth 2.0 login step 3
-    let message = channel.receive_json().await?;
-    let QrAuthMessage::LoginProtocol { device_authorization_grant, protocol, device_id } = message
-    else {
-        return Err(QRCodeGrantLoginError::Unknown(
-            "Receiving unexpected message when expecting LoginProtocol".to_owned(),
-        ));
+    let (device_authorization_grant, protocol, device_id) = match channel.receive_json().await? {
+        QrAuthMessage::LoginProtocol { device_authorization_grant, protocol, device_id } => {
+            (device_authorization_grant, protocol, device_id)
+        }
+        QrAuthMessage::LoginFailure { reason, .. } => {
+            return Err(QRCodeGrantLoginError::LoginFailure { reason });
+        }
+        message => {
+            return Err(QRCodeGrantLoginError::UnexpectedMessage {
+                expected: "m.login.protocol",
+                received: message,
+            });
+        }
     };
 
     // We verify the selected protocol.
@@ -123,13 +130,20 @@ async fn finish_login_grant<Q>(
     // the user code displayed on the other device. -- MSC4108 OAuth 2.0 login
     // steps 5 & 6
 
-    // We wait for the new device to send us the m.login.success message
-    let message: QrAuthMessage = channel.receive_json().await?;
-    let QrAuthMessage::LoginSuccess = message else {
-        return Err(QRCodeGrantLoginError::Unknown(
-            "Receiving unexpected message when expecting LoginSuccess".to_owned(),
-        ));
-    };
+    // We wait for the new device to send us the m.login.success or m.login.failure
+    // message
+    match channel.receive_json().await? {
+        QrAuthMessage::LoginSuccess => (),
+        QrAuthMessage::LoginFailure { reason, .. } => {
+            return Err(QRCodeGrantLoginError::LoginFailure { reason });
+        }
+        message => {
+            return Err(QRCodeGrantLoginError::UnexpectedMessage {
+                expected: "m.login.success",
+                received: message,
+            });
+        }
+    }
 
     // We check that the new device was created successfully, allowing for the
     // specified delay. -- MSC4108 Secret sharing and device verification step 1
