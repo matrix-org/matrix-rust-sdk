@@ -239,10 +239,7 @@
 
           --_duration-color: var(--color-accent);
           --_timeout-color: var(--color-violet);
-          --_timeout-stop: calc(
-            (var(--_timeout) * 100%) / var(--_duration)
-            + 1px /* in case 100% is rounded to the nearest sub-pixel */
-          );
+          --_timeout-stop: calc((var(--_timeout) * 100%) / var(--_duration));
 
           background: linear-gradient(
             90deg,
