@@ -1826,7 +1826,7 @@ mod private {
         /// be kept up-to-date as new events are pinned, and new related
         /// events show up from sync or backpagination.
         ///
-        /// This requires that the room's event cache be initialized.
+        /// This requires the room's event cache to be initialized.
         pub async fn subscribe_to_pinned_events(
             &mut self,
             room: Room,
