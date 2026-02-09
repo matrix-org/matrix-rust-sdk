@@ -72,9 +72,17 @@ pub enum Error {
     #[error("Missing `{0}` for `{1}`")]
     MissingState(StateEventType, OwnedRoomId),
 
-    /// Failed to set the expected m.space.parent or m.space.child state events.
-    #[error("Failed updating space parent/child relationship")]
+    /// Failed to set either of the m.space.parent or m.space.child state
+    /// events.
+    #[error("Failed to set either of the m.space.parent or m.space.child state events")]
     UpdateRelationship(SDKError),
+
+    /// Failed to set the expected m.space.parent state event (but any
+    /// m.space.child changes were successful).
+    #[error(
+        "Failed to set the expected m.space.parent state event (but any m.space.child changes were successful)"
+    )]
+    UpdateInverseRelationship(SDKError),
 
     /// Failed to leave a space.
     #[error("Failed to leave space")]
@@ -375,11 +383,12 @@ impl SpaceService {
 
         // Add the space as parent of the child if allowed.
         if child_power_levels.user_can_send_state(user_id, StateEventType::SpaceParent) {
-            let parent_route = space_room.route().await.map_err(Error::UpdateRelationship)?;
+            let parent_route =
+                space_room.route().await.map_err(Error::UpdateInverseRelationship)?;
             child_room
                 .send_state_event_for_key(&space_id, SpaceParentEventContent::new(parent_route))
                 .await
-                .map_err(Error::UpdateRelationship)?;
+                .map_err(Error::UpdateInverseRelationship)?;
         } else {
             warn!("The current user doesn't have permission to set the child's parent.");
         }
@@ -392,6 +401,7 @@ impl SpaceService {
         child_id: OwnedRoomId,
         space_id: OwnedRoomId,
     ) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
         let space_room =
             self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
 
@@ -413,9 +423,14 @@ impl SpaceService {
         }
 
         if let Some(child_room) = self.client.get_room(&child_id) {
-            if let Ok(Some(_)) = child_room
-                .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
-                .await
+            let power_levels = child_room.power_levels().await.map_err(|error| {
+                Error::UpdateInverseRelationship(matrix_sdk::Error::from(error))
+            })?;
+
+            if power_levels.user_can_send_state(user_id, StateEventType::SpaceParent)
+                && let Ok(Some(_)) = child_room
+                    .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
+                    .await
             {
                 // Same as the comment above.
                 child_room
@@ -425,7 +440,7 @@ impl SpaceService {
                         serde_json::json!({}),
                     )
                     .await
-                    .map_err(Error::UpdateRelationship)?;
+                    .map_err(Error::UpdateInverseRelationship)?;
             } else {
                 warn!("A space parent event wasn't found on the child, ignoring.");
             }
@@ -1570,62 +1585,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    async fn add_space_rooms(
-        rooms: Vec<MockSpaceRoomParameters>,
-        client: &Client,
-        server: &MatrixMockServer,
-        factory: &EventFactory,
-        user_id: &UserId,
-    ) {
-        for parameters in rooms {
-            let mut builder = JoinedRoomBuilder::new(parameters.room_id)
-                .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
-
-            if let Some(order) = parameters.order {
-                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "type": "m.space_order",
-                      "content": {
-                        "order": order
-                      }
-                })));
-            }
-
-            for parent_id in parameters.parents {
-                builder = builder.add_state_event(
-                    factory
-                        .space_parent(parent_id.to_owned(), parameters.room_id.to_owned())
-                        .sender(user_id),
-                );
-            }
-
-            for child_id in parameters.children {
-                builder = builder.add_state_event(
-                    factory
-                        .space_child(parameters.room_id.to_owned(), child_id.to_owned())
-                        .sender(user_id),
-                );
-            }
-
-            if let Some(power_level) = parameters.power_level {
-                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
-
-                builder = builder.add_state_event(
-                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                );
-            }
-
-            server.sync_room(client, builder).await;
-        }
-    }
-
-    struct MockSpaceRoomParameters {
-        room_id: &'static RoomId,
-        order: Option<&'static str>,
-        parents: Vec<&'static RoomId>,
-        children: Vec<&'static RoomId>,
-        power_level: Option<i32>,
-    }
-
     #[async_test]
     async fn test_space_child_updates() {
         // Test child updates received via sync.
@@ -1734,5 +1693,63 @@ mod tests {
                 },
             ]
         );
+    }
+
+    async fn add_space_rooms(
+        rooms: Vec<MockSpaceRoomParameters>,
+        client: &Client,
+        server: &MatrixMockServer,
+        factory: &EventFactory,
+        user_id: &UserId,
+    ) {
+        for parameters in rooms {
+            let mut builder = JoinedRoomBuilder::new(parameters.room_id)
+                .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
+
+            if let Some(order) = parameters.order {
+                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "type": "m.space_order",
+                      "content": {
+                        "order": order
+                      }
+                })));
+            }
+
+            for parent_id in parameters.parents {
+                builder = builder.add_state_event(
+                    factory
+                        .space_parent(parent_id.to_owned(), parameters.room_id.to_owned())
+                        .sender(user_id),
+                );
+            }
+
+            for child_id in parameters.children {
+                builder = builder.add_state_event(
+                    factory
+                        .space_child(parameters.room_id.to_owned(), child_id.to_owned())
+                        .sender(user_id),
+                );
+            }
+
+            let mut power_levels = if let Some(power_level) = parameters.power_level {
+                BTreeMap::from([(user_id.to_owned(), power_level.into())])
+            } else {
+                BTreeMap::from([(user_id.to_owned(), 100.into())])
+            };
+
+            builder = builder.add_state_event(
+                factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+            );
+
+            server.sync_room(client, builder).await;
+        }
+    }
+
+    struct MockSpaceRoomParameters {
+        room_id: &'static RoomId,
+        order: Option<&'static str>,
+        parents: Vec<&'static RoomId>,
+        children: Vec<&'static RoomId>,
+        power_level: Option<i32>,
     }
 }
