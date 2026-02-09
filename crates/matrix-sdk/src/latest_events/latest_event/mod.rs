@@ -23,7 +23,7 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState, StateChanges};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -110,7 +110,7 @@ impl LatestEvent {
         )
         .await;
 
-        info!(value = ?new_value, "Computed a remote `LatestEventValue`");
+        trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
 
         if let Some(new_value) = new_value {
             self.update(new_value).await;
@@ -137,7 +137,7 @@ impl LatestEvent {
         )
         .await;
 
-        info!(value = ?new_value, "Computed a local `LatestEventValue`");
+        trace!(value = ?new_value, "Computed a local `LatestEventValue`");
 
         if let Some(new_value) = new_value {
             self.update(new_value).await;
@@ -158,7 +158,7 @@ impl LatestEvent {
                 RoomState::Invited => {
                     let new_value = Builder::new_remote_for_invite(&room).await;
 
-                    info!(value = ?new_value, "Computed a remote `LatestEventValue` for invite");
+                    trace!(value = ?new_value, "Computed a remote `LatestEventValue` for invite");
 
                     new_value
                 }
