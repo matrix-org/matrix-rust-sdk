@@ -249,6 +249,29 @@ async fn test_fetch_user_profile() {
 }
 
 #[async_test]
+async fn test_fetch_removed_avatar_url() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_get_profile_field(user_id, ProfileFieldName::AvatarUrl)
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            // This is what Synapse returns after calling Account::set_avatar_url(None).
+            json!({"avatar_url":null}),
+        ))
+        .mock_once()
+        .named("get avatar_url")
+        .mount()
+        .await;
+
+    let account = client.account();
+
+    let res_avatar_url = account.get_avatar_url().await.unwrap();
+    assert_eq!(res_avatar_url, None);
+}
+
+#[async_test]
 async fn test_get_cached_avatar_url() {
     let avatar_url = mxc_uri!("mxc://localhost/1mA63");
 

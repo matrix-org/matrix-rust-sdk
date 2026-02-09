@@ -42,9 +42,9 @@ use ruma::{
             config::{get_global_account_data, set_global_account_data},
             error::ErrorKind,
             profile::{
-                AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
-                delete_profile_field, get_profile, get_profile_field, set_avatar_url,
-                set_display_name, set_profile_field,
+                DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
+                delete_profile_field, get_avatar_url, get_profile, get_profile_field,
+                set_avatar_url, set_display_name, set_profile_field,
             },
             uiaa::AuthData,
         },
@@ -178,8 +178,15 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let avatar_url =
-            self.fetch_profile_field_of_static::<AvatarUrl>(user_id.to_owned()).await?;
+
+        #[allow(deprecated)] // get_profile_field fails when the response is {"avatar_url":null} 🤷‍♂️
+        let request = get_avatar_url::v3::Request::new(user_id.to_owned());
+        let avatar_url = self
+            .client
+            .send(request)
+            .with_request_config(RequestConfig::short_retry().force_auth())
+            .await?
+            .avatar_url;
 
         if let Some(url) = avatar_url.clone() {
             // If an avatar is found cache it.
