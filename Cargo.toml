@@ -95,6 +95,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "289bee87974bd3c2ad14a6c158
 ] }
 sentry = { version = "0.46.0", default-features = false }
 sentry-tracing = { version = "0.46.0", default-features = false }
+sentry-log = { version = "0.46.0", default-features = false }
 serde = { version = "1.0.228", default-features = false, features = ["std", "rc", "derive"] }
 serde_html_form = { version = "0.2.8", default-features = false }
 serde_json = { version = "1.0.145", default-features = false, features = ["std"] }

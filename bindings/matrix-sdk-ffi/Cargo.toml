@@ -96,11 +96,13 @@ sentry = { workspace = true, optional = true, features = [
   "backtrace",
   "contexts",
   "debug-images",
+  "logs",
   "panic",
   "reqwest",
   "sentry-debug-images",
 ] }
 sentry-tracing = { workspace = true, optional = true }
+sentry-log = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true

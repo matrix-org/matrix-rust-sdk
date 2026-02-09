@@ -2679,7 +2679,7 @@ impl Client {
     /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
     /// [long polling]: #long-polling
     /// [filtered]: #filtering-events
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn sync_once(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2715,7 +2715,27 @@ impl Client {
             request_config.timeout = Some(base_timeout + timeout);
         }
 
+        let is_zero_timeout = sync_settings.timeout.map(|d| d.is_zero()).unwrap_or_default();
+
+        warn!("Sync request timeout: {:?}, config: {:?} is zero: {}", request.timeout, request_config.timeout, is_zero_timeout);
+
+        // let span = if is_zero_timeout {
+        //     let span = tracing::debug_span!("Sync with timeout = 0");
+        //     span.record("sentry", true);
+        //     let entered = span.entered();
+        //     warn!("Sync with timeout = 0");
+        //     Some(entered)
+        // } else {
+        //     // warn!("Sync timeout is non-zero: {:?}", request_config.timeout);
+        //     None
+        // };
+
         let response = self.send(request).with_request_config(request_config).await?;
+
+        // if let Some(span) = span {
+        //     span.exit();
+        // }
+
         let next_batch = response.next_batch.clone();
         let response = self.process_sync(response).await?;
 

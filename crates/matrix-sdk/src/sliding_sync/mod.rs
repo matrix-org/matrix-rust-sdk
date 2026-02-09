@@ -49,7 +49,8 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
-use crate::{Client, Result, config::RequestConfig};
+use crate::{Client, Result, config::RequestConfig, HttpResult};
+use crate::futures::SendRequest;
 
 /// The Sliding Sync instance.
 ///
@@ -531,6 +532,7 @@ impl SlidingSync {
     /// Send a sliding sync request.
     ///
     /// This method contains the sending logic.
+    #[instrument(skip_all, fields(timeout, pos))]
     async fn send_sync_request(
         &self,
         request: http::Request,
@@ -581,8 +583,17 @@ impl SlidingSync {
                 // dropped.
                 .abort_on_drop();
 
+                let timeout_is_zero = request.request.timeout.map(|d| d.is_zero()).unwrap_or_default();
+                warn!("(SS) Sync request timeout: {:?}, config: {:?} is zero: {}", request.request.timeout, request_config.timeout, timeout_is_zero);
+
                 // Wait on the sliding sync request success or failure early.
-                let response = request.await?;
+                let response = if timeout_is_zero {
+                    warn!("Sync timeout is zero");
+                    Self::send_request_with_zero_timeout(request).await
+                } else {
+                    warn!("Sync timeout is non-zero: {:?}", request.request.timeout);
+                    request.await
+                }?;
 
                 // At this point, if `request` has been resolved successfully, we wait on
                 // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
@@ -595,7 +606,16 @@ impl SlidingSync {
 
                 response
             } else {
-                request.await?
+                let timeout_is_zero = request.request.timeout.map(|d| d.is_zero()).unwrap_or_default();
+                warn!("(SS) Sync request (no-e2ee) timeout: {:?}, config: {:?} is zero: {}", request.request.timeout, request_config.timeout, timeout_is_zero);
+
+                if timeout_is_zero {
+                    warn!("Sync timeout (no e2ee) is zero");
+                    Self::send_request_with_zero_timeout(request).await
+                } else {
+                    warn!("Sync timeout (no e2ee) is non-zero: {:?}", request.request.timeout);
+                    request.await
+                }?
             }
         };
 
@@ -642,6 +662,12 @@ impl SlidingSync {
         };
 
         spawn(future.instrument(Span::current())).await.unwrap()
+    }
+
+    #[instrument(skip_all, name = "send_request_with_zero_timeout", fields(sentry_sync_performance = true, timeout, pos))]
+    async fn send_request_with_zero_timeout(request: SendRequest<http::Request>) -> HttpResult<http::Response> {
+        warn!("Sending sync request with zero timeout");
+        request.await
     }
 
     /// Is the e2ee extension enabled for this sliding sync instance?

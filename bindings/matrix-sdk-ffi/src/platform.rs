@@ -481,14 +481,11 @@ impl TracingConfiguration {
                         sentry::ClientOptions {
                             traces_sampler: Some(Arc::new(|ctx| {
                                 // Make sure bridge spans are always uploaded
-                                if ctx.name() == BRIDGE_SPAN_NAME {
-                                    1.0
-                                } else {
-                                    0.0
-                                }
+                                1.0
                             })),
                             attach_stacktrace: true,
                             release: Some(env!("VERGEN_GIT_SHA").into()),
+                            enable_logs: true,
                             ..sentry::ClientOptions::default()
                         },
                     ));
@@ -509,6 +506,10 @@ impl TracingConfiguration {
                                     && metadata.fields().field("sentry").is_some()
                                 {
                                     sentry_tracing::default_event_filter(metadata)
+                                } else if enabled.load(std::sync::atomic::Ordering::SeqCst)
+                                    && metadata.fields().field("sentry_sync_performance").is_some()
+                                {
+                                    sentry_tracing::EventFilter::Event | sentry_tracing::EventFilter::Log
                                 } else {
                                     // Ignore the event.
                                     sentry_tracing::EventFilter::Ignore
@@ -520,7 +521,7 @@ impl TracingConfiguration {
 
                             move |metadata| {
                                 if enabled.load(std::sync::atomic::Ordering::SeqCst) {
-                                    matches!(
+                                    metadata.fields().field("sentry_sync_performance").is_some() || matches!(
                                         metadata.level(),
                                         &Level::ERROR | &Level::WARN | &Level::INFO | &Level::DEBUG
                                     )
@@ -610,6 +611,7 @@ pub fn init_platform(
     config: TracingConfiguration,
     use_lightweight_tokio_runtime: bool,
 ) -> Result<(), ClientError> {
+    let dsn = config.sentry_dsn.clone();
     #[cfg(all(feature = "js", target_family = "wasm"))]
     {
         console_error_panic_hook::set_once();
@@ -627,6 +629,9 @@ pub fn init_platform(
             setup_multithreaded_tokio_runtime();
         }
     }
+
+    #[cfg(feature = "sentry")]
+    warn!("Used sentry DSN: {:?}", dsn);
 
     Ok(())
 }

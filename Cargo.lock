@@ -3327,6 +3327,7 @@ dependencies = [
  "paranoid-android",
  "ruma",
  "sentry",
+ "sentry-log",
  "sentry-tracing",
  "serde",
  "serde_json",
@@ -5142,6 +5143,7 @@ dependencies = [
  "sentry-contexts",
  "sentry-core",
  "sentry-debug-images",
+ "sentry-log",
  "sentry-panic",
  "sentry-tracing",
  "tokio",
@@ -5193,6 +5195,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06a2778a222fd90ebb01027c341a72f8e24b0c604c6126504a4fe34e5500e646"
 dependencies = [
  "findshlibs",
+ "sentry-core",
+]
+
+[[package]]
+name = "sentry-log"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a63c02619733e917643fa91ec6744a18a1e48236cd876ce908a4c2b04f17bdf"
+dependencies = [
+ "bitflags",
+ "log",
  "sentry-core",
 ]
 
