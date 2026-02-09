@@ -68,7 +68,7 @@ use tokio::{
     select,
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
 };
-use tracing::{error, warn};
+use tracing::{info, warn};
 
 use crate::{
     client::WeakClient,
@@ -603,7 +603,7 @@ async fn compute_latest_events(
 
             ControlFlow::Break(room_latest_events)
         } else {
-            error!(?room_id, "Failed to find the room");
+            info!(?room_id, "Failed to find the room");
 
             ControlFlow::Continue(())
         }
