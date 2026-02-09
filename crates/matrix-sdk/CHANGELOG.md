@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `QRCodeGrantLoginError::SecureChannel` for secure channel errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::UnexpectedMessage` for protocol message errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::LoginFailure` for login failure errors received from the other device
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
   upload errors from `/keys/upload`.
   ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
@@ -53,6 +61,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
+  the new device is not returned by the homeserver.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Latest Event is correctly computed when multiple edits exist for the same event candidate.
   ([#6096](https://github.com/matrix-org/matrix-rust-sdk/pull/6096))
 - Restrict which `m.room.member` can be a `LatestEventValue` candidate by relying on `MembershipChange` for more control.

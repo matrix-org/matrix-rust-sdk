@@ -170,6 +170,30 @@ pub enum QRCodeGrantLoginError {
     /// The requested device ID is already in use.
     #[error("The requested device ID is already in use")]
     DeviceIDAlreadyInUse,
+
+    /// The requested device was not returned by the homeserver.
+    #[error("The requested device was not returned by the homeserver")]
+    DeviceNotFound,
+
+    /// An error happened while exchanging messages with the other device.
+    #[error(transparent)]
+    SecureChannel(SecureChannelError),
+
+    /// An unexpected message was received from the other device.
+    #[error("We have received an unexpected message, expected: {expected}, got {received:?}")]
+    UnexpectedMessage {
+        /// The message we expected.
+        expected: &'static str,
+        /// The message we received instead.
+        received: QrAuthMessage,
+    },
+
+    /// The other device has signaled to us that the login has failed.
+    #[error("The login failed, reason: {reason}")]
+    LoginFailure {
+        /// The reason, as signaled by the other device, for the login failure.
+        reason: LoginFailureReason,
+    },
 }
 
 impl From<SecureChannelError> for QRCodeGrantLoginError {
@@ -182,10 +206,10 @@ impl From<SecureChannelError> for QRCodeGrantLoginError {
                 {
                     return Self::NotFound;
                 }
-                Self::Unknown(e.to_string())
+                Self::SecureChannel(e)
             }
             SecureChannelError::InvalidCheckCode => Self::InvalidCheckCode,
-            e => Self::Unknown(e.to_string()),
+            e => Self::SecureChannel(e),
         }
     }
 }
