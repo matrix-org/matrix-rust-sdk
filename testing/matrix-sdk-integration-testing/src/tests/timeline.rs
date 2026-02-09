@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, Room, RoomState, assert_next_with_timeout,
+    Client, Room, RoomState, ThreadingSupport, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{
@@ -55,7 +55,8 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
     timeline::{
         EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder,
-        TimelineEventFocusThreadMode, TimelineFocus, TimelineItem,
+        TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus,
+        TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -1380,6 +1381,206 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     // was indeed replaced.
     let items = permalink_timeline.items().await;
     assert_eq!(items.len(), 3);
+
+    Ok(())
+}
+
+/// Test that UTDs as the latest thread event (in the summary), once decrypted
+/// by R2D2 (the redecryptor), get replaced in the timeline with the decrypted
+/// variant of the latest event, in the summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
+    const RECOVERY_PASSPHRASE: &str = "I am error";
+
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+    };
+
+    // Set up sync for user Alice, and create a room.
+    let alice1 = TestClientBuilder::new("alice")
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .enable_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        .build()
+        .await?;
+    let user_id = alice1.user_id().expect("We should have a user ID by now");
+
+    let sync_service1 = SyncService::builder(alice1.clone()).build().await?;
+    sync_service1.start().await;
+
+    alice1.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice1.encryption().recovery().enable().with_passphrase(RECOVERY_PASSPHRASE).await?;
+
+    debug!("Creating room…");
+    let room1 = alice1
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state: vec![],
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    let room_id = room1.room_id().to_owned();
+
+    room1.enable_encryption().await?;
+
+    // Send an initial event.
+    let result =
+        room1.send(RoomMessageEventContent::text_plain("It's a secret to everybody")).await?;
+    let thread_root_event_id = result.response.event_id;
+
+    sync_service1.stop().await;
+
+    // Now alice2 comes into play.
+    let alice2 = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .enable_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        .build()
+        .await?;
+
+    // No rooms as of yet, we have not synced with the server as of yet.
+    assert!(alice2.rooms().is_empty());
+    alice2.event_cache().subscribe()?;
+
+    let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
+
+    sync_service2.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service2.start().await;
+    alice2.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // Let's get the room from the new client.
+    let room2 = wait_for_room(&alice2, &room_id).await;
+
+    assert!(room2.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
+
+    // Let's see if the thread root event is there, it should be a UTD.
+    let event = room2.event(&thread_root_event_id, Default::default()).await?;
+    assert!(event.kind.is_utd());
+
+    // Alright, let's now go to a main (threaded) timeline.
+    let timeline = room2
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await?;
+
+    // Only keep the event timeline items.
+    let (mut items, mut stream) = timeline.subscribe_filter_map(|i| i.as_event().cloned()).await;
+
+    // If we don't have any items as of yet, wait on the stream to send us the
+    // initial items.
+    if items.is_empty() {
+        let up = assert_next_with_timeout!(stream, 5000);
+        up.apply(&mut items);
+    }
+
+    // Alright, let's get the event from the timeline.
+    let item = timeline
+        .item_by_event_id(&thread_root_event_id)
+        .await
+        .expect("We should have access to the thread root event");
+
+    // Still a UTD.
+    assert!(
+        item.content().is_unable_to_decrypt(),
+        "The focused event should be a UTD as we didn't recover yet"
+    );
+
+    // And doesn't have a summary.
+    assert!(item.content().thread_summary().is_none());
+
+    // Let's now recover.
+    alice2.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
+    assert_eq!(alice2.encryption().recovery().state(), RecoveryState::Enabled);
+
+    // The next update for the timeline should replace the UTD item with a decrypted
+    // value.
+    let next_item = assert_next_with_timeout!(stream, 5000);
+    assert_let!(VectorDiff::Set { index: 7, value } = next_item);
+
+    let content = value.content();
+
+    // And we're not a UTD anymore.
+    assert!(!content.is_unable_to_decrypt());
+    let message = content.as_message().expect("The focused event should be a message");
+    assert_eq!(message.body(), "It's a secret to everybody");
+
+    // Pause alice2's sync.
+    sync_service2.stop().await;
+    sync_service1.start().await;
+
+    // Have alice1 discard the room key.
+    room1.discard_room_key().await?;
+
+    // Have alice1 answer to the event in a thread.
+    let thread_reply = room1
+        .make_reply_event(
+            RoomMessageEventContentWithoutRelation::text_plain("In-thread reply"),
+            Reply {
+                event_id: thread_root_event_id.clone(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
+        )
+        .await?;
+
+    let result = room1.send(thread_reply).await?;
+    let thread_reply_event_id = result.response.event_id;
+
+    // Keep the sync_service1 running in the background, so it does receive the
+    // thread reply event through sync, then backs it up.
+
+    // alice2 wakes up.
+    sync_service2.start().await;
+
+    {
+        // Her timeline sees a new item for the thread reply, because we don't know yet
+        // that the thread reply is part of the thread, as it's encrypted.
+        // TODO(bnjbvr): we should know it, since an encrypted event includes the
+        // relationship?
+        let next_item = assert_next_with_timeout!(stream, 5000);
+        assert_let!(VectorDiff::PushBack { value } = next_item);
+        assert!(value.content().is_unable_to_decrypt());
+        assert_eq!(value.event_id().unwrap(), &thread_reply_event_id);
+
+        let next_item = assert_next_with_timeout!(stream, 5000);
+        assert_let!(VectorDiff::Set { index: 7, value } = next_item);
+        assert!(!value.content().is_unable_to_decrypt());
+
+        // At first, the latest event is a UTD.
+        let summary =
+            value.content().thread_summary().expect("We should have a thread summary now");
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(
+            latest_event.identifier,
+            TimelineEventItemId::EventId(thread_reply_event_id.clone())
+        );
+        assert!(latest_event.content.is_unable_to_decrypt());
+    }
+
+    {
+        // But it gets replaced with the decrypted event later:
+        //
+        // 1. The timeline realizes the decrypted event was part of the thread, so it
+        //    removes it.
+        let next_item = assert_next_with_timeout!(stream, 5000);
+        assert_let!(VectorDiff::Remove { index: 8 } = next_item);
+
+        // 2. Then, the timeline replaces the thread summary for the thread root.
+        let next_item = assert_next_with_timeout!(stream, 5000);
+        assert_let!(VectorDiff::Set { index: 7, value } = next_item);
+        let summary =
+            value.content().thread_summary().expect("We should have a thread summary now");
+        assert!(!value.content().is_unable_to_decrypt());
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(
+            latest_event.identifier,
+            TimelineEventItemId::EventId(thread_reply_event_id.clone())
+        );
+        assert_eq!(latest_event.content.as_message().unwrap().body(), "In-thread reply");
+    }
 
     Ok(())
 }
