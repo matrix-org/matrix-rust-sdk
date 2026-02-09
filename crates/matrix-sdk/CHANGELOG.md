@@ -50,6 +50,14 @@ All notable changes to this project will be documented in this file.
   to true will now trigger a download of all historical keys for the room in
   question from the client's key backup.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+- Add `QRCodeGrantLoginError::SecureChannel` for secure channel errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::UnexpectedMessage` for protocol message errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::LoginFailure` for login failure errors received from the other device
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
 ### Bugfix
 
@@ -65,6 +73,9 @@ All notable changes to this project will be documented in this file.
 - Allow granting of QR login to a new client whose device ID is not a base64
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
+- Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
+  the new device is not returned by the homeserver.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
 ## [0.16.0] - 2025-12-04
 
