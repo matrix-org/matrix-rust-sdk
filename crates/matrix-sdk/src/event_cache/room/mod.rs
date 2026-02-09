@@ -684,7 +684,7 @@ mod private {
         collections::{BTreeMap, HashMap, HashSet},
         sync::{
             Arc, OnceLock,
-            atomic::{AtomicBool, AtomicUsize, Ordering},
+            atomic::{AtomicUsize, Ordering},
         },
     };
 
@@ -800,7 +800,7 @@ mod private {
         /// the context of pagination? We do this at most once per room,
         /// the first time we try to run backward pagination. We reset
         /// that upon clearing the timeline events.
-        waited_for_initial_prev_token: Arc<AtomicBool>,
+        waited_for_initial_prev_token: bool,
 
         /// An atomic count of the current number of subscriber of the
         /// [`super::RoomEventCache`].
@@ -889,8 +889,6 @@ mod private {
                 }
             };
 
-            let waited_for_initial_prev_token = Arc::new(AtomicBool::new(false));
-
             Ok(Self {
                 locked_state: RwLock::new(RoomEventCacheState {
                     enabled_thread_support,
@@ -910,7 +908,7 @@ mod private {
                     generic_update_sender,
                     linked_chunk_update_sender,
                     room_version_rules,
-                    waited_for_initial_prev_token,
+                    waited_for_initial_prev_token: false,
                     subscriber_count: Default::default(),
                     pinned_event_cache: OnceLock::new(),
                 }),
@@ -1259,9 +1257,14 @@ mod private {
             self.state.pinned_event_cache.get()
         }
 
-        /// Get a reference to the `waited_for_initial_prev_token` atomic bool.
-        pub fn waited_for_initial_prev_token(&self) -> &Arc<AtomicBool> {
-            &self.state.waited_for_initial_prev_token
+        /// Get the `waited_for_initial_prev_token` value.
+        pub fn waited_for_initial_prev_token(&self) -> bool {
+            self.state.waited_for_initial_prev_token
+        }
+
+        /// Assume the system has already waited for the initial `prev_token`.
+        pub fn assume_has_waited_for_initial_prev_token(&mut self) {
+            self.state.waited_for_initial_prev_token = true;
         }
 
         /// Find a single event in this room.
@@ -1609,7 +1612,8 @@ mod private {
             // Reset the pagination state too: pretend we never waited for the initial
             // prev-batch token, and indicate that we're not at the start of the
             // timeline, since we don't know about that anymore.
-            self.state.waited_for_initial_prev_token.store(false, Ordering::SeqCst);
+            self.state.waited_for_initial_prev_token = false;
+
             // TODO: likely must cancel any ongoing back-paginations too
             self.state
                 .pagination_status
@@ -1707,8 +1711,8 @@ mod private {
 
             // If we've never waited for an initial previous-batch token, and we've now
             // inserted a gap, no need to wait for a previous-batch token later.
-            if !self.state.waited_for_initial_prev_token.load(Ordering::SeqCst) && has_new_gap {
-                self.state.waited_for_initial_prev_token.store(true, Ordering::SeqCst);
+            if !self.state.waited_for_initial_prev_token && has_new_gap {
+                self.assume_has_waited_for_initial_prev_token();
             }
 
             // Remove the old duplicated events.
