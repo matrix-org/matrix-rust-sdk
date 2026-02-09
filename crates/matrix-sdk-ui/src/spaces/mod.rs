@@ -1585,62 +1585,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    async fn add_space_rooms(
-        rooms: Vec<MockSpaceRoomParameters>,
-        client: &Client,
-        server: &MatrixMockServer,
-        factory: &EventFactory,
-        user_id: &UserId,
-    ) {
-        for parameters in rooms {
-            let mut builder = JoinedRoomBuilder::new(parameters.room_id)
-                .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
-
-            if let Some(order) = parameters.order {
-                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "type": "m.space_order",
-                      "content": {
-                        "order": order
-                      }
-                })));
-            }
-
-            for parent_id in parameters.parents {
-                builder = builder.add_state_event(
-                    factory
-                        .space_parent(parent_id.to_owned(), parameters.room_id.to_owned())
-                        .sender(user_id),
-                );
-            }
-
-            for child_id in parameters.children {
-                builder = builder.add_state_event(
-                    factory
-                        .space_child(parameters.room_id.to_owned(), child_id.to_owned())
-                        .sender(user_id),
-                );
-            }
-
-            if let Some(power_level) = parameters.power_level {
-                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
-
-                builder = builder.add_state_event(
-                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                );
-            }
-
-            server.sync_room(client, builder).await;
-        }
-    }
-
-    struct MockSpaceRoomParameters {
-        room_id: &'static RoomId,
-        order: Option<&'static str>,
-        parents: Vec<&'static RoomId>,
-        children: Vec<&'static RoomId>,
-        power_level: Option<i32>,
-    }
-
     #[async_test]
     async fn test_space_child_updates() {
         // Test child updates received via sync.
@@ -1749,5 +1693,61 @@ mod tests {
                 },
             ]
         );
+    }
+
+    async fn add_space_rooms(
+        rooms: Vec<MockSpaceRoomParameters>,
+        client: &Client,
+        server: &MatrixMockServer,
+        factory: &EventFactory,
+        user_id: &UserId,
+    ) {
+        for parameters in rooms {
+            let mut builder = JoinedRoomBuilder::new(parameters.room_id)
+                .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
+
+            if let Some(order) = parameters.order {
+                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "type": "m.space_order",
+                      "content": {
+                        "order": order
+                      }
+                })));
+            }
+
+            for parent_id in parameters.parents {
+                builder = builder.add_state_event(
+                    factory
+                        .space_parent(parent_id.to_owned(), parameters.room_id.to_owned())
+                        .sender(user_id),
+                );
+            }
+
+            for child_id in parameters.children {
+                builder = builder.add_state_event(
+                    factory
+                        .space_child(parameters.room_id.to_owned(), child_id.to_owned())
+                        .sender(user_id),
+                );
+            }
+
+            if let Some(power_level) = parameters.power_level {
+                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
+
+                builder = builder.add_state_event(
+                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                );
+            }
+
+            server.sync_room(client, builder).await;
+        }
+    }
+
+    struct MockSpaceRoomParameters {
+        room_id: &'static RoomId,
+        order: Option<&'static str>,
+        parents: Vec<&'static RoomId>,
+        children: Vec<&'static RoomId>,
+        power_level: Option<i32>,
     }
 }
