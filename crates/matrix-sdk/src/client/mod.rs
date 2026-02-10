@@ -100,7 +100,6 @@ use crate::{
     client::thread_subscriptions::ThreadSubscriptionCatchup,
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
-    encryption::DuplicateOneTimeKeyErrorMessage,
     error::HttpResult,
     event_cache::EventCache,
     event_handler::{
@@ -120,7 +119,10 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     cross_process_lock::CrossProcessLock,
-    encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
+    encryption::{
+        DuplicateOneTimeKeyErrorMessage, Encryption, EncryptionData, EncryptionSettings,
+        VerificationState,
+    },
 };
 
 mod builder;
@@ -391,6 +393,7 @@ pub(crate) struct ClientInner {
 
     /// A sender to notify subscribers about duplicate key upload errors
     /// triggered by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 }
@@ -460,6 +463,7 @@ impl ClientInner {
             search_index: search_index_handler,
             thread_subscription_catchup,
             task_monitor: TaskMonitor::new(),
+            #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
         };
 
@@ -3330,6 +3334,7 @@ impl Client {
 
     /// Add a subscriber for duplicate key upload error notifications triggered
     /// by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
     pub fn subscribe_to_duplicate_key_upload_errors(
         &self,
     ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
