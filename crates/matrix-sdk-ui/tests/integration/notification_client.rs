@@ -459,6 +459,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.create", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "filters": {
                         "is_invite": true,
@@ -479,6 +480,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.create", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "timeline_limit": 16,
                 },
