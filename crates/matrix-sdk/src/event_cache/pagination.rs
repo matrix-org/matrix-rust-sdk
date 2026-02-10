@@ -186,7 +186,7 @@ impl RoomPagination {
 
             match state_guard.load_more_events_backwards().await? {
                 LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
-                    if prev_token.is_none() && !state_guard.waited_for_initial_prev_token() {
+                    if prev_token.is_none() && !*state_guard.waited_for_initial_prev_token() {
                         // We didn't reload a pagination token, and we haven't waited for one; wait
                         // and start over.
 
@@ -205,7 +205,7 @@ impl RoomPagination {
                         .await;
                         trace!("done waiting");
 
-                        self.inner.state.write().await?.assume_has_waited_for_initial_prev_token();
+                        *self.inner.state.write().await?.waited_for_initial_prev_token() = true;
 
                         // Retry!
                         //
