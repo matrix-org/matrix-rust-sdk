@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
 - Fix the redecryption of events in timelines built using the
   `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
   ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
+- Ensure that the display name in the `NotificationClient` excludes service
+  members when used with `SlidingSync`.
+  ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
 
 ### Features
 
