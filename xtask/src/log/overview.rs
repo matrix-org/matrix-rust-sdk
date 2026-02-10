@@ -230,7 +230,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         writeln!(
             buffer,
             "<li>\n\
-            <details><summary>(root)\
+            <details open><summary>(root)\
             <span class=\"aside\">\
             <span class=\"highlight\"><input type=\"checkbox\" title=\"Highlight\" /></span>\
             </span>\
