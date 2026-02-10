@@ -242,7 +242,25 @@ pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait DuplicateKeyUploadErrorListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called once when uploading keys fails.
-    fn on_duplicate_key_upload_error(&self);
+    fn on_duplicate_key_upload_error(&self, message: Option<DuplicateOneTimeKeyErrorMessage>);
+}
+
+/// Information about the old and new key that caused a duplicate key upload
+/// error in /keys/upload.
+#[derive(uniffi::Record)]
+pub struct DuplicateOneTimeKeyErrorMessage {
+    /// The previously uploaded one-time key, encoded as unpadded base64.
+    pub old_key: String,
+    /// The one-time key we attempted to upload, encoded as unpadded base64
+    pub new_key: String,
+}
+
+impl From<matrix_sdk::encryption::DuplicateOneTimeKeyErrorMessage>
+    for DuplicateOneTimeKeyErrorMessage
+{
+    fn from(value: matrix_sdk::encryption::DuplicateOneTimeKeyErrorMessage) -> Self {
+        Self { old_key: value.old_key.to_base64(), new_key: value.new_key.to_base64() }
+    }
 }
 
 /// A listener for changes of room account data events.
@@ -767,7 +785,9 @@ impl Client {
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             loop {
                 match subscriber.recv().await {
-                    Ok(_) => listener.on_duplicate_key_upload_error(),
+                    Ok(message) => {
+                        listener.on_duplicate_key_upload_error(message.map(|m| m.into()))
+                    }
                     Err(err) => {
                         error!("error when listening to key upload errors: {err}");
                     }

@@ -100,6 +100,7 @@ use crate::{
     client::thread_subscriptions::ThreadSubscriptionCatchup,
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
+    encryption::DuplicateOneTimeKeyErrorMessage,
     error::HttpResult,
     event_cache::EventCache,
     event_handler::{
@@ -390,7 +391,8 @@ pub(crate) struct ClientInner {
 
     /// A sender to notify subscribers about duplicate key upload errors
     /// triggered by requests to /keys/upload.
-    pub(crate) duplicate_key_upload_error_sender: broadcast::Sender<()>,
+    pub(crate) duplicate_key_upload_error_sender:
+        broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 }
 
 impl ClientInner {
@@ -3328,7 +3330,9 @@ impl Client {
 
     /// Add a subscriber for duplicate key upload error notifications triggered
     /// by requests to /keys/upload.
-    pub fn subscribe_to_duplicate_key_upload_errors(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_to_duplicate_key_upload_errors(
+        &self,
+    ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
         self.inner.duplicate_key_upload_error_sender.subscribe()
     }
 }
