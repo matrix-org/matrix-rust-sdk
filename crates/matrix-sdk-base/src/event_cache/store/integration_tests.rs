@@ -141,6 +141,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// already exist in the store.
     async fn test_linked_chunk_exists_before_referenced(&self);
 
+    /// Test that the same event can exist in a room's linked chunk and a
+    /// thread's linked chunk simultaneously.
+    async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self);
+
     /// Test loading the last chunk in a linked chunk from the store.
     async fn test_load_last_chunk(&self);
 
@@ -353,6 +357,65 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         )
         .await
         .unwrap_err();
+    }
+
+    async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self) {
+        // This test verifies that the same event can appear in both a room's linked
+        // chunk and a thread's linked chunk. This is the real-world use case:
+        // a thread reply appears in both the main room timeline and the thread.
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let event = make_test_event_with_event_id(
+            room_id,
+            "thread reply",
+            Some(event_id!("$thread_reply")),
+        );
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the event into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event.clone()] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the same event into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Verify both entries exist by loading chunks from both linked chunk IDs.
+        let room_chunks = self.load_all_chunks(room_linked_chunk_id).await.unwrap();
+        let thread_chunks = self.load_all_chunks(thread_linked_chunk_id).await.unwrap();
+
+        assert_eq!(room_chunks.len(), 1);
+        assert_eq!(thread_chunks.len(), 1);
+
+        // Verify the event is in both.
+        assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+        });
+        assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+        });
     }
 
     async fn test_load_all_chunks_metadata(&self) {
@@ -1928,6 +1991,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_exists_before_referenced().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_allow_same_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_allows_same_event_in_room_and_thread().await;
             }
 
             #[async_test]
