@@ -28,7 +28,6 @@ pub enum StateTestEvent {
     RedactedState,
     RoomAvatar,
     RoomName,
-    RoomTopic,
     Custom(JsonValue),
 }
 
@@ -61,7 +60,6 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
             StateTestEvent::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
             StateTestEvent::RoomName => test_json::sync_events::NAME.to_owned(),
-            StateTestEvent::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
             StateTestEvent::Custom(json) => json,
         }
     }

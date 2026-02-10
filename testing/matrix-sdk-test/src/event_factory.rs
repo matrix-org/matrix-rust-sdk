@@ -255,6 +255,12 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
         self
     }
 
+    /// Set the previous content for this state event (in the unsigned section).
+    pub fn prev_content(mut self, prev: E) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev);
+        self
+    }
+
     /// Create a bundled thread summary in the unsigned bundled relations of
     /// this event.
     pub fn with_bundled_thread_summary(

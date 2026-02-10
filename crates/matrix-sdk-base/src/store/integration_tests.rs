@@ -7,7 +7,7 @@ use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory, test_json};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         FeatureFlag, MatrixVersion,
         client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
@@ -26,6 +26,7 @@ use ruma::{
             },
             message::RoomMessageEventContent,
             power_levels::RoomPowerLevelsEventContent,
+            redaction::SyncRoomRedactionEvent,
             topic::RoomTopicEventContent,
         },
     },
@@ -153,8 +154,21 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         changes.add_state_event(room_id, name_event, name_raw);
 
-        let topic_json: &JsonValue = &test_json::TOPIC;
-        let topic_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone())?;
+        let receipt_content = f
+            .room(room_id)
+            .read_receipts()
+            .add(event_id!("$example"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .into_content();
+        changes.add_receipts(room_id, receipt_content);
+
+        let topic_event_id = topic_event_id();
+        let topic_raw: Raw<AnySyncStateEvent> = EventFactory::new()
+            .room(room_id)
+            .sender(user_id)
+            .room_topic("😀")
+            .event_id(topic_event_id)
+            .prev_content(RoomTopicEventContent::new("test".to_owned()))
+            .into_raw_sync_state();
         let topic_event = topic_raw.deserialize()?;
         room.handle_state_event(
             &mut RawSyncStateEventWithKeys::try_from_raw_state_event(topic_raw.clone())
@@ -189,13 +203,6 @@ impl StateStoreIntegrationTests for DynStateStore {
             serde_json::from_value::<Raw<AnySyncStateEvent>>(invited_member_json.clone())?;
         let invited_member_state_event = invited_member_state_raw.deserialize()?;
         changes.add_state_event(room_id, invited_member_state_event, invited_member_state_raw);
-
-        let receipt_content = f
-            .room(room_id)
-            .read_receipts()
-            .add(event_id!("$example"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-        changes.add_receipts(room_id, receipt_content);
 
         changes.ambiguity_maps.insert(room_id.to_owned(), room_ambiguity_map);
         changes.profiles.insert(room_id.to_owned(), room_profiles);
@@ -232,6 +239,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
     async fn test_topic_redaction(&self) -> TestResult {
         let room_id = room_id();
+        let f = EventFactory::new();
         self.populate().await?;
 
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
@@ -252,12 +260,11 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut changes = StateChanges::default();
 
-        let redaction_json: &JsonValue = &test_json::TOPIC_REDACTION;
-        let redaction_evt: Raw<_> = serde_json::from_value(redaction_json.clone())
-            .expect("topic redaction event making works");
-        let redacted_event_id: OwnedEventId = redaction_evt.get_field("redacts")?.unwrap();
+        let topic_event_id = topic_event_id();
+        let redaction_evt: Raw<SyncRoomRedactionEvent> =
+            f.room(room_id).sender(user_id()).redaction(topic_event_id).into_raw();
 
-        changes.add_redaction(room_id, &redacted_event_id, redaction_evt);
+        changes.add_redaction(room_id, topic_event_id, redaction_evt);
         self.save_changes(&changes).await?;
 
         let redacted_event = self
@@ -2332,6 +2339,10 @@ fn stripped_room_id() -> &'static RoomId {
 
 fn first_receipt_event_id() -> &'static EventId {
     event_id!("$example")
+}
+
+fn topic_event_id() -> &'static EventId {
+    event_id!("$topic_event")
 }
 
 fn power_level_event() -> Raw<AnySyncStateEvent> {
