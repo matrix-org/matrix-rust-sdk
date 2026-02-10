@@ -27,7 +27,6 @@ use matrix_sdk_test::{
             MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
             MIXED_SYNC,
         },
-        sync_events::PINNED_EVENTS,
     },
 };
 use ruma::{
@@ -1371,7 +1370,10 @@ async fn test_restore_room() {
     let tag_event = raw_tag_event.deserialize().unwrap();
     changes.add_room_account_data(room_id, tag_event, raw_tag_event);
 
-    let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast_unchecked();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+    let raw_pinned_events_event: Raw<_> = f
+        .room_pinned_events(vec![owned_event_id!("$a"), owned_event_id!("$b")])
+        .into_raw_sync_state();
     let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
     changes.add_state_event(room_id, pinned_events_event, raw_pinned_events_event);
 

@@ -71,6 +71,7 @@ use ruma::{
                 RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
             server_acl::RoomServerAclEventContent,
@@ -973,6 +974,14 @@ impl EventFactory {
         // The state key is empty for a room avatar state event.
         event.state_key = Some("".to_owned());
         event
+    }
+
+    /// Create a state event for the room's pinned events.
+    pub fn room_pinned_events(
+        &self,
+        pinned: Vec<OwnedEventId>,
+    ) -> EventBuilder<RoomPinnedEventsEventContent> {
+        self.event(RoomPinnedEventsEventContent::new(pinned)).state_key("")
     }
 
     /// Create a new `m.member_hints` event with the given service members.
