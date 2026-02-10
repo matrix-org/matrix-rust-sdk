@@ -731,7 +731,7 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::Room;
+    use crate::{Room, event_cache::room::PostProcessingOrigin};
 
     pub(in super::super) struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
@@ -1537,7 +1537,7 @@ mod private {
                 .room_linked_chunk
                 .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
 
-            self.post_process_new_events(events, true).await?;
+            self.post_process_new_events(events, PostProcessingOrigin::Sync).await?;
 
             if timeline.limited && has_new_gap {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1641,7 +1641,8 @@ mod private {
             );
 
             // Note: this flushes updates to the store.
-            self.post_process_new_events(topo_ordered_events, false).await?;
+            self.post_process_new_events(topo_ordered_events, PostProcessingOrigin::Backpagination)
+                .await?;
 
             let event_diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
@@ -1688,7 +1689,7 @@ mod private {
         pub(in super::super) async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
-            is_sync: bool,
+            post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
@@ -1713,7 +1714,7 @@ mod private {
                     // - thread support is enabled,
                     // - and if this is a sync (we can't know where to insert backpaginated events
                     //   in threads).
-                    if is_sync {
+                    if matches!(post_processing_origin, PostProcessingOrigin::Sync) {
                         if let Some(thread_root) = extract_thread_root(event.raw()) {
                             new_events_by_thread
                                 .entry(thread_root)
@@ -1728,6 +1729,16 @@ mod private {
                                     .push(event.clone());
                             }
                         }
+                    }
+
+                    // If the post-processing origin is the redecryption, and this is part of a
+                    // thread, mark the thread as needing an update, potentially for its latest
+                    // event, that might have been redecrypted now.
+                    #[cfg(feature = "e2e-encryption")]
+                    if matches!(post_processing_origin, PostProcessingOrigin::Redecryption)
+                        && let Some(thread_root) = extract_thread_root(event.raw())
+                    {
+                        new_events_by_thread.entry(thread_root).or_default();
                     }
 
                     // Look for edits that may apply to a thread; we'll process them later.
@@ -1811,8 +1822,6 @@ mod private {
                 return Ok(());
             };
 
-            let prev_summary = target_event.thread_summary.summary();
-
             // Recompute the thread summary, if needs be.
 
             // Read the latest number of thread replies from the store.
@@ -1839,10 +1848,10 @@ mod private {
                 None
             };
 
-            if prev_summary == new_summary.as_ref() {
-                trace!(%thread_root, "thread summary is already up-to-date");
-                return Ok(());
-            }
+            // Note: we don't check whether the summary has actually changed before
+            // replacing it, because we want to trigger an update to observers
+            // even if the summary is the same, as it might indicate that the
+            // latest event has been redecrypted or updated in some way.
 
             // Trigger an update to observers.
             trace!(%thread_root, "updating thread summary: {new_summary:?}");
@@ -2246,6 +2255,13 @@ mod private {
 
         Ok(related)
     }
+}
+
+pub(super) enum PostProcessingOrigin {
+    Sync,
+    Backpagination,
+    #[cfg(feature = "e2e-encryption")]
+    Redecryption,
 }
 
 /// An enum representing where an event has been found.
