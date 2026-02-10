@@ -714,46 +714,26 @@ mod private {
         },
         room_version_rules::RoomVersionRules,
     };
-    use tokio::sync::{
-        Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
-        broadcast::{Receiver, Sender},
-    };
+    use tokio::sync::broadcast::{Receiver, Sender};
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
         super::{
             BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
             RoomPaginationStatus, ThreadEventCacheUpdate,
+            caches::lock,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            room::threads::ThreadEventCache,
+            persistence::send_updates_to_store,
+            room::{pinned_events::PinnedEventCache, threads::ThreadEventCache},
         },
         EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::{
-        Room,
-        event_cache::{persistence::send_updates_to_store, room::pinned_events::PinnedEventCache},
-    };
+    use crate::Room;
 
-    /// State for a single room's event cache.
-    ///
-    /// This contains all the inner mutable states that ought to be updated at
-    /// the same time.
-    pub struct RoomEventCacheStateLock {
-        /// The per-thread lock around the real state.
-        locked_state: RwLock<RoomEventCacheState>,
-
-        /// A lock taken to avoid multiple attempts to upgrade from a read lock
-        /// to a write lock.
-        ///
-        /// Please see inline comment of [`Self::read`] to understand why it
-        /// exists.
-        state_lock_upgrade_mutex: Mutex<()>,
-    }
-
-    struct RoomEventCacheState {
+    pub(in super::super) struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
         enabled_thread_support: bool,
 
@@ -806,6 +786,18 @@ mod private {
         /// [`super::RoomEventCache`].
         subscriber_count: Arc<AtomicUsize>,
     }
+
+    impl lock::Store for RoomEventCacheState {
+        fn store(&self) -> &EventCacheStoreLock {
+            &self.store
+        }
+    }
+
+    /// State for a single room's event cache.
+    ///
+    /// This contains all the inner mutable states that ought to be updated at
+    /// the same time.
+    pub type RoomEventCacheStateLock = lock::StateLock<RoomEventCacheState>;
 
     impl RoomEventCacheStateLock {
         /// Create a new state, or reload it from storage if it's been enabled.
@@ -889,223 +881,57 @@ mod private {
                 }
             };
 
-            Ok(Self {
-                locked_state: RwLock::new(RoomEventCacheState {
-                    enabled_thread_support,
-                    room_id,
-                    store,
-                    room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
-                        linked_chunk,
-                        full_linked_chunk_metadata,
-                    ),
-                    // The threads mapping is intentionally empty at start, since we're going to
-                    // reload threads lazily, as soon as we need to (based on external
-                    // subscribers) or when we get new information about those (from
-                    // sync).
-                    threads: HashMap::new(),
-                    pagination_status,
-                    update_sender,
-                    generic_update_sender,
-                    linked_chunk_update_sender,
-                    room_version_rules,
-                    waited_for_initial_prev_token: false,
-                    subscriber_count: Default::default(),
-                    pinned_event_cache: OnceLock::new(),
-                }),
-                state_lock_upgrade_mutex: Mutex::new(()),
-            })
-        }
-
-        /// Lock this [`RoomEventCacheStateLock`] with per-thread shared access.
-        ///
-        /// This method locks the per-thread lock over the state, and then locks
-        /// the cross-process lock over the store. It returns an RAII guard
-        /// which will drop the read access to the state and to the store when
-        /// dropped.
-        ///
-        /// If the cross-process lock over the store is dirty (see
-        /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
-        pub async fn read(&self) -> Result<RoomEventCacheStateLockReadGuard<'_>, EventCacheError> {
-            // Only one call at a time to `read` is allowed.
-            //
-            // Why? Because in case the cross-process lock over the store is dirty, we need
-            // to upgrade the read lock over the state to a write lock.
-            //
-            // ## Upgradable read lock
-            //
-            // One may argue that this upgrades can be done with an _upgradable read lock_
-            // [^1] [^2]. We don't want to use this solution: an upgradable read lock is
-            // basically a mutex because we are losing the shared access property, i.e.
-            // having multiple read locks at the same time. This is an important property to
-            // hold for performance concerns.
-            //
-            // ## Downgradable write lock
-            //
-            // One may also argue we could first obtain a write lock over the state from the
-            // beginning, thus removing the need to upgrade the read lock to a write lock.
-            // The write lock is then downgraded to a read lock once the dirty is cleaned
-            // up. It can potentially create a deadlock in the following situation:
-            //
-            // - `read` is called once, it takes a write lock, then downgrades it to a read
-            //   lock: the guard is kept alive somewhere,
-            // - `read` is called again, and waits to obtain the write lock, which is
-            //   impossible as long as the guard from the previous call is not dropped.
-            //
-            // ## “Atomic” read and write
-            //
-            // One may finally argue to first obtain a read lock over the state, then drop
-            // it if the cross-process lock over the store is dirty, and immediately obtain
-            // a write lock (which can later be downgraded to a read lock). The problem is
-            // that this write lock is async: anything can happen between the drop and the
-            // new lock acquisition, and it's not possible to pause the runtime in the
-            // meantime.
-            //
-            // ## Semaphore with 1 permit, aka a Mutex
-            //
-            // The chosen idea is to allow only one execution at a time of this method: it
-            // becomes a critical section. That way we are free to “upgrade” the read lock
-            // by dropping it and obtaining a new write lock. All callers to this method are
-            // waiting, so nothing can happen in the meantime.
-            //
-            // Note that it doesn't conflict with the `write` method because this later
-            // immediately obtains a write lock, which avoids any conflict with this method.
-            //
-            // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
-            // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-            let _state_lock_upgrade_guard = self.state_lock_upgrade_mutex.lock().await;
-
-            // Obtain a read lock.
-            let state_guard = self.locked_state.read().await;
-
-            match state_guard.store.lock().await? {
-                EventCacheStoreLockState::Clean(store_guard) => {
-                    Ok(RoomEventCacheStateLockReadGuard { state: state_guard, store: store_guard })
-                }
-                EventCacheStoreLockState::Dirty(store_guard) => {
-                    // Drop the read lock, and take a write lock to modify the state.
-                    // This is safe because only one reader at a time (see
-                    // `Self::state_lock_upgrade_mutex`) is allowed.
-                    drop(state_guard);
-                    let state_guard = self.locked_state.write().await;
-
-                    let mut guard = RoomEventCacheStateLockWriteGuard {
-                        state: state_guard,
-                        store: store_guard,
-                    };
-
-                    // Force to reload by shrinking to the last chunk.
-                    let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
-
-                    // All good now, mark the cross-process lock as non-dirty.
-                    EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                    // Downgrade the guard as soon as possible.
-                    let guard = guard.downgrade();
-
-                    // Now let the world know about the reload.
-                    if !updates_as_vector_diffs.is_empty() {
-                        // Notify observers about the update.
-                        let _ = guard.state.update_sender.send(
-                            RoomEventCacheUpdate::UpdateTimelineEvents {
-                                diffs: updates_as_vector_diffs,
-                                origin: EventsOrigin::Cache,
-                            },
-                        );
-
-                        // Notify observers about the generic update.
-                        let _ =
-                            guard.state.generic_update_sender.send(RoomEventCacheGenericUpdate {
-                                room_id: guard.state.room_id.clone(),
-                            });
-                    }
-
-                    Ok(guard)
-                }
-            }
-        }
-
-        /// Lock this [`RoomEventCacheStateLock`] with exclusive per-thread
-        /// write access.
-        ///
-        /// This method locks the per-thread lock over the state, and then locks
-        /// the cross-process lock over the store. It returns an RAII guard
-        /// which will drop the write access to the state and to the store when
-        /// dropped.
-        ///
-        /// If the cross-process lock over the store is dirty (see
-        /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
-        pub async fn write(
-            &self,
-        ) -> Result<RoomEventCacheStateLockWriteGuard<'_>, EventCacheError> {
-            let state_guard = self.locked_state.write().await;
-
-            match state_guard.store.lock().await? {
-                EventCacheStoreLockState::Clean(store_guard) => {
-                    Ok(RoomEventCacheStateLockWriteGuard { state: state_guard, store: store_guard })
-                }
-                EventCacheStoreLockState::Dirty(store_guard) => {
-                    let mut guard = RoomEventCacheStateLockWriteGuard {
-                        state: state_guard,
-                        store: store_guard,
-                    };
-
-                    // Force to reload by shrinking to the last chunk.
-                    let updates_as_vector_diffs = guard.force_shrink_to_last_chunk().await?;
-
-                    // All good now, mark the cross-process lock as non-dirty.
-                    EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                    // Now let the world know about the reload.
-                    if !updates_as_vector_diffs.is_empty() {
-                        // Notify observers about the update.
-                        let _ = guard.state.update_sender.send(
-                            RoomEventCacheUpdate::UpdateTimelineEvents {
-                                diffs: updates_as_vector_diffs,
-                                origin: EventsOrigin::Cache,
-                            },
-                        );
-
-                        // Notify observers about the generic update.
-                        let _ =
-                            guard.state.generic_update_sender.send(RoomEventCacheGenericUpdate {
-                                room_id: guard.state.room_id.clone(),
-                            });
-                    }
-
-                    Ok(guard)
-                }
-            }
+            Ok(Self::new_inner(RoomEventCacheState {
+                enabled_thread_support,
+                room_id,
+                store,
+                room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
+                    linked_chunk,
+                    full_linked_chunk_metadata,
+                ),
+                // The threads mapping is intentionally empty at start, since we're going to
+                // reload threads lazily, as soon as we need to (based on external
+                // subscribers) or when we get new information about those (from
+                // sync).
+                threads: HashMap::new(),
+                pagination_status,
+                update_sender,
+                generic_update_sender,
+                linked_chunk_update_sender,
+                room_version_rules,
+                waited_for_initial_prev_token: false,
+                subscriber_count: Default::default(),
+                pinned_event_cache: OnceLock::new(),
+            }))
         }
     }
 
-    /// The read lock guard returned by [`RoomEventCacheStateLock::read`].
-    pub struct RoomEventCacheStateLockReadGuard<'a> {
-        /// The per-thread read lock guard over the [`RoomEventCacheState`].
-        state: RwLockReadGuard<'a, RoomEventCacheState>,
+    pub type RoomEventCacheStateLockReadGuard<'a> =
+        lock::StateLockReadGuard<'a, RoomEventCacheState>;
 
-        /// The cross-process lock guard over the store.
-        store: EventCacheStoreLockGuard,
-    }
+    pub type RoomEventCacheStateLockWriteGuard<'a> =
+        lock::StateLockWriteGuard<'a, RoomEventCacheState>;
 
-    /// The write lock guard return by [`RoomEventCacheStateLock::write`].
-    pub struct RoomEventCacheStateLockWriteGuard<'a> {
-        /// The per-thread write lock guard over the [`RoomEventCacheState`].
-        state: RwLockWriteGuard<'a, RoomEventCacheState>,
+    impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
+        /// Force to shrink the room, whenever there is subscribers or not.
+        async fn reload(&mut self) -> Result<(), EventCacheError> {
+            self.shrink_to_last_chunk().await?;
 
-        /// The cross-process lock guard over the store.
-        store: EventCacheStoreLockGuard,
-    }
+            let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
-    impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
-        /// Synchronously downgrades a write lock into a read lock.
-        ///
-        /// The per-thread/state lock is downgraded atomically, without allowing
-        /// any writers to take exclusive access of the lock in the meantime.
-        ///
-        /// It returns an RAII guard which will drop the write access to the
-        /// state and to the store when dropped.
-        fn downgrade(self) -> RoomEventCacheStateLockReadGuard<'a> {
-            RoomEventCacheStateLockReadGuard { state: self.state.downgrade(), store: self.store }
+            // Notify observers about the update.
+            let _ = self.state.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs,
+                origin: EventsOrigin::Cache,
+            });
+
+            // Notify observers about the generic update.
+            let _ = self
+                .state
+                .generic_update_sender
+                .send(RoomEventCacheGenericUpdate { room_id: self.state.room_id.clone() });
+
+            Ok(())
         }
     }
 
@@ -1484,16 +1310,6 @@ mod private {
             } else {
                 Ok(None)
             }
-        }
-
-        /// Force to shrink the room, whenever there is subscribers or not.
-        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub async fn force_shrink_to_last_chunk(
-            &mut self,
-        ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            self.shrink_to_last_chunk().await?;
-
-            Ok(self.state.room_linked_chunk.updates_as_vector_diffs())
         }
 
         /// Remove events by their position, in `EventLinkedChunk` and in
@@ -2742,12 +2558,14 @@ mod timed_tests {
     };
     use tokio::task::yield_now;
 
-    use super::RoomEventCacheGenericUpdate;
-    use crate::{
-        assert_let_timeout,
-        event_cache::{RoomEventCache, RoomEventCacheUpdate, room::LoadMoreEventsBackwardsOutcome},
-        test_utils::client::MockClientBuilder,
+    use super::{
+        super::{
+            RoomEventCache, RoomEventCacheUpdate, caches::lock::Reload as _,
+            room::LoadMoreEventsBackwardsOutcome,
+        },
+        RoomEventCacheGenericUpdate,
     };
+    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -3506,17 +3324,20 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         // Shrink the linked chunk to the last chunk.
-        let diffs = room_event_cache
+        room_event_cache
             .inner
             .state
             .write()
             .await
             .unwrap()
-            .force_shrink_to_last_chunk()
+            .reload()
             .await
             .expect("shrinking should succeed");
 
         // We receive updates about the changes to the linked chunk.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+        );
         assert_eq!(diffs.len(), 2);
         assert_matches!(&diffs[0], VectorDiff::Clear);
         assert_matches!(&diffs[1], VectorDiff::Append { values} => {
@@ -3526,7 +3347,8 @@ mod timed_tests {
 
         assert!(stream.is_empty());
 
-        // No generic update is sent in this case.
+        // A generic update has been received.
+        assert_let_timeout!(Ok(RoomEventCacheGenericUpdate { .. }) = generic_stream.recv());
         assert!(generic_stream.is_empty());
 
         // When reading the events, we do get only the last one.
