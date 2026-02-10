@@ -1258,13 +1258,8 @@ mod private {
         }
 
         /// Get the `waited_for_initial_prev_token` value.
-        pub fn waited_for_initial_prev_token(&self) -> bool {
-            self.state.waited_for_initial_prev_token
-        }
-
-        /// Assume the system has already waited for the initial `prev_token`.
-        pub fn assume_has_waited_for_initial_prev_token(&mut self) {
-            self.state.waited_for_initial_prev_token = true;
+        pub fn waited_for_initial_prev_token(&mut self) -> &mut bool {
+            &mut self.state.waited_for_initial_prev_token
         }
 
         /// Find a single event in this room.
@@ -1712,7 +1707,7 @@ mod private {
             // If we've never waited for an initial previous-batch token, and we've now
             // inserted a gap, no need to wait for a previous-batch token later.
             if !self.state.waited_for_initial_prev_token && has_new_gap {
-                self.assume_has_waited_for_initial_prev_token();
+                self.state.waited_for_initial_prev_token = true;
             }
 
             // Remove the old duplicated events.
