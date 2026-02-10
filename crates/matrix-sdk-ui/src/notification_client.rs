@@ -1034,12 +1034,26 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
-    use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::Arc,
+    };
 
-    use crate::notification_client::{NotificationItem, RawNotificationEvent};
+    use assert_matches2::assert_let;
+    use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use ruma::{
+        api::client::sync::sync_events::v5::{Response, response},
+        assign, event_id, owned_user_id, room_id, uint, user_id,
+    };
+
+    use crate::{
+        notification_client::{
+            NotificationClient, NotificationItem, NotificationProcessSetup, NotificationStatus,
+            RawNotificationEvent,
+        },
+        sync_service::SyncService,
+    };
 
     #[async_test]
     async fn test_notification_item_returns_thread_id() {
@@ -1064,5 +1078,85 @@ mod tests {
 
         assert_let!(Some(thread_id) = notification_item.thread_id);
         assert_eq!(thread_id, thread_root_event_id);
+    }
+
+    #[async_test]
+    async fn test_notification_room_display_name_excludes_service_members() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let alice_user_id = owned_user_id!("@alice:b.c");
+        let bob_user_id = owned_user_id!("@bob:b.c");
+        let charlie_user_id = owned_user_id!("@charlie:b.c");
+        let room_id = room_id!("!a:b.c");
+        let event_id = event_id!("$a:b.c");
+
+        let f = EventFactory::new().room(room_id).sender(&alice_user_id);
+        let initial_state = vec![
+            f.member(&alice_user_id).display_name("Alice").into_raw_sync_state(),
+            f.member(&bob_user_id).display_name("Bob").into_raw_sync_state(),
+            f.member(&charlie_user_id).display_name("Charlie").into_raw_sync_state(),
+            f.member_hints(BTreeSet::from([charlie_user_id.clone()]))
+                .sender(&alice_user_id)
+                .into_raw_sync_state(),
+        ];
+
+        let expected_display_name = "Alice, Bob".to_owned();
+
+        let joined_room_builder = JoinedRoomBuilder::new(room_id);
+        let room = server
+            .sync_room(&client, joined_room_builder.add_state_bulk(initial_state.clone()))
+            .await;
+
+        assert_eq!(room.display_name().await.unwrap().to_string(), expected_display_name);
+
+        let process_setup = NotificationProcessSetup::SingleProcess {
+            sync_service: Arc::new(SyncService::builder(client.clone()).build().await.unwrap()),
+        };
+
+        let event = f.text_msg("Hey").event_id(event_id).into_event();
+        server
+            .mock_room_event_context()
+            .room(room_id.to_owned())
+            .match_event_id()
+            .ok(RoomContextResponseTemplate::new(event))
+            .mount()
+            .await;
+
+        // Check that the notification we get with `/context` shows the correct room
+        // name
+        let notification_client =
+            NotificationClient::new(client.clone(), process_setup.clone()).await.unwrap();
+        assert_let!(
+            NotificationStatus::Event(notification) =
+                notification_client.get_notification_with_context(room_id, event_id).await.unwrap()
+        );
+        assert_eq!(notification.room_computed_display_name, expected_display_name);
+
+        let response_room = assign!(response::Room::new(), {
+            required_state: initial_state,
+            initial: Some(true),
+            joined_count: Some(uint!(3)),
+            timeline: vec![f.text_msg("Hey").event_id(event_id).into_raw_sync()],
+        });
+        server
+            .mock_sliding_sync()
+            .ok(assign!(Response::new("1".to_owned()), {
+                rooms: BTreeMap::from([(room_id.to_owned(), response_room)])
+            }))
+            .mount()
+            .await;
+
+        // Check that the notification we get with sliding sync shows the correct room
+        // name
+        let notification_client =
+            NotificationClient::new(client.clone(), process_setup.clone()).await.unwrap();
+        assert_let!(
+            NotificationStatus::Event(notification) = notification_client
+                .get_notification_with_sliding_sync(room_id, event_id)
+                .await
+                .unwrap()
+        );
+        assert_eq!(notification.room_computed_display_name, expected_display_name);
     }
 }
