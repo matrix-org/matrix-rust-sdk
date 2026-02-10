@@ -18,10 +18,7 @@ use futures_util::{StreamExt as _, stream};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{deserialized_responses::TimelineEventKind, linked_chunk::Position};
 use matrix_sdk_base::{
-    event_cache::{
-        Event,
-        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
-    },
+    event_cache::{Event, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
     serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
@@ -36,26 +33,18 @@ use ruma::{
     room_version_rules::RedactionRules,
     serde::Raw,
 };
-use tokio::sync::{
-    Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    broadcast::{Receiver, Sender},
-};
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::event_cache::redecryptor::ResolvedUtd;
-use crate::{
-    Room,
-    client::WeakClient,
-    config::RequestConfig,
-    event_cache::{
-        EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        RoomEventCacheUpdate, persistence::send_updates_to_store, room::events::EventLinkedChunk,
-    },
-    room::WeakRoom,
+use super::super::redecryptor::ResolvedUtd;
+use super::super::{
+    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+    caches::lock, persistence::send_updates_to_store, room::events::EventLinkedChunk,
 };
+use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
 
-struct PinnedEventCacheState {
+pub(in super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
@@ -81,6 +70,12 @@ struct PinnedEventCacheState {
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
+impl lock::Store for PinnedEventCacheState {
+    fn store(&self) -> &EventCacheStoreLock {
+        &self.store
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PinnedEventCacheState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -91,136 +86,24 @@ impl std::fmt::Debug for PinnedEventCacheState {
     }
 }
 
-struct PinnedEventCacheStateLock {
-    /// The per-thread lock around the real state.
-    locked_state: RwLock<PinnedEventCacheState>,
+/// State for pinned events of a room's event cache.
+///
+/// This contains all the inner mutable states that ought to be updated at
+/// the same time.
+pub type PinnedEventCacheStateLock = lock::StateLock<PinnedEventCacheState>;
 
-    /// A lock to guard against races when upgrading a read lock into a write
-    /// lock, after noticing the cross-process lock has been dirtied.
-    state_lock_upgrade_mutex: Mutex<()>,
-}
+pub type PinnedEventCacheStateLockWriteGuard<'a> =
+    lock::StateLockWriteGuard<'a, PinnedEventCacheState>;
 
-impl PinnedEventCacheStateLock {
-    /// Lock this [`PinnedEventCacheStateLock`] with per-thread shared access.
-    ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the read access to the state and to the store when
-    /// dropped.
-    ///
-    /// If the cross-process lock over the store is dirty (see
-    /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
-    async fn read(&self) -> Result<PinnedEventCacheStateLockReadGuard<'_>> {
-        // Se comment in [`RoomEventCacheStateLock::read`] for explanation.
-        let _state_lock_upgrade_guard = self.state_lock_upgrade_mutex.lock().await;
+impl<'a> lock::Reload for PinnedEventCacheStateLockWriteGuard<'a> {
+    async fn reload(&mut self) -> Result<()> {
+        self.reload_from_storage().await?;
 
-        // Obtain a read lock.
-        let state_guard = self.locked_state.read().await;
-
-        match state_guard.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => {
-                Ok(PinnedEventCacheStateLockReadGuard { state: state_guard, _store: store_guard })
-            }
-
-            EventCacheStoreLockState::Dirty(store_guard) => {
-                // Drop the read lock, and take a write lock to modify the state.
-                // This is safe because only one reader at a time (see
-                // `Self::state_lock_upgrade_mutex`) is allowed.
-                drop(state_guard);
-                let state_guard = self.locked_state.write().await;
-
-                let mut guard =
-                    PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard };
-
-                // Reload all the pinned events from storage.
-                guard.reload_from_storage().await?;
-
-                // All good now, mark the cross-process lock as non-dirty.
-                EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                // Downgrade the guard as soon as possible.
-                let guard = guard.downgrade();
-
-                Ok(guard)
-            }
-        }
+        Ok(())
     }
-
-    /// Lock this [`PinnedEventCacheStateLock`] with exclusive per-thread
-    /// write access.
-    ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the write access to the state and to the store when
-    /// dropped.
-    ///
-    /// If the cross-process lock over the store is dirty (see
-    /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
-    async fn write(&self) -> Result<PinnedEventCacheStateLockWriteGuard<'_>> {
-        let state_guard = self.locked_state.write().await;
-
-        match state_guard.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => {
-                Ok(PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard })
-            }
-
-            EventCacheStoreLockState::Dirty(store_guard) => {
-                let mut guard =
-                    PinnedEventCacheStateLockWriteGuard { state: state_guard, store: store_guard };
-
-                // Reload the full pinned events list from the store.
-                guard.reload_from_storage().await?;
-
-                // All good now, mark the cross-process lock as non-dirty.
-                EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                Ok(guard)
-            }
-        }
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PinnedEventCacheStateLock {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PinnedEventCacheStateLock")
-            .field("locked_state", &self.locked_state)
-            .finish_non_exhaustive()
-    }
-}
-
-/// The read lock guard returned by [`PinnedEventCacheStateLock::read`].
-pub struct PinnedEventCacheStateLockReadGuard<'a> {
-    /// The per-thread read lock guard over the
-    /// [`PinnedEventCacheState`].
-    state: RwLockReadGuard<'a, PinnedEventCacheState>,
-
-    /// The cross-process lock guard over the store.
-    _store: EventCacheStoreLockGuard,
-}
-
-/// The write lock guard return by [`PinnedEventCacheStateLock::write`].
-struct PinnedEventCacheStateLockWriteGuard<'a> {
-    /// The per-thread write lock guard over the
-    /// [`PinnedEventCacheState`].
-    state: RwLockWriteGuard<'a, PinnedEventCacheState>,
-
-    /// The cross-process lock guard over the store.
-    store: EventCacheStoreLockGuard,
 }
 
 impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
-    /// Synchronously downgrades a write lock into a read lock.
-    ///
-    /// The per-thread/state lock is downgraded atomically, without allowing
-    /// any writers to take exclusive access of the lock in the meantime.
-    ///
-    /// It returns an RAII guard which will drop the write access to the
-    /// state and to the store when dropped.
-    fn downgrade(self) -> PinnedEventCacheStateLockReadGuard<'a> {
-        PinnedEventCacheStateLockReadGuard { state: self.state.downgrade(), _store: self.store }
-    }
-
     /// Reload all the pinned events from storage, replacing the current linked
     /// chunk.
     async fn reload_from_storage(&mut self) -> Result<()> {
@@ -289,11 +172,12 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         if self.state.chunk.events().next().is_some() {
             self.state.chunk.reset();
         }
-        self.state.chunk.push_live_events(None, &new_events);
 
+        self.state.chunk.push_live_events(None, &new_events);
         self.propagate_changes().await?;
 
         let diffs = self.state.chunk.updates_as_vector_diffs();
+
         if !diffs.is_empty() {
             let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs,
@@ -353,13 +237,6 @@ pub struct PinnedEventCache {
     _task: Arc<BackgroundTaskHandle>,
 }
 
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PinnedEventCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PinnedEventCache").field("state", &self.state).finish_non_exhaustive()
-    }
-}
-
 impl PinnedEventCache {
     /// Creates a new [`PinnedEventCache`] for the given room.
     pub(super) fn new(
@@ -375,10 +252,7 @@ impl PinnedEventCache {
 
         let state =
             PinnedEventCacheState { room_id, chunk, sender, linked_chunk_update_sender, store };
-        let state = Arc::new(PinnedEventCacheStateLock {
-            locked_state: RwLock::new(state),
-            state_lock_upgrade_mutex: Mutex::new(()),
-        });
+        let state = Arc::new(PinnedEventCacheStateLock::new_inner(state));
 
         let task = Arc::new(room.client().task_monitor().spawn_background_task(
             "pinned_event_listener_task",
