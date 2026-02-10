@@ -72,6 +72,7 @@ use crate::{
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
+mod caches;
 mod deduplicator;
 mod pagination;
 mod persistence;
