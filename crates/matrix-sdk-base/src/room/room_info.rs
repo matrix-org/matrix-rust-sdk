@@ -1350,13 +1350,10 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{
-        async_test,
-        test_json::{TAG, sync_events::PINNED_EVENTS},
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, test_json::TAG};
     use ruma::{
         assign, events::room::pinned_events::RoomPinnedEventsEventContent, owned_event_id,
-        owned_mxc_uri, owned_user_id, room_id, serde::Raw,
+        owned_mxc_uri, owned_user_id, room_id, serde::Raw, user_id,
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
@@ -1544,7 +1541,10 @@ mod tests {
         let tag_event = raw_tag_event.deserialize().unwrap();
         changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
 
-        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast_unchecked();
+        let f = EventFactory::new().room(&room_info.room_id).sender(user_id!("@example:localhost"));
+        let raw_pinned_events_event: Raw<_> = f
+            .room_pinned_events(vec![owned_event_id!("$a"), owned_event_id!("$b")])
+            .into_raw_sync_state();
         let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
         changes.add_state_event(&room_info.room_id, pinned_events_event, raw_pinned_events_event);
 
