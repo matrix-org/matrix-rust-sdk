@@ -249,7 +249,7 @@ impl RoomEventCache {
         &self,
     ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
         let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
-        let mut state = self.inner.state.write().await?;
+        let state = self.inner.state.read().await?;
 
         state.subscribe_to_pinned_events(room).await
     }
@@ -1217,6 +1217,32 @@ mod private {
         pub fn is_dirty(&self) -> bool {
             EventCacheStoreLockGuard::is_dirty(&self.store)
         }
+
+        /// Subscribe to the lazily initialized pinned event cache for this
+        /// room.
+        ///
+        /// This is a persisted view over the pinned events of a room. The
+        /// pinned events will be initially loaded from a network
+        /// request to fetch the latest pinned events will be performed,
+        /// to update it as needed. The list of pinned events will also
+        /// be kept up-to-date as new events are pinned, and new related
+        /// events show up from sync or backpagination.
+        ///
+        /// This requires the room's event cache to be initialized.
+        pub async fn subscribe_to_pinned_events(
+            &self,
+            room: Room,
+        ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
+            let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
+                PinnedEventCache::new(
+                    room,
+                    self.state.linked_chunk_update_sender.clone(),
+                    self.state.store.clone(),
+                )
+            });
+
+            pinned_event_cache.subscribe().await
+        }
     }
 
     impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
@@ -1814,32 +1840,6 @@ mod private {
             root: OwnedEventId,
         ) -> (Vec<Event>, Receiver<ThreadEventCacheUpdate>) {
             self.get_or_reload_thread(root).subscribe()
-        }
-
-        /// Subscribe to the lazily initialized pinned event cache for this
-        /// room.
-        ///
-        /// This is a persisted view over the pinned events of a room. The
-        /// pinned events will be initially loaded from a network
-        /// request to fetch the latest pinned events will be performed,
-        /// to update it as needed. The list of pinned events will also
-        /// be kept up-to-date as new events are pinned, and new related
-        /// events show up from sync or backpagination.
-        ///
-        /// This requires the room's event cache to be initialized.
-        pub async fn subscribe_to_pinned_events(
-            &mut self,
-            room: Room,
-        ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
-            let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
-                PinnedEventCache::new(
-                    room,
-                    self.state.linked_chunk_update_sender.clone(),
-                    self.state.store.clone(),
-                )
-            });
-
-            pinned_event_cache.subscribe().await
         }
 
         /// Back paginate in the given thread.
