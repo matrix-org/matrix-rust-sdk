@@ -158,7 +158,9 @@ use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEven
 use crate::{
     Client, Result, Room,
     encryption::backups::BackupState,
-    event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    event_cache::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, room::PostProcessingOrigin,
+    },
     room::PushContext,
 };
 
@@ -397,7 +399,7 @@ impl EventCache {
             }
         }
 
-        state.post_process_new_events(new_events, false).await?;
+        state.post_process_new_events(new_events, PostProcessingOrigin::Redecryption).await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
