@@ -502,14 +502,13 @@ impl TracingConfiguration {
                             let enabled = sentry_enabled.clone();
 
                             move |metadata| {
-                                if enabled.load(std::sync::atomic::Ordering::SeqCst)
-                                    && metadata.fields().field("sentry").is_some()
+                                let is_enabled = enabled.load(std::sync::atomic::Ordering::SeqCst);
+                                let fields = metadata.fields();
+                                if is_enabled && fields.field("sentry_sync_performance").is_some()
                                 {
+                                    sentry_tracing::EventFilter::Event
+                                } else if is_enabled && fields.field("sentry").is_some() {
                                     sentry_tracing::default_event_filter(metadata)
-                                } else if enabled.load(std::sync::atomic::Ordering::SeqCst)
-                                    && metadata.fields().field("sentry_sync_performance").is_some()
-                                {
-                                    sentry_tracing::EventFilter::Event | sentry_tracing::EventFilter::Log
                                 } else {
                                     // Ignore the event.
                                     sentry_tracing::EventFilter::Ignore
@@ -521,7 +520,10 @@ impl TracingConfiguration {
 
                             move |metadata| {
                                 if enabled.load(std::sync::atomic::Ordering::SeqCst) {
-                                    metadata.fields().field("sentry_sync_performance").is_some() || matches!(
+                                    // if metadata.fields().field("sentry_sync_performance").is_some() {
+                                    //     panic!("Just trying to check if this line is reached")
+                                    // }
+                                    matches!(
                                         metadata.level(),
                                         &Level::ERROR | &Level::WARN | &Level::INFO | &Level::DEBUG
                                     )
@@ -629,9 +631,6 @@ pub fn init_platform(
             setup_multithreaded_tokio_runtime();
         }
     }
-
-    #[cfg(feature = "sentry")]
-    warn!("Used sentry DSN: {:?}", dsn);
 
     Ok(())
 }

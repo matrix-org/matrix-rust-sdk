@@ -45,7 +45,7 @@ use tokio::{
     select,
     sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender},
 };
-use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn, warn_span, span, Level};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
@@ -589,7 +589,7 @@ impl SlidingSync {
                 // Wait on the sliding sync request success or failure early.
                 let response = if timeout_is_zero {
                     warn!("Sync timeout is zero");
-                    Self::send_request_with_zero_timeout(request).await
+                    Self::send_sync_request_with_zero_timeout(request).await
                 } else {
                     warn!("Sync timeout is non-zero: {:?}", request.request.timeout);
                     request.await
@@ -611,7 +611,11 @@ impl SlidingSync {
 
                 if timeout_is_zero {
                     warn!("Sync timeout (no e2ee) is zero");
-                    Self::send_request_with_zero_timeout(request).await
+                    // let span = span!(Level::WARN, "Sync with timeout = 0", sentry_sync_performance = true);
+                    // let _entered = span.enter();
+                    // warn!("Sync with timeout = 0 event");
+                    // request.await
+                    Self::send_sync_request_with_zero_timeout(request).await
                 } else {
                     warn!("Sync timeout (no e2ee) is non-zero: {:?}", request.request.timeout);
                     request.await
@@ -664,8 +668,8 @@ impl SlidingSync {
         spawn(future.instrument(Span::current())).await.unwrap()
     }
 
-    #[instrument(skip_all, name = "send_request_with_zero_timeout", fields(sentry_sync_performance = true, timeout, pos))]
-    async fn send_request_with_zero_timeout(request: SendRequest<http::Request>) -> HttpResult<http::Response> {
+    #[instrument(skip_all, level = "warn", name = "send_sync_request_with_zero_timeout", fields(sentry_sync_performance=true))]
+    async fn send_sync_request_with_zero_timeout(request: SendRequest<http::Request>) -> HttpResult<http::Response> {
         warn!("Sending sync request with zero timeout");
         request.await
     }
