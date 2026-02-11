@@ -25,6 +25,7 @@ use matrix_sdk::{
         serde::Raw,
     },
 };
+use matrix_sdk_base::store::CrossProcessStoreMode;
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
@@ -137,7 +138,7 @@ impl ClientWrapper {
         let mut builder = TestClientBuilder::new(username);
 
         if let Some(holder_name) = cross_process_store_locks_holder_name {
-            builder = builder.cross_process_store_locks_holder_name(holder_name);
+            builder = builder.cross_process_mode(CrossProcessStoreMode::MultiProcess(holder_name));
         }
 
         let builder = if let Some(sqlite_dir) = sqlite_dir {
@@ -159,7 +160,6 @@ impl ClientWrapper {
         let client = SyncTokenAwareClient::new(inner_client.clone());
 
         let sync_service = SyncService::builder(inner_client)
-            .with_cross_process_lock()
             .build()
             .await
             .expect("Failed to create sync service");
