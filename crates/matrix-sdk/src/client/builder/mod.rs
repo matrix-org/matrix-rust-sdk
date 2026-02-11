@@ -302,13 +302,14 @@ impl ClientBuilder {
     /// # Examples
     ///
     /// ```
-    /// # use matrix_sdk_base::store::MemoryStore;
+    /// # use matrix_sdk_base::store::{CrossProcessStoreMode, MemoryStore};
     /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{Client, config::StoreConfig};
     ///
-    /// let store_config =
-    ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-    ///         .state_store(custom_state_store);
+    /// let store_config = StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+    ///     "cross-process-store-locks-holder-name".to_owned(),
+    /// ))
+    /// .state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
