@@ -781,10 +781,11 @@ impl StateChanges {
 /// # Examples
 ///
 /// ```
-/// # use matrix_sdk_base::store::StoreConfig;
+/// # use matrix_sdk_base::store::{CrossProcessStoreMode, StoreConfig};
 /// #
-/// let store_config =
-///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
+/// let store_config = StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+///     "cross-process-store-locks-holder-name".to_owned(),
+/// ));
 /// ```
 #[derive(Clone)]
 pub struct StoreConfig {
@@ -793,7 +794,7 @@ pub struct StoreConfig {
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
     pub(crate) media_store: media_store::MediaStoreLock,
-    cross_process_store_locks_holder_name: String,
+    cross_process_store_mode: CrossProcessStoreMode,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -809,20 +810,20 @@ impl StoreConfig {
     /// To learn more about `cross_process_store_locks_holder_name`, please read
     /// [`CrossProcessLock::new`](matrix_sdk_common::cross_process_lock::CrossProcessLock::new).
     #[must_use]
-    pub fn new(cross_process_store_locks_holder_name: String) -> Self {
+    pub fn new(cross_process_store_mode: CrossProcessStoreMode) -> Self {
         Self {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
             event_cache_store: event_cache_store::EventCacheStoreLock::new(
                 event_cache_store::MemoryStore::new(),
-                cross_process_store_locks_holder_name.clone(),
+                cross_process_store_mode.clone(),
             ),
             media_store: media_store::MediaStoreLock::new(
                 media_store::MemoryMediaStore::new(),
-                cross_process_store_locks_holder_name.clone(),
+                cross_process_store_mode.clone(),
             ),
-            cross_process_store_locks_holder_name,
+            cross_process_store_mode,
         }
     }
 
@@ -848,7 +849,7 @@ impl StoreConfig {
     {
         self.event_cache_store = event_cache_store::EventCacheStoreLock::new(
             event_cache_store,
-            self.cross_process_store_locks_holder_name.clone(),
+            self.cross_process_store_mode.clone(),
         );
         self
     }
@@ -858,12 +859,21 @@ impl StoreConfig {
     where
         S: media_store::IntoMediaStore,
     {
-        self.media_store = media_store::MediaStoreLock::new(
-            media_store,
-            self.cross_process_store_locks_holder_name.clone(),
-        );
+        self.media_store =
+            media_store::MediaStoreLock::new(media_store, self.cross_process_store_mode.clone());
         self
     }
+}
+
+/// The cross-process mode for `Store`s.
+#[derive(Clone, Debug)]
+pub enum CrossProcessStoreMode {
+    /// The stores will be used in multiple processes, the holder name for the
+    /// cross-process lock is the associated `String`.
+    MultiProcess(String),
+    /// The stores will be used in a single process, there is no need for a
+    /// cross-process lock.
+    SingleProcess,
 }
 
 #[cfg(test)]
