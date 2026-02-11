@@ -115,12 +115,6 @@ impl SyncServiceBuilder {
 
 #[matrix_sdk_ffi_macros::export]
 impl SyncServiceBuilder {
-    pub fn with_cross_process_lock(self: Arc<Self>) -> Arc<Self> {
-        let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.with_cross_process_lock();
-        Arc::new(Self { builder, ..this })
-    }
-
     /// Enable the "offline" mode for the [`SyncService`].
     pub fn with_offline_mode(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);

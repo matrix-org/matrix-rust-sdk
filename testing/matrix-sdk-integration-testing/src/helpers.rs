@@ -22,7 +22,10 @@ use matrix_sdk::{
     sync::SyncResponse,
     timeout::ElapsedError,
 };
-use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::{
+    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
+    store::CrossProcessStoreMode,
+};
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{TempDir, tempdir};
@@ -46,7 +49,7 @@ pub struct TestClientBuilder {
     enable_share_history_on_invite: bool,
     threading_support: ThreadingSupport,
     http_proxy: Option<String>,
-    cross_process_store_locks_holder_name: Option<String>,
+    cross_process_mode: CrossProcessStoreMode,
 }
 
 impl TestClientBuilder {
@@ -66,7 +69,7 @@ impl TestClientBuilder {
             enable_share_history_on_invite: false,
             threading_support: ThreadingSupport::Disabled,
             http_proxy: None,
-            cross_process_store_locks_holder_name: None,
+            cross_process_mode: CrossProcessStoreMode::SingleProcess,
         }
     }
 
@@ -114,8 +117,8 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn cross_process_store_locks_holder_name(mut self, holder_name: String) -> Self {
-        self.cross_process_store_locks_holder_name = Some(holder_name);
+    pub fn cross_process_mode(mut self, cross_process_mode: CrossProcessStoreMode) -> Self {
+        self.cross_process_mode = cross_process_mode;
         self
     }
 
@@ -131,15 +134,11 @@ impl TestClientBuilder {
             .with_room_key_recipient_strategy(self.room_key_recipient_strategy.clone())
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
             .with_threading_support(self.threading_support)
-            .request_config(RequestConfig::short_retry());
+            .request_config(RequestConfig::short_retry())
+            .cross_process_store_mode(self.cross_process_mode.clone());
 
         if let Some(decryption_settings) = &self.decryption_settings {
             client_builder = client_builder.with_decryption_settings(decryption_settings.clone())
-        }
-
-        if let Some(holder_name) = &self.cross_process_store_locks_holder_name {
-            client_builder =
-                client_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
         if let Some(proxy) = &self.http_proxy {

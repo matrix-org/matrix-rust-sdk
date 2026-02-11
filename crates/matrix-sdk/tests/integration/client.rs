@@ -14,7 +14,7 @@ use matrix_sdk::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
 };
-use matrix_sdk_base::{RoomState, sync::RoomUpdates};
+use matrix_sdk_base::{RoomState, store::CrossProcessStoreMode, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -1417,8 +1417,7 @@ async fn test_restore_room() {
     store.save_changes(&changes).await.unwrap();
 
     // Build a client with that store.
-    let store_config =
-        StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store);
+    let store_config = StoreConfig::new(CrossProcessStoreMode::SingleProcess).state_store(store);
     let client = Client::builder()
         .homeserver_url("http://localhost:1234")
         .request_config(RequestConfig::new().disable_retry())

@@ -163,7 +163,7 @@ mod tests {
 
     use matrix_sdk_base::{
         deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
-        linked_chunk::ChunkIdentifier,
+        linked_chunk::ChunkIdentifier, store::CrossProcessStoreMode,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{EventId, owned_event_id, serde::Raw, user_id};
@@ -238,7 +238,10 @@ mod tests {
             .await
             .unwrap();
 
-        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessStoreMode::MultiProcess("hodor".to_owned()),
+        );
         let event_cache_store = event_cache_store.lock().await.unwrap();
         let event_cache_store_guard = event_cache_store.as_clean().unwrap();
 
@@ -372,7 +375,10 @@ mod tests {
             .unwrap();
 
         // Wrap the store into its lock.
-        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessStoreMode::MultiProcess("hodor".to_owned()),
+        );
         let event_cache_store = event_cache_store.lock().await.unwrap();
         let event_cache_store_guard = event_cache_store.as_clean().unwrap();
 
