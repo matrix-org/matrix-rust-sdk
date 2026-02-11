@@ -1707,7 +1707,7 @@ mod private {
             let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
             for event in events {
-                self.maybe_apply_new_redaction(&event).await?;
+                self.maybe_apply_new_redaction(&event, post_processing_origin).await?;
 
                 if self.state.enabled_thread_support {
                     // Only add the event to a thread if:
@@ -1762,7 +1762,7 @@ mod private {
             }
 
             if self.state.enabled_thread_support {
-                self.update_threads(new_events_by_thread).await?;
+                self.update_threads(new_events_by_thread, post_processing_origin).await?;
             }
 
             Ok(())
@@ -1783,6 +1783,7 @@ mod private {
         async fn update_threads(
             &mut self,
             new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
+            post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
                 let thread_cache = self.get_or_reload_thread(thread_root.clone());
@@ -1802,7 +1803,12 @@ mod private {
                     latest_event_id = latest_edit.event_id();
                 }
 
-                self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
+                self.maybe_update_thread_summary(
+                    thread_root,
+                    latest_event_id,
+                    post_processing_origin,
+                )
+                .await?;
             }
 
             Ok(())
@@ -1813,6 +1819,7 @@ mod private {
             &mut self,
             thread_root: OwnedEventId,
             latest_event_id: Option<OwnedEventId>,
+            _post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             // Add a thread summary to the (room) event which has the thread root, if we
             // knew about it.
@@ -1821,6 +1828,8 @@ mod private {
                 trace!(%thread_root, "thread root event is missing from the room linked chunk");
                 return Ok(());
             };
+
+            let prev_summary = target_event.thread_summary.summary();
 
             // Recompute the thread summary, if needs be.
 
@@ -1848,10 +1857,19 @@ mod private {
                 None
             };
 
-            // Note: we don't check whether the summary has actually changed before
-            // replacing it, because we want to trigger an update to observers
-            // even if the summary is the same, as it might indicate that the
-            // latest event has been redecrypted or updated in some way.
+            // Note: in the case of redecryption, we still trigger an update even if the
+            // summary has changed, so that observers can be notified that the
+            // event in the summary may have been decrypted now.
+            #[cfg(feature = "e2e-encryption")]
+            let update_if_same_summaries =
+                matches!(_post_processing_origin, PostProcessingOrigin::Redecryption);
+            #[cfg(not(feature = "e2e-encryption"))]
+            let update_if_same_summaries = false;
+
+            if !update_if_same_summaries && prev_summary == new_summary.as_ref() {
+                trace!(%thread_root, "thread summary is up-to-date, no need to update it");
+                return Ok(());
+            }
 
             // Trigger an update to observers.
             trace!(%thread_root, "updating thread summary: {new_summary:?}");
@@ -1895,6 +1913,7 @@ mod private {
         async fn maybe_apply_new_redaction(
             &mut self,
             event: &Event,
+            post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             let raw_event = event.raw();
 
@@ -1979,7 +1998,12 @@ mod private {
                     // The number of replies may have changed, so update the thread summary if
                     // needs be.
                     let latest_event_id = thread_cache.latest_event_id();
-                    self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
+                    self.maybe_update_thread_summary(
+                        thread_root,
+                        latest_event_id,
+                        post_processing_origin,
+                    )
+                    .await?;
                 }
             }
 
@@ -2257,6 +2281,7 @@ mod private {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum PostProcessingOrigin {
     Sync,
     Backpagination,
