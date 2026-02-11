@@ -637,7 +637,6 @@ pub enum SlidingSyncVersionBuilder {
 
 #[derive(Clone, Debug, uniffi::Enum)]
 /// The cross-process mode for `Store`s.
-#[derive(Clone, Debug)]
 pub enum CrossProcessMode {
     /// The stores will be used in multiple processes, the holder name for the
     /// cross-process lock is the associated `String`.
