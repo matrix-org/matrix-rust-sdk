@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use ruma::{
-    events::{room::power_levels::RoomPowerLevels as RumaPowerLevels, TimelineEventType},
+    events::{
+        room::power_levels::RoomPowerLevels as RumaPowerLevels, MessageLikeEventType,
+        StateEventType, TimelineEventType,
+    },
     OwnedUserId, UserId,
 };
 
-use crate::{
-    error::ClientError,
-    event::{MessageLikeEventType, StateEventType},
-};
+use crate::error::ClientError;
 
 #[derive(uniffi::Object)]
 pub struct RoomPowerLevels {
@@ -120,7 +120,7 @@ impl RoomPowerLevels {
     /// Returns true if the current user is able to send a specific state event
     /// type in the room.
     pub fn can_own_user_send_state(&self, state_event: StateEventType) -> bool {
-        self.inner.user_can_send_state(&self.own_user_id, state_event.into())
+        self.inner.user_can_send_state(&self.own_user_id, state_event)
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -133,13 +133,13 @@ impl RoomPowerLevels {
         state_event: StateEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_state(&user_id, state_event.into()))
+        Ok(self.inner.user_can_send_state(&user_id, state_event))
     }
 
     /// Returns true if the current user is able to send a specific message type
     /// in the room.
     pub fn can_own_user_send_message(&self, message: MessageLikeEventType) -> bool {
-        self.inner.user_can_send_message(&self.own_user_id, message.into())
+        self.inner.user_can_send_message(&self.own_user_id, message)
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -152,13 +152,13 @@ impl RoomPowerLevels {
         message: MessageLikeEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_message(&user_id, message.into()))
+        Ok(self.inner.user_can_send_message(&user_id, message))
     }
 
     /// Returns true if the current user is able to pin or unpin events in the
     /// room.
     pub fn can_own_user_pin_unpin(&self) -> bool {
-        self.inner.user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents.into())
+        self.inner.user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents)
     }
 
     /// Returns true if the user with the given user_id is able to pin or unpin
@@ -167,7 +167,7 @@ impl RoomPowerLevels {
     /// The call may fail if there is an error in getting the power levels.
     pub fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents.into()))
+        Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents))
     }
 
     /// Returns true if the current user is able to trigger a notification in

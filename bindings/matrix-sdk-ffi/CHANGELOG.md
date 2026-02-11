@@ -31,6 +31,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Enable `unstable-uniffi` feature in ruma and use ruma types directly in the power levels API.
+  ([#6161](https://github.com/matrix-org/matrix-rust-sdk/pull/6161/))
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
   upload errors from `/keys/upload`.
   ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
