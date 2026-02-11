@@ -694,7 +694,7 @@ async fn build_store_config(
             build_indexeddb_store_config(
                 &name,
                 passphrase.as_deref(),
-                cross_process_store_locks_holder_name,
+                cross_process_store_mode.clone(),
             )
             .await?
         }
@@ -710,12 +710,10 @@ async fn build_store_config(
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
-    cross_process_store_locks_holder_name: &str,
+    cross_process_store_mode: CrossProcessStoreMode,
 ) -> Result<StoreConfig, ClientBuildError> {
-    let cross_process_store_locks_holder_name = cross_process_store_locks_holder_name.to_owned();
-
     let stores = matrix_sdk_indexeddb::IndexeddbStores::open(name, passphrase).await?;
-    let store_config = StoreConfig::new(cross_process_store_locks_holder_name)
+    let store_config = StoreConfig::new(cross_process_store_mode)
         .state_store(stores.state)
         .event_cache_store(stores.event_cache)
         .media_store(stores.media);
@@ -731,7 +729,7 @@ async fn build_indexeddb_store_config(
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
-    _event_cache_store_lock_holder_name: &str,
+    _cross_process_store_mode: CrossProcessStoreMode,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
