@@ -78,10 +78,15 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+/// use matrix_sdk_base::{
+///     BaseClient, ThreadingSupport,
+///     store::{CrossProcessStoreMode, StoreConfig},
+/// };
 ///
 /// let client = BaseClient::new(
-///     StoreConfig::new("cross-process-holder-name".to_owned()),
+///     StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+///         "cross-process-holder-name".to_owned(),
+///     )),
 ///     ThreadingSupport::Disabled,
 /// );
 /// ```
@@ -430,8 +435,9 @@ impl BaseClient {
     /// ```rust
     /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
     /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
+    /// use matrix_sdk_base::store::CrossProcessStoreMode;
     /// # async {
-    /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()), ThreadingSupport::Disabled);
+    /// # let client = BaseClient::new(StoreConfig::new(CrossProcessStoreMode::MultiProcess("example".to_owned())), ThreadingSupport::Disabled);
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
     /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
     /// # let room_id: &RoomId = todo!();
