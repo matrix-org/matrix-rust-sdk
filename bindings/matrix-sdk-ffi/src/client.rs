@@ -89,7 +89,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent, RoomAccountDataEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -141,7 +141,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
+        MediaPreviews, MediaSource, RoomAccountDataEvent,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -1023,6 +1023,13 @@ impl Client {
             }
             RoomAccountDataEventType::UnstableMarkedUnread => {
                 observe!(UnstableMarkedUnreadEventContent)
+            }
+            _ => {
+                // TODO: Support the remaining types
+                Err(ClientError::Generic {
+                    msg: "Unsupported room account data type".to_owned(),
+                    details: None,
+                })
             }
         }
     }
