@@ -47,7 +47,7 @@ use crate::store::CrossProcessStoreMode;
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: Option<Arc<CrossProcessLock<LockableEventCacheStore>>>,
+    cross_process_lock: Arc<CrossProcessLock<LockableEventCacheStore>>,
 
     /// The store itself.
     ///
@@ -73,33 +73,27 @@ impl EventCacheStoreLock {
     {
         let store = store.into_event_cache_store();
 
-        let cross_process_lock = match cross_process_store_mode {
-            CrossProcessStoreMode::MultiProcess(holder) => Some(Arc::new(CrossProcessLock::new(
-                LockableEventCacheStore(store.clone()),
-                "default".to_owned(),
-                holder,
-            ))),
+        let holder = match cross_process_store_mode {
+            CrossProcessStoreMode::MultiProcess(holder) => Some(holder),
             CrossProcessStoreMode::SingleProcess => None,
         };
 
+        let cross_process_lock = Arc::new(CrossProcessLock::new(
+            LockableEventCacheStore(store.clone()),
+            "default".to_owned(),
+            holder,
+        ));
         Self { cross_process_lock, store }
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
-        if let Some(lock) = &self.cross_process_lock {
-            let lock_state = lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+        let lock_state =
+            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
                 EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
             });
 
-            Ok(lock_state)
-        } else {
-            let fake_guard = CrossProcessLockGuard::dummy();
-            Ok(EventCacheStoreLockState::Clean(EventCacheStoreLockGuard {
-                cross_process_lock_guard: fake_guard,
-                store: self.store.clone(),
-            }))
-        }
+        Ok(lock_state)
     }
 }
 

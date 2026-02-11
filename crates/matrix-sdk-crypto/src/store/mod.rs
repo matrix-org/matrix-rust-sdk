@@ -1346,7 +1346,7 @@ impl Store {
     pub fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: String,
+        lock_value: Option<String>,
     ) -> CrossProcessLock<LockableCryptoStore> {
         self.inner.store.create_store_lock(lock_key, lock_value)
     }

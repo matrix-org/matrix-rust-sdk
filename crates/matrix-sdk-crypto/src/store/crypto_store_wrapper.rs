@@ -394,7 +394,7 @@ impl CryptoStoreWrapper {
     pub(crate) fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: String,
+        lock_value: Option<String>,
     ) -> CrossProcessLock<LockableCryptoStore> {
         CrossProcessLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
     }

@@ -349,8 +349,8 @@ impl OAuth {
         let olm_machine =
             olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
         let store = olm_machine.store();
-        let lock =
-            store.create_store_lock("oidc_session_refresh_lock".to_owned(), lock_value.clone());
+        let lock = store
+            .create_store_lock("oidc_session_refresh_lock".to_owned(), Some(lock_value.clone()));
 
         let manager = CrossProcessRefreshManager::new(store.clone(), lock);
 
