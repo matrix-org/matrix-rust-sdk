@@ -41,12 +41,13 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
+use crate::store::CrossProcessStoreMode;
 
 /// The high-level public type to represent an `EventCacheStore` lock.
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: Arc<CrossProcessLock<LockableEventCacheStore>>,
+    cross_process_lock: Option<Arc<CrossProcessLock<LockableEventCacheStore>>>,
 
     /// The store itself.
     ///
@@ -64,32 +65,41 @@ impl fmt::Debug for EventCacheStoreLock {
 impl EventCacheStoreLock {
     /// Create a new lock around the [`EventCacheStore`].
     ///
-    /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessLock::new`].
-    pub fn new<S>(store: S, holder: String) -> Self
+    /// The `cross_process_store_mode` argument controls whether we need to hold
+    /// the cross process lock or not.
+    pub fn new<S>(store: S, cross_process_store_mode: CrossProcessStoreMode) -> Self
     where
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
 
-        Self {
-            cross_process_lock: Arc::new(CrossProcessLock::new(
+        let cross_process_lock = match cross_process_store_mode {
+            CrossProcessStoreMode::MultiProcess(holder) => Some(Arc::new(CrossProcessLock::new(
                 LockableEventCacheStore(store.clone()),
                 "default".to_owned(),
                 holder,
-            )),
-            store,
-        }
+            ))),
+            CrossProcessStoreMode::SingleProcess => None,
+        };
+
+        Self { cross_process_lock, store }
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
-        let lock_state =
-            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+        if let Some(lock) = &self.cross_process_lock {
+            let lock_state = lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
                 EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
             });
 
-        Ok(lock_state)
+            Ok(lock_state)
+        } else {
+            let fake_guard = CrossProcessLockGuard::dummy();
+            Ok(EventCacheStoreLockState::Clean(EventCacheStoreLockGuard {
+                cross_process_lock_guard: fake_guard,
+                store: self.store.clone(),
+            }))
+        }
     }
 }
 
