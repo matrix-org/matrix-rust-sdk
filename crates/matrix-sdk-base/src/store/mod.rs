@@ -807,7 +807,7 @@ impl fmt::Debug for StoreConfig {
 impl StoreConfig {
     /// Create a new default `StoreConfig`.
     ///
-    /// To learn more about `cross_process_store_locks_holder_name`, please read
+    /// To learn more about `cross_process_store_mode`, please read
     /// [`CrossProcessLock::new`](matrix_sdk_common::cross_process_lock::CrossProcessLock::new).
     #[must_use]
     pub fn new(cross_process_store_mode: CrossProcessStoreMode) -> Self {
