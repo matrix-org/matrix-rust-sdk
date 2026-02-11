@@ -3309,6 +3309,7 @@ version = "0.16.0"
 dependencies = [
  "anyhow",
  "async-compat",
+ "chrono",
  "console_error_panic_hook",
  "extension-trait",
  "eyeball-im",
@@ -3331,6 +3332,7 @@ dependencies = [
  "serde",
  "serde_json",
  "similar-asserts",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "tracing",

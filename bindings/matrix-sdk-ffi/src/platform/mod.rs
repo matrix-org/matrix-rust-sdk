@@ -4,7 +4,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 #[cfg(feature = "sentry")]
 use tracing::warn;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_appender::rolling::Rotation;
 #[cfg(feature = "sentry")]
 use tracing_core::Level;
 use tracing_core::Subscriber;
@@ -26,6 +26,9 @@ use tracing_subscriber::{
 #[cfg(feature = "sentry")]
 use crate::tracing::BRIDGE_SPAN_NAME;
 use crate::{error::ClientError, tracing::LogLevel};
+
+mod rolling_writer;
+use rolling_writer::SizeAndDateRollingWriter;
 
 // Adjusted version of tracing_subscriber::fmt::Format
 struct EventFormatter {
@@ -153,7 +156,7 @@ type ReloadHandle = Handle<
         Layered<EnvFilter, Registry>,
         FieldsFormatterForFiles,
         EventFormatter,
-        RollingFileAppender,
+        SizeAndDateRollingWriter,
     >,
     Layered<EnvFilter, Registry>,
 >;
@@ -218,21 +221,17 @@ fn make_file_layer(
     Layered<EnvFilter, Registry, Registry>,
     FieldsFormatterForFiles,
     EventFormatter,
-    RollingFileAppender,
+    SizeAndDateRollingWriter,
 > {
-    let mut builder = RollingFileAppender::builder()
-        .rotation(Rotation::HOURLY)
-        .filename_prefix(&file_configuration.file_prefix);
-
-    if let Some(max_files) = file_configuration.max_files {
-        builder = builder.max_log_files(max_files as usize)
-    }
-    if let Some(file_suffix) = file_configuration.file_suffix {
-        builder = builder.filename_suffix(file_suffix)
-    }
-
-    let writer =
-        builder.build(&file_configuration.path).expect("Failed to create a rolling file appender.");
+    let writer = SizeAndDateRollingWriter::new(
+        &file_configuration.path,
+        file_configuration.file_prefix,
+        file_configuration.file_suffix.unwrap_or_else(|| String::from(".log")),
+        Rotation::HOURLY,
+        file_configuration.max_total_size_bytes.unwrap_or(10 * 1024 * 1024), // Default: 10MB
+        file_configuration.max_age_seconds.unwrap_or(7 * 24 * 60 * 60),      // Default: 1 week
+    )
+    .expect("Failed to create a rolling file appender.");
 
     fmt::layer()
         .fmt_fields(FieldsFormatterForFiles::default())
@@ -254,13 +253,30 @@ pub struct TracingFileConfiguration {
     file_prefix: String,
 
     /// Optional suffix for the log file's names.
+    ///
+    /// Default is ".log" if not specified.
     file_suffix: Option<String>,
 
-    /// Maximum number of rotated files.
+    /// Maximum total size of all log files combined in bytes.
     ///
-    /// If not set, there's no max limit, i.e. the number of log files is
-    /// unlimited.
-    max_files: Option<u64>,
+    /// When the total size of all log files with the configured prefix and
+    /// suffix exceeds this limit, the oldest files will be removed until
+    /// the total is below the limit.
+    ///
+    /// This is useful to prevent log files from consuming too much disk space
+    /// over time, even with multiple rotated files.
+    ///
+    /// Default: 10MB (10 * 1024 * 1024 bytes) if not specified.
+    max_total_size_bytes: Option<u64>,
+
+    /// Maximum age of log files in seconds.
+    ///
+    /// Log files older than this age will be automatically removed during
+    /// cleanup. This is checked when the writer is created and during
+    /// rotation operations.
+    ///
+    /// Default: 1 week (7 * 24 * 60 * 60 seconds) if not specified.
+    max_age_seconds: Option<u64>,
 }
 
 #[derive(PartialEq, PartialOrd)]
