@@ -113,7 +113,7 @@ impl MockClientBuilder {
     ///         // Here it's possible to modify the underlying `ClientBuilder`.
     ///         builder
     ///             .handle_refresh_tokens()
-    ///             .cross_process_store_mode((CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
+    ///             .cross_process_store_mode(CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
     ///     })
     ///     .build()
     ///     .await;
