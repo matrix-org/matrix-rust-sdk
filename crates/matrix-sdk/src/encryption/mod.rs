@@ -1675,20 +1675,21 @@ impl Encryption {
         // If the lock has already been created, don't recreate it from scratch.
         if let Some(prev_lock) = self.client.locks().cross_process_crypto_store_lock.get() {
             let prev_holder = prev_lock.lock_holder();
-            if prev_holder == lock_value {
+            if prev_holder.is_some() && prev_holder.unwrap() == lock_value {
                 return Ok(());
             }
             warn!(
                 "Recreating cross-process store lock with a different holder value: \
-                 prev was {prev_holder}, new is {lock_value}"
+                 prev was {prev_holder:?}, new is {lock_value}"
             );
         }
 
         let olm_machine = self.client.base_client().olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let lock =
-            olm_machine.store().create_store_lock("cross_process_lock".to_owned(), lock_value);
+        let lock = olm_machine
+            .store()
+            .create_store_lock("cross_process_lock".to_owned(), Some(lock_value));
 
         // Gently try to initialize the crypto store generation counter.
         //
