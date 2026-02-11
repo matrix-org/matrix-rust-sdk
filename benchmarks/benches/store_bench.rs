@@ -5,7 +5,10 @@ use matrix_sdk::{
     Client, RoomInfo, RoomState, SessionTokens, StateChanges,
     authentication::matrix::MatrixSession, config::StoreConfig,
 };
-use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
+use matrix_sdk_base::{
+    SessionMeta, StateStore as _,
+    store::{CrossProcessStoreMode, MemoryStore},
+};
 use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{RoomId, device_id, user_id};
 use tokio::runtime::Builder;
@@ -54,8 +57,10 @@ pub fn restore_session(c: &mut Criterion) {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
                 .store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                        .state_store(store.clone()),
+                    StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                        "cross-process-store-locks-holder-name".to_owned(),
+                    ))
+                    .state_store(store.clone()),
                 )
                 .build()
                 .await
@@ -84,8 +89,10 @@ pub fn restore_session(c: &mut Criterion) {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
                         .store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(store.clone()),
+                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                                "cross-process-store-locks-holder-name".to_owned(),
+                            ))
+                            .state_store(store.clone()),
                         )
                         .build()
                         .await

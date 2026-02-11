@@ -104,7 +104,8 @@ impl MockClientBuilder {
     /// Apply changes to the underlying [`ClientBuilder`].
     ///
     /// ```
-    /// # tokio_test::block_on(async {
+    /// # use matrix_sdk_base::store::CrossProcessStoreMode;
+    /// tokio_test::block_on(async {
     /// use matrix_sdk::test_utils::client::MockClientBuilder;
     ///
     /// MockClientBuilder::new(None)
@@ -112,7 +113,7 @@ impl MockClientBuilder {
     ///         // Here it's possible to modify the underlying `ClientBuilder`.
     ///         builder
     ///             .handle_refresh_tokens()
-    ///             .cross_process_store_locks_holder_name("hodor".to_owned())
+    ///             .cross_process_store_mode((CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
     ///     })
     ///     .build()
     ///     .await;

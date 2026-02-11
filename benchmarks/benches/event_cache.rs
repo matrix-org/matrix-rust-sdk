@@ -7,7 +7,10 @@ use matrix_sdk::{
     sync::{JoinedRoomUpdate, RoomUpdates},
     test_utils::client::MockClientBuilder,
 };
-use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
+use matrix_sdk_base::{
+    event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore},
+    store::CrossProcessStoreMode,
+};
 use matrix_sdk_test::{ALICE, event_factory::EventFactory};
 use ruma::{
     EventId, RoomId, event_id,
@@ -102,9 +105,11 @@ fn handle_room_updates(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(state_store.clone())
-                                .event_cache_store(event_cache_store.clone()),
+                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                                "cross-process-store-locks-holder-name".to_owned(),
+                            ))
+                            .state_store(state_store.clone())
+                            .event_cache_store(event_cache_store.clone()),
                         )
                     })
                     .build()
@@ -268,9 +273,11 @@ fn find_event_relations(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(state_store.clone())
-                                .event_cache_store(event_cache_store),
+                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                                "cross-process-store-locks-holder-name".to_owned(),
+                            ))
+                            .state_store(state_store.clone())
+                            .event_cache_store(event_cache_store),
                         )
                     })
                     .build()
