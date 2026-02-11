@@ -2,8 +2,9 @@ use std::sync::OnceLock;
 #[cfg(feature = "sentry")]
 use std::sync::{atomic::AtomicBool, Arc};
 
+use ::tracing::info;
 #[cfg(feature = "sentry")]
-use tracing::warn;
+use ::tracing::warn;
 use tracing_appender::rolling::Rotation;
 #[cfg(feature = "sentry")]
 use tracing_core::Level;
@@ -23,12 +24,16 @@ use tracing_subscriber::{
     EnvFilter, Layer, Registry,
 };
 
-#[cfg(feature = "sentry")]
-use crate::tracing::BRIDGE_SPAN_NAME;
-use crate::{error::ClientError, tracing::LogLevel};
+use crate::error::ClientError;
 
 mod rolling_writer;
+pub mod tracing;
+
 use rolling_writer::SizeAndDateRollingWriter;
+
+use self::tracing::LogLevel;
+#[cfg(feature = "sentry")]
+use self::tracing::BRIDGE_SPAN_NAME;
 
 // Adjusted version of tracing_subscriber::fmt::Format
 struct EventFormatter {
@@ -574,7 +579,7 @@ impl TracingConfiguration {
         }
 
         // Log the log levels 🧠.
-        tracing::info!(env_filter, "Logging has been set up");
+        info!(env_filter, "Logging has been set up");
 
         logging_ctx
     }
