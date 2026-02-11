@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Ensure that the display name of a `Room` in a `NotificationStatus` coming 
+  from a `NotificationClient` excludes service members.
+  ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
 - Fix the `is_last_admin` check in `LeaveSpaceRoom` since it was not
   accounting for the membership state.
   [#6032](https://github.com/matrix-org/matrix-rust-sdk/pull/6032)
@@ -18,9 +21,6 @@ All notable changes to this project will be documented in this file.
 - Fix the redecryption of events in timelines built using the
   `TimelineFocus` of `PinnedEvents`, `Thread`, `Event`.
   ([#5955](https://github.com/matrix-org/matrix-rust-sdk/pull/5955))
-- Ensure that the display name of a `Room` in a `NotificationStatus` coming 
-  from a `NotificationClient` excludes service members.
-  ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
 
 ### Features
 
