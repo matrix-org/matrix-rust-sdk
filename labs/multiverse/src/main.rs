@@ -32,7 +32,9 @@ use matrix_sdk::{
     },
     search_index::{SearchIndexGuard, SearchIndexStoreKind},
 };
-use matrix_sdk_base::{RoomStateFilter, event_cache::store::EventCacheStoreLockGuard};
+use matrix_sdk_base::{
+    RoomStateFilter, event_cache::store::EventCacheStoreLockGuard, store::CrossProcessStoreMode,
+};
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     Timeline as SdkTimeline,
@@ -874,7 +876,7 @@ async fn configure_client(cli: Cli) -> Result<Client> {
 
     let mut client_builder = Client::builder()
         .store_config(
-            StoreConfig::new("multiverse".to_owned())
+            StoreConfig::new(CrossProcessStoreMode::MultiProcess("multiverse".to_owned()))
                 .crypto_store(SqliteCryptoStore::open(session_path.join("crypto"), None).await?)
                 .state_store(SqliteStateStore::open(session_path.join("state"), None).await?)
                 .event_cache_store(

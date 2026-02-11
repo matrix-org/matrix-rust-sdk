@@ -1094,7 +1094,7 @@ mod tests {
         },
         locks::Mutex,
         sleep::sleep,
-        store::StoreConfig,
+        store::{CrossProcessStoreMode, StoreConfig},
     };
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
@@ -1310,12 +1310,19 @@ mod tests {
             let store = DelayingStore::new();
 
             (
-                StoreConfig::new("delayed_store_event_cache_test".into())
-                    .event_cache_store(store.clone()),
+                StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                    "delayed_store_event_cache_test".into(),
+                ))
+                .event_cache_store(store.clone()),
                 Some(store),
             )
         } else {
-            (StoreConfig::new("normal_store_event_cache_test".into()), None)
+            (
+                StoreConfig::new(CrossProcessStoreMode::MultiProcess(
+                    "normal_store_event_cache_test".into(),
+                )),
+                None,
+            )
         };
 
         let bob = matrix_mock_server
