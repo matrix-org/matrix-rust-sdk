@@ -27,7 +27,7 @@ mod tags;
 mod tombstone;
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 
@@ -340,6 +340,11 @@ impl Room {
     /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
         self.info.read().base_info.max_power_level
+    }
+
+    /// Get the service members in this room, if available.
+    pub fn service_members(&self) -> Option<BTreeSet<OwnedUserId>> {
+        self.info.read().service_members().cloned()
     }
 
     /// Get the current power levels of this room.

@@ -48,6 +48,7 @@ pub struct RoomInfo {
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
+    service_members: Vec<String>,
     highlight_count: u64,
     notification_count: u64,
     cached_user_defined_notification_mode: Option<RoomNotificationMode>,
@@ -138,6 +139,12 @@ impl RoomInfo {
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),
+            service_members: room
+                .service_members()
+                .iter()
+                .flatten()
+                .map(|m| m.to_string())
+                .collect(),
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
             cached_user_defined_notification_mode: room
