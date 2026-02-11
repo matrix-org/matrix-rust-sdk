@@ -194,7 +194,7 @@ jobs:
 
   complement-crypto:
     name: "Run Complement Crypto tests"
-    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@399a1deeab0d7e4fa9604cbe83b1df6058c40193 # main
+    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@1b1f86348079608fbc5276fe77c54dd66638a622 # main
     with:
         use_rust_sdk: "." # use local checkout
         use_complement_crypto: "MATCHING_BRANCH"

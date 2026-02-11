@@ -27,7 +27,6 @@ use ruma::{
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
-        RoomAccountDataEventType as RumaRoomAccountDataEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -1653,33 +1652,6 @@ impl TryFrom<RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>> for Accou
             algorithm: value.content.algorithm.try_into()?,
             passphrase: value.content.passphrase.map(TryInto::try_into).transpose()?,
         })
-    }
-}
-
-/// Types of room account data events.
-#[derive(Clone, uniffi::Enum)]
-pub enum RoomAccountDataEventType {
-    /// m.fully_read
-    FullyRead,
-    /// m.marked_unread
-    MarkedUnread,
-    /// m.tag
-    Tag,
-    /// com.famedly.marked_unread
-    UnstableMarkedUnread,
-}
-
-impl TryFrom<RumaRoomAccountDataEventType> for RoomAccountDataEventType {
-    type Error = String;
-
-    fn try_from(value: RumaRoomAccountDataEventType) -> Result<Self, Self::Error> {
-        match value {
-            RumaRoomAccountDataEventType::FullyRead => Ok(Self::FullyRead),
-            RumaRoomAccountDataEventType::MarkedUnread => Ok(Self::MarkedUnread),
-            RumaRoomAccountDataEventType::Tag => Ok(Self::Tag),
-            RumaRoomAccountDataEventType::UnstableMarkedUnread => Ok(Self::UnstableMarkedUnread),
-            _ => Err("Unsupported account data event type".to_owned()),
-        }
     }
 }
 
