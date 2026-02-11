@@ -122,6 +122,14 @@ impl CrossProcessLockGuard {
         Self { num_holders, is_dirty }
     }
 
+    /// Creates a guard with dummy values.
+    pub fn dummy() -> Self {
+        Self {
+            num_holders: Arc::new(AtomicU32::new(1)),
+            is_dirty: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     /// Determine whether the cross-process lock associated to this guard is
     /// dirty.
     ///
