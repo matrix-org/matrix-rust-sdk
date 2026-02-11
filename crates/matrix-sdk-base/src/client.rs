@@ -237,11 +237,10 @@ impl BaseClient {
     #[allow(clippy::unused_async)]
     pub async fn clone_with_in_memory_state_store(
         &self,
-        cross_process_store_locks_holder: &str,
+        cross_process_store_mode: CrossProcessStoreMode,
         _handle_verification_events: bool,
     ) -> Result<Self> {
-        let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
-            .state_store(MemoryStore::new());
+        let config = StoreConfig::new(cross_process_store_mode).state_store(MemoryStore::new());
         Ok(Self::new(config, ThreadingSupport::Disabled))
     }
 
