@@ -45,6 +45,7 @@ pub use self::{
     media_service::{IgnoreMediaRetentionPolicy, MediaService},
     memory_store::MemoryMediaStore,
 };
+use crate::store::CrossProcessStoreMode;
 
 /// Media store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -95,7 +96,7 @@ pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;
 #[derive(Clone)]
 pub struct MediaStoreLock {
     /// The inner cross process lock that is used to lock the `MediaStore`.
-    cross_process_lock: Arc<CrossProcessLock<LockableMediaStore>>,
+    cross_process_lock: Option<Arc<CrossProcessLock<LockableMediaStore>>>,
 
     /// The store itself.
     ///
@@ -113,39 +114,45 @@ impl fmt::Debug for MediaStoreLock {
 impl MediaStoreLock {
     /// Create a new lock around the [`MediaStore`].
     ///
-    /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessLock::new`].
-    pub fn new<S>(store: S, holder: String) -> Self
+    /// The `cross_process_store_mode` argument controls whether we need to hold
+    /// the cross process lock or not.
+    pub fn new<S>(store: S, cross_process_store_mode: CrossProcessStoreMode) -> Self
     where
         S: IntoMediaStore,
     {
         let store = store.into_media_store();
 
-        Self {
-            cross_process_lock: Arc::new(CrossProcessLock::new(
+        let cross_process_lock = match cross_process_store_mode {
+            CrossProcessStoreMode::MultiProcess(holder) => Some(Arc::new(CrossProcessLock::new(
                 LockableMediaStore(store.clone()),
                 "default".to_owned(),
                 holder,
-            )),
-            store,
-        }
+            ))),
+            CrossProcessStoreMode::SingleProcess => None,
+        };
+        Self { cross_process_lock, store }
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, CrossProcessLockError> {
-        let cross_process_lock_guard = match self.cross_process_lock.spin_lock(None).await?? {
-            // The lock is clean: no other hold acquired it, all good!
-            CrossProcessLockState::Clean(guard) => guard,
+        let cross_process_lock_guard = if let Some(lock) = &self.cross_process_lock {
+            match lock.spin_lock(None).await?? {
+                // The lock is clean: no other hold acquired it, all good!
+                CrossProcessLockState::Clean(guard) => guard,
 
-            // The lock is dirty: another holder acquired it since the last time we acquired it.
-            // It's not a problem in the case of the `MediaStore` because this API is “stateless” at
-            // the time of writing (2025-11-11). There is nothing that can be out-of-sync: all the
-            // state is in the database, nothing in memory.
-            CrossProcessLockState::Dirty(guard) => {
-                guard.clear_dirty();
+                // The lock is dirty: another holder acquired it since the last time we acquired it.
+                // It's not a problem in the case of the `MediaStore` because this API is
+                // “stateless” at the time of writing (2025-11-11). There is nothing
+                // that can be out-of-sync: all the state is in the database,
+                // nothing in memory.
+                CrossProcessLockState::Dirty(guard) => {
+                    guard.clear_dirty();
 
-                guard
+                    guard
+                }
             }
+        } else {
+            CrossProcessLockGuard::dummy()
         };
 
         Ok(MediaStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
