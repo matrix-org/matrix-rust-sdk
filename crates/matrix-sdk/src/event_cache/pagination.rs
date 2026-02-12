@@ -26,7 +26,7 @@ use super::{
     room::{LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
 };
 use crate::{
-    event_cache::{EventCacheError, RoomEventCacheGenericUpdate, TimelineVectorUpdate},
+    event_cache::{EventCacheError, RoomEventCacheGenericUpdate, TimelineVectorDiffs},
     room::MessagesOptions,
 };
 
@@ -234,7 +234,7 @@ impl RoomPagination {
                 } => {
                     if !timeline_event_diffs.is_empty() {
                         let _ = self.inner.update_sender.send(
-                            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate {
+                            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                                 diffs: timeline_event_diffs,
                                 origin: EventsOrigin::Cache,
                             }),
@@ -303,7 +303,7 @@ impl RoomPagination {
         {
             if !timeline_event_diffs.is_empty() {
                 let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                    TimelineVectorUpdate {
+                    TimelineVectorDiffs {
                         diffs: timeline_event_diffs,
                         origin: EventsOrigin::Pagination,
                     },

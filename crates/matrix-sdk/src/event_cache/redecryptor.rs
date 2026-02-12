@@ -159,7 +159,7 @@ use crate::{
     Client, Result, Room,
     encryption::backups::BackupState,
     event_cache::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorUpdate,
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorDiffs,
         room::PostProcessingOrigin,
     },
     room::PushContext,
@@ -407,7 +407,7 @@ impl EventCache {
         let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
         let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-            TimelineVectorUpdate { diffs, origin: EventsOrigin::Cache },
+            TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
         ));
 
         let _ = room_cache
@@ -1115,7 +1115,7 @@ mod tests {
         encryption::EncryptionSettings,
         event_cache::{
             DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-            TimelineVectorUpdate,
+            TimelineVectorDiffs,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -1452,7 +1452,7 @@ mod tests {
         // Alright, Bob has received an update from the cache.
 
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1483,7 +1483,7 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1536,7 +1536,7 @@ mod tests {
         // Alright, Bob has received an update from the cache.
 
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1568,7 +1568,7 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1615,7 +1615,7 @@ mod tests {
         // encryption info.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1691,7 +1691,7 @@ mod tests {
 
         // Alright, Bob has received an update from the cache.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
@@ -1709,7 +1709,7 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 subscriber.recv()
         );
 
