@@ -254,10 +254,15 @@ impl PinnedEventCache {
             PinnedEventCacheState { room_id, chunk, sender, linked_chunk_update_sender, store };
         let state = Arc::new(PinnedEventCacheStateLock::new_inner(state));
 
-        let task = Arc::new(room.client().task_monitor().spawn_background_task(
-            "pinned_event_listener_task",
-            Self::pinned_event_listener_task(room, state.clone()),
-        ));
+        let task = Arc::new(
+            room.client()
+                .task_monitor()
+                .spawn_background_task(
+                    "pinned_event_listener_task",
+                    Self::pinned_event_listener_task(room, state.clone()),
+                )
+                .abort_on_drop(),
+        );
 
         Self { state, _task: task }
     }
