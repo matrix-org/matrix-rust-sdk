@@ -17,8 +17,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, StrippedStateTestEvent,
-    SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
@@ -1892,8 +1891,9 @@ async fn test_sync_processing_of_custom_stripped_join_rule() {
     server
         .mock_sync()
         .ok(|builder| {
-            builder.add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
-                StrippedStateTestEvent::Custom(json!({
+            builder.add_invited_room(
+                InvitedRoomBuilder::new(room_id).add_state_event(Raw::from_json(
+                    serde_json::value::to_raw_value(&json!({
                         "content": {
                             "join_rule": "my_custom_rule"
                         },
@@ -1902,8 +1902,10 @@ async fn test_sync_processing_of_custom_stripped_join_rule() {
                         "sender": "@example:localhost",
                         "state_key": "",
                         "type": "m.room.join_rules",
-                })),
-            ));
+                    }))
+                    .unwrap(),
+                )),
+            );
         })
         .mock_once()
         .mount()
