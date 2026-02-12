@@ -11,14 +11,9 @@ use crate::test_json;
 /// Test events that can be added to the state.
 pub enum StateTestEvent {
     EncryptionWithEncryptedStateEvents,
-    MemberBan,
     MemberInvite,
     MemberLeave,
-    MemberNameChange,
     PowerLevels,
-    RedactedInvalid,
-    RedactedState,
-    RoomAvatar,
     RoomName,
     Custom(JsonValue),
 }
@@ -29,16 +24,9 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::EncryptionWithEncryptedStateEvents => {
                 test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS.to_owned()
             }
-            StateTestEvent::MemberBan => test_json::sync_events::MEMBER_BAN.to_owned(),
             StateTestEvent::MemberInvite => test_json::sync_events::MEMBER_INVITE.to_owned(),
             StateTestEvent::MemberLeave => test_json::sync_events::MEMBER_LEAVE.to_owned(),
-            StateTestEvent::MemberNameChange => {
-                test_json::sync_events::MEMBER_NAME_CHANGE.to_owned()
-            }
             StateTestEvent::PowerLevels => test_json::sync_events::POWER_LEVELS.to_owned(),
-            StateTestEvent::RedactedInvalid => test_json::sync_events::REDACTED_INVALID.to_owned(),
-            StateTestEvent::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
-            StateTestEvent::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
             StateTestEvent::RoomName => test_json::sync_events::NAME.to_owned(),
             StateTestEvent::Custom(json) => json,
         }
