@@ -1052,6 +1052,22 @@ async fn start_element_call_widget(
                 }
                 let _ = capabilities_ready_tx.send(true);
             }
+            if action == "send_to_device" {
+                let data = value.get("data").cloned().unwrap_or_else(|| serde_json::json!({}));
+                let event_type = data
+                    .get("event_type")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| data.get("type").and_then(|v| v.as_str()));
+                if event_type == Some("io.element.call.encryption_keys") {
+                    info!(
+                        request_id,
+                        payload = %data,
+                        "widget send_to_device encryption key payload"
+                    );
+                } else {
+                    info!(request_id, event_type, "widget send_to_device received");
+                }
+            }
             if action == "send_event" {
                 info!(request_id, "widget send_event received");
                 let response = serde_json::json!({
