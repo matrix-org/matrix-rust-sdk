@@ -9,7 +9,8 @@ use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
 };
 use ruma::{
-    device_id, event_id, events::room::message::RoomMessageEventContent, mxc_uri, room_id, user_id,
+    RoomVersionId, device_id, event_id, events::room::message::RoomMessageEventContent, mxc_uri,
+    room_id, user_id,
 };
 
 #[async_test]
@@ -59,7 +60,7 @@ async fn test_shared_history_out_of_order() {
         .ok_and_run(&alice, |builder| {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(StateTestEvent::Create)
+                    .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
                     .add_state_event(StateTestEvent::Encryption),
             );
         })

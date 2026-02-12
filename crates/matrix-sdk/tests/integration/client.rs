@@ -30,7 +30,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, OwnedUserId, RoomId,
+    EventId, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -1476,13 +1476,15 @@ async fn test_room_sync_state_after() {
 
     let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
+
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .use_state_after()
                 .add_state_bulk([
-                    Raw::new(&*test_json::sync_events::CREATE).unwrap().cast_unchecked(),
+                    f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
                     Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
                     Raw::new(&*test_json::sync_events::HISTORY_VISIBILITY)
                         .unwrap()
