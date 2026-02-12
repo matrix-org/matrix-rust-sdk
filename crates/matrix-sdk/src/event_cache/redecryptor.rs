@@ -1100,7 +1100,7 @@ mod tests {
         JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        EventId, OwnedEventId, RoomId, device_id, event_id,
+        EventId, OwnedEventId, RoomId, RoomVersionId, device_id, event_id,
         events::{AnySyncTimelineEvent, relation::RelationType},
         room_id,
         serde::Raw,
@@ -1337,9 +1337,11 @@ mod tests {
         // Ensure that Alice and Bob are aware of their devices and identities.
         matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
 
+        let event_factory = EventFactory::new().room(room_id);
+
         // Let us now create a room for them.
         let room_builder = JoinedRoomBuilder::new(room_id)
-            .add_state_event(StateTestEvent::Create)
+            .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
             .add_state_event(StateTestEvent::Encryption);
 
         matrix_mock_server

@@ -8,7 +8,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItem};
-use ruma::{device_id, event_id, room_id, user_id};
+use ruma::{RoomVersionId, device_id, event_id, room_id, user_id};
 use serde_json::{Value, json};
 
 // Helper function to test the redecryption of different event types.
@@ -61,7 +61,7 @@ async fn test_redecryption(
 
     // Let us now create a room for them.
     let room_builder = JoinedRoomBuilder::new(room_id)
-        .add_state_event(StateTestEvent::Create)
+        .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
         .add_state_event(StateTestEvent::Encryption);
 
     matrix_mock_server
