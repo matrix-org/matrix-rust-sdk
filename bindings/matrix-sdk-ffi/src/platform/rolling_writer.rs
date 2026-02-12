@@ -293,27 +293,6 @@ impl SizeAndDateRollingWriter {
     }
 }
 
-impl Write for SizeAndDateRollingWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut state = self.state.lock().unwrap();
-
-        // Check if rotation is needed
-        Self::rotate_internal(&self.config, &mut state, true)?;
-
-        // Write to file (state must be initialized after rotation)
-        state.as_mut().unwrap().current_file.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(s) = state.as_mut() {
-            s.current_file.flush()
-        } else {
-            Ok(())
-        }
-    }
-}
-
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SizeAndDateRollingWriter {
     type Writer = SizeAndDateRollingWriterHandle<'a>;
 
