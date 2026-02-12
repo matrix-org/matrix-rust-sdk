@@ -40,6 +40,12 @@ use tracing_subscriber::{
 
 use crate::error::ClientError;
 
+/// Default maximum total size of all log files combined (10MB).
+const DEFAULT_MAX_TOTAL_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Default maximum age of log files in seconds (1 week).
+const DEFAULT_MAX_AGE_SECONDS: u64 = 7 * 24 * 60 * 60;
+
 mod rolling_writer;
 pub mod tracing;
 
@@ -247,8 +253,8 @@ fn make_file_layer(
         file_configuration.file_prefix,
         file_configuration.file_suffix.unwrap_or_else(|| String::from(".log")),
         Rotation::HOURLY,
-        file_configuration.max_total_size_bytes.unwrap_or(10 * 1024 * 1024), // Default: 10MB
-        file_configuration.max_age_seconds.unwrap_or(7 * 24 * 60 * 60),      // Default: 1 week
+        file_configuration.max_total_size_bytes.unwrap_or(DEFAULT_MAX_TOTAL_SIZE_BYTES),
+        file_configuration.max_age_seconds.unwrap_or(DEFAULT_MAX_AGE_SECONDS),
     )
     .expect("Failed to create a rolling file appender.");
 
