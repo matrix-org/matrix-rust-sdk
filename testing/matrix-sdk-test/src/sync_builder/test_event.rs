@@ -1,29 +1,10 @@
 use ruma::{
-    events::{AnyRoomAccountDataEvent, AnyStrippedStateEvent, presence::PresenceEvent},
+    events::{AnyRoomAccountDataEvent, presence::PresenceEvent},
     serde::Raw,
 };
 use serde_json::{Value as JsonValue, from_value as from_json_value};
 
 use crate::test_json;
-
-/// Test events that can be added to the stripped state.
-pub enum StrippedStateTestEvent {
-    Custom(JsonValue),
-}
-
-impl From<StrippedStateTestEvent> for JsonValue {
-    fn from(val: StrippedStateTestEvent) -> Self {
-        match val {
-            StrippedStateTestEvent::Custom(json) => json,
-        }
-    }
-}
-
-impl From<StrippedStateTestEvent> for Raw<AnyStrippedStateEvent> {
-    fn from(val: StrippedStateTestEvent) -> Self {
-        from_json_value(val.into()).unwrap()
-    }
-}
 
 /// Test events that can be added to the room account data.
 pub enum RoomAccountDataTestEvent {

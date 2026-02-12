@@ -1150,8 +1150,8 @@ mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::FutureExt as _;
     use matrix_sdk_test::{
-        BOB, InvitedRoomBuilder, LeftRoomBuilder, StrippedStateTestEvent, SyncResponseBuilder,
-        async_test, event_factory::EventFactory, ruma_response_from_json,
+        BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
+        event_factory::EventFactory, ruma_response_from_json,
     };
     use ruma::{
         api::client::{self as api, sync::sync_events::v5},
@@ -1331,6 +1331,7 @@ mod tests {
         let room_id = room_id!("!test:example.org");
 
         let client = logged_in_base_client(Some(user_id)).await;
+        let f = EventFactory::new();
 
         let mut sync_builder = SyncResponseBuilder::new();
 
@@ -1349,19 +1350,14 @@ mod tests {
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
         let response = sync_builder
-            .add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
-                StrippedStateTestEvent::Custom(json!({
-                    "content": {
-                        "displayname": "Alice",
-                        "membership": "invite",
-                    },
-                    "event_id": "$143273582443PhrSn:example.org",
-                    "origin_server_ts": 1432735824653u64,
-                    "sender": "@example:example.org",
-                    "state_key": user_id,
-                    "type": "m.room.member",
-                })),
-            ))
+            .add_invited_room(
+                InvitedRoomBuilder::new(room_id).add_state_event(
+                    f.member(user_id)
+                        .sender(user_id!("@example:example.org"))
+                        .membership(MembershipState::Invite)
+                        .display_name("Alice"),
+                ),
+            )
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
