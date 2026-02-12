@@ -11,8 +11,9 @@ members = [
     "xtask",
 ]
 exclude = ["testing/data"]
-# xtask, testing and the bindings should only be built when invoked explicitly.
-default-members = ["benchmarks", "crates/*"]
+# xtask, multiverse, benchmarks, testing and the bindings should only be built when invoked
+# explicitly.
+default-members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
