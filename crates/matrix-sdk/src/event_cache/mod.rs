@@ -35,7 +35,6 @@ use std::{
 };
 
 use eyeball::{SharedObservable, Subscriber};
-use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     ThreadingSupport,
@@ -456,10 +455,10 @@ impl EventCache {
                         // so let's do it!
                         if !diffs.is_empty() {
                             let _ = room.inner.update_sender.send(
-                                RoomEventCacheUpdate::UpdateTimelineEvents {
+                                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate {
                                     diffs,
                                     origin: EventsOrigin::Cache,
-                                },
+                                }),
                             );
                         }
                     } else {
@@ -1016,10 +1015,12 @@ impl EventCacheInner {
             let mut state_guard = state_guard?;
             let updates_as_vector_diffs = state_guard.reset().await?;
 
-            let _ = room.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
+            let _ = room.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
+                TimelineVectorUpdate {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                },
+            ));
 
             let _ = room
                 .inner
@@ -1253,13 +1254,7 @@ pub enum RoomEventCacheUpdate {
     },
 
     /// The room has received updates for the timeline as _diffs_.
-    UpdateTimelineEvents {
-        /// Diffs to apply to the timeline.
-        diffs: Vec<VectorDiff<TimelineEvent>>,
-
-        /// Where the diffs are coming from.
-        origin: EventsOrigin,
-    },
+    UpdateTimelineEvents(TimelineVectorUpdate),
 
     /// The room has received new ephemeral events.
     AddEphemeralEvents {

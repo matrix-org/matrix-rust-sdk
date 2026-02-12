@@ -190,7 +190,7 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 timeline_controller.handle_fully_read_marker(event_id).await;
             }
 
-            RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, origin }) => {
                 trace!("Received new timeline events diffs");
                 let origin = match origin {
                     EventsOrigin::Sync => RemoteEventOrigin::Sync,

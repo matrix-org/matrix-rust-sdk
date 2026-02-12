@@ -303,7 +303,8 @@ async fn test_gappy_sync_empties_all_threads() {
 
     // The room contains all five events.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+            room_stream.recv()
     );
     assert_eq!(diffs.len(), 3);
     assert_let!(VectorDiff::Append { values: room_events } = &diffs[0]);
@@ -338,7 +339,8 @@ async fn test_gappy_sync_empties_all_threads() {
     // The room is shrunk to the gap.
     {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -574,7 +576,8 @@ async fn test_auto_subscribe_thread_via_sync() {
 
     // Let the event cache process the update.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = s.subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { .. })) =
+            s.subscriber.recv()
     );
     assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 
@@ -604,7 +607,8 @@ async fn test_dont_auto_subscribe_on_already_subscribed_thread() {
 
     // Let the event cache process the update.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = s.subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { .. })) =
+            s.subscriber.recv()
     );
 
     // Let a bit of time for the background thread subscriber task to process the
@@ -864,7 +868,8 @@ async fn test_redact_touches_threads() {
     // - the thread summary is updated correctly.
     {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 3);
 
@@ -920,7 +925,8 @@ async fn test_redact_touches_threads() {
     // - the thread summary is removed from the thread root.
     {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 3);
 
