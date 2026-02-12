@@ -615,13 +615,14 @@ async fn test_event() {
     let cache = client.event_cache();
     let _ = cache.subscribe();
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let room = server
         .sync_room(
             &client,
             // We need the member event and power levels locally so the push rules processor
             // works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                .add_state_event(StateTestEvent::Member)
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(StateTestEvent::PowerLevels),
         )
         .await;
@@ -679,12 +680,13 @@ async fn test_event_with_context() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                .add_state_event(StateTestEvent::Member)
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(StateTestEvent::PowerLevels),
         );
 
@@ -742,6 +744,7 @@ async fn test_is_direct() {
     let sync_settings =
         SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let bob_member_event = json!({
         "content": {
             "membership": "join",
@@ -760,7 +763,7 @@ async fn test_is_direct() {
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-            .add_state_event(StateTestEvent::Member)
+            .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
             .add_state_event(StateTestEvent::Custom(bob_member_event.clone())),
     );
 

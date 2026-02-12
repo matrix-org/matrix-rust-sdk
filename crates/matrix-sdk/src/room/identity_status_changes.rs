@@ -605,13 +605,14 @@ mod tests {
         };
         use matrix_sdk_test::{
             DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
-            test_json, test_json::keys_query_sets::IdentityChangeDataSet,
+            event_factory::EventFactory, test_json,
+            test_json::keys_query_sets::IdentityChangeDataSet,
         };
         use ruma::{
             OwnedUserId, TransactionId, UserId,
             api::client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
             events::room::member::MembershipState,
-            owned_user_id,
+            owned_user_id, user_id,
         };
         use serde_json::json;
         use wiremock::{
@@ -895,11 +896,11 @@ mod tests {
             client: &Client,
             sync_response_builder: &mut SyncResponseBuilder,
         ) -> Room {
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let create_room_sync_response = sync_response_builder
-                .add_joined_room(
-                    JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                        .add_state_event(StateTestEvent::Member),
-                )
+                .add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+                    f.member(user_id!("@example:localhost")).display_name("example"),
+                ))
                 .build_sync_response();
             client.process_sync(create_room_sync_response).await.unwrap();
             let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
@@ -912,10 +913,13 @@ mod tests {
             client: &Client,
             other_user_id: &UserId,
         ) -> Room {
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let create_room_sync_response = builder
                 .add_joined_room(
                     JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                        .add_state_event(StateTestEvent::Member)
+                        .add_state_event(
+                            f.member(user_id!("@example:localhost")).display_name("example"),
+                        )
                         .add_state_event(StateTestEvent::Custom(sync_response_member(
                             other_user_id,
                             MembershipState::Join,
