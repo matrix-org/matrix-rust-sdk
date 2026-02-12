@@ -45,6 +45,7 @@ experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-em
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 extension-trait = "1.0.2"
 eyeball-im.workspace = true
 futures-util.workspace = true
@@ -127,6 +128,7 @@ paranoid-android = { version = "0.2.2", default-features = false }
 
 [dev-dependencies]
 similar-asserts.workspace = true
+tempfile.workspace = true
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
