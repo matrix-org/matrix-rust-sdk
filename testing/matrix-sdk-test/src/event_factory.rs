@@ -996,6 +996,19 @@ impl EventFactory {
         event
     }
 
+    /// Create a state event for room encryption with state event encryption
+    /// enabled.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn room_encryption_with_state_encryption(
+        &self,
+    ) -> EventBuilder<RoomEncryptionEventContent> {
+        let mut content = RoomEncryptionEventContent::with_recommended_defaults();
+        content.encrypt_state_events = true;
+        let mut event = self.event(content);
+        event.state_key = Some("".to_owned());
+        event
+    }
+
     /// Create a room history visibility state event.
     ///
     /// This creates an `m.room.history_visibility` event with the given
