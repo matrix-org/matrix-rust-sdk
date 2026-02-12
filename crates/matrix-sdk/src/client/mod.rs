@@ -4498,11 +4498,9 @@ pub(crate) mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
-            )
+            .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
             )

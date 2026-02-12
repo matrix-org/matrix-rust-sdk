@@ -1476,7 +1476,7 @@ async fn test_room_sync_state_after() {
 
     let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
 
-    let f = EventFactory::new().sender(user_id!("@example:localhost"));
+    let f = EventFactory::new().sender(user_id!("@example:localhost")).room(&DEFAULT_TEST_ROOM_ID);
 
     server
         .sync_room(
@@ -1491,7 +1491,7 @@ async fn test_room_sync_state_after() {
                     Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
                 ])
                 .add_timeline_bulk([
-                    Raw::new(&*test_json::sync_events::MEMBER_ADDITIONAL).unwrap().cast_unchecked(),
+                    f.member(user_id!("@invited:localhost")).into_raw_timeline().cast(),
                     Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
                 ]),
         )
