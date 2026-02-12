@@ -187,10 +187,7 @@ impl SizeAndDateRollingWriter {
     }
 
     /// Extract the timestamp from the current filename.
-    fn extract_timestamp_from_path(
-        config: &WriterConfig,
-        current_path: &PathBuf,
-    ) -> Option<String> {
+    fn extract_timestamp_from_path(config: &WriterConfig, current_path: &Path) -> Option<String> {
         let filename = current_path.file_name()?.to_str()?;
 
         // Strip prefix and suffix to get the timestamp
@@ -198,11 +195,11 @@ impl SizeAndDateRollingWriter {
         let without_prefix = filename.strip_prefix(&format!("{}.", config.file_prefix))?;
         let timestamp = without_prefix.strip_suffix(&config.file_suffix)?;
 
-        Some(timestamp.to_string())
+        Some(timestamp.to_owned())
     }
 
     /// Check if rotation is needed based on time period change.
-    fn should_rotate_by_time(config: &WriterConfig, current_path: &PathBuf) -> bool {
+    fn should_rotate_by_time(config: &WriterConfig, current_path: &Path) -> bool {
         let current_time = Self::format_rotation_timestamp(config);
         let last_rotation_time = Self::extract_timestamp_from_path(config, current_path);
 
@@ -701,7 +698,6 @@ mod tests {
         let mut handle = writer.make_writer();
         handle.write_all(b"initial log entry\n").unwrap();
         handle.flush().unwrap();
-        drop(handle);
 
         // Verify initial state - should have created one file
         let initial_files: Vec<_> = std::fs::read_dir(log_path)
@@ -823,7 +819,6 @@ mod tests {
         let mut handle1 = writer1.make_writer();
         handle1.write_all(b"first write\n").unwrap();
         handle1.flush().unwrap();
-        drop(handle1);
         drop(writer1);
 
         // Create second writer (simulating restart within same day)
