@@ -623,7 +623,7 @@ async fn test_event() {
             // works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
-                .add_state_event(StateTestEvent::PowerLevels),
+                .add_state_event(f.default_power_levels()),
         )
         .await;
 
@@ -687,7 +687,7 @@ async fn test_event_with_context() {
         .add_joined_room(
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
-                .add_state_event(StateTestEvent::PowerLevels),
+                .add_state_event(f.default_power_levels()),
         );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;

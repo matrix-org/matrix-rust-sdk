@@ -1265,9 +1265,16 @@ impl EventFactory {
         &self,
         map: &mut BTreeMap<OwnedUserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut event = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-        event.users.append(map);
-        self.event(event)
+        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
+        content.users.append(map);
+        let mut event = self.event(content);
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a new `m.room.power_levels` event with default values.
+    pub fn default_power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
+        self.power_levels(&mut BTreeMap::new())
     }
 
     /// Create a new `m.room.server_acl` event.
