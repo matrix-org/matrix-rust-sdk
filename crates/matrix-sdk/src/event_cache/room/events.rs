@@ -394,6 +394,53 @@ impl EventLinkedChunk {
 
         reached_start
     }
+
+    /// Finish a network forward-pagination for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
+    ///
+    /// This is similar to [`Self::finish_back_pagination`] but for forward
+    /// pagination where new events are appended at the end.
+    ///
+    /// ## Arguments
+    ///
+    /// - `next_gap_id`: the identifier of the next gap (at the back), if any.
+    /// - `new_gap`: the new gap to insert at the back, if any. If missing,
+    ///   we've likely reached the end of the timeline.
+    /// - `events`: new events to insert, in topological order (oldest to
+    ///   newest).
+    ///
+    /// ## Returns
+    ///
+    /// Returns a boolean indicating whether we've hit the end of the timeline.
+    pub fn finish_forward_pagination(
+        &mut self,
+        next_gap_id: Option<ChunkIdentifier>,
+        new_gap: Option<Gap>,
+        events: &[Event],
+    ) -> bool {
+        // First, replace the gap (if any) or append events.
+        if let Some(gap_id) = next_gap_id {
+            // There is a gap at the back, replace it with the new events.
+            trace!("replacing next gap with forward-paginated events");
+
+            self.replace_gap_at(gap_id, events.to_vec())
+                .expect("gap_identifier is a valid chunk id we read previously");
+        } else if !events.is_empty() {
+            // No prior gap, just push the events at the back.
+            trace!("pushing events received from forward-pagination");
+            self.chunks.push_items_back(events.to_vec());
+        }
+
+        // Insert the new gap at the back if needed.
+        let reached_end = new_gap.is_none();
+        if let Some(new_gap) = new_gap {
+            self.chunks.push_gap_back(new_gap);
+        }
+
+        trace!(?reached_end, "finished handling network forward-pagination");
+
+        reached_end
+    }
 }
 
 // Methods related to lazy-loading.
