@@ -16,7 +16,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::SystemTime,
 };
 
@@ -33,19 +33,24 @@ use tracing_appender::rolling::Rotation;
 /// Logs older than the configured max age are automatically removed during
 /// cleanup. Only files matching the configured prefix and suffix are managed.
 pub(super) struct SizeAndDateRollingWriter {
-    inner: Arc<Mutex<SizeAndDateRollingWriterInner>>,
+    config: WriterConfig,
+    state: Mutex<WriterState>,
 }
 
-struct SizeAndDateRollingWriterInner {
-    current_file: File,
-    current_path: PathBuf,
+/// Immutable configuration for the writer - shared without locks.
+struct WriterConfig {
     base_path: PathBuf,
     file_prefix: String,
     file_suffix: String,
     rotation: Rotation,
     max_total_size_bytes: u64,
     max_age_seconds: u64,
-    last_rotation_time: String,
+}
+
+/// Mutable state that requires synchronization.
+struct WriterState {
+    current_file: File,
+    current_path: PathBuf,
 }
 
 impl SizeAndDateRollingWriter {
@@ -60,22 +65,24 @@ impl SizeAndDateRollingWriter {
         let base_path = path.as_ref().to_path_buf();
         fs::create_dir_all(&base_path)?;
 
-        let mut inner = SizeAndDateRollingWriterInner {
-            current_file: File::create("/dev/null")?, // Temporary placeholder
-            current_path: PathBuf::new(),
+        let config = WriterConfig {
             base_path,
             file_prefix,
             file_suffix,
             rotation,
             max_total_size_bytes,
             max_age_seconds,
-            last_rotation_time: String::new(),
         };
 
-        inner.rotate(false)?;
-        inner.trim_old_logs()?;
+        let mut state = WriterState {
+            current_file: File::create("/dev/null")?, // Temporary placeholder
+            current_path: PathBuf::new(),
+        };
 
-        Ok(Self { inner: Arc::new(Mutex::new(inner)) })
+        Self::rotate_internal(&config, &mut state, false)?;
+        Self::trim_old_logs_internal(&config, &state)?;
+
+        Ok(Self { config, state: Mutex::new(state) })
     }
 
     /// Manually trigger log rotation if conditions are met.
@@ -83,8 +90,8 @@ impl SizeAndDateRollingWriter {
     /// This will rotate the current log file if the time period has changed.
     #[allow(dead_code)]
     fn roll(&self) -> io::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.rotate(true)
+        let mut state = self.state.lock().unwrap();
+        Self::rotate_internal(&self.config, &mut state, true)
     }
 
     /// Manually trigger cleanup of old log files.
@@ -93,23 +100,39 @@ impl SizeAndDateRollingWriter {
     /// only files that match the configured prefix and suffix.
     #[allow(dead_code)]
     fn trim(&self) -> io::Result<()> {
-        let inner = self.inner.lock().unwrap();
-        inner.trim_old_logs()
+        let state = self.state.lock().unwrap();
+        Self::trim_old_logs_internal(&self.config, &state)
     }
-}
 
-impl SizeAndDateRollingWriterInner {
+    /// Extract the timestamp from the current filename.
+    fn extract_timestamp_from_path(config: &WriterConfig, state: &WriterState) -> Option<String> {
+        let filename = state.current_path.file_name()?.to_str()?;
+
+        // Strip prefix and suffix to get the timestamp
+        // Format: "prefix.timestamp.suffix"
+        let without_prefix = filename.strip_prefix(&format!("{}.", config.file_prefix))?;
+        let timestamp = without_prefix.strip_suffix(&config.file_suffix)?;
+
+        Some(timestamp.to_string())
+    }
+
     /// Check if rotation is needed based on time period change.
-    fn should_rotate_by_time(&self) -> bool {
-        let current_time = self.get_rotation_time();
-        current_time != self.last_rotation_time
+    fn should_rotate_by_time(config: &WriterConfig, state: &WriterState) -> bool {
+        let current_time = Self::get_rotation_time(config);
+        let last_rotation_time = Self::extract_timestamp_from_path(config, state);
+
+        // If we can't extract the timestamp, assume rotation is needed
+        match last_rotation_time {
+            Some(last_time) => current_time != last_time,
+            None => true,
+        }
     }
 
     /// Get the current rotation time string based on the configured rotation
     /// period.
-    fn get_rotation_time(&self) -> String {
+    fn get_rotation_time(config: &WriterConfig) -> String {
         let now = chrono::Local::now();
-        match self.rotation {
+        match config.rotation {
             Rotation::MINUTELY => now.format("%Y-%m-%d-%H-%M").to_string(),
             Rotation::HOURLY => now.format("%Y-%m-%d-%H").to_string(),
             Rotation::DAILY => now.format("%Y-%m-%d").to_string(),
@@ -125,29 +148,32 @@ impl SizeAndDateRollingWriterInner {
     /// initialization).
     ///
     /// When rotating by size, the oldest log files are removed to make space.
-    fn rotate(&mut self, check_conditions: bool) -> io::Result<()> {
-        if check_conditions && !self.should_rotate_by_time() {
+    fn rotate_internal(
+        config: &WriterConfig,
+        state: &mut WriterState,
+        check_conditions: bool,
+    ) -> io::Result<()> {
+        if check_conditions && !Self::should_rotate_by_time(config, state) {
             return Ok(());
         }
 
-        let time_str = self.get_rotation_time();
+        let time_str = Self::get_rotation_time(config);
 
         // Generate filename with timestamp
-        let filename = format!("{}.{}{}", self.file_prefix, time_str, self.file_suffix);
-        let new_path = self.base_path.join(filename);
+        let filename = format!("{}.{}{}", config.file_prefix, time_str, config.file_suffix);
+        let new_path = config.base_path.join(filename);
 
         // Open or create file in append mode
         let new_file = OpenOptions::new().create(true).append(true).open(&new_path)?;
 
-        self.current_file = new_file;
-        self.current_path = new_path;
-        self.last_rotation_time = time_str;
+        state.current_file = new_file;
+        state.current_path = new_path;
 
-        // Clean up logs older than one week
-        self.trim_old_logs()?;
+        // Clean up logs older than configured max age
+        Self::trim_old_logs_internal(config, state)?;
 
         // Enforce total size limit by removing oldest files if needed
-        self.enforce_total_size_limit()?;
+        Self::enforce_total_size_limit_internal(config, state)?;
 
         Ok(())
     }
@@ -156,16 +182,16 @@ impl SizeAndDateRollingWriterInner {
     /// time.
     ///
     /// Returns a vector of (path, modification_time) tuples, oldest first.
-    fn get_matching_log_files(&self) -> io::Result<Vec<(PathBuf, SystemTime)>> {
-        let mut files: Vec<_> = fs::read_dir(&self.base_path)?
+    fn get_matching_log_files(config: &WriterConfig) -> io::Result<Vec<(PathBuf, SystemTime)>> {
+        let mut files: Vec<_> = fs::read_dir(&config.base_path)?
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
                 if path.is_file() {
                     let filename = path.file_name()?.to_str()?;
                     // Only process files matching our prefix and suffix
-                    if filename.starts_with(&self.file_prefix)
-                        && filename.ends_with(&self.file_suffix)
+                    if filename.starts_with(&config.file_prefix)
+                        && filename.ends_with(&config.file_suffix)
                     {
                         let metadata = fs::metadata(&path).ok()?;
                         let modified = metadata.modified().ok()?;
@@ -186,19 +212,19 @@ impl SizeAndDateRollingWriterInner {
     ///
     /// Only files matching the configured prefix and suffix are removed.
     /// Other files in the directory are left alone.
-    fn trim_old_logs(&self) -> io::Result<()> {
+    fn trim_old_logs_internal(config: &WriterConfig, state: &WriterState) -> io::Result<()> {
         let now = SystemTime::now();
-        let files = self.get_matching_log_files()?;
+        let files = Self::get_matching_log_files(config)?;
 
         for (path, modified) in files {
             // Skip the current file
-            if path == self.current_path {
+            if path == state.current_path {
                 continue;
             }
 
             // Check if file is older than max age
             if let Ok(duration) = now.duration_since(modified) {
-                if duration.as_secs() > self.max_age_seconds {
+                if duration.as_secs() > config.max_age_seconds {
                     let _ = fs::remove_file(path);
                 }
             }
@@ -212,10 +238,13 @@ impl SizeAndDateRollingWriterInner {
     /// If the total size of all matching log files exceeds
     /// max_total_size_bytes, remove the oldest files until the total is
     /// below the limit.
-    fn enforce_total_size_limit(&self) -> io::Result<()> {
-        let max_total = self.max_total_size_bytes;
+    fn enforce_total_size_limit_internal(
+        config: &WriterConfig,
+        state: &WriterState,
+    ) -> io::Result<()> {
+        let max_total = config.max_total_size_bytes;
 
-        let files = self.get_matching_log_files()?;
+        let files = Self::get_matching_log_files(config)?;
 
         // Calculate total size of all log files
         let mut total_size: u64 = 0;
@@ -234,7 +263,7 @@ impl SizeAndDateRollingWriterInner {
         // Files are already sorted by modification time (oldest first)
         for (path, _) in files {
             // Don't remove the current file
-            if path == self.current_path {
+            if path == state.current_path {
                 continue;
             }
 
@@ -256,18 +285,18 @@ impl SizeAndDateRollingWriterInner {
 
 impl Write for SizeAndDateRollingWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
 
         // Check if rotation is needed
-        inner.rotate(true)?;
+        Self::rotate_internal(&self.config, &mut state, true)?;
 
         // Write to file
-        inner.current_file.write(buf)
+        state.current_file.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.current_file.flush()
+        let mut state = self.state.lock().unwrap();
+        state.current_file.flush()
     }
 }
 
@@ -276,31 +305,33 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SizeAndDateRollingWriter {
 
     fn make_writer(&'a self) -> Self::Writer {
         SizeAndDateRollingWriterHandle {
-            inner: Arc::clone(&self.inner),
+            config: &self.config,
+            state: &self.state,
             _phantom: std::marker::PhantomData,
         }
     }
 }
 
 pub(super) struct SizeAndDateRollingWriterHandle<'a> {
-    inner: Arc<Mutex<SizeAndDateRollingWriterInner>>,
+    config: &'a WriterConfig,
+    state: &'a Mutex<WriterState>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Write for SizeAndDateRollingWriterHandle<'a> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
 
         // Check if rotation is needed
-        inner.rotate(true)?;
+        SizeAndDateRollingWriter::rotate_internal(self.config, &mut state, true)?;
 
         // Write to file
-        inner.current_file.write(buf)
+        state.current_file.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.current_file.flush()
+        let mut state = self.state.lock().unwrap();
+        state.current_file.flush()
     }
 }
 
