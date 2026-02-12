@@ -2030,11 +2030,12 @@ mod tests {
 
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-        test_json,
+        event_factory::EventFactory, test_json,
     };
     use ruma::{
         event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
+        user_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -2078,12 +2079,13 @@ mod tests {
             .mount(&server)
             .await;
 
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
                     .add_state_event(StateTestEvent::Member)
                     .add_state_event(StateTestEvent::PowerLevels)
-                    .add_state_event(StateTestEvent::Encryption),
+                    .add_state_event(f.room_encryption()),
             )
             .build_sync_response();
 

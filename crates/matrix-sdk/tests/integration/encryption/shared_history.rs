@@ -6,7 +6,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
+    InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use ruma::{
     RoomVersionId, device_id, event_id, events::room::message::RoomMessageEventContent, mxc_uri,
@@ -52,7 +52,7 @@ async fn test_shared_history_out_of_order() {
 
     matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
 
-    let event_factory = EventFactory::new().room(room_id);
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
     let alice_member_event = event_factory.member(alice_user_id).into_raw();
 
     matrix_mock_server
@@ -61,7 +61,7 @@ async fn test_shared_history_out_of_order() {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
                     .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
-                    .add_state_event(StateTestEvent::Encryption),
+                    .add_state_event(event_factory.room_encryption()),
             );
         })
         .await;

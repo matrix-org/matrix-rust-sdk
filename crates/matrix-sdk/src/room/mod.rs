@@ -4948,12 +4948,13 @@ mod tests {
                 )
                 .mount(&server)
                 .await;
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let response = SyncResponseBuilder::default()
                 .add_joined_room(
                     JoinedRoomBuilder::default()
                         .add_state_event(StateTestEvent::Member)
                         .add_state_event(StateTestEvent::PowerLevels)
-                        .add_state_event(StateTestEvent::Encryption),
+                        .add_state_event(f.room_encryption()),
                 )
                 .build_sync_response();
             client.base_client().receive_sync_response(response).await.unwrap();
