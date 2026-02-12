@@ -118,7 +118,7 @@ impl SizeAndDateRollingWriter {
 
     /// Check if rotation is needed based on time period change.
     fn should_rotate_by_time(config: &WriterConfig, state: &WriterState) -> bool {
-        let current_time = Self::get_rotation_time(config);
+        let current_time = Self::format_rotation_timestamp(config);
         let last_rotation_time = Self::extract_timestamp_from_path(config, state);
 
         // If we can't extract the timestamp, assume rotation is needed
@@ -128,9 +128,11 @@ impl SizeAndDateRollingWriter {
         }
     }
 
-    /// Get the current rotation time string based on the configured rotation
-    /// period.
-    fn get_rotation_time(config: &WriterConfig) -> String {
+    /// Format the current time as a timestamp string for the rotation period.
+    ///
+    /// Returns a timestamp string based on the configured rotation period
+    /// (e.g., "2024-01-15-14" for hourly rotation).
+    fn format_rotation_timestamp(config: &WriterConfig) -> String {
         let now = chrono::Local::now();
         match config.rotation {
             Rotation::MINUTELY => now.format("%Y-%m-%d-%H-%M").to_string(),
@@ -157,7 +159,7 @@ impl SizeAndDateRollingWriter {
             return Ok(());
         }
 
-        let time_str = Self::get_rotation_time(config);
+        let time_str = Self::format_rotation_timestamp(config);
 
         // Generate filename with timestamp
         let filename = format!("{}.{}{}", config.file_prefix, time_str, config.file_suffix);
