@@ -3,24 +3,6 @@
 use once_cell::sync::Lazy;
 use serde_json::{Value as JsonValue, json};
 
-pub static ALIASES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "aliases": [
-                "#tutorial:localhost"
-            ]
-        },
-        "event_id": "$15139375516NUgtD:localhost",
-        "origin_server_ts": 151393755,
-        "sender": "@example:localhost",
-        "state_key": "localhost",
-        "type": "m.room.aliases",
-        "unsigned": {
-            "age": 703422
-        }
-    })
-});
-
 pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
