@@ -11,7 +11,6 @@ use crate::test_json;
 /// Test events that can be added to the state.
 pub enum StateTestEvent {
     EncryptionWithEncryptedStateEvents,
-    HistoryVisibility,
     JoinRules,
     Member,
     MemberAdditional,
@@ -32,9 +31,6 @@ impl From<StateTestEvent> for JsonValue {
         match val {
             StateTestEvent::EncryptionWithEncryptedStateEvents => {
                 test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS.to_owned()
-            }
-            StateTestEvent::HistoryVisibility => {
-                test_json::sync_events::HISTORY_VISIBILITY.to_owned()
             }
             StateTestEvent::JoinRules => test_json::sync_events::JOIN_RULES.to_owned(),
             StateTestEvent::Member => test_json::sync_events::MEMBER.to_owned(),

@@ -13,22 +13,6 @@ pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static HISTORY_VISIBILITY: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "history_visibility": "world_readable"
-        },
-        "event_id": "$151957878235ricnD:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.history_visibility",
-        "unsigned": {
-          "age": 1392989
-        }
-    })
-});
-
 pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
