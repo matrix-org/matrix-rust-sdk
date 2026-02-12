@@ -2083,7 +2083,9 @@ mod tests {
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
-                    .add_state_event(StateTestEvent::Member)
+                    .add_state_event(
+                        f.member(user_id!("@example:localhost")).display_name("example"),
+                    )
                     .add_state_event(StateTestEvent::PowerLevels)
                     .add_state_event(f.room_encryption()),
             )

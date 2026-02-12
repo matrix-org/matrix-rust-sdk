@@ -39,7 +39,7 @@ use once_cell::sync::Lazy;
 use ruma::{
     EventId,
     events::{FullStateEventContent, room::message::MessageType},
-    room_id,
+    room_id, user_id,
 };
 use serde_json::{Value as JsonValue, json};
 use stream_assert::{assert_next_eq, assert_pending};
@@ -320,12 +320,13 @@ async fn test_back_pagination_highlighted() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(room_id)
-                .add_state_event(StateTestEvent::Member)
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(StateTestEvent::PowerLevels),
         );
 

@@ -3551,12 +3551,15 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
                 builder.add_joined_room(
                     JoinedRoomBuilder::default()
-                        .add_state_event(StateTestEvent::Member)
+                        .add_state_event(
+                            f.member(user_id!("@example:localhost")).display_name("example"),
+                        )
                         .add_state_event(StateTestEvent::PowerLevels),
                 );
             })
