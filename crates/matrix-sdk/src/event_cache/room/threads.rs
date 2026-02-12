@@ -26,7 +26,7 @@ use tracing::{error, trace};
 
 use crate::event_cache::{
     BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
-    caches::TimelineVectorUpdate,
+    caches::TimelineVectorDiffs,
     deduplicator::DeduplicationOutcome,
     room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
 };
@@ -44,7 +44,7 @@ pub(crate) struct ThreadEventCache {
     chunk: EventLinkedChunk,
 
     /// A sender for live events updates in this thread.
-    sender: Sender<TimelineVectorUpdate>,
+    sender: Sender<TimelineVectorDiffs>,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -70,7 +70,7 @@ impl ThreadEventCache {
     }
 
     /// Subscribe to live events from this thread.
-    pub fn subscribe(&self) -> (Vec<Event>, Receiver<TimelineVectorUpdate>) {
+    pub fn subscribe(&self) -> (Vec<Event>, Receiver<TimelineVectorDiffs>) {
         let events = self.chunk.events().map(|(_position, item)| item.clone()).collect();
 
         let recv = self.sender.subscribe();
@@ -84,7 +84,7 @@ impl ThreadEventCache {
 
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Cache });
+            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
         }
     }
 
@@ -134,7 +134,7 @@ impl ThreadEventCache {
 
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
+            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
         }
     }
 
@@ -160,7 +160,7 @@ impl ThreadEventCache {
 
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
+            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
         }
     }
 
@@ -311,7 +311,7 @@ impl ThreadEventCache {
             // Send the updates to the listeners.
             let _ = self
                 .sender
-                .send(TimelineVectorUpdate { diffs: updates, origin: EventsOrigin::Pagination });
+                .send(TimelineVectorDiffs { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
         Some(BackPaginationOutcome { reached_start, events })

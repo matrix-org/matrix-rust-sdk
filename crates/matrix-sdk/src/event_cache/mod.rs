@@ -79,7 +79,7 @@ mod persistence;
 mod redecryptor;
 mod room;
 
-pub use caches::TimelineVectorUpdate;
+pub use caches::TimelineVectorDiffs;
 pub use pagination::{RoomPagination, RoomPaginationStatus};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
@@ -455,7 +455,7 @@ impl EventCache {
                         // so let's do it!
                         if !diffs.is_empty() {
                             let _ = room.inner.update_sender.send(
-                                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate {
+                                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                                     diffs,
                                     origin: EventsOrigin::Cache,
                                 }),
@@ -1016,10 +1016,7 @@ impl EventCacheInner {
             let updates_as_vector_diffs = state_guard.reset().await?;
 
             let _ = room.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                TimelineVectorUpdate {
-                    diffs: updates_as_vector_diffs,
-                    origin: EventsOrigin::Cache,
-                },
+                TimelineVectorDiffs { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
             ));
 
             let _ = room
@@ -1254,7 +1251,7 @@ pub enum RoomEventCacheUpdate {
     },
 
     /// The room has received updates for the timeline as _diffs_.
-    UpdateTimelineEvents(TimelineVectorUpdate),
+    UpdateTimelineEvents(TimelineVectorDiffs),
 
     /// The room has received new ephemeral events.
     AddEphemeralEvents {

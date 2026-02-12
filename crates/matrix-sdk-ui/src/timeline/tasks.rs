@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use matrix_sdk::{
     event_cache::{
         EventsOrigin, RoomEventCache, RoomEventCacheSubscriber, RoomEventCacheUpdate,
-        TimelineVectorUpdate,
+        TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -40,7 +40,7 @@ use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEvent
 pub(in crate::timeline) async fn pinned_events_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    mut pinned_events_recv: Receiver<TimelineVectorUpdate>,
+    mut pinned_events_recv: Receiver<TimelineVectorDiffs>,
 ) {
     loop {
         trace!("Waiting for an event.");
@@ -87,7 +87,7 @@ pub(in crate::timeline) async fn pinned_events_task(
 /// For a thread-focused timeline, a long-lived task that will listen to the
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
-    mut receiver: Receiver<TimelineVectorUpdate>,
+    mut receiver: Receiver<TimelineVectorDiffs>,
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
     root: OwnedEventId,
@@ -190,7 +190,7 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 timeline_controller.handle_fully_read_marker(event_id).await;
             }
 
-            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, origin }) => {
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, origin }) => {
                 trace!("Received new timeline events diffs");
                 let origin = match origin {
                     EventsOrigin::Sync => RemoteEventOrigin::Sync,

@@ -21,7 +21,7 @@ pub(super) mod lock;
 
 /// A diff update for an event cache timeline represented as a vector.
 #[derive(Clone, Debug)]
-pub struct TimelineVectorUpdate {
+pub struct TimelineVectorDiffs {
     /// New vector diff for the thread timeline.
     pub diffs: Vec<VectorDiff<Event>>,
     /// The origin that triggered this update.
