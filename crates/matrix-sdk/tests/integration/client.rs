@@ -1486,9 +1486,7 @@ async fn test_room_sync_state_after() {
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
                     Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
-                    Raw::new(&*test_json::sync_events::HISTORY_VISIBILITY)
-                        .unwrap()
-                        .cast_unchecked(),
+                    f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     Raw::new(&*test_json::sync_events::JOIN_RULES).unwrap().cast_unchecked(),
                     Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
                 ])

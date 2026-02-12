@@ -64,6 +64,7 @@ use ruma::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
             encryption::RoomEncryptionEventContent,
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
@@ -990,6 +991,19 @@ impl EventFactory {
     pub fn room_encryption(&self) -> EventBuilder<RoomEncryptionEventContent> {
         let mut event = self.event(RoomEncryptionEventContent::with_recommended_defaults());
         // The state key is empty for a room encryption state event.
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a room history visibility state event.
+    ///
+    /// This creates an `m.room.history_visibility` event with the given
+    /// visibility setting.
+    pub fn room_history_visibility(
+        &self,
+        visibility: HistoryVisibility,
+    ) -> EventBuilder<RoomHistoryVisibilityEventContent> {
+        let mut event = self.event(RoomHistoryVisibilityEventContent::new(visibility));
         event.state_key = Some("".to_owned());
         event
     }
