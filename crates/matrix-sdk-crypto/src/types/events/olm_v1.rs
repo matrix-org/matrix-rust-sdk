@@ -1,4 +1,4 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2022, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
 
+#[cfg(feature = "experimental-push-secrets")]
+use super::secret_push::SecretPushContent;
 use super::{
     EventType,
     dummy::DummyEventContent,
@@ -85,6 +87,11 @@ pub type DecryptedSecretSendEvent = DecryptedOlmV1Event<SecretSendContent>;
 /// been decrypted using using the `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedRoomKeyBundleEvent = DecryptedOlmV1Event<RoomKeyBundleContent>;
 
+/// An `io.element.msc4385.secret.push` event that was decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm
+#[cfg(feature = "experimental-push-secrets")]
+pub type DecryptedSecretPushEvent = DecryptedOlmV1Event<SecretPushContent>;
+
 /// An enum over the various events that were decrypted using the
 /// `m.olm.v1.curve25519-aes-sha2` algorithm.
 #[derive(Debug)]
@@ -99,6 +106,9 @@ pub enum AnyDecryptedOlmEvent {
     Dummy(DecryptedDummyEvent),
     /// The `io.element.msc4268.room_key_bundle` decrypted to-device event.
     RoomKeyBundle(DecryptedRoomKeyBundleEvent),
+    /// The `io.element.msc4385.secret.push` decrypted to-device event.
+    #[cfg(feature = "experimental-push-secrets")]
+    SecretPush(DecryptedSecretPushEvent),
     /// A decrypted to-device event of an unknown or custom type.
     Custom(Box<ToDeviceCustomEvent>),
 }
@@ -112,6 +122,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::SecretSend(e) => &e.sender,
             AnyDecryptedOlmEvent::Custom(e) => &e.sender,
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => &e.sender,
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => &e.sender,
             AnyDecryptedOlmEvent::Dummy(e) => &e.sender,
         }
     }
@@ -124,6 +136,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient,
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => &e.recipient,
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => &e.recipient,
             AnyDecryptedOlmEvent::Dummy(e) => &e.recipient,
         }
     }
@@ -136,6 +150,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::SecretSend(e) => &e.keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.keys,
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => &e.keys,
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => &e.keys,
             AnyDecryptedOlmEvent::Dummy(e) => &e.keys,
         }
     }
@@ -148,6 +164,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::Custom(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => &e.recipient_keys,
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => &e.recipient_keys,
             AnyDecryptedOlmEvent::Dummy(e) => &e.recipient_keys,
         }
     }
@@ -160,6 +178,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => e.content.event_type(),
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => e.content.event_type(),
             AnyDecryptedOlmEvent::Dummy(e) => e.content.event_type(),
         }
     }
@@ -172,6 +192,8 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => e.sender_device_keys.as_ref(),
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::Dummy(e) => e.sender_device_keys.as_ref(),
         }
     }
@@ -333,6 +355,8 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
             RoomKeyBundleContent::EVENT_TYPE => {
                 AnyDecryptedOlmEvent::RoomKeyBundle(from_str(json)?)
             }
+            #[cfg(feature = "experimental-push-secrets")]
+            SecretPushContent::EVENT_TYPE => AnyDecryptedOlmEvent::SecretPush(from_str(json)?),
             _ => AnyDecryptedOlmEvent::Custom(from_str(json)?),
         })
     }

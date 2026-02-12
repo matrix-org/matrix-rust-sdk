@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
+#[cfg(feature = "experimental-push-secrets")]
+use std::collections::HashMap;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
     mem,
@@ -38,6 +40,8 @@ use ruma::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
     },
 };
+#[cfg(feature = "experimental-push-secrets")]
+use tracing::error;
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
 use vodozemac::Curve25519PublicKey;
 
@@ -60,6 +64,11 @@ use crate::{
         },
         requests::{OutgoingRequest, ToDeviceRequest},
     },
+};
+#[cfg(feature = "experimental-push-secrets")]
+use crate::{
+    error::SecretPushError,
+    types::events::{olm_v1::DecryptedSecretPushEvent, secret_push::SecretPushContent},
 };
 
 #[derive(Clone, Debug)]
@@ -286,6 +295,89 @@ impl GossipMachine {
         for (key, event) in self.inner.wait_queue.remove(user_id, device_id) {
             incoming_key_requests.entry(key).or_insert(event);
         }
+    }
+
+    /// Push a secret to all of our other verified devices.
+    ///
+    /// This function assumes that we already have Olm sessions with the other
+    /// devices.  This can be done by calling
+    /// [`OlmMachine::get_missing_sessions()`].
+    ///
+    /// * `secret_name` - The name of the secret to push
+    #[cfg(feature = "experimental-push-secrets")]
+    pub async fn push_secret_to_verified_devices(
+        &self,
+        secret_name: SecretName,
+    ) -> Result<HashMap<OwnedDeviceId, OlmError>, SecretPushError> {
+        let content = if let Some(secret) = self.inner.store.export_secret(&secret_name).await? {
+            SecretPushContent::new(secret_name.clone(), secret)
+        } else {
+            info!(?secret_name, "Can't push a secret, secret isn't found");
+            return Err(SecretPushError::MissingSecret);
+        };
+
+        let devices = self.inner.store.get_user_devices(self.user_id()).await?;
+        let mut errors = HashMap::new();
+
+        for device in devices.devices() {
+            if !device.is_our_own_device() && device.is_verified() {
+                let event_type = content.event_type().to_owned();
+                match device.encrypt(&event_type, content.clone()).await {
+                    Ok((_used_session, content, _message_id)) => {
+                        let encrypted_event_type = content.event_type().to_owned();
+                        let request = ToDeviceRequest::new(
+                            device.user_id(),
+                            device.device_id().to_owned(),
+                            &encrypted_event_type,
+                            content.cast(),
+                        );
+                        let request = OutgoingRequest {
+                            request_id: request.txn_id.clone(),
+                            request: Arc::new(request.into()),
+                        };
+                        self.inner
+                            .outgoing_requests
+                            .write()
+                            .insert(request.request_id.clone(), request);
+                    }
+                    Err(err) => {
+                        errors.insert(device.device_id().to_owned(), err);
+                    }
+                }
+            }
+        }
+
+        Ok(errors)
+    }
+
+    /// Handle a received secret push event.
+    ///
+    /// Checks that the sender device is verified, then adds it to the changes.
+    #[cfg(feature = "experimental-push-secrets")]
+    pub async fn receive_secret_push_event(
+        &self,
+        sender_key: &Curve25519PublicKey,
+        event: &DecryptedSecretPushEvent,
+        changes: &mut Changes,
+    ) -> Result<(), CryptoStoreError> {
+        // Only accept events from verified own-devices
+        let sender = &event.sender;
+        if sender != self.user_id() {
+            // Ignore if sent from a different user
+            error!(?sender, "Received secret push from a different user");
+            return Ok(());
+        }
+        let Some(device) = self.inner.store.get_device_from_curve_key(sender, *sender_key).await?
+        else {
+            error!(?sender, ?sender_key, "Received secret push from unknown device");
+            return Ok(());
+        };
+        if !device.is_verified() {
+            error!(?sender, device_id = ?device.device_id(), "Received secret push from unverified device");
+            return Ok(());
+        }
+        changes.pushed_secrets.push(event.content.clone());
+        Ok(())
     }
 
     async fn handle_secret_request(
@@ -2236,5 +2328,239 @@ mod tests {
             .unwrap();
 
         assert_eq!(session.session_id(), group_session.session_id())
+    }
+
+    /// Set up OlmMachines for the secret-pushing tests
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn set_up_secret_push() -> (
+        crate::machine::OlmMachine,
+        crate::identities::device::Device,
+        crate::machine::OlmMachine,
+        crate::identities::device::Device,
+        crate::store::types::BackupDecryptionKey,
+    ) {
+        // TODO: We probably don't need to use this function
+        use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
+
+        let alice_id = user_id!("@alice:localhost");
+
+        let (alice_machine, bob_machine) =
+            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
+
+        let bob_device = alice_machine
+            .get_device(alice_id, bob_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        let alice_device = bob_machine
+            .get_device(alice_id, alice_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decryption_key = crate::store::types::BackupDecryptionKey::new().unwrap();
+        alice_machine
+            .backup_machine()
+            .save_decryption_key(Some(decryption_key.clone()), None)
+            .await
+            .unwrap();
+
+        (alice_machine, alice_device, bob_machine, bob_device, decryption_key)
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_secret_pushing() {
+        let (alice_machine, _alice_device, _bob_machine, bob_device, _decryption_key) =
+            set_up_secret_push().await;
+
+        // try to push a secret, but the other device isn't verified, so nothing
+        // should happen
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 0);
+
+        // Now the device is trusted, so the secret should be pushed
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
+
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 1);
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_secret_push_receive() {
+        use futures_util::{FutureExt, pin_mut};
+        use serde_json::value::to_raw_value;
+        use tokio_stream::StreamExt;
+
+        use crate::EncryptionSyncChanges;
+
+        let (alice_machine, alice_device, bob_machine, bob_device, decryption_key) =
+            set_up_secret_push().await;
+
+        // Push the secret to Bob
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
+
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 1);
+        let request = requests.first().expect("We should have an outgoing to-device request");
+
+        // Since Alice is trusted, we should get the secret
+        alice_device.set_trust_state(LocalTrust::Verified);
+        bob_machine.store().save_device_data(&[alice_device.inner]).await.unwrap();
+        let event: EncryptedToDeviceEvent =
+            request_to_event(bob_machine.user_id(), alice_machine.user_id(), request);
+        let event = Raw::from_json(to_raw_value(&event).unwrap());
+
+        let stream = bob_machine.store().pushed_secrets_stream();
+        pin_mut!(stream);
+
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+        bob_machine
+            .receive_sync_changes(
+                EncryptionSyncChanges {
+                    to_device_events: vec![event],
+                    changed_devices: &Default::default(),
+                    one_time_keys_counts: &Default::default(),
+                    unused_fallback_keys: None,
+                    next_batch_token: None,
+                },
+                &decryption_settings,
+            )
+            .await
+            .unwrap();
+
+        let secret = stream
+            .next()
+            .now_or_never()
+            .flatten()
+            .expect("The broadcaster should have sent out the secret");
+
+        assert_eq!(secret.secret, decryption_key.to_base64())
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_secret_push_receive_untrusted() {
+        use futures_util::{FutureExt, pin_mut};
+        use serde_json::value::to_raw_value;
+        use tokio_stream::StreamExt;
+
+        use crate::EncryptionSyncChanges;
+
+        let (alice_machine, _alice_device, bob_machine, bob_device, _decryption_key) =
+            set_up_secret_push().await;
+
+        // Push the secret to Bob
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
+
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 1);
+        let request = requests.first().expect("We should have an outgoing to-device request");
+
+        // Test receiving the event.  Alice isn't trusted, so the secret will be
+        // dropped
+        let event: EncryptedToDeviceEvent =
+            request_to_event(bob_machine.user_id(), alice_machine.user_id(), request);
+        let event = Raw::from_json(to_raw_value(&event).unwrap());
+
+        let stream = bob_machine.store().pushed_secrets_stream();
+        pin_mut!(stream);
+
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+        bob_machine
+            .receive_sync_changes(
+                EncryptionSyncChanges {
+                    to_device_events: vec![event.clone()],
+                    changed_devices: &Default::default(),
+                    one_time_keys_counts: &Default::default(),
+                    unused_fallback_keys: None,
+                    next_batch_token: None,
+                },
+                &decryption_settings,
+            )
+            .await
+            .unwrap();
+
+        assert!(stream.next().now_or_never().flatten().is_none());
     }
 }

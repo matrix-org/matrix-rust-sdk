@@ -12,6 +12,8 @@ use super::{
     DeviceChanges, IdentityChanges, LockableCryptoStore, caches::SessionStore,
     types::RoomKeyBundleInfo,
 };
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
@@ -45,6 +47,11 @@ pub(crate) struct CryptoStoreWrapper {
     /// received as a `m.secret.send` event.
     secrets_broadcaster: broadcast::Sender<GossippedSecret>,
 
+    /// The sender side of a broadcast channel which sends out secrets we
+    /// received as a `m.secret.send` event.
+    #[cfg(feature = "experimental-push-secrets")]
+    pushed_secrets_broadcaster: broadcast::Sender<SecretPushContent>,
+
     /// The sender side of a broadcast channel which sends out devices and user
     /// identities which got updated or newly created.
     identities_broadcaster:
@@ -60,6 +67,8 @@ impl CryptoStoreWrapper {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
+        #[cfg(feature = "experimental-push-secrets")]
+        let pushed_secrets_broadcaster = broadcast::Sender::new(10);
         // The identities broadcaster is responsible for user identities as well as
         // devices, that's why we increase the capacity here.
         let identities_broadcaster = broadcast::Sender::new(20);
@@ -73,6 +82,8 @@ impl CryptoStoreWrapper {
             room_keys_received_sender,
             room_keys_withheld_received_sender,
             secrets_broadcaster,
+            #[cfg(feature = "experimental-push-secrets")]
+            pushed_secrets_broadcaster,
             identities_broadcaster,
             historic_room_key_bundles_broadcaster,
         }
@@ -114,6 +125,8 @@ impl CryptoStoreWrapper {
             .is_some_and(|own| own.is_verified());
 
         let secrets = changes.secrets.to_owned();
+        #[cfg(feature = "experimental-push-secrets")]
+        let pushed_secrets = changes.pushed_secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
         let room_key_bundle_updates: Vec<_> =
@@ -168,6 +181,11 @@ impl CryptoStoreWrapper {
 
         for secret in secrets {
             let _ = self.secrets_broadcaster.send(secret);
+        }
+
+        #[cfg(feature = "experimental-push-secrets")]
+        for pushed_secret in pushed_secrets {
+            let _ = self.pushed_secrets_broadcaster.send(pushed_secret);
         }
 
         for bundle_info in room_key_bundle_updates {
@@ -342,6 +360,13 @@ impl CryptoStoreWrapper {
     /// the secret inbox as a [`Stream`].
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
+        Self::filter_errors_out_of_stream(stream, "secrets_stream")
+    }
+
+    /// Receive notifications of pushed secrets being received as a [`Stream`].
+    #[cfg(feature = "experimental-push-secrets")]
+    pub fn pushed_secrets_stream(&self) -> impl Stream<Item = SecretPushContent> + use<> {
+        let stream = BroadcastStream::new(self.pushed_secrets_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "secrets_stream")
     }
 

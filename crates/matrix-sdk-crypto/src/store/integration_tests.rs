@@ -79,6 +79,8 @@ macro_rules! cryptostore_integration_tests {
                 vodozemac::megolm::{GroupSession, SessionConfig}, DeviceData, GossippedSecret, LocalTrust,  SecretInfo,
                 TrackedUser,
             };
+            #[cfg(feature = "experimental-push-secrets")]
+            use $crate::types::events::secret_push::SecretPushContent;
 
             use super::get_store;
 
@@ -1130,6 +1132,48 @@ macro_rules! cryptostore_integration_tests {
                 assert!(restored.is_empty(), "We should not have secrets of a different type stored");
 
                 store.delete_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+
+                let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                assert!(restored.is_empty(), "We should not have any secrets after we have deleted them");
+            }
+
+            #[async_test]
+            #[cfg(feature = "experimental-push-secrets")]
+            async fn test_pushed_secret_saving() {
+                let (_account, store) = get_loaded_store("pushed_secret_saving").await;
+
+                let secret = "It is a secret to everybody";
+
+                let value = SecretPushContent::new(
+                    SecretName::RecoveryKey,
+                    secret.to_owned(),
+                );
+
+                assert!(
+                    store.get_pushed_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap().is_empty(),
+                    "No secret should initially be found in the store"
+                );
+
+                let mut changes = Changes::default();
+                changes.pushed_secrets.push(value.clone());
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.get_pushed_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                let first_secret = restored.first().expect("We should have restored a secret now");
+                assert_eq!(first_secret.secret, secret);
+                assert_eq!(restored.len(), 1, "We should only have one secret stored for now");
+
+                let mut changes = Changes::default();
+                changes.pushed_secrets.push(value);
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.get_pushed_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                assert_eq!(restored.len(), 2, "We should only have two secrets stored");
+
+                let restored = store.get_pushed_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
+                assert!(restored.is_empty(), "We should not have secrets of a different type stored");
+
+                store.delete_pushed_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
                 assert!(restored.is_empty(), "We should not have any secrets after we have deleted them");
