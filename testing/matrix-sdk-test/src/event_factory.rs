@@ -63,6 +63,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
+            encryption::RoomEncryptionEventContent,
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
@@ -978,6 +979,17 @@ impl EventFactory {
     pub fn room_avatar(&self) -> EventBuilder<RoomAvatarEventContent> {
         let mut event = self.event(RoomAvatarEventContent::new());
         // The state key is empty for a room avatar state event.
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a state event for room encryption with recommended defaults.
+    ///
+    /// This creates an `m.room.encryption` event with the
+    /// `m.megolm.v1.aes-sha2` algorithm and recommended rotation settings.
+    pub fn room_encryption(&self) -> EventBuilder<RoomEncryptionEventContent> {
+        let mut event = self.event(RoomEncryptionEventContent::with_recommended_defaults());
+        // The state key is empty for a room encryption state event.
         event.state_key = Some("".to_owned());
         event
     }

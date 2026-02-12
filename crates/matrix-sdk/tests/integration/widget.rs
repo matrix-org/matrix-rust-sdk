@@ -687,13 +687,15 @@ async fn test_should_block_internal_to_device() {
         }
     });
 
+    let f = EventFactory::new().sender(*BOB);
+
     // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
     mock_server
         .mock_sync()
         .ok_and_run(&bob, |builder| {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(StateTestEvent::Encryption)
+                    .add_state_event(f.room_encryption())
                     .add_state_event(StateTestEvent::Custom(alice_member_state.clone())),
             );
         })
