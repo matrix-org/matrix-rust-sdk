@@ -16,8 +16,6 @@ use ruma::{
 };
 use serde_json::{Value as JsonValue, from_value as from_json_value, json};
 
-use super::test_json;
-
 mod bulk;
 mod invited_room;
 mod joined_room;
@@ -30,7 +28,7 @@ pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
-pub use test_event::{PresenceTestEvent, RoomAccountDataTestEvent, StrippedStateTestEvent};
+pub use test_event::{PresenceTestEvent, RoomAccountDataTestEvent};
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
 /// responses for testing. These can be then fed into either `Client` or `Room`.
@@ -115,10 +113,7 @@ impl SyncResponseBuilder {
 
     /// Add a presence event.
     pub fn add_presence_event(&mut self, event: PresenceTestEvent) -> &mut Self {
-        let val = match event {
-            PresenceTestEvent::Presence => test_json::PRESENCE.to_owned(),
-            PresenceTestEvent::Custom(json) => json,
-        };
+        let PresenceTestEvent::Custom(val) = event;
 
         self.presence.push(from_json_value(val).unwrap());
         self
