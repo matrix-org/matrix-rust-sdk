@@ -5,12 +5,9 @@ pub use matrix_sdk_test_macros::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
     RoomId, UserId,
-    api::{
-        IncomingResponse, OutgoingResponse, client::sync::sync_events::v3::Response as SyncResponse,
-    },
+    api::{IncomingResponse, OutgoingResponse},
     room_id, user_id,
 };
-use serde_json::Value as JsonValue;
 
 /// Create a `Raw<AnyMessageLikeEventContent>` from arbitrary JSON.
 ///
@@ -93,30 +90,6 @@ pub static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
 /// The default room ID for tests.
 pub static DEFAULT_TEST_ROOM_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
-
-/// Embedded sync response files
-pub enum SyncResponseFile {
-    All,
-    Default,
-    DefaultWithSummary,
-    Invite,
-    Leave,
-    Voip,
-}
-
-/// Get specific API responses for testing
-pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
-    let data: &JsonValue = match kind {
-        SyncResponseFile::All => &test_json::MORE_SYNC,
-        SyncResponseFile::Default => &test_json::SYNC,
-        SyncResponseFile::DefaultWithSummary => &test_json::DEFAULT_SYNC_SUMMARY,
-        SyncResponseFile::Invite => &test_json::INVITE_SYNC,
-        SyncResponseFile::Leave => &test_json::LEAVE_SYNC,
-        SyncResponseFile::Voip => &test_json::VOIP_SYNC,
-    };
-
-    ruma_response_from_json(data)
-}
 
 /// Build a typed Ruma [`IncomingResponse`] object from a json body.
 pub fn ruma_response_from_json<ResponseType: IncomingResponse>(
