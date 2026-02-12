@@ -2,7 +2,6 @@ use std::{ops::Not as _, sync::Arc};
 
 use matrix_sdk::{
     Room,
-    event_cache::RoomEventCacheUpdate,
     room::IncludeRelations,
     store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},

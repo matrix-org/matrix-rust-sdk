@@ -430,10 +430,9 @@ impl RoomEventCache {
         let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         // Notify observers about the update.
-        let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-            diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Cache,
-        });
+        let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
+            TimelineVectorUpdate { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
+        ));
 
         // Notify observers about the generic update.
         let _ = self
@@ -633,10 +632,9 @@ impl RoomEventCacheInner {
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
-            let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: timeline_event_diffs,
-                origin: EventsOrigin::Sync,
-            });
+            let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
+                TimelineVectorUpdate { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
+            ));
 
             let _ = self
                 .generic_update_sender
@@ -921,10 +919,9 @@ mod private {
             let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
             // Notify observers about the update.
-            let _ = self.state.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs,
-                origin: EventsOrigin::Cache,
-            });
+            let _ = self.state.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
+                TimelineVectorUpdate { diffs, origin: EventsOrigin::Cache },
+            ));
 
             // Notify observers about the generic update.
             let _ = self
@@ -2607,7 +2604,10 @@ mod timed_tests {
         },
         RoomEventCacheGenericUpdate,
     };
-    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
+    use crate::{
+        assert_let_timeout, event_cache::TimelineVectorUpdate,
+        test_utils::client::MockClientBuilder,
+    };
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -2880,7 +2880,10 @@ mod timed_tests {
             room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
             assert_let_timeout!(
-                Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate {
+                    diffs,
+                    ..
+                })) = stream.recv()
             );
             assert_eq!(diffs.len(), 1);
             assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
@@ -2903,7 +2906,8 @@ mod timed_tests {
 
         //… we get an update that the content has been cleared.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -3042,7 +3046,8 @@ mod timed_tests {
         room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
@@ -3349,7 +3354,8 @@ mod timed_tests {
 
         // We also get an update about the loading from the store.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
@@ -3378,7 +3384,8 @@ mod timed_tests {
 
         // We receive updates about the changes to the linked chunk.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                stream.recv()
         );
         assert_eq!(diffs.len(), 2);
         assert_matches!(&diffs[0], VectorDiff::Clear);
@@ -3638,7 +3645,8 @@ mod timed_tests {
         // We also get an update about the loading from the store. Ignore it, for this
         // test's sake.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream1.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. })) =
+                stream1.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
@@ -3919,7 +3927,7 @@ mod timed_tests {
             // A new update for `ev_id_0` must be present.
             assert_matches!(
                 updates_stream.recv().await.unwrap(),
-                RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                     assert_eq!(diffs.len(), 1, "{diffs:#?}");
                     assert_matches!(
                         &diffs[0],
@@ -3959,7 +3967,7 @@ mod timed_tests {
             // A new update for `ev_id_0` must be present.
             assert_matches!(
                 updates_stream.recv().await.unwrap(),
-                RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                     assert_eq!(diffs.len(), 1, "{diffs:#?}");
                     assert_matches!(
                         &diffs[0],
@@ -3995,7 +4003,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4017,7 +4025,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
@@ -4046,7 +4054,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4068,7 +4076,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
@@ -4100,7 +4108,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4129,7 +4137,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
@@ -4156,7 +4164,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4185,7 +4193,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
@@ -4212,7 +4220,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4238,7 +4246,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
@@ -4262,7 +4270,7 @@ mod timed_tests {
                 // The reload can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 2, "{diffs:#?}");
                         assert_matches!(&diffs[0], VectorDiff::Clear);
                         assert_matches!(
@@ -4288,7 +4296,7 @@ mod timed_tests {
                 // The pagination can be observed via the updates too.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorUpdate { diffs, .. }) => {
                         assert_eq!(diffs.len(), 1, "{diffs:#?}");
                         assert_matches!(
                             &diffs[0],
