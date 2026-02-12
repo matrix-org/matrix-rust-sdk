@@ -484,9 +484,7 @@ mod tests {
         // Manually create several log files with different timestamps (alphabetically
         // sorted = oldest first) Total of 240 bytes
         std::fs::write(log_path.join("total.2024-01-01-10-00.log"), "x".repeat(80)).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
         std::fs::write(log_path.join("total.2024-01-01-10-01.log"), "y".repeat(80)).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
         std::fs::write(log_path.join("total.2024-01-01-10-02.log"), "z".repeat(80)).unwrap();
 
         let count_files = || {
@@ -769,7 +767,6 @@ mod tests {
         for i in 0..5 {
             let filename = format!("multi.2024-01-01-10-0{}.log", i);
             std::fs::write(log_path.join(filename), "x".repeat(50)).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         let count_files = || {
