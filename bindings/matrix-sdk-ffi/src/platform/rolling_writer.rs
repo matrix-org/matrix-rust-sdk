@@ -22,38 +22,141 @@ use std::{
 
 use tracing_appender::rolling::Rotation;
 
-/// Custom rolling file appender that supports time-based rotation.
+/// Custom rolling file appender that supports time-based rotation and
+/// size-based cleanup.
 ///
-/// This writer will rotate log files when the configured time period elapses
-/// (e.g., hourly, daily).
+/// This writer automatically manages log files with the following behavior:
 ///
-/// Files are named with a timestamp. When the total size of all log files
-/// exceeds the configured limit, the oldest files are removed.
+/// # File Naming
 ///
-/// Logs older than the configured max age are automatically removed during
-/// cleanup. Only files matching the configured prefix and suffix are managed.
+/// Log files are named using the pattern: `{prefix}.{timestamp}.{suffix}`
+/// where the timestamp format depends on the rotation period:
+/// - `MINUTELY`: `YYYY-MM-DD-HH-MM`
+/// - `HOURLY`: `YYYY-MM-DD-HH`
+/// - `DAILY`: `YYYY-MM-DD`
+/// - `NEVER`: `never` (no timestamp, same file always used)
+///
+/// # Automatic Rotation
+///
+/// Files are rotated (a new file is created) when the configured time period
+/// changes. For example, with hourly rotation, a new file is created when the
+/// hour changes. Rotation is checked:
+/// - During writer initialization (creates/opens file for current period)
+/// - Before each write operation (only rotates if time period has changed)
+///
+/// If a log file already exists for the current time period, it will be
+/// reopened and appended to rather than creating a new file.
+///
+/// # Automatic Cleanup
+///
+/// The writer performs cleanup operations during initialization and rotation:
+/// - **Size limit enforcement**: When total size of all log files exceeds
+///   `max_total_size_bytes`, the oldest files are removed until under the limit
+/// - **Age-based cleanup**: Files older than `max_age_seconds` (based on
+///   filesystem modification time) are automatically removed
+/// - **File filtering**: Only files matching both the configured prefix and
+///   suffix are managed; other files in the directory are left untouched
+///
+/// # Side Effects on Creation
+///
+/// When `new()` is called, the following side effects occur:
+/// 1. Creates the log directory if it doesn't exist (including parent
+///    directories)
+/// 2. Creates or opens a log file for the current time period (appends if
+///    exists)
+/// 3. Performs cleanup of old files based on age (by filesystem mtime)
+/// 4. Enforces the total size limit by removing oldest files if needed
+///
+/// # Thread Safety
+///
+/// This writer is safe to use from multiple threads. Internal state is
+/// protected by a mutex, ensuring that file operations and rotations are
+/// properly synchronized.
 pub(super) struct SizeAndDateRollingWriter {
     config: WriterConfig,
     state: Mutex<Option<WriterState>>,
 }
 
 /// Immutable configuration for the writer - shared without locks.
+///
+/// This struct contains all configuration parameters that remain constant
+/// throughout the writer's lifetime. Since these values never change, they
+/// can be safely shared across threads without synchronization.
 struct WriterConfig {
+    /// Directory where log files are created
     base_path: PathBuf,
+    /// Prefix for log file names (e.g., "app" results in "app.2024-01-15.log")
     file_prefix: String,
+    /// Suffix for log file names (typically ".log")
     file_suffix: String,
+    /// Time period for automatic rotation (MINUTELY, HOURLY, DAILY, or NEVER)
     rotation: Rotation,
+    /// Maximum total size in bytes of all log files before cleanup
     max_total_size_bytes: u64,
+    /// Maximum age in seconds before a log file is removed during cleanup
     max_age_seconds: u64,
 }
 
 /// Mutable state that requires synchronization.
+///
+/// This struct contains the current log file handle and its path. These values
+/// change when rotation occurs, so access must be protected by a mutex to
+/// ensure thread safety.
+///
+/// The state is wrapped in `Option` because it needs to be temporarily taken
+/// during rotation operations to allow mutation while holding the lock.
 struct WriterState {
+    /// The currently open log file handle for writing
     current_file: File,
+    /// Path to the current log file (used to identify it during cleanup)
     current_path: PathBuf,
 }
 
 impl SizeAndDateRollingWriter {
+    /// Creates a new rolling writer with the specified configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Directory where log files will be created. Will be created if
+    ///   it doesn't exist.
+    /// * `file_prefix` - Prefix for log file names (e.g., "app")
+    /// * `file_suffix` - Suffix for log file names (e.g., ".log")
+    /// * `rotation` - Time period for rotation (MINUTELY, HOURLY, DAILY, NEVER)
+    /// * `max_total_size_bytes` - Maximum total size of all log files. When
+    ///   exceeded, oldest files are removed.
+    /// * `max_age_seconds` - Maximum age of log files in seconds. Files older
+    ///   than this (by filesystem mtime) are removed during cleanup.
+    ///
+    /// # Side Effects
+    ///
+    /// This method performs several file system operations in order:
+    /// 1. Creates the directory at `path` if it doesn't exist
+    /// 2. Creates or reopens a log file for the current time period (appends if
+    ///    exists)
+    /// 3. Scans the directory for existing log files matching the prefix/suffix
+    /// 4. Removes files older than `max_age_seconds` (by filesystem mtime)
+    /// 5. Removes oldest files if total size exceeds `max_total_size_bytes`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The directory cannot be created
+    /// - The directory cannot be read
+    /// - The log file cannot be created or opened
+    /// - File metadata cannot be read during cleanup
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let writer = SizeAndDateRollingWriter::new(
+    ///     "/var/log/myapp",
+    ///     "app".to_owned(),
+    ///     ".log".to_owned(),
+    ///     Rotation::HOURLY,
+    ///     100 * 1024 * 1024, // 100 MB
+    ///     7 * 24 * 60 * 60,  // 7 days
+    /// )?;
+    /// ```
     pub(super) fn new(
         path: impl AsRef<Path>,
         file_prefix: String,
@@ -128,7 +231,8 @@ impl SizeAndDateRollingWriter {
     /// If `check_conditions` is true, rotation only happens if time or size
     /// thresholds are met. Otherwise, rotation is forced.
     ///
-    /// This method also handles initial state creation when called with None state.
+    /// This method also handles initial state creation when called with None
+    /// state.
     fn rotate_internal(
         config: &WriterConfig,
         state: &mut Option<WriterState>,
