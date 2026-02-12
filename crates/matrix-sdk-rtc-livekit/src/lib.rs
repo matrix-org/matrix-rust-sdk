@@ -6,19 +6,19 @@ use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitR
 
 pub use livekit;
 pub use livekit::e2ee;
+use livekit::RoomEvent;
 pub use livekit::{ConnectionState, Room, RoomOptions};
+use tokio::sync::Mutex;
 
 #[cfg(feature = "crypto")]
 pub mod matrix_keys {
     use async_trait::async_trait;
+    use matrix_sdk::ruma::RoomId;
     use matrix_sdk::Room as MatrixRoom;
     use matrix_sdk_crypto::{
+        olm::ExportedRoomKey, store::CryptoStoreError, types::room_history::RoomKeyBundle,
         OlmMachine,
-        olm::ExportedRoomKey,
-        store::CryptoStoreError,
-        types::room_history::RoomKeyBundle,
     };
-    use matrix_sdk::ruma::RoomId;
     use thiserror::Error;
 
     /// Errors returned while exporting Matrix key material.
@@ -93,9 +93,7 @@ pub mod matrix_keys {
     }
 
     /// Fetch the current `OlmMachine` for a room's client.
-    pub async fn room_olm_machine(
-        room: &MatrixRoom,
-    ) -> Result<OlmMachine, MatrixKeyMaterialError> {
+    pub async fn room_olm_machine(room: &MatrixRoom) -> Result<OlmMachine, MatrixKeyMaterialError> {
         let client = room.client();
         let olm_machine = client.olm_machine().await;
         let Some(olm_machine) = olm_machine.as_ref() else {
@@ -109,7 +107,7 @@ pub mod matrix_keys {
         use std::sync::Arc;
 
         use matrix_sdk::ruma::{device_id, room_id, user_id};
-        use matrix_sdk_crypto::{OlmMachine, store::MemoryStore};
+        use matrix_sdk_crypto::{store::MemoryStore, OlmMachine};
 
         use super::{OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider};
 
@@ -157,12 +155,20 @@ where
 #[derive(Debug)]
 pub struct LiveKitSdkConnection {
     room: Room,
+    events: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<RoomEvent>>>,
 }
 
 impl LiveKitSdkConnection {
     /// Access the underlying LiveKit room handle.
     pub fn room(&self) -> &Room {
         &self.room
+    }
+
+    /// Consume and return the LiveKit room event stream.
+    ///
+    /// Returns `None` if the stream has already been taken.
+    pub async fn take_events(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<RoomEvent>> {
+        self.events.lock().await.take()
     }
 
     /// Consume this connection and return the underlying LiveKit room.
@@ -211,12 +217,16 @@ where
 {
     type Connection = LiveKitSdkConnection;
 
-    async fn connect(&self, service_url: &str, room: &MatrixRoom) -> LiveKitResult<Self::Connection> {
+    async fn connect(
+        &self,
+        service_url: &str,
+        room: &MatrixRoom,
+    ) -> LiveKitResult<Self::Connection> {
         let token = self.token_provider.token(room).await?;
         let room_options = self.room_options.room_options(room);
-        let (livekit_room, _events) = Room::connect(service_url, &token, room_options)
+        let (livekit_room, events) = Room::connect(service_url, &token, room_options)
             .await
             .map_err(LiveKitError::connector)?;
-        Ok(LiveKitSdkConnection { room: livekit_room })
+        Ok(LiveKitSdkConnection { room: livekit_room, events: Mutex::new(Some(events)) })
     }
 }
