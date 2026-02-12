@@ -94,5 +94,6 @@ jobs:
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@4deb3275dd364fb96fb074c953133d29ec96f80f
         with:
-          mode: "simulation"
+          run: cargo codspeed run
+          mode: "instrumentation"
           token: ${{ secrets.CODSPEED_TOKEN }}
