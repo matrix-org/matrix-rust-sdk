@@ -744,7 +744,7 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
-    use matrix_sdk_test::{StrippedStateTestEvent, SyncResponseBuilder};
+    use matrix_sdk_test::SyncResponseBuilder;
     use once_cell::sync::Lazy;
     use ruma::{
         event_id,
@@ -759,6 +759,8 @@ mod tests {
             secret_storage::key::SecretStorageKeyEvent,
             typing::SyncTypingEvent,
         },
+        mxc_uri,
+        room::JoinRule,
         room_id,
         serde::Raw,
         user_id,
@@ -826,42 +828,20 @@ mod tests {
                     .add_state_event(f.default_power_levels()),
             )
             .add_invited_room(
-                InvitedRoomBuilder::new(room_id!("!test_invited:example.org")).add_state_event(
-                    StrippedStateTestEvent::Custom(json!({
-                        "content": {
-                            "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-                            "displayname": "Alice",
-                            "membership": "invite",
-                        },
-                        "event_id": "$143273582443PhrSn:example.org",
-                        "origin_server_ts": 1432735824653u64,
-                        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-                        "sender": "@example:example.org",
-                        "state_key": "@alice:example.org",
-                        "type": "m.room.member",
-                        "unsigned": {
-                            "age": 1234,
-                            "invite_room_state": [
-                                {
-                                    "content": {
-                                        "name": "Example Room"
-                                    },
-                                    "sender": "@bob:example.org",
-                                    "state_key": "",
-                                    "type": "m.room.name"
-                                },
-                                {
-                                    "content": {
-                                        "join_rule": "invite"
-                                    },
-                                    "sender": "@bob:example.org",
-                                    "state_key": "",
-                                    "type": "m.room.join_rules"
-                                }
-                            ]
-                        }
-                    })),
-                ),
+                InvitedRoomBuilder::new(room_id!("!test_invited:example.org")).add_state_event({
+                    let bob = user_id!("@bob:example.org");
+                    EventFactory::new()
+                        .sender(user_id!("@example:example.org"))
+                        .member(user_id!("@alice:example.org"))
+                        .membership(MembershipState::Invite)
+                        .display_name("Alice")
+                        .avatar_url(mxc_uri!("mxc://example.org/SEsfnsuifSDFSSEF"))
+                        .age(1234_i32)
+                        .invite_room_state(vec![
+                            Raw::from(f.room_name("Example Room").sender(bob)),
+                            Raw::from(f.room_join_rules(JoinRule::Invite).sender(bob)),
+                        ])
+                }),
             )
             .build_sync_response();
         client.process_sync(response).await?;
