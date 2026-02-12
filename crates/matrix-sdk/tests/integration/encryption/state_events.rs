@@ -1,5 +1,5 @@
 use matrix_sdk::{encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     RoomVersionId, device_id, event_id,
     events::{StateEventType, room::topic::RoomTopicEventContent},
@@ -32,7 +32,7 @@ async fn test_room_encrypted_state_event_send() {
         .build()
         .await;
 
-    let event_factory = EventFactory::new().room(room_id);
+    let event_factory = EventFactory::new().sender(alice_user_id).room(room_id);
 
     matrix_mock_server
         .mock_sync()
@@ -40,7 +40,7 @@ async fn test_room_encrypted_state_event_send() {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
                     .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
-                    .add_state_event(StateTestEvent::EncryptionWithEncryptedStateEvents),
+                    .add_state_event(event_factory.room_encryption_with_state_encryption()),
             );
         })
         .await;
