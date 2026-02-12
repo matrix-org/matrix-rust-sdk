@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use matrix_sdk::{
     event_cache::{
         EventsOrigin, RoomEventCache, RoomEventCacheSubscriber, RoomEventCacheUpdate,
-        ThreadEventCacheUpdate,
+        TimelineVectorUpdate,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -98,7 +98,7 @@ pub(in crate::timeline) async fn pinned_events_task(
 /// For a thread-focused timeline, a long-lived task that will listen to the
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
-    mut receiver: Receiver<ThreadEventCacheUpdate>,
+    mut receiver: Receiver<TimelineVectorUpdate>,
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
     root: OwnedEventId,

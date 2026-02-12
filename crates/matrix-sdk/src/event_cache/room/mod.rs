@@ -60,7 +60,7 @@ pub(super) mod events;
 mod pinned_events;
 mod threads;
 
-pub use threads::ThreadEventCacheUpdate;
+pub use threads::TimelineVectorUpdate;
 
 /// A subset of an event cache, for a room.
 ///
@@ -231,7 +231,7 @@ impl RoomEventCache {
     pub async fn subscribe_to_thread(
         &self,
         thread_root: OwnedEventId,
-    ) -> Result<(Vec<Event>, Receiver<ThreadEventCacheUpdate>)> {
+    ) -> Result<(Vec<Event>, Receiver<TimelineVectorUpdate>)> {
         let mut state = self.inner.state.write().await?;
         Ok(state.subscribe_to_thread(thread_root))
     }
@@ -720,7 +720,7 @@ mod private {
     use super::{
         super::{
             BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
-            RoomPaginationStatus, ThreadEventCacheUpdate,
+            RoomPaginationStatus, TimelineVectorUpdate,
             caches::lock,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
@@ -1654,7 +1654,7 @@ mod private {
         pub fn subscribe_to_thread(
             &mut self,
             root: OwnedEventId,
-        ) -> (Vec<Event>, Receiver<ThreadEventCacheUpdate>) {
+        ) -> (Vec<Event>, Receiver<TimelineVectorUpdate>) {
             self.get_or_reload_thread(root).subscribe()
         }
 

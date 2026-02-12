@@ -83,7 +83,7 @@ mod room;
 pub use pagination::{RoomPagination, RoomPaginationStatus};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate};
+pub use room::{RoomEventCache, RoomEventCacheSubscriber, TimelineVectorUpdate};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
