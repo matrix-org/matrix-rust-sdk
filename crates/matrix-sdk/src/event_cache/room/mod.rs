@@ -245,7 +245,7 @@ impl RoomEventCache {
     /// related events show up from other sources.
     pub async fn subscribe_to_pinned_events(
         &self,
-    ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
+    ) -> Result<(Vec<Event>, Receiver<TimelineVectorUpdate>)> {
         let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let state = self.inner.state.read().await?;
 
@@ -1057,7 +1057,7 @@ mod private {
         pub async fn subscribe_to_pinned_events(
             &self,
             room: Room,
-        ) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>), EventCacheError> {
+        ) -> Result<(Vec<Event>, Receiver<TimelineVectorUpdate>), EventCacheError> {
             let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
                 PinnedEventCache::new(
                     room,

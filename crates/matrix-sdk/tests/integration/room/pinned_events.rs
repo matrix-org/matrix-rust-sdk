@@ -197,10 +197,8 @@ async fn test_pinned_events_are_reloaded_from_storage() {
 
         // Wait for the background task to reload the events.
         while let Ok(Ok(up)) = timeout(subscriber.recv(), Duration::from_millis(300)).await {
-            if let RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } = up {
-                for diff in diffs {
-                    diff.apply(&mut events);
-                }
+            for diff in up.diffs {
+                diff.apply(&mut events);
             }
             if !events.is_empty() {
                 break;
@@ -245,10 +243,8 @@ async fn test_pinned_events_are_reloaded_from_storage() {
 
     // Wait for the background task to reload the events from storage.
     while let Ok(Ok(up)) = timeout(subscriber.recv(), Duration::from_millis(300)).await {
-        if let RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } = up {
-            for diff in diffs {
-                diff.apply(&mut events);
-            }
+        for diff in up.diffs {
+            diff.apply(&mut events);
         }
         if !events.is_empty() {
             break;
@@ -325,10 +321,8 @@ async fn test_pinned_events_dont_include_thread_responses() {
 
     // Wait for the background task to reload the events.
     while let Ok(Ok(up)) = timeout(subscriber.recv(), Duration::from_millis(300)).await {
-        if let RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } = up {
-            for diff in diffs {
-                diff.apply(&mut events);
-            }
+        for diff in up.diffs {
+            diff.apply(&mut events);
         }
         if !events.is_empty() {
             break;

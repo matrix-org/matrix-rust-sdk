@@ -39,17 +39,20 @@ use tracing::{debug, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::super::{
-    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-    caches::lock, persistence::send_updates_to_store, room::events::EventLinkedChunk,
+    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, caches::lock,
+    persistence::send_updates_to_store, room::events::EventLinkedChunk,
 };
-use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
+use crate::{
+    Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorUpdate,
+    room::WeakRoom,
+};
 
 pub(in super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
     /// A sender for live events updates in this room's pinned events list.
-    sender: Sender<RoomEventCacheUpdate>,
+    sender: Sender<TimelineVectorUpdate>,
 
     /// The linked chunk representing this room's pinned events.
     ///
@@ -120,10 +123,10 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
                 let diffs = self.state.chunk.updates_as_vector_diffs();
                 if !diffs.is_empty() {
-                    let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs,
-                        origin: EventsOrigin::Sync,
-                    });
+                    let _ = self
+                        .state
+                        .sender
+                        .send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
                 }
             }
 
@@ -148,10 +151,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         // Let observers know about it.
         let diffs = self.state.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs,
-                origin: EventsOrigin::Sync,
-            });
+            let _ =
+                self.state.sender.send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
         }
 
         Ok(())
@@ -179,10 +180,8 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         let diffs = self.state.chunk.updates_as_vector_diffs();
 
         if !diffs.is_empty() {
-            let _ = self.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs,
-                origin: EventsOrigin::Sync,
-            });
+            let _ =
+                self.state.sender.send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
         }
 
         Ok(())
@@ -268,7 +267,7 @@ impl PinnedEventCache {
     }
 
     /// Subscribe to live events from this room's pinned events cache.
-    pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<RoomEventCacheUpdate>)> {
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorUpdate>)> {
         let guard = self.state.read().await?;
         let events = guard.state.chunk.events().map(|(_position, item)| item.clone()).collect();
 
@@ -321,10 +320,10 @@ impl PinnedEventCache {
             guard.propagate_changes().await?;
 
             let diffs = guard.state.chunk.updates_as_vector_diffs();
-            let _ = guard.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs,
-                origin: EventsOrigin::Cache,
-            });
+            let _ = guard
+                .state
+                .sender
+                .send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Cache });
         }
 
         Ok(())
@@ -418,10 +417,10 @@ impl PinnedEventCache {
 
             let diffs = guard.state.chunk.updates_as_vector_diffs();
             if !diffs.is_empty() {
-                let _ = guard.state.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                    diffs,
-                    origin: EventsOrigin::Sync,
-                });
+                let _ = guard
+                    .state
+                    .sender
+                    .send(TimelineVectorUpdate { diffs, origin: EventsOrigin::Sync });
             }
         }
 
