@@ -8,16 +8,12 @@ use crate::test_json;
 
 /// Test events that can be added to the stripped state.
 pub enum StrippedStateTestEvent {
-    Member,
-    RoomName,
     Custom(JsonValue),
 }
 
 impl From<StrippedStateTestEvent> for JsonValue {
     fn from(val: StrippedStateTestEvent) -> Self {
         match val {
-            StrippedStateTestEvent::Member => test_json::sync_events::MEMBER_STRIPPED.to_owned(),
-            StrippedStateTestEvent::RoomName => test_json::sync_events::NAME_STRIPPED.to_owned(),
             StrippedStateTestEvent::Custom(json) => json,
         }
     }
@@ -32,7 +28,6 @@ impl From<StrippedStateTestEvent> for Raw<AnyStrippedStateEvent> {
 /// Test events that can be added to the room account data.
 pub enum RoomAccountDataTestEvent {
     FullyRead,
-    Tags,
     MarkedUnread,
     Custom(JsonValue),
 }
@@ -41,7 +36,6 @@ impl From<RoomAccountDataTestEvent> for JsonValue {
     fn from(val: RoomAccountDataTestEvent) -> Self {
         match val {
             RoomAccountDataTestEvent::FullyRead => test_json::sync_events::FULLY_READ.to_owned(),
-            RoomAccountDataTestEvent::Tags => test_json::sync_events::TAG.to_owned(),
             RoomAccountDataTestEvent::MarkedUnread => {
                 test_json::sync_events::MARKED_UNREAD.to_owned()
             }
@@ -58,14 +52,12 @@ impl From<RoomAccountDataTestEvent> for Raw<AnyRoomAccountDataEvent> {
 
 /// Test events that can be added to the presence events.
 pub enum PresenceTestEvent {
-    Presence,
     Custom(JsonValue),
 }
 
 impl From<PresenceTestEvent> for JsonValue {
     fn from(val: PresenceTestEvent) -> Self {
         match val {
-            PresenceTestEvent::Presence => test_json::sync_events::PRESENCE.to_owned(),
             PresenceTestEvent::Custom(json) => json,
         }
     }
