@@ -30,9 +30,7 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use once_cell::sync::Lazy;
 use ruma::{
     OwnedRoomId,
@@ -670,24 +668,8 @@ async fn test_should_block_internal_to_device() {
 
     let room_id = room_id!("!room_id:localhost");
 
-    let alice_member_state = json!({
-        "content": {
-            "avatar_url": null,
-            "displayname": "Alice",
-            "membership": "join"
-        },
-        "event_id": "$151800140517rfvjc:localhost",
-        "membership": "join",
-        "origin_server_ts": 151800140,
-        "sender": alice.user_id().unwrap().to_string(),
-        "state_key": alice.user_id().unwrap().to_string(),
-        "type": "m.room.member",
-        "unsigned": {
-            "age": 297036,
-        }
-    });
-
-    let f = EventFactory::new().sender(*BOB);
+    let alice_user_id = alice.user_id().unwrap();
+    let f = EventFactory::new().room(room_id);
 
     // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
     mock_server
@@ -695,8 +677,10 @@ async fn test_should_block_internal_to_device() {
         .ok_and_run(&bob, |builder| {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(f.room_encryption())
-                    .add_state_event(StateTestEvent::Custom(alice_member_state.clone())),
+                    .add_state_event(f.room_encryption().sender(*BOB))
+                    .add_state_event(
+                        f.member(alice_user_id).sender(alice_user_id).display_name("Alice"),
+                    ),
             );
         })
         .await;
@@ -704,7 +688,7 @@ async fn test_should_block_internal_to_device() {
     // Needed for the message to be sent in an encrypted room
     mock_server
         .mock_get_members()
-        .ok(vec![serde_json::from_value(alice_member_state).unwrap()])
+        .ok(vec![f.member(alice_user_id).sender(alice_user_id).display_name("Alice").into_raw()])
         .mock_once()
         .mount()
         .await;

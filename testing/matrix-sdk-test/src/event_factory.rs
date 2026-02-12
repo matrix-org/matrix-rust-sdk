@@ -189,7 +189,7 @@ impl EventFormat {
         matches!(self, Self::Timeline | Self::SyncTimeline)
     }
 
-    /// Whether this format ha an `room_id` field.
+    /// Whether this format has an `room_id` field.
     fn has_room_id(self) -> bool {
         matches!(self, Self::Timeline)
     }
