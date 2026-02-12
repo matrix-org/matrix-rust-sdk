@@ -1,7 +1,4 @@
-use ruma::{
-    events::{AnyRoomAccountDataEvent, presence::PresenceEvent},
-    serde::Raw,
-};
+use ruma::{events::AnyRoomAccountDataEvent, serde::Raw};
 use serde_json::{Value as JsonValue, from_value as from_json_value};
 
 use crate::test_json;
@@ -27,25 +24,6 @@ impl From<RoomAccountDataTestEvent> for JsonValue {
 
 impl From<RoomAccountDataTestEvent> for Raw<AnyRoomAccountDataEvent> {
     fn from(val: RoomAccountDataTestEvent) -> Self {
-        from_json_value(val.into()).unwrap()
-    }
-}
-
-/// Test events that can be added to the presence events.
-pub enum PresenceTestEvent {
-    Custom(JsonValue),
-}
-
-impl From<PresenceTestEvent> for JsonValue {
-    fn from(val: PresenceTestEvent) -> Self {
-        match val {
-            PresenceTestEvent::Custom(json) => json,
-        }
-    }
-}
-
-impl From<PresenceTestEvent> for Raw<PresenceEvent> {
-    fn from(val: PresenceTestEvent) -> Self {
         from_json_value(val.into()).unwrap()
     }
 }

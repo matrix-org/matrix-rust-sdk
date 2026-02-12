@@ -28,7 +28,7 @@ pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
-pub use test_event::{PresenceTestEvent, RoomAccountDataTestEvent};
+pub use test_event::RoomAccountDataTestEvent;
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
 /// responses for testing. These can be then fed into either `Client` or `Room`.
@@ -108,14 +108,6 @@ impl SyncResponseBuilder {
         self.invited_rooms.remove(&room.room_id);
         self.left_rooms.remove(&room.room_id);
         self.knocked_rooms.insert(room.room_id, room.inner);
-        self
-    }
-
-    /// Add a presence event.
-    pub fn add_presence_event(&mut self, event: PresenceTestEvent) -> &mut Self {
-        let PresenceTestEvent::Custom(val) = event;
-
-        self.presence.push(from_json_value(val).unwrap());
         self
     }
 
