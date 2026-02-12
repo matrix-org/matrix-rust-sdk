@@ -1488,7 +1488,10 @@ async fn test_room_sync_state_after() {
                     Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     f.room_join_rules(JoinRule::Public).into(),
-                    Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
+                    f.member(user_id!("@invited:localhost"))
+                        .sender(user_id!("@invited:localhost"))
+                        .leave()
+                        .into(),
                 ])
                 .add_timeline_bulk([
                     f.member(user_id!("@invited:localhost")).into_raw_timeline().cast(),
