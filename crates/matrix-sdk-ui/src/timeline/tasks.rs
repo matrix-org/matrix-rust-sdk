@@ -40,7 +40,7 @@ use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEvent
 pub(in crate::timeline) async fn pinned_events_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    mut pinned_events_recv: Receiver<RoomEventCacheUpdate>,
+    mut pinned_events_recv: Receiver<TimelineVectorUpdate>,
 ) {
     loop {
         trace!("Waiting for an event.");
@@ -74,24 +74,13 @@ pub(in crate::timeline) async fn pinned_events_task(
             }
         };
 
-        match update {
-            RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
-                trace!("Received new timeline events diffs");
-                let origin = match origin {
-                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                    EventsOrigin::Cache => RemoteEventOrigin::Cache,
-                };
-                timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
-            }
-
-            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
-            | RoomEventCacheUpdate::AddEphemeralEvents { .. }
-            | RoomEventCacheUpdate::UpdateMembers { .. } => {
-                // Nothing to do; these shouldn't happen for a pinned event sub.
-                // TODO(bnjbvr): then use a different type :)
-            }
-        }
+        trace!("Received new timeline events diffs");
+        let origin = match update.origin {
+            EventsOrigin::Sync => RemoteEventOrigin::Sync,
+            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+            EventsOrigin::Cache => RemoteEventOrigin::Cache,
+        };
+        timeline_controller.handle_remote_events_with_diffs(update.diffs, origin).await;
     }
 }
 
