@@ -34,7 +34,7 @@ use tracing_appender::rolling::Rotation;
 /// - `MINUTELY`: `YYYY-MM-DD-HH-MM`
 /// - `HOURLY`: `YYYY-MM-DD-HH`
 /// - `DAILY`: `YYYY-MM-DD`
-/// - `NEVER`: `never` (no timestamp, same file always used)
+/// - `WEEKLY` or `NEVER`: `YYYY-Www` (ISO week number, e.g., `2024-W03`)
 ///
 /// # Automatic Rotation
 ///
@@ -89,7 +89,8 @@ struct WriterConfig {
     file_prefix: String,
     /// Suffix for log file names (typically ".log")
     file_suffix: String,
-    /// Time period for automatic rotation (MINUTELY, HOURLY, DAILY, or NEVER)
+    /// Time period for automatic rotation (MINUTELY, HOURLY, DAILY, WEEKLY, or
+    /// NEVER which is treated as WEEKLY)
     rotation: Rotation,
     /// Maximum total size in bytes of all log files before cleanup
     max_total_size_bytes: u64,
@@ -121,7 +122,8 @@ impl SizeAndDateRollingWriter {
     ///   it doesn't exist.
     /// * `file_prefix` - Prefix for log file names (e.g., "app")
     /// * `file_suffix` - Suffix for log file names (e.g., ".log")
-    /// * `rotation` - Time period for rotation (MINUTELY, HOURLY, DAILY, NEVER)
+    /// * `rotation` - Time period for rotation (MINUTELY, HOURLY, DAILY,
+    ///   WEEKLY, or NEVER which is treated as WEEKLY)
     /// * `max_total_size_bytes` - Maximum total size of all log files. When
     ///   exceeded, oldest files are removed.
     /// * `max_age_seconds` - Maximum age of log files in seconds. Files older
@@ -221,8 +223,7 @@ impl SizeAndDateRollingWriter {
             Rotation::MINUTELY => now.format("%Y-%m-%d-%H-%M").to_string(),
             Rotation::HOURLY => now.format("%Y-%m-%d-%H").to_string(),
             Rotation::DAILY => now.format("%Y-%m-%d").to_string(),
-            Rotation::NEVER => String::from("never"),
-            _ => now.format("%Y-%m-%d").to_string(), // Handle WEEKLY and any future variants
+            Rotation::WEEKLY | Rotation::NEVER => now.format("%Y-W%W").to_string(),
         }
     }
 
