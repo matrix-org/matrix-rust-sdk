@@ -13,22 +13,6 @@ pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "join_rule": "public"
-        },
-        "event_id": "$151957878231iejdB:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.join_rules",
-        "unsigned": {
-          "age": 1392989
-        }
-    })
-});
-
 pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "algorithm": "m.megolm.v1.aes-sha2",
