@@ -147,6 +147,9 @@ struct Unsigned<C: StaticEventContent> {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     age: Option<Int>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    invite_room_state: Option<Vec<Raw<AnyStrippedStateEvent>>>,
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
@@ -158,6 +161,7 @@ impl<C: StaticEventContent> Default for Unsigned<C> {
             relations: None,
             redacted_because: None,
             age: None,
+            invite_room_state: None,
         }
     }
 }
@@ -1553,6 +1557,20 @@ impl EventBuilder<RoomMemberEventContent> {
         }
 
         self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev_content);
+        self
+    }
+
+    /// Set the invite room state (in the unsigned section).
+    ///
+    /// This is used to provide context about the room when a user is invited,
+    /// such as the room name and join rules.
+    pub fn invite_room_state<I, E>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<Raw<AnyStrippedStateEvent>>,
+    {
+        self.unsigned.get_or_insert_with(Default::default).invite_room_state =
+            Some(events.into_iter().map(Into::into).collect());
         self
     }
 }
