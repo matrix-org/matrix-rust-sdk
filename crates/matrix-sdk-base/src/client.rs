@@ -1150,8 +1150,8 @@ mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::FutureExt as _;
     use matrix_sdk_test::{
-        BOB, InvitedRoomBuilder, LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent,
-        SyncResponseBuilder, async_test, event_factory::EventFactory, ruma_response_from_json,
+        BOB, InvitedRoomBuilder, LeftRoomBuilder, StrippedStateTestEvent, SyncResponseBuilder,
+        async_test, event_factory::EventFactory, ruma_response_from_json,
     };
     use ruma::{
         api::client::{self as api, sync::sync_events::v5},
@@ -1601,23 +1601,13 @@ mod tests {
             .unwrap();
 
         // Preamble: let the SDK know about the room, and that the invited user left it.
+        let f = EventFactory::new().sender(user_id);
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "avatar_url": null,
-                        "displayname": null,
-                        "membership": "leave"
-                    },
-                    "event_id": "$151803140217rkvjc:localhost",
-                    "origin_server_ts": 151800139,
-                    "room_id": room_id,
-                    "sender": user_id,
-                    "state_key": user_id,
-                    "type": "m.room.member",
-                })),
-            ))
+            .add_joined_room(
+                matrix_sdk_test::JoinedRoomBuilder::new(room_id)
+                    .add_state_event(f.member(user_id).leave()),
+            )
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 

@@ -744,7 +744,7 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
-    use matrix_sdk_test::{StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder};
+    use matrix_sdk_test::{StrippedStateTestEvent, SyncResponseBuilder};
     use once_cell::sync::Lazy;
     use ruma::{
         event_id,
@@ -1131,23 +1131,13 @@ mod tests {
 
         assert_pending!(subscriber);
 
+        let f = EventFactory::new().sender(user_id!("@mnt_io:matrix.org"));
         let mut response_builder = SyncResponseBuilder::new();
         let response = response_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "name": "Name 0"
-                    },
-                    "event_id": "$ev0",
-                    "origin_server_ts": 1,
-                    "sender": "@mnt_io:matrix.org",
-                    "state_key": "",
-                    "type": "m.room.name",
-                    "unsigned": {
-                        "age": 1,
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id_0)
+                    .add_state_event(f.room_name("Name 0").event_id(event_id!("$ev0"))),
+            )
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -1160,21 +1150,10 @@ mod tests {
         assert_pending!(subscriber);
 
         let response = response_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "name": "Name 1"
-                    },
-                    "event_id": "$ev1",
-                    "origin_server_ts": 2,
-                    "sender": "@mnt_io:matrix.org",
-                    "state_key": "",
-                    "type": "m.room.name",
-                    "unsigned": {
-                        "age": 2,
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id_1)
+                    .add_state_event(f.room_name("Name 1").event_id(event_id!("$ev1"))),
+            )
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -1205,23 +1184,13 @@ mod tests {
 
         assert_pending!(subscriber_for_room);
 
+        let f = EventFactory::new().sender(user_id!("@mnt_io:matrix.org"));
         let mut response_builder = SyncResponseBuilder::new();
         let response = response_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "name": "Name 0"
-                    },
-                    "event_id": "$ev0",
-                    "origin_server_ts": 1,
-                    "sender": "@mnt_io:matrix.org",
-                    "state_key": "",
-                    "type": "m.room.name",
-                    "unsigned": {
-                        "age": 1,
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(f.room_name("Name 0").event_id(event_id!("$ev0"))),
+            )
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -1233,21 +1202,10 @@ mod tests {
         assert_pending!(subscriber_for_room);
 
         let response = response_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "name": "Name 1"
-                    },
-                    "event_id": "$ev1",
-                    "origin_server_ts": 2,
-                    "sender": "@mnt_io:matrix.org",
-                    "state_key": "",
-                    "type": "m.room.name",
-                    "unsigned": {
-                        "age": 2,
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(f.room_name("Name 1").event_id(event_id!("$ev1"))),
+            )
             .build_sync_response();
         client.process_sync(response).await?;
 
@@ -1277,49 +1235,14 @@ mod tests {
 
         assert_pending!(subscriber_for_room);
 
+        let f = EventFactory::new().sender(user_id!("@mnt_io:matrix.org"));
         let mut response_builder = SyncResponseBuilder::new();
         let response = response_builder
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(StateTestEvent::Custom(json!({
-                        "content": {
-                            "name": "Name 0"
-                        },
-                        "event_id": "$ev0",
-                        "origin_server_ts": 1,
-                        "sender": "@mnt_io:matrix.org",
-                        "state_key": "",
-                        "type": "m.room.name",
-                        "unsigned": {
-                            "age": 1,
-                        }
-                    })))
-                    .add_state_event(StateTestEvent::Custom(json!({
-                        "content": {
-                            "name": "Name 1"
-                        },
-                        "event_id": "$ev1",
-                        "origin_server_ts": 2,
-                        "sender": "@mnt_io:matrix.org",
-                        "state_key": "",
-                        "type": "m.room.name",
-                        "unsigned": {
-                            "age": 1,
-                        }
-                    })))
-                    .add_state_event(StateTestEvent::Custom(json!({
-                        "content": {
-                            "name": "Name 2"
-                        },
-                        "event_id": "$ev2",
-                        "origin_server_ts": 3,
-                        "sender": "@mnt_io:matrix.org",
-                        "state_key": "",
-                        "type": "m.room.name",
-                        "unsigned": {
-                            "age": 1,
-                        }
-                    }))),
+                    .add_state_event(f.room_name("Name 0").event_id(event_id!("$ev0")))
+                    .add_state_event(f.room_name("Name 1").event_id(event_id!("$ev1")))
+                    .add_state_event(f.room_name("Name 2").event_id(event_id!("$ev2"))),
             )
             .build_sync_response();
         client.process_sync(response).await?;
