@@ -65,6 +65,7 @@ use ruma::{
             },
             encryption::RoomEncryptionEventContent,
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
@@ -1004,6 +1005,15 @@ impl EventFactory {
         visibility: HistoryVisibility,
     ) -> EventBuilder<RoomHistoryVisibilityEventContent> {
         let mut event = self.event(RoomHistoryVisibilityEventContent::new(visibility));
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a room join rules state event.
+    ///
+    /// This creates an `m.room.join_rules` event with the given join rule.
+    pub fn room_join_rules(&self, join_rule: JoinRule) -> EventBuilder<RoomJoinRulesEventContent> {
+        let mut event = self.event(RoomJoinRulesEventContent::new(join_rule));
         event.state_key = Some("".to_owned());
         event
     }
