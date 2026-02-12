@@ -10,7 +10,6 @@ use crate::test_json;
 
 /// Test events that can be added to the state.
 pub enum StateTestEvent {
-    Alias,
     Aliases,
     Create,
     Encryption,
@@ -34,7 +33,6 @@ pub enum StateTestEvent {
 impl From<StateTestEvent> for JsonValue {
     fn from(val: StateTestEvent) -> Self {
         match val {
-            StateTestEvent::Alias => test_json::sync_events::ALIAS.to_owned(),
             StateTestEvent::Aliases => test_json::sync_events::ALIASES.to_owned(),
             StateTestEvent::Create => test_json::sync_events::CREATE.to_owned(),
             StateTestEvent::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),

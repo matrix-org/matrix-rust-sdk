@@ -1250,10 +1250,13 @@ impl EventFactory {
         alias: Option<OwnedRoomAliasId>,
         alt_aliases: Vec<OwnedRoomAliasId>,
     ) -> EventBuilder<RoomCanonicalAliasEventContent> {
-        let mut event = RoomCanonicalAliasEventContent::new();
-        event.alias = alias;
-        event.alt_aliases = alt_aliases;
-        self.event(event)
+        let mut content = RoomCanonicalAliasEventContent::new();
+        content.alias = alias;
+        content.alt_aliases = alt_aliases;
+        let mut event = self.event(content);
+        // The state key is empty for a canonical alias state event.
+        event.state_key = Some("".to_owned());
+        event
     }
 
     /// Create a new `org.matrix.msc3672.beacon` event.
