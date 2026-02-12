@@ -16,7 +16,6 @@
 
 use std::collections::BTreeSet;
 
-use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, OwnedLinkedChunkId, Position},
@@ -27,18 +26,10 @@ use tracing::{error, trace};
 
 use crate::event_cache::{
     BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
+    caches::TimelineVectorUpdate,
     deduplicator::DeduplicationOutcome,
     room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
 };
-
-/// A diff update for an event cache timeline represented as a vector.
-#[derive(Clone, Debug)]
-pub struct TimelineVectorUpdate {
-    /// New vector diff for the thread timeline.
-    pub diffs: Vec<VectorDiff<Event>>,
-    /// The origin that triggered this update.
-    pub origin: EventsOrigin,
-}
 
 /// All the information related to a single thread.
 pub(crate) struct ThreadEventCache {

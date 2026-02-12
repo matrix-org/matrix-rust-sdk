@@ -52,15 +52,13 @@ use super::{
 };
 use crate::{
     client::WeakClient,
-    event_cache::EventCacheError,
+    event_cache::{EventCacheError, caches::TimelineVectorUpdate},
     room::{IncludeRelations, RelationsOptions, WeakRoom},
 };
 
 pub(super) mod events;
 mod pinned_events;
 mod threads;
-
-pub use threads::TimelineVectorUpdate;
 
 /// A subset of an event cache, for a room.
 ///
@@ -720,7 +718,7 @@ mod private {
     use super::{
         super::{
             BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
-            RoomPaginationStatus, TimelineVectorUpdate,
+            RoomPaginationStatus,
             caches::lock,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
@@ -731,7 +729,10 @@ mod private {
         events::EventLinkedChunk,
         sort_positions_descending,
     };
-    use crate::{Room, event_cache::room::PostProcessingOrigin};
+    use crate::{
+        Room,
+        event_cache::{TimelineVectorUpdate, room::PostProcessingOrigin},
+    };
 
     pub(in super::super) struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
