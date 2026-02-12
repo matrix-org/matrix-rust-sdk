@@ -1467,6 +1467,15 @@ impl EventBuilder<RoomMemberEventContent> {
         self
     }
 
+    /// Set that the sender of this event left the room (self-leave).
+    ///
+    /// This sets the membership to Leave and uses the sender as the state_key.
+    pub fn leave(mut self) -> Self {
+        self.content.membership = MembershipState::Leave;
+        self.state_key = Some(self.sender.as_ref().expect("sender must be set").to_string());
+        self
+    }
+
     /// Set that the sender of this event kicked the user passed as a parameter
     /// here.
     pub fn kicked(mut self, kicked_user: &UserId) -> Self {

@@ -4520,10 +4520,11 @@ pub(crate) mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
             )
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
@@ -4548,11 +4549,11 @@ pub(crate) mod tests {
         // GlobalAccountDataTestEvent::Direct with the invited test.
         let user_id = user_id!("@invited:localhost");
 
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        // When we receive a sync response saying "invited" has left a DM
+        let f = EventFactory::new().sender(user_id);
         let response = SyncResponseBuilder::default()
             .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
+                JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
             )
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
