@@ -3423,7 +3423,7 @@ pub(crate) mod tests {
         store::{MemoryStore, StoreConfig},
     };
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
     #[cfg(target_family = "wasm")]
@@ -3560,7 +3560,7 @@ pub(crate) mod tests {
                         .add_state_event(
                             f.member(user_id!("@example:localhost")).display_name("example"),
                         )
-                        .add_state_event(StateTestEvent::PowerLevels),
+                        .add_state_event(f.default_power_levels()),
                 );
             })
             .await;

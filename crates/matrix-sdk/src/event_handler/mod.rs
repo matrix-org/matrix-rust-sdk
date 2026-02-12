@@ -815,7 +815,7 @@ mod tests {
             }
         });
 
-        let f = EventFactory::new();
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
@@ -823,7 +823,7 @@ mod tests {
                     .add_typing(
                         f.typing(vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")]),
                     )
-                    .add_state_event(StateTestEvent::PowerLevels),
+                    .add_state_event(f.default_power_levels()),
             )
             .add_invited_room(
                 InvitedRoomBuilder::new(room_id!("!test_invited:example.org")).add_state_event(
@@ -958,17 +958,18 @@ mod tests {
             },
         );
 
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(StateTestEvent::PowerLevels)
+                    .add_state_event(f.default_power_levels())
                     .add_state_event(StateTestEvent::RoomName),
             )
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_b)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(StateTestEvent::PowerLevels),
+                    .add_state_event(f.default_power_levels()),
             )
             .build_sync_response();
         client.process_sync(response).await?;

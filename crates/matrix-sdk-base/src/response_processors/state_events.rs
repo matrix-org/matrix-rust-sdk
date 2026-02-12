@@ -583,8 +583,8 @@ async fn decrypt_state_event(
 mod tests {
     use assert_matches2::assert_matches;
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, TestResult,
-        async_test, event_factory::EventFactory,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_test,
+        event_factory::EventFactory,
     };
     use ruma::{RoomVersionId, event_id, room_id, user_id};
 
@@ -1274,7 +1274,7 @@ mod tests {
                 JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                     .add_timeline_event(room_name)
                     .add_state_event(event_factory.create(user_id, RoomVersionId::V1))
-                    .add_state_event(StateTestEvent::PowerLevels),
+                    .add_state_event(event_factory.default_power_levels()),
             )
             .build_sync_response();
         client.receive_sync_response(response).await?;

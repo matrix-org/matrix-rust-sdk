@@ -11,7 +11,6 @@ use crate::test_json;
 /// Test events that can be added to the state.
 pub enum StateTestEvent {
     EncryptionWithEncryptedStateEvents,
-    PowerLevels,
     RoomName,
     Custom(JsonValue),
 }
@@ -22,7 +21,6 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::EncryptionWithEncryptedStateEvents => {
                 test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS.to_owned()
             }
-            StateTestEvent::PowerLevels => test_json::sync_events::POWER_LEVELS.to_owned(),
             StateTestEvent::RoomName => test_json::sync_events::NAME.to_owned(),
             StateTestEvent::Custom(json) => json,
         }
