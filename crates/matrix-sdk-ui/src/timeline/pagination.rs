@@ -20,7 +20,10 @@ use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
 use tracing::{instrument, warn};
 
 use super::Error;
-use crate::timeline::{PaginationError::NotSupported, controller::TimelineFocusKind};
+use crate::timeline::{
+    PaginationError::{self, NotSupported},
+    controller::TimelineFocusKind,
+};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -50,13 +53,21 @@ impl super::Timeline {
 
                 Ok(self.live_paginate_backwards(num_events).await?)
             }
-            TimelineFocusKind::Event { .. } => {
-                Ok(self.controller.focused_paginate_backwards(num_events).await?)
-            }
+
+            TimelineFocusKind::Event { focused_event_id, thread_mode, .. } => Ok(self
+                .event_cache
+                .get_event_focused_cache(focused_event_id.clone(), (*thread_mode).into())
+                .await?
+                .ok_or(PaginationError::MissingCache)?
+                .paginate_backwards(num_events)
+                .await?
+                .hit_end_of_timeline),
+
             TimelineFocusKind::Thread { root_event_id } => Ok(self
                 .event_cache
                 .paginate_thread_backwards(root_event_id.to_owned(), num_events)
                 .await?),
+
             TimelineFocusKind::PinnedEvents => Err(Error::PaginationError(NotSupported)),
         }
     }
@@ -66,10 +77,21 @@ impl super::Timeline {
     /// Returns whether we hit the end of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
     pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, Error> {
-        if self.controller.is_live() {
-            Ok(true)
-        } else {
-            Ok(self.controller.focused_paginate_forwards(num_events).await?)
+        match self.controller.focus() {
+            TimelineFocusKind::Live { .. } => Ok(true),
+
+            TimelineFocusKind::Event { focused_event_id, thread_mode, .. } => Ok(self
+                .event_cache
+                .get_event_focused_cache(focused_event_id.clone(), (*thread_mode).into())
+                .await?
+                .ok_or(PaginationError::MissingCache)?
+                .paginate_forwards(num_events)
+                .await?
+                .hit_end_of_timeline),
+
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => {
+                Err(Error::PaginationError(NotSupported))
+            }
         }
     }
 

@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use as_variant::as_variant;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
@@ -22,10 +26,10 @@ use imbl::Vector;
 #[cfg(test)]
 use matrix_sdk::Result;
 use matrix_sdk::{
-    config::RequestConfig,
     deserialized_responses::TimelineEvent,
-    event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
-    paginators::{PaginationResult, PaginationToken, Paginator},
+    event_cache::{
+        DecryptionRetryRequest, EventFocusThreadMode, RoomEventCache, RoomPaginationStatus,
+    },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -41,13 +45,13 @@ use ruma::{
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::{Annotation, RelationType},
+        relation::Annotation,
         room::message::{MessageType, Relation},
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::{OnceCell, RwLock, RwLockWriteGuard};
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 pub(super) use self::{
@@ -90,8 +94,6 @@ mod state_transaction;
 
 pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
-use matrix_sdk::paginators::{PaginatorError, thread::ThreadedEventsLoader};
-use matrix_sdk_common::serde_helpers::extract_thread_root;
 
 /// Data associated to the current timeline focus.
 ///
@@ -99,7 +101,7 @@ use matrix_sdk_common::serde_helpers::extract_thread_root;
 /// version of it, including extra state that makes it useful over the lifetime
 /// of a timeline.
 #[derive(Debug)]
-pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
+pub(in crate::timeline) enum TimelineFocusKind {
     /// The timeline receives live events from the sync.
     Live {
         /// Whether to hide in-thread events from the timeline.
@@ -109,8 +111,19 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     /// The timeline is focused on a single event, and it can expand in one
     /// direction or another.
     Event {
-        /// The paginator instance.
-        paginator: OnceCell<AnyPaginator<P>>,
+        /// The focused event ID.
+        focused_event_id: OwnedEventId,
+
+        /// If the focused event is part or the root of a thread, what's the
+        /// thread root?
+        ///
+        /// This is determined once when initializing the event-focused cache,
+        /// and then it won't change for the duration of this timeline.
+        thread_root: OnceLock<OwnedEventId>,
+
+        /// The thread mode to use for this event-focused timeline, which is
+        /// part of the key for the memoized event-focused cache.
+        thread_mode: TimelineEventFocusThreadMode,
     },
 
     /// A live timeline for a thread.
@@ -122,82 +135,7 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     PinnedEvents,
 }
 
-#[derive(Debug)]
-pub(in crate::timeline) enum AnyPaginator<P: RoomDataProvider> {
-    Unthreaded {
-        /// The actual event paginator.
-        paginator: Paginator<P>,
-        /// Whether to hide in-thread events from the timeline.
-        hide_threaded_events: bool,
-    },
-    Threaded(ThreadedEventsLoader<P>),
-}
-
-impl<P: RoomDataProvider> AnyPaginator<P> {
-    /// Runs a backward pagination (requesting `num_events` to the server), from
-    /// the current state of the object.
-    ///
-    /// Will return immediately if we have already hit the start of the
-    /// timeline.
-    ///
-    /// May return an error if it's already paginating, or if the call to
-    /// the homeserver endpoints failed.
-    pub async fn paginate_backwards(
-        &self,
-        num_events: u16,
-    ) -> Result<PaginationResult, PaginatorError> {
-        match self {
-            Self::Unthreaded { paginator, .. } => {
-                paginator.paginate_backward(num_events.into()).await
-            }
-            Self::Threaded(threaded_paginator) => {
-                threaded_paginator.paginate_backwards(num_events.into()).await
-            }
-        }
-    }
-
-    /// Runs a forward pagination (requesting `num_events` to the server), from
-    /// the current state of the object.
-    ///
-    /// Will return immediately if we have already hit the end of the timeline.
-    ///
-    /// May return an error if it's already paginating, or if the call to
-    /// the homeserver endpoints failed.
-    pub async fn paginate_forwards(
-        &self,
-        num_events: u16,
-    ) -> Result<PaginationResult, PaginatorError> {
-        match self {
-            Self::Unthreaded { paginator, .. } => {
-                paginator.paginate_forward(num_events.into()).await
-            }
-            Self::Threaded(threaded_paginator) => {
-                threaded_paginator.paginate_forwards(num_events.into()).await
-            }
-        }
-    }
-
-    /// Whether to hide in-thread events from the timeline.
-    pub fn hide_threaded_events(&self) -> bool {
-        match self {
-            Self::Unthreaded { hide_threaded_events, .. } => *hide_threaded_events,
-            Self::Threaded(_) => false,
-        }
-    }
-
-    /// Returns the root event id of the thread, if the paginator is
-    /// [`AnyPaginator::Threaded`].
-    pub fn thread_root(&self) -> Option<&EventId> {
-        match self {
-            Self::Unthreaded { .. } => None,
-            Self::Threaded(thread_events_loader) => {
-                Some(thread_events_loader.thread_root_event_id())
-            }
-        }
-    }
-}
-
-impl<P: RoomDataProvider> TimelineFocusKind<P> {
+impl TimelineFocusKind {
     /// Returns the [`ReceiptThread`] that should be used for the current
     /// timeline focus.
     ///
@@ -218,8 +156,11 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
     fn hide_threaded_events(&self) -> bool {
         match self {
             TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
-            TimelineFocusKind::Event { paginator } => {
-                paginator.get().is_some_and(|paginator| paginator.hide_threaded_events())
+            TimelineFocusKind::Event { thread_mode, .. } => {
+                matches!(
+                    thread_mode,
+                    TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true }
+                )
             }
             TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => false,
         }
@@ -234,9 +175,7 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
     /// If the focus is a thread, returns its root event ID.
     fn thread_root(&self) -> Option<&EventId> {
         match self {
-            TimelineFocusKind::Event { paginator, .. } => {
-                paginator.get().and_then(|paginator| paginator.thread_root())
-            }
+            TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
             TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents => None,
             TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
         }
@@ -249,7 +188,7 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     state: Arc<RwLock<TimelineState<P>>>,
 
     /// Focus data.
-    focus: Arc<TimelineFocusKind<P>>,
+    focus: Arc<TimelineFocusKind>,
 
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
@@ -394,7 +333,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 TimelineFocusKind::Live { hide_threaded_events }
             }
 
-            TimelineFocus::Event { .. } => TimelineFocusKind::Event { paginator: OnceCell::new() },
+            TimelineFocus::Event { target, thread_mode, .. } => {
+                TimelineFocusKind::Event {
+                    focused_event_id: target,
+                    // This will be initialized in `Self::init_focus`.
+                    thread_root: OnceLock::new(),
+                    thread_mode,
+                }
+            }
 
             TimelineFocus::Thread { root_event_id, .. } => {
                 TimelineFocusKind::Thread { root_event_id }
@@ -451,131 +397,44 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
-                let TimelineFocusKind::Event { paginator, .. } = &*self.focus else {
-                    // NOTE: this is sync'd with code in the ctor.
-                    unreachable!();
-                };
-
-                let event_paginator = Paginator::new(self.room_data_provider.clone());
-
-                let load_events_with_context = || async {
-                    // Start a /context request to load the focused event and surrounding events.
-                    event_paginator
-                        .start_from(event_id, (*num_context_events).into())
-                        .await
-                        .map(|r| r.events)
-                        .map_err(PaginationError::Paginator)
-                };
-
-                let events = if *num_context_events == 0 {
-                    // If no context is requested, try to load the event from the cache first and
-                    // include common relations such as reactions and edits.
-                    let request_config = Some(RequestConfig::default().retry_limit(3));
-                    let relations_filter =
-                        Some(vec![RelationType::Annotation, RelationType::Replacement]);
-
-                    // Load the event from the cache or, failing that, the server.
-                    match self
-                        .room_data_provider
-                        .load_event_with_relations(event_id, request_config, relations_filter)
-                        .await
-                    {
-                        Ok((event, related_events)) => {
-                            let mut events = vec![event];
-                            events.extend(related_events);
-                            events
-                        }
-                        Err(err) => {
-                            error!("error when loading focussed event: {err}");
-                            // Fall back to load the focused event using /context.
-                            load_events_with_context().await?
-                        }
+                // Use the event-focused cache from the event cache layer.
+                let event_cache_thread_mode = match thread_mode {
+                    TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
+                    TimelineEventFocusThreadMode::Automatic { .. } => {
+                        EventFocusThreadMode::Automatic
                     }
-                } else {
-                    // Start a /context request to load the focussed event and surrounding events.
-                    load_events_with_context().await?
                 };
 
-                // Find the target event, and see if it's part of a thread.
-                let extracted_thread_root = events
-                    .iter()
-                    .find(
-                        |event| {
-                            if let Some(id) = event.event_id() { id == *event_id } else { false }
-                        },
+                let cache = room_event_cache
+                    .get_or_create_event_focused_cache(
+                        event_id.clone(),
+                        *num_context_events,
+                        event_cache_thread_mode,
                     )
-                    .and_then(|event| extract_thread_root(event.raw()));
+                    .await
+                    .map_err(PaginationError::EventCache)?;
 
-                // Determine the timeline's threading behavior.
-                let (thread_root_event_id, hide_threaded_events) = match thread_mode {
-                    TimelineEventFocusThreadMode::ForceThread => {
-                        // If the event is part of a thread, use its thread root. Otherwise,
-                        // assume the event itself is the thread root.
-                        (extracted_thread_root.or_else(|| Some(event_id.clone())), false)
-                    }
-                    TimelineEventFocusThreadMode::Automatic { hide_threaded_events } => {
-                        (extracted_thread_root, *hide_threaded_events)
-                    }
-                };
-
-                let _ = paginator.set(match thread_root_event_id {
-                    Some(root_id) => {
-                        let mut tokens = event_paginator.tokens();
-
-                        // Look if the thread root event is part of the /context response. This
-                        // allows us to spare some backwards pagination with
-                        // /relations.
-                        let includes_root_event = events.iter().any(|event| {
-                            if let Some(id) = event.event_id() { id == root_id } else { false }
-                        });
-
-                        if includes_root_event {
-                            // If we have the root event, there's no need to do back-paginations
-                            // with /relations, since we are at the start of the thread.
-                            tokens.previous = PaginationToken::HitEnd;
-                        }
-
-                        AnyPaginator::Threaded(ThreadedEventsLoader::new(
-                            self.room_data_provider.clone(),
-                            root_id,
-                            tokens,
-                        ))
-                    }
-
-                    None => AnyPaginator::Unthreaded {
-                        paginator: event_paginator,
-                        hide_threaded_events,
-                    },
-                });
+                let (events, _receiver) = cache.subscribe().await;
 
                 let has_events = !events.is_empty();
 
-                match paginator.get().expect("Paginator was not instantiated") {
-                    AnyPaginator::Unthreaded { .. } => {
-                        self.replace_with_initial_remote_events(
-                            events,
-                            RemoteEventOrigin::Pagination,
-                        )
-                        .await;
+                // Ask the cache for the thread root, if it managed to extract one or decided
+                // that the target event was the thread root.
+                match &*self.focus {
+                    TimelineFocusKind::Event { thread_root: focus_thread_root, .. } => {
+                        if let Some(thread_root) = cache.thread_root().await {
+                            focus_thread_root.get_or_init(|| thread_root);
+                        }
                     }
-
-                    AnyPaginator::Threaded(threaded_events_loader) => {
-                        // We filter only events that are part of the thread (including the root),
-                        // since /context will return adjacent events without filters.
-                        let thread_root = threaded_events_loader.thread_root_event_id();
-                        let events_in_thread = events.into_iter().filter(|event| {
-                            extract_thread_root(event.raw())
-                                .is_some_and(|event_thread_root| event_thread_root == thread_root)
-                                || event.event_id().as_deref() == Some(thread_root)
-                        });
-
-                        self.replace_with_initial_remote_events(
-                            events_in_thread,
-                            RemoteEventOrigin::Pagination,
-                        )
-                        .await;
+                    TimelineFocusKind::Live { .. }
+                    | TimelineFocusKind::Thread { .. }
+                    | TimelineFocusKind::PinnedEvents => {
+                        panic!("unexpected focus for an event-focused timeline")
                     }
                 }
+
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
+                    .await;
 
                 Ok(has_events)
             }
@@ -680,71 +539,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state.meta.subscriber_skip_count.update(count, is_live_timeline);
 
         needs
-    }
-
-    /// Run a backwards pagination (in focused mode) and append the results to
-    /// the timeline.
-    ///
-    /// Returns whether we hit the start of the timeline.
-    pub(super) async fn focused_paginate_backwards(
-        &self,
-        num_events: u16,
-    ) -> Result<bool, PaginationError> {
-        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusKind::Live { .. }
-            | TimelineFocusKind::PinnedEvents
-            | TimelineFocusKind::Thread { .. } => {
-                return Err(PaginationError::NotSupported);
-            }
-            TimelineFocusKind::Event { paginator, .. } => paginator
-                .get()
-                .expect("Paginator was not instantiated")
-                .paginate_backwards(num_events)
-                .await
-                .map_err(PaginationError::Paginator)?,
-        };
-
-        // Events are in reverse topological order.
-        // We can push front each event individually.
-        self.handle_remote_events_with_diffs(
-            events.into_iter().map(|event| VectorDiff::PushFront { value: event }).collect(),
-            RemoteEventOrigin::Pagination,
-        )
-        .await;
-
-        Ok(hit_end_of_timeline)
-    }
-
-    /// Run a forwards pagination (in focused mode) and append the results to
-    /// the timeline.
-    ///
-    /// Returns whether we hit the end of the timeline.
-    pub(super) async fn focused_paginate_forwards(
-        &self,
-        num_events: u16,
-    ) -> Result<bool, PaginationError> {
-        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusKind::Live { .. }
-            | TimelineFocusKind::PinnedEvents
-            | TimelineFocusKind::Thread { .. } => return Err(PaginationError::NotSupported),
-
-            TimelineFocusKind::Event { paginator, .. } => paginator
-                .get()
-                .expect("Paginator was not instantiated")
-                .paginate_forwards(num_events)
-                .await
-                .map_err(PaginationError::Paginator)?,
-        };
-
-        // Events are in topological order.
-        // We can append all events with no transformation.
-        self.handle_remote_events_with_diffs(
-            vec![VectorDiff::Append { values: events.into() }],
-            RemoteEventOrigin::Pagination,
-        )
-        .await;
-
-        Ok(hit_end_of_timeline)
     }
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
@@ -1776,8 +1570,9 @@ impl TimelineController {
         let filter_out_thread_events = match self.focus() {
             TimelineFocusKind::Thread { .. } => false,
             TimelineFocusKind::Live { hide_threaded_events } => hide_threaded_events.to_owned(),
-            TimelineFocusKind::Event { paginator } => {
-                paginator.get().is_some_and(|paginator| paginator.hide_threaded_events())
+            TimelineFocusKind::Event { .. } => {
+                // For event-focused timelines, filtering is handled in the event cache layer.
+                false
             }
             _ => true,
         };
@@ -1847,7 +1642,7 @@ impl TimelineController {
 
 impl<P: RoomDataProvider> TimelineController<P> {
     /// Returns the timeline focus of the [`TimelineController`].
-    pub(super) fn focus(&self) -> &TimelineFocusKind<P> {
+    pub(super) fn focus(&self) -> &TimelineFocusKind {
         &self.focus
     }
 }
