@@ -81,29 +81,6 @@ impl SizeAndDateRollingWriter {
         Ok(Self { config, state: Mutex::new(state) })
     }
 
-    /// Manually trigger log rotation if conditions are met.
-    ///
-    /// This will rotate the current log file if the time period has changed.
-    #[allow(dead_code)]
-    fn roll(&self) -> io::Result<()> {
-        let mut state = self.state.lock().unwrap();
-        Self::rotate_internal(&self.config, &mut state, true)
-    }
-
-    /// Manually trigger cleanup of old log files.
-    ///
-    /// This removes all log files older than the configured max age, keeping
-    /// only files that match the configured prefix and suffix.
-    #[allow(dead_code)]
-    fn trim(&self) -> io::Result<()> {
-        let state = self.state.lock().unwrap();
-        if let Some(ref state) = *state {
-            Self::trim_old_logs_internal(&self.config, state)
-        } else {
-            Ok(())
-        }
-    }
-
     /// Extract the timestamp from the current filename.
     fn extract_timestamp_from_path(
         config: &WriterConfig,
@@ -326,6 +303,30 @@ impl<'a> Write for SizeAndDateRollingWriterHandle<'a> {
         let mut state = self.state.lock().unwrap();
         if let Some(s) = state.as_mut() {
             s.current_file.flush()
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+impl SizeAndDateRollingWriter {
+    /// Manually trigger log rotation if conditions are met.
+    ///
+    /// This will rotate the current log file if the time period has changed.
+    fn roll(&self) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        Self::rotate_internal(&self.config, &mut state, true)
+    }
+
+    /// Manually trigger cleanup of old log files.
+    ///
+    /// This removes all log files older than the configured max age, keeping
+    /// only files that match the configured prefix and suffix.
+    fn trim(&self) -> io::Result<()> {
+        let state = self.state.lock().unwrap();
+        if let Some(ref state) = *state {
+            Self::trim_old_logs_internal(&self.config, state)
         } else {
             Ok(())
         }
