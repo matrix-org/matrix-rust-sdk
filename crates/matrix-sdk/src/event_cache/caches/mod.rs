@@ -18,6 +18,7 @@ use matrix_sdk_base::event_cache::Event;
 use crate::event_cache::EventsOrigin;
 
 pub(super) mod lock;
+pub mod pagination;
 
 /// A diff update for an event cache timeline represented as a vector.
 #[derive(Clone, Debug)]
