@@ -26,7 +26,6 @@ use std::{
 
 use events::sort_positions_descending;
 use eyeball::SharedObservable;
-use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
@@ -47,12 +46,12 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
+    AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
+    RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
+    caches::{TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
 };
 use crate::{
     client::WeakClient,
-    event_cache::{EventCacheError, caches::TimelineVectorDiffs},
     room::{IncludeRelations, RelationsOptions, WeakRoom},
 };
 
@@ -164,7 +163,7 @@ impl RoomEventCache {
     pub(super) fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
@@ -270,7 +269,7 @@ impl RoomEventCache {
 
         loop {
             match outcome {
-                LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                LoadMoreEventsBackwardsOutcome::Gap { prev_token, .. } => {
                     // Start a threaded pagination from this gap.
                     let options = RelationsOptions {
                         from: prev_token.clone(),
@@ -338,7 +337,7 @@ impl RoomEventCache {
     /// Return a [`RoomPagination`] API object useful for running
     /// back-pagination queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
-        RoomPagination { inner: self.inner.clone() }
+        RoomPagination::new(self.inner.clone())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -497,7 +496,7 @@ pub(super) struct RoomEventCacheInner {
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
-    pub pagination_status: SharedObservable<RoomPaginationStatus>,
+    pub pagination_status: SharedObservable<PaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -522,7 +521,7 @@ impl RoomEventCacheInner {
     fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
@@ -656,24 +655,6 @@ impl RoomEventCacheInner {
     }
 }
 
-/// Internal type to represent the output of
-/// [`RoomEventCacheState::load_more_events_backwards`].
-#[derive(Debug)]
-pub(super) enum LoadMoreEventsBackwardsOutcome {
-    /// A gap has been inserted.
-    Gap {
-        /// The previous batch token to be used as the "end" parameter in the
-        /// back-pagination request.
-        prev_token: Option<String>,
-    },
-
-    /// The start of the timeline has been reached.
-    StartOfTimeline,
-
-    /// Events have been inserted.
-    Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
-}
-
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
@@ -715,22 +696,22 @@ mod private {
 
     use super::{
         super::{
-            BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
-            RoomPaginationStatus,
-            caches::lock,
+            EventCacheError, PaginationStatus, RoomEventCacheLinkedChunkUpdate,
+            caches::{
+                TimelineVectorDiffs, lock,
+                pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
+            },
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
-            room::{pinned_events::PinnedEventCache, threads::ThreadEventCache},
         },
-        EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
+        EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
         events::EventLinkedChunk,
+        pinned_events::PinnedEventCache,
         sort_positions_descending,
+        threads::ThreadEventCache,
     };
-    use crate::{
-        Room,
-        event_cache::{TimelineVectorDiffs, room::PostProcessingOrigin},
-    };
+    use crate::Room;
 
     pub(in super::super) struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
@@ -754,7 +735,7 @@ mod private {
         /// Cache for pinned events in this room, initialized on-demand.
         pinned_event_cache: OnceLock<PinnedEventCache>,
 
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
 
         /// A clone of [`super::RoomEventCacheInner::update_sender`].
         ///
@@ -818,7 +799,7 @@ mod private {
             generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
-            pagination_status: SharedObservable<RoomPaginationStatus>,
+            pagination_status: SharedObservable<PaginationStatus>,
         ) -> Result<Self, EventCacheError> {
             let store_guard = match store.lock().await? {
                 // Lock is clean: all good!
@@ -1134,7 +1115,10 @@ mod private {
             // resolve the gap.
             if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.prev_token)
             {
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: Some(prev_token),
+                    waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                });
             }
 
             let prev_first_chunk = self
@@ -1169,7 +1153,10 @@ mod private {
                     }
 
                     // Otherwise, start back-pagination from the end of the room.
-                    return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None });
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: None,
+                        waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                    });
                 }
 
                 Err(err) => {
@@ -1221,7 +1208,10 @@ mod private {
             Ok(match chunk_content {
                 ChunkContent::Gap(gap) => {
                     trace!("reloaded chunk from disk (gap)");
-                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
+                    LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: Some(gap.prev_token),
+                        waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                    }
                 }
 
                 ChunkContent::Items(events) => {
@@ -1278,9 +1268,7 @@ mod private {
             // Let pagination observers know that we may have not reached the start of the
             // timeline.
             // TODO: likely need to cancel any ongoing pagination.
-            self.state
-                .pagination_status
-                .set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+            self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
 
             // Don't propagate those updates to the store; this is only for the in-memory
             // representation that we're doing this. Let's drain those store updates.
@@ -1424,9 +1412,7 @@ mod private {
             self.state.waited_for_initial_prev_token = false;
 
             // TODO: likely must cancel any ongoing back-paginations too
-            self.state
-                .pagination_status
-                .set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+            self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
 
             Ok(())
         }
