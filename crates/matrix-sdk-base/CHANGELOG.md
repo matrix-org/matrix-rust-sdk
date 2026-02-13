@@ -8,6 +8,17 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix invited/knocked rooms disappearing from the room list after
+  join → leave/kick → re-invite when using Sliding Sync. The SDK now always
+  emits a room update so the room is surfaced correctly again.
+  ([#6126](https://github.com/matrix-org/matrix-rust-sdk/pull/6126))
+
+
+- [**breaking**] `BaseClient::room_info_notable_update_sender` has
+  moved into `BaseStateStore`. `BaseStateStore::derive_from_other`
+  and `BaseStateStore::get_or_create_room` no longer takes a
+  `room_info_notable_update_sender` argument.
+  ([#6130](https://github.com/matrix-org/matrix-rust-sdk/pull/6130))
 - [**breaking**] New `LatestEventValue::LocalHasBeenSent` variant to represent
   a local event that has been sent successfully.
   ([#5968](https://github.com/matrix-org/matrix-rust-sdk/pull/5968))
@@ -19,6 +30,9 @@ All notable changes to this project will be documented in this file.
 - The `LatestEventValue::LocalHasBeenSent` variant gains a new `event_id:
   OwnedEventId` field.
   ([#5977](https://github.com/matrix-org/matrix-rust-sdk/pull/5977))
+- [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
+  than panicking. This is necessary in order to ensure certain behaviors are disallowed.
+  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
 ### Refactor
 

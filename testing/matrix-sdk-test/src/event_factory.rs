@@ -71,6 +71,7 @@ use ruma::{
                 RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
             server_acl::RoomServerAclEventContent,
@@ -251,6 +252,12 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
     /// Add age to unsigned data in this event.
     pub fn age(mut self, age: impl Into<Int>) -> Self {
         self.unsigned.get_or_insert_with(Default::default).age = Some(age.into());
+        self
+    }
+
+    /// Set the previous content for this state event (in the unsigned section).
+    pub fn prev_content(mut self, prev: E) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev);
         self
     }
 
@@ -973,6 +980,14 @@ impl EventFactory {
         // The state key is empty for a room avatar state event.
         event.state_key = Some("".to_owned());
         event
+    }
+
+    /// Create a state event for the room's pinned events.
+    pub fn room_pinned_events(
+        &self,
+        pinned: Vec<OwnedEventId>,
+    ) -> EventBuilder<RoomPinnedEventsEventContent> {
+        self.event(RoomPinnedEventsEventContent::new(pinned)).state_key("")
     }
 
     /// Create a new `m.member_hints` event with the given service members.

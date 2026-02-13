@@ -323,22 +323,6 @@ pub static NAME_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static PINNED_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "pinned": [ "$a", "$b" ]
-        },
-        "event_id": "$15139375513VdeRF:localhost",
-        "origin_server_ts": 151393755,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.pinned_events",
-        "unsigned": {
-            "age": 703422
-        }
-    })
-});
-
 pub static POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -460,44 +444,6 @@ pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
             }
         },
         "type": "m.tag"
-    })
-});
-
-// TODO: Move `prev_content` into `unsigned` once ruma supports it
-pub static TOPIC: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "topic": "😀"
-        },
-        "event_id": "$151957878228ssqrJ:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-        "type": "m.room.topic",
-        "prev_content": {
-            "topic": "test"
-        },
-        "unsigned": {
-          "age": 1392989,
-          "prev_sender": "@example:localhost",
-          "replaces_state": "$151957069225EVYKm:localhost"
-        }
-    })
-});
-
-pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {},
-        "redacts": "$151957878228ssqrJ:localhost",
-        "event_id": "$151957878228ssqrJ_REDACTION:localhost",
-        "origin_server_ts": 151957879,
-        "sender": "@example:localhost",
-        "type": "m.room.redaction",
-        "unsigned": {
-          "age": 1392990,
-          "prev_sender": "@example:localhost",
-        }
     })
 });
 

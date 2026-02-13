@@ -20,7 +20,8 @@ pub use matrix_sdk_common::deserialized_responses::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, UInt,
+    UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
@@ -486,16 +487,34 @@ impl MemberEvent {
         self.state_key()
     }
 
+    /// The value of the `displayname` field in this member event.
+    ///
+    /// [`MemberEvent::display_name()`] should be preferred to get the name to
+    /// display for this member event.
+    pub fn displayname_value(&self) -> Option<&str> {
+        match self {
+            Self::Sync(event) => event.as_original()?.content.displayname.as_deref(),
+            Self::Stripped(event) => event.content.displayname.as_deref(),
+        }
+    }
+
     /// The name that should be displayed for this member event.
     ///
     /// It there is no `displayname` in the event's content, the localpart or
     /// the user ID is returned.
     pub fn display_name(&self) -> DisplayName {
-        DisplayName::new(
-            self.original_content()
-                .and_then(|c| c.displayname.as_deref())
-                .unwrap_or_else(|| self.user_id().localpart()),
-        )
+        DisplayName::new(self.displayname_value().unwrap_or_else(|| self.user_id().localpart()))
+    }
+
+    /// The URL of the avatar in this member event.
+    ///
+    /// [`MemberEvent::display_name()`] should be preferred to get the name to
+    /// display for this member event.
+    pub fn avatar_url(&self) -> Option<&MxcUri> {
+        match self {
+            Self::Sync(event) => event.as_original()?.content.avatar_url.as_deref(),
+            Self::Stripped(event) => event.content.avatar_url.as_deref(),
+        }
     }
 
     /// The optional reason why the membership changed.

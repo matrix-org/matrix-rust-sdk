@@ -35,7 +35,7 @@ use vodozemac::{
 
 use crate::authentication::oauth::qrcode::SecureChannelError as Error;
 
-/// A cryptograhpic communication channel.
+/// A cryptographic communication channel.
 pub(super) enum CryptoChannel {
     Ecies(Ecies),
 }
@@ -56,10 +56,8 @@ impl CryptoChannel {
     /// Establish a cryptographic channel by unsealing an initial message.
     pub(super) fn establish_inbound_channel(
         self,
-        message: &[u8],
+        message: &str,
     ) -> Result<CryptoChannelCreationResult, Error> {
-        let message = std::str::from_utf8(message)?;
-
         match self {
             CryptoChannel::Ecies(ecies) => {
                 let message = InitialMessage::decode(message)?;
@@ -84,7 +82,7 @@ impl CryptoChannelCreationResult {
     }
 }
 
-/// A fully established cryptograhpic communication channel.
+/// A fully established cryptographic communication channel.
 ///
 /// This channel allows you to seal/encrypt as well as open/decrypt
 /// cryptographic messages.
@@ -101,26 +99,24 @@ impl EstablishedCryptoChannel {
     }
 
     /// Seal the given plaintext using this [`EstablishedCryptoChannel`].
-    pub(super) fn seal(&mut self, plaintext: &[u8]) -> Vec<u8> {
-        let message = match self {
+    pub(super) fn seal(&mut self, plaintext: &str) -> String {
+        match self {
             EstablishedCryptoChannel::Ecies(channel) => {
-                let message = channel.encrypt(plaintext);
+                let message = channel.encrypt(plaintext.as_bytes());
                 message.encode()
             }
-        };
-
-        message.as_bytes().to_vec()
+        }
     }
 
     /// Open the given sealed message using this [`EstablishedCryptoChannel`].
-    pub(super) fn open(&mut self, message: &[u8]) -> Result<Vec<u8>, Error> {
-        let message = str::from_utf8(message)?;
-
-        match self {
+    pub(super) fn open(&mut self, message: &str) -> Result<String, Error> {
+        let plaintext = match self {
             EstablishedCryptoChannel::Ecies(channel) => {
                 let message = Message::decode(message)?;
-                Ok(channel.decrypt(&message)?)
+                channel.decrypt(&message)?
             }
-        }
+        };
+
+        Ok(String::from_utf8(plaintext).map_err(|e| e.utf8_error())?)
     }
 }

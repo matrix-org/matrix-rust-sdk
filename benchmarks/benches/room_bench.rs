@@ -18,7 +18,6 @@ use ruma::{
     serde::Raw,
     user_id,
 };
-use serde_json::json;
 use tokio::runtime::Builder;
 use wiremock::{Request, ResponseTemplate};
 
@@ -114,21 +113,8 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     let pinned_event_ids: Vec<OwnedEventId> = (0..PINNED_EVENTS_COUNT)
         .map(|i| EventId::parse(format!("${i}")).expect("Invalid event id"))
         .collect();
-    joined_room_builder = joined_room_builder.add_state_event(StateTestEvent::Custom(json!(
-        {
-            "content": {
-                "pinned": pinned_event_ids
-            },
-            "event_id": "$15139375513VdeRF:localhost",
-            "origin_server_ts": 151393755,
-            "sender": "@example:localhost",
-            "state_key": "",
-            "type": "m.room.pinned_events",
-            "unsigned": {
-                "age": 703422
-            }
-        }
-    )));
+    joined_room_builder =
+        joined_room_builder.add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);
 
     let (server, client, room) = runtime.block_on(async move {
         let server = MatrixMockServer::new().await;
@@ -188,10 +174,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .unwrap();
 
             let timeline = TimelineBuilder::new(&room)
-                .with_focus(TimelineFocus::PinnedEvents {
-                    max_events_to_load: 100,
-                    max_concurrent_requests: 10,
-                })
+                .with_focus(TimelineFocus::PinnedEvents)
                 .build()
                 .await
                 .expect("Could not create timeline");

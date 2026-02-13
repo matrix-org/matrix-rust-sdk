@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
@@ -25,9 +25,11 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use ruma::{
-    RoomVersionId, event_id,
+    RoomVersionId,
+    api::client::sync::sync_events::v5::{Response, response},
+    assign, event_id,
     events::{Mentions, TimelineEventType, room::member::MembershipState},
-    mxc_uri, owned_user_id, room_id, user_id,
+    mxc_uri, owned_user_id, room_id, uint, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -459,6 +461,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.create", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "filters": {
                         "is_invite": true,
@@ -479,6 +482,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.create", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "timeline_limit": 16,
                 },
@@ -1180,4 +1184,83 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
         notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
 
     assert_matches!(result, NotificationStatus::EventFilteredOut);
+}
+
+#[async_test]
+async fn test_notification_room_display_name_excludes_service_members() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let alice_user_id = owned_user_id!("@alice:b.c");
+    let bob_user_id = owned_user_id!("@bob:b.c");
+    let charlie_user_id = owned_user_id!("@charlie:b.c");
+    let room_id = room_id!("!a:b.c");
+    let event_id = event_id!("$a:b.c");
+
+    let f = EventFactory::new().room(room_id).sender(&alice_user_id);
+    let initial_state = vec![
+        f.member(&alice_user_id).display_name("Alice").into_raw_sync_state(),
+        f.member(&bob_user_id).display_name("Bob").into_raw_sync_state(),
+        f.member(&charlie_user_id).display_name("Charlie").into_raw_sync_state(),
+        f.member_hints(BTreeSet::from([charlie_user_id.clone()]))
+            .sender(&alice_user_id)
+            .into_raw_sync_state(),
+    ];
+
+    let expected_display_name = "Alice, Bob".to_owned();
+
+    let joined_room_builder = JoinedRoomBuilder::new(room_id);
+    let room =
+        server.sync_room(&client, joined_room_builder.add_state_bulk(initial_state.clone())).await;
+
+    assert_eq!(room.display_name().await.unwrap().to_string(), expected_display_name);
+
+    let process_setup = NotificationProcessSetup::SingleProcess {
+        sync_service: Arc::new(SyncService::builder(client.clone()).build().await.unwrap()),
+    };
+
+    let event = f.text_msg("Hey").event_id(event_id).into_event();
+    server
+        .mock_room_event_context()
+        .room(room_id.to_owned())
+        .match_event_id()
+        .ok(RoomContextResponseTemplate::new(event))
+        .mount()
+        .await;
+
+    // Check that the notification we get with `/context` shows the correct room
+    // name
+    let notification_client =
+        NotificationClient::new(client.clone(), process_setup.clone()).await.unwrap();
+    assert_let!(
+        NotificationStatus::Event(notification) =
+            notification_client.get_notification_with_context(room_id, event_id).await.unwrap()
+    );
+    assert_eq!(notification.room_computed_display_name, expected_display_name);
+
+    let response_room = assign!(response::Room::new(), {
+        required_state: initial_state,
+        initial: Some(true),
+        joined_count: Some(uint!(3)),
+        timeline: vec![f.text_msg("Hey").event_id(event_id).into_raw_sync()],
+    });
+    server
+        .mock_sliding_sync()
+        .ok(assign!(Response::new("1".to_owned()), {
+            rooms: BTreeMap::from([(room_id.to_owned(), response_room)])
+        }))
+        .mount()
+        .await;
+
+    // Check that the notification we get with sliding sync shows the correct room
+    // name
+    let notification_client =
+        NotificationClient::new(client.clone(), process_setup.clone()).await.unwrap();
+    assert_let!(
+        NotificationStatus::Event(notification) = notification_client
+            .get_notification_with_sliding_sync(room_id, event_id)
+            .await
+            .unwrap()
+    );
+    assert_eq!(notification.room_computed_display_name, expected_display_name);
 }

@@ -304,12 +304,6 @@ pub enum SignatureError {
     StoreError(#[from] CryptoStoreError),
 }
 
-impl From<SerdeError> for SignatureError {
-    fn from(e: SerdeError) -> Self {
-        CanonicalJsonError::SerDe(e).into()
-    }
-}
-
 /// Error that occurs when a room key can't be converted into a valid Megolm
 /// session.
 #[derive(Error, Debug)]

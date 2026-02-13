@@ -39,7 +39,6 @@ use matrix_sdk::{
     send_queue::{RoomSendQueueError, SendHandle},
 };
 use mime::Mime;
-use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
     EventId, OwnedEventId, OwnedTransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
@@ -48,12 +47,9 @@ use ruma::{
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         relation::Thread,
-        room::{
-            message::{
-                Relation, RelationWithoutReplacement, ReplyWithinThread,
-                RoomMessageEventContentWithoutRelation, TextMessageEventContent,
-            },
-            pinned_events::RoomPinnedEventsEventContent,
+        room::message::{
+            Relation, RelationWithoutReplacement, ReplyWithinThread,
+            RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
     },
     room_version_rules::RoomVersionRules,
@@ -75,12 +71,10 @@ mod error;
 pub mod event_filter;
 mod event_handler;
 mod event_item;
-pub mod event_type_filter;
 pub mod futures;
 mod item;
 mod latest_event;
 mod pagination;
-mod pinned_events_loader;
 mod subscriber;
 mod tasks;
 #[cfg(test)]
@@ -102,7 +96,6 @@ pub use self::{
         ThreadSummary, TimelineDetails, TimelineEventItemId, TimelineEventShieldState,
         TimelineEventShieldStateCode, TimelineItemContent,
     },
-    event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     latest_event::{LatestEventValue, LatestEventValueLocalState},
     traits::RoomExt,
@@ -144,18 +137,40 @@ pub enum TimelineFocus {
     Event {
         target: OwnedEventId,
         num_context_events: u16,
-        /// Whether to hide in-thread replies from the live timeline.
-        ///
-        /// This should be set to true when the client can create
-        /// [`Self::Thread`]-focused timelines from the thread roots themselves.
-        hide_threaded_events: bool,
+        /// How to handle threaded events.
+        thread_mode: TimelineEventFocusThreadMode,
     },
 
     /// Focus on a specific thread
     Thread { root_event_id: OwnedEventId },
 
     /// Only show pinned events.
-    PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
+    PinnedEvents,
+}
+
+/// Options for controlling the behaviour of [`TimelineFocus::Event`]
+/// for threaded events.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimelineEventFocusThreadMode {
+    /// Force the timeline into threaded mode. When the focused event is part of
+    /// a thread, the timeline will be focused on that thread's root. Otherwise,
+    /// the timeline will treat the target event itself as the thread root.
+    /// Threaded events will never be hidden.
+    ForceThread,
+    /// Automatically determine if the target event is
+    /// part of a thread or not. If the event is part of a thread, the timeline
+    /// will be filtered to on-thread events.
+    Automatic {
+        /// When the target event is not part of a thread, whether to
+        /// hide in-thread replies from the live timeline. Has no effect
+        /// when the target event is part of a thread.
+        ///
+        /// This should be set to true when the client can create
+        /// [`TimelineFocus::Thread`]-focused timelines from the thread roots
+        /// themselves and doesn't use the [`Self::ForceThread`] mode.
+        hide_threaded_events: bool,
+    },
 }
 
 impl TimelineFocus {
@@ -164,7 +179,7 @@ impl TimelineFocus {
             TimelineFocus::Live { .. } => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
             TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
-            TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
+            TimelineFocus::PinnedEvents => "pinned-events".to_owned(),
         }
     }
 }
@@ -808,58 +823,6 @@ impl Timeline {
                 self.room().set_unread_flag(false).await?;
             }
 
-            Ok(false)
-        }
-    }
-
-    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
-    /// event containing the new event id.
-    ///
-    /// This method will first try to get the pinned events from the current
-    /// room's state and if it fails to do so it'll try to load them from the
-    /// homeserver.
-    ///
-    /// Returns `true` if we pinned the event, `false` if the event was already
-    /// pinned.
-    pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_event_ids = if let Some(event_ids) = self.room().pinned_event_ids() {
-            event_ids
-        } else {
-            self.room().load_pinned_events().await?.unwrap_or_default()
-        };
-        let event_id = event_id.to_owned();
-        if pinned_event_ids.contains(&event_id) {
-            Ok(false)
-        } else {
-            pinned_event_ids.push(event_id);
-            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
-            self.room().send_state_event(content).await?;
-            Ok(true)
-        }
-    }
-
-    /// Removes a pinned event by sending an updated `m.room.pinned_events`
-    /// event without the event id we want to remove.
-    ///
-    /// This method will first try to get the pinned events from the current
-    /// room's state and if it fails to do so it'll try to load them from the
-    /// homeserver.
-    ///
-    /// Returns `true` if we unpinned the event, `false` if the event wasn't
-    /// pinned before.
-    pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_event_ids = if let Some(event_ids) = self.room().pinned_event_ids() {
-            event_ids
-        } else {
-            self.room().load_pinned_events().await?.unwrap_or_default()
-        };
-        let event_id = event_id.to_owned();
-        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
-            pinned_event_ids.remove(idx);
-            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
-            self.room().send_state_event(content).await?;
-            Ok(true)
-        } else {
             Ok(false)
         }
     }

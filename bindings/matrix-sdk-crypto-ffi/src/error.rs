@@ -92,6 +92,8 @@ pub enum SecretsBundleExportError {
     /// backup.
     #[error("The store contains a backup key, but no backup version")]
     MissingBackupVersion,
+    #[error("serialization error: {error}")]
+    Serialization { error: String },
 }
 
 impl From<matrix_sdk_crypto::store::SecretsBundleExportError> for SecretsBundleExportError {
@@ -108,6 +110,12 @@ impl From<matrix_sdk_crypto::store::SecretsBundleExportError> for SecretsBundleE
                 Self::MissingBackupVersion
             }
         }
+    }
+}
+
+impl From<serde_json::Error> for SecretsBundleExportError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Serialization { error: err.to_string() }
     }
 }
 

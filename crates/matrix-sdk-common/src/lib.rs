@@ -35,6 +35,7 @@ pub mod ring_buffer;
 pub mod serde_helpers;
 pub mod sleep;
 pub mod stream;
+pub mod task_monitor;
 pub mod timeout;
 pub mod tracing_timer;
 pub mod ttl_cache;

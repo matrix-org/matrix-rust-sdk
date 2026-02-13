@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::collections::BTreeSet;
 
-use as_variant::as_variant;
 use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -28,12 +27,11 @@ use ruma::{
     },
     assign,
     events::{
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
-        room::member::{MembershipState, RoomMemberEventContent},
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        room::member::{MembershipState, PossiblyRedactedRoomMemberEventContent},
     },
     serde::Raw,
 };
-use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
@@ -42,8 +40,7 @@ use super::{
     RoomCreationData,
 };
 use crate::{
-    Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomState,
+    Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
     utils::RawSyncStateEventWithKeys,
@@ -68,12 +65,8 @@ pub async fn update_any_room(
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     let _timer = timer!(tracing::Level::TRACE, "update_any_room");
 
-    let RoomCreationData {
-        room_id,
-        room_info_notable_update_sender,
-        requested_required_states,
-        ambiguity_cache,
-    } = room_creation_data;
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
+        room_creation_data;
 
     // Read state events from the `required_state` field.
     //
@@ -99,7 +92,6 @@ pub async fn update_any_room(
         state_store,
         user_id,
         room_id,
-        room_info_notable_update_sender,
     );
 
     room_info.mark_state_partially_synced();
@@ -130,6 +122,7 @@ pub async fn update_any_room(
             (&raw_events, &events),
             &room,
             &mut room_info,
+            user_id,
             notification::Notification::new(
                 notification.push_rules,
                 notification.notifications,
@@ -204,6 +197,13 @@ pub async fn update_any_room(
             Ok(Some((room_info, update)))
         }
 
+        (RoomState::Invited, None) => {
+            Ok(Some((room_info, RoomUpdateKind::Invited(InvitedRoom::default()))))
+        }
+        (RoomState::Knocked, None) => {
+            Ok(Some((room_info, RoomUpdateKind::Knocked(KnockedRoom::default()))))
+        }
+
         _ => Ok(None),
     }
 }
@@ -220,7 +220,6 @@ fn membership(
     store: &BaseStateStore,
     user_id: &UserId,
     room_id: &RoomId,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
 ) -> (Room, RoomInfo, Option<RoomUpdateKind>) {
     // There are invite state events. It means the room can be:
     //
@@ -231,23 +230,23 @@ fn membership(
     if let Some(state_events) = invite_state_events {
         // We need to find the membership event since it could be for either an invited
         // or knocked room.
-        let membership_event = state_events.1.iter().find_map(|event| {
+        let own_membership_event = state_events.1.iter().find_map(|event| {
             if let AnyStrippedStateEvent::RoomMember(membership_event) = event
                 && membership_event.state_key == user_id
             {
                 return Some(membership_event.content.clone());
             }
+
             None
         });
 
-        match membership_event {
+        match own_membership_event {
             // There is a membership event indicating it's a knocked room.
-            Some(RoomMemberEventContent { membership: MembershipState::Knock, .. }) => {
-                let room = store.get_or_create_room(
-                    room_id,
-                    RoomState::Knocked,
-                    room_info_notable_update_sender,
-                );
+            Some(PossiblyRedactedRoomMemberEventContent {
+                membership: MembershipState::Knock,
+                ..
+            }) => {
+                let room = store.get_or_create_room(room_id, RoomState::Knocked);
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_knocked();
@@ -261,11 +260,7 @@ fn membership(
 
             // Otherwise, assume it's an invited room because there are invite state events.
             _ => {
-                let room = store.get_or_create_room(
-                    room_id,
-                    RoomState::Invited,
-                    room_info_notable_update_sender,
-                );
+                let room = store.get_or_create_room(room_id, RoomState::Invited);
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_invited();
@@ -280,60 +275,28 @@ fn membership(
     // No invite state events. We assume this is a joined room for the moment. See this block to
     // learn more.
     else {
-        let room =
-            store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
+        let room = store.get_or_create_room(room_id, RoomState::Joined);
         let mut room_info = room.clone_info();
 
         // We default to considering this room joined if it's not an invite. If it's
-        // actually left (and we remembered to request membership events in
-        // our sync request), then we can find this out from the events in
-        // required_state by calling handle_own_room_membership.
+        // actually left (and we remembered to request membership events in our sync
+        // request), then we can find this out from the events in required_state by
+        // calling handle_own_room_membership.
         room_info.mark_as_joined();
 
         // We don't need to do this in a v2 sync, because the membership of a room can
-        // be figured out by whether the room is in the "join", "leave" etc.
-        // property. In sliding sync we only have invite_state,
-        // required_state and timeline, so we must process required_state and timeline
-        // looking for relevant membership events.
-        own_membership(context, user_id, state_events, &mut room_info);
+        // be figured out by whether the room is in the `join`, `leave` etc. property.
+        // In sliding sync we only have `invite_state`, `required_state` and `timeline`,
+        // so we must process `required_state` and `timeline` looking for relevant
+        // membership events.
+        state_events::sync::own_membership_and_update_room_state(
+            context,
+            user_id,
+            state_events,
+            &mut room_info,
+        );
 
         (room, room_info, None)
-    }
-}
-
-/// Find any `m.room.member` events that refer to the current user, and update
-/// the state in room_info to reflect the "membership" property.
-fn own_membership(
-    context: &mut Context,
-    user_id: &UserId,
-    state_events: &mut [RawSyncStateEventWithKeys],
-    room_info: &mut RoomInfo,
-) {
-    // Start from the last event; the first membership event we see in that order is
-    // the last in the regular order, so that's the only one we need to
-    // consider.
-    for event in state_events.iter_mut().rev() {
-        // If this event updates the current user's membership, record that in the
-        // room_info.
-        if event.event_type == StateEventType::RoomMember
-            && event.state_key.as_str() == user_id
-            && let Some(member) = event
-                .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomMember))
-        {
-            let new_state: RoomState = member.membership().into();
-
-            if new_state != room_info.state() {
-                room_info.set_state(new_state);
-                // Update an existing notable update entry or create a new one
-                context
-                    .room_info_notable_updates
-                    .entry(room_info.room_id.to_owned())
-                    .or_default()
-                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
-            }
-
-            break;
-        }
     }
 }
 

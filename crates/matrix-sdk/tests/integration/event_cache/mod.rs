@@ -10,6 +10,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate, RoomPaginationStatus,
+        TimelineVectorDiffs,
     },
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     store::StoreConfig,
@@ -98,7 +99,8 @@ async fn test_event_cache_receives_events() {
 
     // It does receive one update,
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
@@ -177,7 +179,8 @@ async fn test_ignored_unignored() {
     // We do receive a clear.
     {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -186,7 +189,8 @@ async fn test_ignored_unignored() {
     // We do receive the new event.
     {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 1);
 
@@ -215,7 +219,8 @@ async fn wait_for_initial_events(
     if events.is_empty() {
         // Wait for a first update.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                room_stream.recv()
         );
 
         // Read as much updates immediately available as possible.
@@ -292,7 +297,8 @@ async fn test_backpaginate_once() {
 
     // And we get update as diffs.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
 
     assert_eq!(diffs.len(), 2);
@@ -397,7 +403,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     // First iteration.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
 
     assert_eq!(diffs.len(), 2);
@@ -412,7 +419,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     // Second iteration.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
 
     assert_eq!(diffs.len(), 1);
@@ -518,7 +526,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     // First pagination.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
 
     assert_eq!(diffs.len(), 2);
@@ -533,7 +542,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     // Second pagination.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
 
     assert_eq!(diffs.len(), 1);
@@ -654,7 +664,8 @@ async fn test_reset_while_backpaginating() {
         // The room shrinks the linked chunk to the last event chunk, so it clears and
         // re-adds the latest event.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 2);
         assert_matches!(&diffs[0], VectorDiff::Clear);
@@ -668,7 +679,8 @@ async fn test_reset_while_backpaginating() {
         // Then we receive the event from the restarted back-pagination with
         // `second_backpagination`.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
@@ -726,7 +738,8 @@ async fn test_backpaginating_without_token() {
     assert_event_matches_msg(&events[0], "hi");
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
@@ -782,7 +795,8 @@ async fn test_limited_timeline_resets_pagination() {
     assert!(reached_start);
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
@@ -809,7 +823,8 @@ async fn test_limited_timeline_resets_pagination() {
 
     // We have a limited sync, which triggers a shrink to the latest chunk: a gap.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_matches!(&diffs[0], VectorDiff::Clear);
@@ -854,7 +869,8 @@ async fn test_limited_timeline_with_storage() {
     // This is racy: either the sync has been handled, or it hasn't yet.
     if initial_events.is_empty() {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
         assert_eq!(diffs.len(), 1);
 
@@ -879,7 +895,8 @@ async fn test_limited_timeline_with_storage() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 1);
 
@@ -1086,7 +1103,10 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     if events.is_empty() {
-        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                stream.recv()
+        );
     }
 
     drop(events);
@@ -1183,7 +1203,10 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     if events.is_empty() {
-        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                stream.recv()
+        );
     }
 
     drop(events);
@@ -1205,7 +1228,8 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            stream.recv()
     );
     assert_eq!(diffs.len(), 2);
 
@@ -1306,7 +1330,10 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
-        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                stream.recv()
+        );
     }
     drop(events);
 
@@ -1381,7 +1408,8 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                subscriber.recv()
         );
     }
 
@@ -1395,7 +1423,8 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
 
     assert_eq!(diffs.len(), 2);
@@ -1543,7 +1572,7 @@ async fn test_apply_redaction_on_an_in_store_event() {
     // Let's check the stream.
     let update = updates_stream.recv().await.unwrap();
 
-    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
         // 1 diff for the `m.room.redaction`. The event being redacted is not
         // in-memory yet, it's only in the store, so no update for it.
         assert_eq!(diffs.len(), 1);
@@ -1574,7 +1603,7 @@ async fn test_apply_redaction_on_an_in_store_event() {
     // provides.
     let update = updates_stream.recv().await.unwrap();
 
-    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
         assert_eq!(diffs.len(), 1);
 
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
@@ -1620,7 +1649,8 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
 
     assert_eq!(diffs.len(), 2);
@@ -1803,7 +1833,7 @@ async fn test_lazy_loading() {
         // `pagination_outcome` provides.
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             // 5 diffs?! *feigns surprise*
             assert_eq!(diffs.len(), 5);
 
@@ -1872,7 +1902,7 @@ async fn test_lazy_loading() {
         // `pagination_outcome` provides.
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             // 1, … 2, … 3, … 4 diffs! Quod Erat Demonstrandum.
             assert_eq!(diffs.len(), 4);
 
@@ -1934,7 +1964,7 @@ async fn test_lazy_loading() {
         // The stream is consistent with what we observed.
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             // 2 diffs: one for inserting each event.
             //
             // We don't get a notification about the removal, because it happened *in the store*,
@@ -2004,7 +2034,7 @@ async fn test_lazy_loading() {
         // Let's check the stream for the last time.
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             assert_eq!(diffs.len(), 5);
 
             assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
@@ -2146,7 +2176,7 @@ async fn test_deduplication() {
     {
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             // 3 diffs, of course.
             assert_eq!(diffs.len(), 3);
 
@@ -2185,7 +2215,7 @@ async fn test_deduplication() {
         // Let's check what the stream has to say.
         let update = updates_stream.recv().await.unwrap();
 
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
             // 2 diffs, but who's counting?
             assert_eq!(diffs.len(), 2);
 
@@ -2242,7 +2272,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -2265,7 +2296,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
 
     // The timeline is limited, so the linked chunk is shrunk to the latest chunk.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -2289,7 +2321,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     assert_eq!(outcome.events.len(), 6);
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 1);
 
@@ -2395,7 +2428,8 @@ async fn test_clear_all_rooms() {
     // Wait for the ev1 event.
     if initial.is_empty() {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_updates.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_updates.recv()
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(diffs[0], VectorDiff::Append { .. });
@@ -2410,7 +2444,8 @@ async fn test_clear_all_rooms() {
 
     // We should get an update for the live room.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_updates.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_updates.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Clear = &diffs[0]);
@@ -2511,7 +2546,8 @@ async fn test_sync_while_back_paginate() {
         .await;
 
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &diffs[0]);
@@ -2528,7 +2564,8 @@ async fn test_sync_while_back_paginate() {
 
     // And the back-paginated events come down from the subscriber too.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            subscriber.recv()
     );
     assert_eq!(diffs.len(), 3);
     assert_let!(VectorDiff::Insert { index: 0, value: _ } = &diffs[0]);
@@ -2627,7 +2664,8 @@ async fn test_relations_ordering() {
     // Wait for the listener to tell us we've received something.
     loop {
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = listener.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                listener.recv()
         );
         // We've received the shrink.
         if diffs.iter().any(|diff| matches!(diff, VectorDiff::Clear)) {

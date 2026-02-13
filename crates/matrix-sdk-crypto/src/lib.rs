@@ -1097,7 +1097,7 @@ pub enum RoomEventDecryptionResult {
 /// [end-to-end-encryption]: https://en.wikipedia.org/wiki/End-to-end_encryption
 /// [homeserver]: https://spec.matrix.org/unstable/#architecture
 /// [key-agreement protocol]: https://en.wikipedia.org/wiki/Key-agreement_protocol
-/// [client-server specification]: https://matrix.org/docs/spec/client_server/
+/// [client-server specification]: https://spec.matrix.org/latest/client-server-api
 /// [forward secrecy]: https://en.wikipedia.org/wiki/Forward_secrecy
 /// [replay attacks]: https://en.wikipedia.org/wiki/Replay_attack
 /// [Tracking the device list for a user]: https://spec.matrix.org/unstable/client-server-api/#tracking-the-device-list-for-a-user

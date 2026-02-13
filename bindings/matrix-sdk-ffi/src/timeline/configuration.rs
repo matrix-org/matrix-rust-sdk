@@ -1,9 +1,22 @@
+// Copyright 2025 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for that specific language governing permissions and
+// limitations under the License.
+
 use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
     event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
-    event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter,
-    TimelineReadReceiptTracking,
+    TimelineEventFocusThreadMode, TimelineReadReceiptTracking,
 };
 use ruma::{
     events::{AnySyncTimelineEvent, TimelineEventType},
@@ -15,36 +28,6 @@ use crate::{
     error::ClientError,
     event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
 };
-
-#[derive(uniffi::Object)]
-pub struct TimelineEventTypeFilter {
-    inner: InnerTimelineEventTypeFilter,
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl TimelineEventTypeFilter {
-    #[uniffi::constructor]
-    pub fn include(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
-        let event_types: Vec<TimelineEventType> =
-            event_types.iter().map(|t| t.clone().into()).collect();
-        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Include(event_types) })
-    }
-
-    #[uniffi::constructor]
-    pub fn exclude(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
-        let event_types: Vec<TimelineEventType> =
-            event_types.iter().map(|t| t.clone().into()).collect();
-        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Exclude(event_types) })
-    }
-}
-
-impl TimelineEventTypeFilter {
-    /// Filters an [`event`] to decide whether it should be part of the timeline
-    /// based on [`AnySyncTimelineEvent::event_type()`].
-    pub(crate) fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
-        self.inner.filter(event)
-    }
-}
 
 /// A timeline filter that includes or excludes events based on their type or
 /// content.
@@ -63,9 +46,27 @@ impl TimelineEventFilter {
     }
 
     #[uniffi::constructor]
+    pub fn include_event_types(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let conditions = event_types
+            .iter()
+            .map(|t| TimelineEventCondition::EventType(t.clone().into()))
+            .collect();
+        Arc::new(Self { inner: InnerTimelineEventFilter::Include(conditions) })
+    }
+
+    #[uniffi::constructor]
     pub fn exclude(conditions: Vec<FilterTimelineEventCondition>) -> Arc<Self> {
         let conditions: Vec<TimelineEventCondition> =
             conditions.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventFilter::Exclude(conditions) })
+    }
+
+    #[uniffi::constructor]
+    pub fn exclude_event_types(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let conditions = event_types
+            .iter()
+            .map(|t| TimelineEventCondition::EventType(t.clone().into()))
+            .collect();
         Arc::new(Self { inner: InnerTimelineEventFilter::Exclude(conditions) })
     }
 }
@@ -133,17 +134,14 @@ pub enum TimelineFocus {
         event_id: String,
         /// The number of context events to load around the focused event.
         num_context_events: u16,
-        /// Whether to hide in-thread replies from the live timeline.
-        hide_threaded_events: bool,
+        /// How to handle threaded events.
+        thread_mode: TimelineEventFocusThreadMode,
     },
     Thread {
         /// The thread root event ID to focus on.
         root_event_id: String,
     },
-    PinnedEvents {
-        max_events_to_load: u16,
-        max_concurrent_requests: u16,
-    },
+    PinnedEvents,
 }
 
 impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
@@ -154,18 +152,14 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
     ) -> Result<matrix_sdk_ui::timeline::TimelineFocus, Self::Error> {
         match value {
             TimelineFocus::Live { hide_threaded_events } => Ok(Self::Live { hide_threaded_events }),
-            TimelineFocus::Event { event_id, num_context_events, hide_threaded_events } => {
+            TimelineFocus::Event { event_id, num_context_events, thread_mode } => {
                 let parsed_event_id =
                     EventId::parse(&event_id).map_err(|err| FocusEventError::InvalidEventId {
                         event_id: event_id.clone(),
                         err: err.to_string(),
                     })?;
 
-                Ok(Self::Event {
-                    target: parsed_event_id,
-                    num_context_events,
-                    hide_threaded_events,
-                })
+                Ok(Self::Event { target: parsed_event_id, num_context_events, thread_mode })
             }
             TimelineFocus::Thread { root_event_id } => {
                 let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {
@@ -177,9 +171,7 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
 
                 Ok(Self::Thread { root_event_id: parsed_root_event_id })
             }
-            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
-                Ok(Self::PinnedEvents { max_events_to_load, max_concurrent_requests })
-            }
+            TimelineFocus::PinnedEvents => Ok(Self::PinnedEvents),
         }
     }
 }
@@ -211,8 +203,6 @@ pub enum TimelineFilter {
         /// appear in the timeline.
         types: Vec<RoomMessageEventMessageType>,
     },
-    /// Show only events which match this filter.
-    EventTypeFilter { filter: Arc<TimelineEventTypeFilter> },
     /// Show only events which match this event filter.
     EventFilter { filter: Arc<TimelineEventFilter> },
 }

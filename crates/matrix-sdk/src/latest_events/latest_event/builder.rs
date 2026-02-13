@@ -25,7 +25,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
         relation::Replacement,
         room::{
-            member::MembershipState,
+            member::MembershipChange,
             message::{MessageType, Relation, RoomMessageEventContent},
             power_levels::RoomPowerLevels,
             redaction::RoomRedactionEventContent,
@@ -34,7 +34,7 @@ use ruma::{
 };
 use tracing::error;
 
-use crate::{event_cache::RoomEventCache, send_queue::RoomSendQueueUpdate};
+use crate::{Room, event_cache::RoomEventCache, room::Invite, send_queue::RoomSendQueueUpdate};
 
 /// A builder of [`LatestEventValue`]s.
 pub(super) struct Builder;
@@ -92,6 +92,36 @@ impl Builder {
             }
 
             current_value_must_be_erased.then(LatestEventValue::default)
+        }
+    }
+
+    pub async fn new_remote_for_invite(room: &Room) -> LatestEventValue {
+        let (event_id, timestamp, inviter_id) = room
+            .invite_details()
+            .await
+            .map(|Invite { invitee, inviter_id, .. }| {
+                let event = invitee.event();
+
+                (
+                    // If the event is a stripped state event, it has no event ID. This is
+                    // acceptable.
+                    event.event_id().map(ToOwned::to_owned),
+                    // If the event is a stripped state event, it has no timestamp (no
+                    // `origin_server_ts`). If, in any case, it has one (it could happen depending
+                    // of the server implementation), let's use it.
+                    event.timestamp().map(MilliSecondsSinceUnixEpoch),
+                    Some(inviter_id),
+                )
+            })
+            .unwrap_or_else(|_| (None, None, None));
+
+        LatestEventValue::RemoteInvite {
+            event_id,
+            // If the event is a stripped state event, it should not have a timestamp. Let's use
+            // `now()` as a fallback so that the `LatestEventValue` can be used to sort rooms in a
+            // room list for example.
+            timestamp: timestamp.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+            inviter: inviter_id,
         }
     }
 
@@ -219,7 +249,7 @@ impl Builder {
                             | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
                                 return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value });
                             }
-                            LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
+                            LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         }
                     }
                 }
@@ -674,14 +704,14 @@ fn filter_any_sync_state_event(
     power_levels: Option<&RoomPowerLevels>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
-        AnySyncStateEvent::RoomMember(member) => {
-            match member.membership() {
-                MembershipState::Knock => {
+        AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
+            match member.membership_change() {
+                MembershipChange::Knocked => {
                     let can_accept_or_decline_knocks = match power_levels {
                         Some(room_power_levels) => {
                             room_power_levels.user_can_invite(own_user_id)
                                 || room_power_levels
-                                    .user_can_kick_user(own_user_id, member.state_key())
+                                    .user_can_kick_user(own_user_id, &member.state_key)
                         }
                         None => false,
                     };
@@ -689,39 +719,28 @@ fn filter_any_sync_state_event(
                     // The current user can act on the knock changes, so they should be
                     // displayed
                     if can_accept_or_decline_knocks {
-                        // We can only decide whether the user can accept or decline knocks if the
-                        // event isn't redacted.
-                        return if matches!(member, SyncStateEvent::Original(_)) {
-                            filter_break()
-                        } else {
-                            filter_continue()
-                        };
+                        return filter_break();
                     }
 
                     filter_continue()
                 }
 
-                // A member is joining or is being invited…
-                MembershipState::Join | MembershipState::Invite => {
+                // A member has joined one way or another.
+                MembershipChange::Joined
+                | MembershipChange::Invited
+                | MembershipChange::InvitationAccepted
+                | MembershipChange::KnockAccepted => {
                     // This member _is_ the current user, not someone else! This is a valid state
                     // event:
                     //
-                    // - the user is joining a room: we want a `LatestEventValue` to get a first
-                    //   value!
+                    // - the user is joining a room (for the first time or again): we want a
+                    //   `LatestEventValue` to get a first value!
                     // - the user is being invited: we want a `LatestEventValue` to represent the
                     //   invitation!
-                    match member {
-                        // We can only decide whether the user is joining or is being invited if the
-                        // event isn't redacted.
-                        SyncStateEvent::Original(state) => {
-                            if state.state_key.deref() == own_user_id {
-                                filter_break()
-                            } else {
-                                filter_continue()
-                            }
-                        }
-
-                        _ => filter_continue(),
+                    if member.state_key.deref() == own_user_id {
+                        filter_break()
+                    } else {
+                        filter_continue()
                     }
                 }
 
@@ -738,10 +757,13 @@ mod filter_tests {
     use std::ops::Not;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::event_factory::EventFactory;
+    use matrix_sdk_test::event_factory::{EventFactory, PreviousMembership};
     use ruma::{
         event_id,
-        events::{room::message::RoomMessageEventContent, rtc::notification::NotificationType},
+        events::{
+            room::{member::MembershipState, message::RoomMessageEventContent},
+            rtc::notification::NotificationType,
+        },
         owned_user_id, user_id,
     };
 
@@ -996,12 +1018,12 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_knocked_state_event_without_power_levels() {
+    fn test_knocked_without_power_levels() {
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
-                    .membership(ruma::events::room::member::MembershipState::Knock)
+                    .membership(MembershipState::Knock)
                     .into_event()
             }
             is not a candidate
@@ -1009,12 +1031,9 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_knocked_state_event_with_power_levels() {
+    fn test_knocked_with_power_levels() {
         use ruma::{
-            events::room::{
-                member::MembershipState,
-                power_levels::{RoomPowerLevels, RoomPowerLevelsSource},
-            },
+            events::room::power_levels::{RoomPowerLevels, RoomPowerLevelsSource},
             room_version_rules::AuthorizationRules,
         };
 
@@ -1092,9 +1111,37 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_join_state_event() {
-        use ruma::events::room::member::MembershipState;
+    fn test_knock_accepted() {
+        // The current user was knocking and now is invited.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Knock)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
 
+    #[test]
+    fn test_knock_accepted_from_someone_else() {
+        // The current user sees an accepted knock but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Knock)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_joined() {
         // The current user is joining the room.
         assert_latest_event_content!(
             event | event_factory | {
@@ -1108,7 +1155,22 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_join_state_event_for_someone_else() {
+    fn test_joined_from_left() {
+        // The current user was left and now joins again.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Leave)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_joined_for_someone_else() {
         use ruma::events::room::member::MembershipState;
 
         // The current user sees a join but for someone else.
@@ -1124,10 +1186,7 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_invite_state_event() {
-        use ruma::events::room::member::MembershipState;
-
-        // The current user is receiving an invite.
+    fn test_invited() {
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
@@ -1140,15 +1199,73 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_invite_state_event_for_someone_else() {
-        use ruma::events::room::member::MembershipState;
+    fn test_invited_from_left() {
+        // The current user was left and now is invited again.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Leave)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
 
+    #[test]
+    fn test_invited_for_someone_else() {
         // The current user sees an invite but for someone else.
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
                     .membership(MembershipState::Invite)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_invitation_accepted() {
+        // The current user was invited and now is joined.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_invitation_accepted_from_someone_else() {
+        // The current user sees an accepted invitation but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_profile_changed() {
+        // The current user has a new display name.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(PreviousMembership::new(MembershipState::Join).display_name("Coucou"))
                     .into_event()
             }
             is not a candidate

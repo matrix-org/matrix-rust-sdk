@@ -83,7 +83,7 @@ experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-rece
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-anymap2 = "0.13.0"
+anymap2 = { version = "0.13.0", default-features = false }
 aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
@@ -92,15 +92,15 @@ async-stream.workspace = true
 async-trait.workspace = true
 async-once-cell.workspace = true
 axum = { version = "0.8.4", optional = true }
-bytes = "1.11.0"
-bytesize = "2.3.0"
-cfg-if = "1.0.4"
+bytes = { version = "1.11.1", default-features = false, features = ["std"] }
+bytesize = { version = "2.3.0", default-features = false, features = ["std"] }
+cfg-if.workspace = true
 event-listener = "5.4.1"
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
 futures-core.workspace = true
-futures-util.workspace = true
+futures-util = { workspace = true, features = ["async-await-macro"] }
 http.workspace = true
 imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
@@ -124,7 +124,6 @@ rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
-    "unstable-msc4191",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
     "unstable-msc4230",

@@ -259,9 +259,9 @@ impl RoomMember {
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
-            p.as_original().and_then(|e| e.content.displayname.as_deref())
+            p.content.displayname.as_deref()
         } else {
-            self.event.original_content()?.displayname.as_deref()
+            self.event.displayname_value()
         }
     }
 
@@ -276,9 +276,9 @@ impl RoomMember {
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         if let Some(p) = self.profile.as_ref() {
-            p.as_original().and_then(|e| e.content.avatar_url.as_deref())
+            p.content.avatar_url.as_deref()
         } else {
-            self.event.original_content()?.avatar_url.as_deref()
+            self.event.avatar_url()
         }
     }
 

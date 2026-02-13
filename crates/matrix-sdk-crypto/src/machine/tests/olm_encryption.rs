@@ -23,7 +23,9 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::async_test;
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch, device_id,
+    DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
+    canonical_json::to_canonical_value,
+    device_id,
     events::{AnyToDeviceEvent, dummy::ToDeviceDummyEventContent},
     user_id,
 };
@@ -179,7 +181,7 @@ async fn test_get_most_recent_session_of_device_with_no_curve_key() {
             bob_user_id.to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, bob_device_id),
             bob_signing_key
-                .sign_json(serde_json::to_value(&bob_device_keys).unwrap())
+                .sign_json(to_canonical_value(&bob_device_keys).unwrap())
                 .expect("Could not sign device data"),
         );
 
@@ -201,7 +203,7 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
 
     let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
-    let (_, content) = bob_device
+    let (_, content, _) = bob_device
         .encrypt("m.dummy", ToDeviceDummyEventContent::new())
         .await
         .expect("We should be able to encrypt a dummy event.");

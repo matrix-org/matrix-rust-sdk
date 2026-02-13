@@ -39,6 +39,7 @@ use matrix_sdk_base::{
         WellKnownResponse,
     },
     sync::{Notification, RoomUpdates},
+    task_monitor::TaskMonitor,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
@@ -118,7 +119,10 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     cross_process_lock::CrossProcessLock,
-    encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
+    encryption::{
+        DuplicateOneTimeKeyErrorMessage, Encryption, EncryptionData, EncryptionSettings,
+        VerificationState,
+    },
 };
 
 mod builder;
@@ -383,6 +387,15 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
+
+    /// A monitor for background tasks spawned by the client.
+    pub(crate) task_monitor: TaskMonitor,
+
+    /// A sender to notify subscribers about duplicate key upload errors
+    /// triggered by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) duplicate_key_upload_error_sender:
+        broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 }
 
 impl ClientInner {
@@ -449,6 +462,9 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            task_monitor: TaskMonitor::new(),
+            #[cfg(feature = "e2e-encryption")]
+            duplicate_key_upload_error_sender: broadcast::channel(1).0,
         };
 
         #[allow(clippy::let_and_return)]
@@ -460,10 +476,7 @@ impl ClientInner {
         let _ = client
             .event_cache
             .get_or_init(|| async {
-                EventCache::new(
-                    WeakClient::from_inner(&client),
-                    client.base_client.event_cache_store().clone(),
-                )
+                EventCache::new(&client, client.base_client.event_cache_store().clone())
             })
             .await;
 
@@ -3130,6 +3143,7 @@ impl Client {
                     WeakClient::from_client(self),
                     self.event_cache().clone(),
                     SendQueue::new(self.clone()),
+                    self.room_info_notable_update_receiver(),
                 )
             })
             .await
@@ -3310,6 +3324,21 @@ impl Client {
             event_cache_store: event_cache_store_size,
             media_store: media_store_size,
         })
+    }
+
+    /// Get a reference to the client's task monitor, for spawning background
+    /// tasks.
+    pub fn task_monitor(&self) -> &TaskMonitor {
+        &self.inner.task_monitor
+    }
+
+    /// Add a subscriber for duplicate key upload error notifications triggered
+    /// by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn subscribe_to_duplicate_key_upload_errors(
+        &self,
+    ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
+        self.inner.duplicate_key_upload_error_sender.subscribe()
     }
 }
 

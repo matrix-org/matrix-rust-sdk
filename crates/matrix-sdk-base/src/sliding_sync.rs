@@ -128,7 +128,7 @@ impl BaseClient {
 
         let user_id = self
             .session_meta()
-            .expect("Sliding sync shouldn't run without an authenticated user.")
+            .expect("Sliding sync shouldn't run without an authenticated user")
             .user_id
             .to_owned();
 
@@ -138,7 +138,6 @@ impl BaseClient {
                 &user_id,
                 processors::room::RoomCreationData::new(
                     room_id,
-                    self.room_info_notable_update_sender.clone(),
                     requested_required_states,
                     &mut ambiguity_cache,
                 ),
@@ -339,6 +338,66 @@ mod tests {
         store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
     };
+
+    #[async_test]
+    async fn test_invited_state_without_update_emits_invited_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!invite:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Invite));
+
+        let response = response_with_room(room_id, room);
+
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
+
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+    }
+
+    use ruma::events::AnyStrippedStateEvent;
+
+    fn invite_state_for(
+        user_id: &UserId,
+        membership: MembershipState,
+    ) -> Vec<Raw<AnyStrippedStateEvent>> {
+        let content = RoomMemberEventContent::new(membership);
+
+        let raw: Raw<AnyStrippedStateEvent> = Raw::from_json_string(
+            serde_json::json!({
+                "type": "m.room.member",
+                "state_key": user_id,
+                "content": content,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        vec![raw]
+    }
+
+    #[async_test]
+    async fn test_knocked_state_emits_invited_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!knock:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Knock));
+
+        let response = response_with_room(room_id, room);
+
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
+
+        // ✅ Knocked rooms surface as invited rooms in Sliding Sync
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+    }
 
     #[async_test]
     async fn test_notification_count_set() {
@@ -1011,6 +1070,8 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
         // When I send sliding sync response containing an invited room
         let mut room = http::response::Room::new();
         set_room_invited(&mut room, user_id, user_id);
@@ -1028,6 +1089,70 @@ mod tests {
         // And it is added to the list of invited rooms, not the joined ones
         assert!(!sync_resp.rooms.invited[room_id].invite_state.is_empty());
         assert!(!sync_resp.rooms.joined.contains_key(room_id));
+
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert!(room_info_notable_update.is_empty());
+    }
+
+    #[async_test]
+    async fn test_knock_room_is_added_to_client_and_knock_list() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
+        // When I send sliding sync response containing an invited room
+        let mut room = http::response::Room::new();
+        set_room_knocked(&mut room, user_id);
+        let response = response_with_room(room_id, room);
+        let sync_resp = client
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Then the room is added to the client
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.room_id(), room_id);
+        assert_eq!(client_room.state(), RoomState::Knocked);
+
+        // And it is added to the list of invited rooms, not the joined ones
+        assert!(!sync_resp.rooms.knocked[room_id].knock_state.is_empty());
+        assert!(!sync_resp.rooms.joined.contains_key(room_id));
+
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert!(room_info_notable_update.is_empty());
     }
 
     #[async_test]

@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use ruma::RoomId;
-use tokio::sync::broadcast::Sender;
 
-use crate::{RequestedRequiredStates, RoomInfoNotableUpdate, store::ambiguity_map::AmbiguityCache};
+use crate::{RequestedRequiredStates, store::ambiguity_map::AmbiguityCache};
 
 pub mod display_name;
 pub mod msc4186;
@@ -24,7 +23,6 @@ pub mod sync_v2;
 /// A classical set of data used by some processors in this module.
 pub struct RoomCreationData<'a> {
     room_id: &'a RoomId,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     requested_required_states: &'a RequestedRequiredStates,
     ambiguity_cache: &'a mut AmbiguityCache,
 }
@@ -32,15 +30,9 @@ pub struct RoomCreationData<'a> {
 impl<'a> RoomCreationData<'a> {
     pub fn new(
         room_id: &'a RoomId,
-        room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
         requested_required_states: &'a RequestedRequiredStates,
         ambiguity_cache: &'a mut AmbiguityCache,
     ) -> Self {
-        Self {
-            room_id,
-            room_info_notable_update_sender,
-            requested_required_states,
-            ambiguity_cache,
-        }
+        Self { room_id, requested_required_states, ambiguity_cache }
     }
 }

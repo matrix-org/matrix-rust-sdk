@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Media store and common types for [media content](https://matrix.org/docs/spec/client_server/r0.6.1#id66).
+//! Media store and common types for [media content](https://spec.matrix.org/latest/client-server-api/#content-repository).
 
 pub mod store;
 

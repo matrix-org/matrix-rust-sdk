@@ -179,10 +179,14 @@ impl HttpClient {
             let method = request.method();
 
             let mut uri_parts = request.uri().clone().into_parts();
+
+            // Erase the query parameters for the sake of secrecy (in case a token is
+            // present).
             if let Some(path_and_query) = &mut uri_parts.path_and_query {
                 *path_and_query =
                     path_and_query.path().try_into().expect("path is valid PathAndQuery");
             }
+
             let uri = http::Uri::from_parts(uri_parts).expect("created from valid URI");
 
             span.record("method", debug(method)).record("uri", uri.to_string());

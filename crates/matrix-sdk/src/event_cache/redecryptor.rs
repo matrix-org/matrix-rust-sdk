@@ -132,11 +132,11 @@ use matrix_sdk_base::{
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
     event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
+    task_monitor::BackgroundTaskHandle,
     timer,
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
-use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt, spawn};
 use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
@@ -158,7 +158,10 @@ use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEven
 use crate::{
     Client, Result, Room,
     encryption::backups::BackupState,
-    event_cache::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    event_cache::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorDiffs,
+        room::PostProcessingOrigin,
+    },
     room::PushContext,
 };
 
@@ -167,7 +170,8 @@ type OwnedSessionId = String;
 
 type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
 type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-type ResolvedUtd = (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+pub(in crate::event_cache) type ResolvedUtd =
+    (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
@@ -372,6 +376,12 @@ impl EventCache {
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
         let mut new_events = Vec::with_capacity(events.len());
 
+        // Consider the pinned event linked chunk, if it's been initialized.
+        if let Some(pinned_cache) = state.pinned_event_cache() {
+            pinned_cache.replace_utds(&events).await?;
+        }
+
+        // Consider the room linked chunk.
         for (event_id, decrypted, actions) in events {
             // The event isn't in the cache, nothing to replace. Realistically this can't
             // happen since we retrieved the list of events from the cache itself and
@@ -390,16 +400,15 @@ impl EventCache {
             }
         }
 
-        state.post_process_new_events(new_events, false).await?;
+        state.post_process_new_events(new_events, PostProcessingOrigin::Redecryption).await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
         let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
-        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-            diffs,
-            origin: EventsOrigin::Cache,
-        });
+        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
+            TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+        ));
 
         let _ = room_cache
             .inner
@@ -784,7 +793,7 @@ async fn send_report_and_retry_memory_events(
 ///
 /// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
-    _task: AbortOnDrop<()>,
+    _task: BackgroundTaskHandle,
 }
 
 impl Redecryptor {
@@ -801,18 +810,20 @@ impl Redecryptor {
         let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
 
-        let task = spawn(async {
-            let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
+        let task = client
+            .task_monitor()
+            .spawn_background_task("event_cache::redecryptor", async {
+                let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
 
-            Self::listen_for_room_keys_task(
-                cache,
-                request_redecryption_stream,
-                linked_chunk_stream,
-                backup_state_stream,
-            )
-            .await;
-        })
-        .abort_on_drop();
+                Self::listen_for_room_keys_task(
+                    cache,
+                    request_redecryption_stream,
+                    linked_chunk_stream,
+                    backup_state_stream,
+                )
+                .await;
+            })
+            .abort_on_drop();
 
         Self { _task: task }
     }
@@ -1102,7 +1113,10 @@ mod tests {
     use crate::{
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
-        event_cache::{DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate},
+        event_cache::{
+            DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+            TimelineVectorDiffs,
+        },
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -1438,7 +1452,8 @@ mod tests {
         // Alright, Bob has received an update from the cache.
 
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // There should be a single new event, and it should be a UTD as we did not
@@ -1468,7 +1483,8 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // It should replace the UTD with a decrypted event.
@@ -1520,7 +1536,8 @@ mod tests {
         // Alright, Bob has received an update from the cache.
 
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // There should be a single new event, and it should be a UTD as we did not
@@ -1551,7 +1568,8 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // It should replace the UTD with a decrypted event.
@@ -1597,7 +1615,8 @@ mod tests {
         // encryption info.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         assert_eq!(diffs.len(), 1);
@@ -1672,7 +1691,8 @@ mod tests {
 
         // Alright, Bob has received an update from the cache.
         assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // There should be a single new event, and it should be a UTD as we did not
@@ -1689,7 +1709,8 @@ mod tests {
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
             Duration::from_secs(1),
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
         );
 
         // It should replace the UTD with a decrypted event.

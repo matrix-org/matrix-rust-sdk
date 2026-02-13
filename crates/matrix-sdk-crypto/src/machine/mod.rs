@@ -60,7 +60,7 @@ use serde::Serialize;
 use serde_json::{Value, value::to_raw_value};
 use tokio::sync::Mutex;
 use tracing::{
-    Span, debug, error,
+    Span, debug, enabled, error,
     field::{debug, display},
     info, instrument, trace, warn,
 };
@@ -1395,6 +1395,15 @@ impl OlmMachine {
                 {
                     e.content.secret_name = name;
                     decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
+                }
+
+                if enabled!(tracing::Level::DEBUG) {
+                    let cross_signing_status = self.cross_signing_status().await;
+                    let backup_enabled = self.backup_machine().enabled().await;
+                    debug!(
+                        ?cross_signing_status,
+                        backup_enabled, "Status after receiving secret event"
+                    );
                 }
             }
             AnyDecryptedOlmEvent::Dummy(_) => {

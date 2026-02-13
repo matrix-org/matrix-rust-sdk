@@ -45,7 +45,7 @@ pub mod sync {
     #[cfg(feature = "experimental-encrypted-state-events")]
     use crate::response_processors::e2ee;
     use crate::{
-        RoomInfo,
+        RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
         utils::RawSyncStateEventWithKeys,
@@ -218,20 +218,60 @@ pub mod sync {
     impl NewUsers for () {
         fn insert(&mut self, _user_id: &UserId) {}
     }
+
+    /// Find any `m.room.member` events that refer to the current user, and emit
+    /// a membership update accordingly, plus update the state in `room_info` to
+    /// reflect the "membership" property.
+    pub fn own_membership_and_update_room_state(
+        context: &mut Context,
+        user_id: &UserId,
+        state_events: &mut [RawSyncStateEventWithKeys],
+        room_info: &mut RoomInfo,
+    ) {
+        // Start from the last event; the first membership event we see in that order is
+        // the last in the regular order, so that's the only one we need to
+        // consider.
+        if let Some(member) = state_events.iter_mut().rev().find_map(|event| {
+            // Find the event that updates the current user's membership.
+            if event.event_type == StateEventType::RoomMember
+                && event.state_key.as_str() == user_id
+                && let Some(member) = event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomMember)
+                })
+            {
+                Some(member)
+            } else {
+                None
+            }
+        }) {
+            let new_state: RoomState = member.membership().into();
+
+            if new_state != room_info.state() {
+                room_info.set_state(new_state);
+
+                // Update an existing notable update entry or create a new one
+                context
+                    .room_info_notable_updates
+                    .entry(room_info.room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            }
+        }
+    }
 }
 
 /// Collect [`AnyStrippedStateEvent`].
 pub mod stripped {
     use std::{collections::BTreeMap, iter};
 
-    use ruma::{events::AnyStrippedStateEvent, push::Action};
+    use ruma::{RoomId, UserId, events::AnyStrippedStateEvent, push::Action};
     use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
         Context, Raw,
     };
-    use crate::{Result, Room, RoomInfo};
+    use crate::{Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
 
     /// Collect [`Raw<AnyStrippedStateEvent>`] to [`AnyStrippedStateEvent`].
     pub fn collect(
@@ -262,17 +302,21 @@ pub mod stripped {
         (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
         room: &Room,
         room_info: &mut RoomInfo,
+        user_id: &UserId,
         mut notification: notification::Notification<'_>,
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_stripped_state_event(event);
+
             state_events
                 .entry(event.event_type())
                 .or_insert_with(BTreeMap::new)
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
+
+        own_membership(context, room.room_id(), user_id, events);
 
         context
             .state_changes
@@ -297,6 +341,36 @@ pub mod stripped {
         }
 
         Ok(())
+    }
+
+    /// Find any `m.room.member` events that refer to the current user, and emit
+    /// a membership update accordingly.
+    pub fn own_membership(
+        context: &mut Context,
+        room_id: &RoomId,
+        user_id: &UserId,
+        state_events: &[AnyStrippedStateEvent],
+    ) {
+        // Start from the last event; the first membership event we see in that order is
+        // the last in the regular order, so that's the only one we need to
+        // consider.
+        if state_events.iter().rev().any(|event| {
+            // Find the event that updates the current user's membership.
+            if let AnyStrippedStateEvent::RoomMember(member) = &event
+                && member.state_key.as_str() == user_id.as_str()
+            {
+                true
+            } else {
+                false
+            }
+        }) {
+            // Update an existing notable update entry or create a new one
+            context
+                .room_info_notable_updates
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        }
     }
 }
 
@@ -427,7 +501,7 @@ pub fn is_tombstone_event_valid(
             .state_changes
             .room_infos
             .get(&successor_room_id)
-            .and_then(|room_info| Some(room_info.tombstone()?.replacement_room.clone()))
+            .and_then(|room_info| room_info.tombstone()?.replacement_room.clone())
             .or_else(|| {
                 state_store
                     .room(&successor_room_id)

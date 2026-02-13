@@ -8,9 +8,17 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
-- `Client::create_room` now uses `RoomPowerLevelsContentOverride` under the hood instead of 
-  `RoomPowerLevelsEventContent` to be able to explicitly set values which would previously be 
-  ignored if they matched the default power level values specified by the spec: these may not be 
+- `omit_checksums` option is now enabled for the Kotlin bindings in all FFI-exporting crates.
+  We enabled them because with JNA direct mapping enabled they result in invalid checks in
+  ARM 32bit devices, preventing the SDK from working altogether (see
+[this issue](https://github.com/mozilla/uniffi-rs/issues/2740)).
+([#6069](https://github.com/matrix-org/matrix-rust-sdk/pull/6069),
+[#6112](https://github.com/matrix-org/matrix-rust-sdk/pull/6112),
+[#6115](https://github.com/matrix-org/matrix-rust-sdk/pull/6115),
+[#6116](https://github.com/matrix-org/matrix-rust-sdk/pull/6116)).
+- `Client::create_room` now uses `RoomPowerLevelsContentOverride` under the hood instead of
+  `RoomPowerLevelsEventContent` to be able to explicitly set values which would previously be
+  ignored if they matched the default power level values specified by the spec: these may not be
   the same in the homeserver and result in rooms with incorrect power levels being created.
   ([#6034](https://github.com/matrix-org/matrix-rust-sdk/pull/6034))
 - Fix the `is_last_admin` check in `LeaveSpaceRoom` since it was not
@@ -23,6 +31,18 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
+  upload errors from `/keys/upload`.
+  ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
+- Add `NotificationItem::raw_event` to get the raw event content of the event that triggered the notification, which can be useful for debugging and to support clients that want to implement custom handling for certain notifications. ([#6122](https://github.com/matrix-org/matrix-rust-sdk/pull/6122))
+- [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
+  event as the root of a thread.
+  [#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050)
+- [**breaking**] Remove `TimelineFilter::EventTypeFilter` which has been replaced by
+  the more generic `TimelineFilter::EventFilter`. Users of `TimelineEventTypeFilter::include`
+  and `TimelineEventTypeFilter::exclude` can switch to `TimelineEventFilter::include_event_types`
+  and `TimelineEventFilter::exclude_event_types`.
+  ([#6070](https://github.com/matrix-org/matrix-rust-sdk/pull/6070/))
 - Add `TimelineFilter::EventFilter` for filtering events based on their type or
   content. For content filtering, only membership and profile change filters
   are available as of now.
@@ -48,23 +68,23 @@ All notable changes to this project will be documented in this file.
   `Room::new_latest_event` overwrites the `Room::latest_event` method. See the
   documentation of `matrix_sdk::latest_event` to learn about the new API.
   [#5624](https://github.com/matrix-org/matrix-rust-sdk/pull/5624/)
-- Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power 
+- Created `RoomPowerLevels::events` function which returns a `HashMap<TimelineEventType, i64>` with all the power
   levels per event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
 - Expose `EventTimelineItem::forwarder` and `forwarder_profile`, which, if present, provide the ID and profile of
   the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
-  
+
 ### Refactor
 
 - [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
   account also for v12 rooms, where creators and users with PL 150 matter.
   ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
-- [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the 
-  actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the 
+- [**breaking**] The existing `TimelineEventType` was renamed to `TimelineEventContent`, because it contained the
+  actual contents of the event. Then, we created a new `TimelineEventType` enum that actually contains *just* the
   event type. ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
-- [**breaking**] The function `TimelineEvent::event_type` is now `TimelineEvent::content`. 
+- [**breaking**] The function `TimelineEvent::event_type` is now `TimelineEvent::content`.
   ([#5937](https://github.com/matrix-org/matrix-rust-sdk/pull/5937))
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
   client events when invoking the `subscribe_to_joined_spaces` but instead do it

@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
-    Client, ClientBuilder, Room,
+    Client, ClientBuilder, Room, ThreadingSupport,
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
     ruma::{
@@ -44,6 +44,7 @@ pub struct TestClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     encryption_settings: EncryptionSettings,
     enable_share_history_on_invite: bool,
+    threading_support: ThreadingSupport,
     http_proxy: Option<String>,
     cross_process_store_locks_holder_name: Option<String>,
 }
@@ -63,6 +64,7 @@ impl TestClientBuilder {
             encryption_settings: Default::default(),
             room_key_recipient_strategy: Default::default(),
             enable_share_history_on_invite: false,
+            threading_support: ThreadingSupport::Disabled,
             http_proxy: None,
             cross_process_store_locks_holder_name: None,
         }
@@ -89,6 +91,11 @@ impl TestClientBuilder {
 
     pub fn enable_share_history_on_invite(mut self, enable_share_history_on_invite: bool) -> Self {
         self.enable_share_history_on_invite = enable_share_history_on_invite;
+        self
+    }
+
+    pub fn enable_threading_support(mut self, thread_support: ThreadingSupport) -> Self {
+        self.threading_support = thread_support;
         self
     }
 
@@ -123,6 +130,7 @@ impl TestClientBuilder {
             .with_encryption_settings(self.encryption_settings)
             .with_room_key_recipient_strategy(self.room_key_recipient_strategy.clone())
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
+            .with_threading_support(self.threading_support)
             .request_config(RequestConfig::short_retry());
 
         if let Some(decryption_settings) = &self.decryption_settings {
