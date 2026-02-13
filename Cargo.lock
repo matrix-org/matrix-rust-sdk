@@ -2320,6 +2320,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
  "v4l",
 ]
 
