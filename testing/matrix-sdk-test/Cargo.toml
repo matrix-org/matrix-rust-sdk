@@ -18,6 +18,9 @@ release = true
 test = false
 doctest = false
 
+[features]
+experimental-encrypted-state-events = ["ruma/unstable-msc4362"]
+
 [dependencies]
 as_variant.workspace = true
 http.workspace = true

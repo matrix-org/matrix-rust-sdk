@@ -9,9 +9,8 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, async_test, bulk_room_members, event_factory::EventFactory,
-    sync_state_event, test_json,
+    BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
+    bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
 };
 use ruma::{
     event_id,
@@ -615,14 +614,15 @@ async fn test_event() {
     let cache = client.event_cache();
     let _ = cache.subscribe();
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let room = server
         .sync_room(
             &client,
             // We need the member event and power levels locally so the push rules processor
             // works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                .add_state_event(StateTestEvent::Member)
-                .add_state_event(StateTestEvent::PowerLevels),
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
+                .add_state_event(f.default_power_levels()),
         )
         .await;
 
@@ -679,13 +679,14 @@ async fn test_event_with_context() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                .add_state_event(StateTestEvent::Member)
-                .add_state_event(StateTestEvent::PowerLevels),
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
+                .add_state_event(f.default_power_levels()),
         );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -742,26 +743,14 @@ async fn test_is_direct() {
     let sync_settings =
         SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
-    let bob_member_event = json!({
-        "content": {
-            "membership": "join",
-        },
-        "event_id": "$747273582443PhrSn:localhost",
-        "origin_server_ts": 1472735824,
-        "sender": *BOB,
-        "state_key": *BOB,
-        "type": "m.room.member",
-        "unsigned": {
-            "age": 1234
-        }
-    });
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
 
     // Initialize the room with 2 members, including ourself.
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-            .add_state_event(StateTestEvent::Member)
-            .add_state_event(StateTestEvent::Custom(bob_member_event.clone())),
+            .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
+            .add_state_event(f.member(&BOB).sender(&BOB)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -786,7 +775,7 @@ async fn test_is_direct() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [
                 *test_json::MEMBER,
-                bob_member_event,
+                f.member(&BOB).sender(&BOB).into_raw_sync_state(),
             ],
         })))
         .expect(1)

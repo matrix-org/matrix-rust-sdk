@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
-use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineReadReceiptTracking};
 use ruma::{
     EventId, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
@@ -79,7 +79,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
     }
 
     let builder = JoinedRoomBuilder::new(&room_id)
-        .add_state_event(StateTestEvent::Encryption)
+        .add_state_event(f.room_encryption())
         .add_timeline_bulk(events);
 
     let room = runtime.block_on(async move {

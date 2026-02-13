@@ -583,8 +583,8 @@ async fn decrypt_state_event(
 mod tests {
     use assert_matches2::assert_matches;
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, TestResult,
-        async_test, event_factory::EventFactory,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_test,
+        event_factory::EventFactory,
     };
     use ruma::{RoomVersionId, event_id, room_id, user_id};
 
@@ -1262,8 +1262,9 @@ mod tests {
         let client = logged_in_base_client(Some(user_id)).await;
         let mut sync_builder = SyncResponseBuilder::new();
 
-        let room_name = EventFactory::new()
-            .sender(user_id)
+        let event_factory = EventFactory::new().sender(user_id);
+
+        let room_name = event_factory
             .room_topic("this is the test topic in the timeline")
             .event_id(event_id!("$2"))
             .into_raw_sync();
@@ -1272,8 +1273,8 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                     .add_timeline_event(room_name)
-                    .add_state_event(StateTestEvent::Create)
-                    .add_state_event(StateTestEvent::PowerLevels),
+                    .add_state_event(event_factory.create(user_id, RoomVersionId::V1))
+                    .add_state_event(event_factory.default_power_levels()),
             )
             .build_sync_response();
         client.receive_sync_response(response).await?;

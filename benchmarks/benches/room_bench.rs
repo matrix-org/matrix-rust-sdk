@@ -7,7 +7,7 @@ use matrix_sdk_base::{
     store::StoreConfig,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
-use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
@@ -108,7 +108,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     let f = EventFactory::new().room(&room_id).sender(&sender_id);
 
     let mut joined_room_builder =
-        JoinedRoomBuilder::new(&room_id).add_state_event(StateTestEvent::Encryption);
+        JoinedRoomBuilder::new(&room_id).add_state_event(f.room_encryption());
 
     let pinned_event_ids: Vec<OwnedEventId> = (0..PINNED_EVENTS_COUNT)
         .map(|i| EventId::parse(format!("${i}")).expect("Invalid event id"))

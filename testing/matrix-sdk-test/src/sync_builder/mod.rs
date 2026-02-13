@@ -30,9 +30,7 @@ pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
-pub use test_event::{
-    PresenceTestEvent, RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent,
-};
+pub use test_event::{PresenceTestEvent, RoomAccountDataTestEvent, StrippedStateTestEvent};
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
 /// responses for testing. These can be then fed into either `Client` or `Room`.

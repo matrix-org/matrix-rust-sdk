@@ -15,8 +15,7 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    BOB, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-    event_factory::EventFactory,
+    BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
@@ -876,7 +875,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
     let joined_room_builder = JoinedRoomBuilder::new(&room_id)
         // Set up encryption
-        .add_state_event(StateTestEvent::Encryption)
+        .add_state_event(f.room_encryption())
         // Add 100 pinned events
         .add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);
 
@@ -977,9 +976,10 @@ impl PinnedEventsSync {
         client: &Client,
         server: &MatrixMockServer,
     ) -> Result<Room, matrix_sdk::Error> {
+        let f = EventFactory::new().room(&self.room_id).sender(user_id!("@example:localhost"));
         let mut joined_room_builder = JoinedRoomBuilder::new(&self.room_id)
             // Set up encryption
-            .add_state_event(StateTestEvent::Encryption);
+            .add_state_event(f.room_encryption());
 
         joined_room_builder = joined_room_builder.add_timeline_bulk(self.timeline_events);
 

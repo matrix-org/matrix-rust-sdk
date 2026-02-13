@@ -165,7 +165,7 @@ impl<'a> RoomPrivacySettings<'a> {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
         api::client::room::Visibility,
         event_id,
@@ -173,7 +173,7 @@ mod tests {
             StateEventType,
             room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
         },
-        owned_room_alias_id, room_id,
+        owned_room_alias_id, room_id, user_id,
     };
 
     use crate::test_utils::mocks::MatrixMockServer;
@@ -244,8 +244,10 @@ mod tests {
         let client = server.client_builder().build().await;
 
         let room_id = room_id!("!a:b.c");
-        let joined_room_builder =
-            JoinedRoomBuilder::new(room_id).add_state_event(StateTestEvent::Alias);
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
+        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_event(
+            f.canonical_alias(Some(owned_room_alias_id!("#tutorial:localhost")), vec![]),
+        );
         let room = server.sync_room(&client, joined_room_builder).await;
 
         let room_alias = owned_room_alias_id!("#a:b.c");
@@ -276,8 +278,10 @@ mod tests {
         let client = server.client_builder().build().await;
 
         let room_id = room_id!("!a:b.c");
-        let joined_room_builder =
-            JoinedRoomBuilder::new(room_id).add_state_event(StateTestEvent::Alias);
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
+        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_event(
+            f.canonical_alias(Some(owned_room_alias_id!("#tutorial:localhost")), vec![]),
+        );
         let room = server.sync_room(&client, joined_room_builder).await;
 
         let room_alias = owned_room_alias_id!("#a:b.c");

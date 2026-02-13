@@ -5,7 +5,7 @@ use ruma::{
     serde::Raw,
 };
 
-use super::{RoomAccountDataTestEvent, StateMutExt, StateTestEvent};
+use super::{RoomAccountDataTestEvent, StateMutExt};
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct LeftRoomBuilder {
@@ -66,12 +66,6 @@ impl LeftRoomBuilder {
     /// Set the `prev_batch` of the timeline.
     pub fn set_timeline_prev_batch(mut self, prev_batch: String) -> Self {
         self.inner.timeline.prev_batch = Some(prev_batch);
-        self
-    }
-
-    /// Add an event to the state.
-    pub fn add_state_event(mut self, event: StateTestEvent) -> Self {
-        self.inner.state.events_mut().push(event.into());
         self
     }
 

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedUserId, events::rtc::notification::NotificationType, owned_event_id, room_id, user_id,
 };
@@ -97,27 +97,21 @@ async fn test_decline_call() {
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
 
-    let f = EventFactory::new();
+    let f = EventFactory::new().sender(user_id!("@alice:matrix.org"));
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_state_event(StateTestEvent::Encryption)
+                .add_state_event(f.room_encryption())
                 .add_timeline_event(
-                    f.rtc_notification(NotificationType::Ring)
-                        .sender(user_id!("@alice:matrix.org"))
-                        .event_id(&notification_event_id),
+                    f.rtc_notification(NotificationType::Ring).event_id(&notification_event_id),
                 )
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring)
                         .sender(user_id!("@example:localhost"))
                         .event_id(&own_notification_event_id),
                 )
-                .add_timeline_event(
-                    f.text_msg("Hello, HRU? ")
-                        .event_id(&a_message_event_id)
-                        .sender(user_id!("@alice:matrix.org")),
-                ),
+                .add_timeline_event(f.text_msg("Hello, HRU? ").event_id(&a_message_event_id)),
         )
         .await;
 

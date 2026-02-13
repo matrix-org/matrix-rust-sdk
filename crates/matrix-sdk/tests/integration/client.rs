@@ -17,8 +17,8 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent,
-    StrippedStateTestEvent, SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, StrippedStateTestEvent,
+    SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
@@ -30,7 +30,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, OwnedUserId, RoomId,
+    EventId, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -1476,22 +1476,25 @@ async fn test_room_sync_state_after() {
 
     let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
 
+    let f = EventFactory::new().sender(user_id!("@example:localhost")).room(&DEFAULT_TEST_ROOM_ID);
+
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .use_state_after()
                 .add_state_bulk([
-                    Raw::new(&*test_json::sync_events::CREATE).unwrap().cast_unchecked(),
+                    f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
                     Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
-                    Raw::new(&*test_json::sync_events::HISTORY_VISIBILITY)
-                        .unwrap()
-                        .cast_unchecked(),
-                    Raw::new(&*test_json::sync_events::JOIN_RULES).unwrap().cast_unchecked(),
-                    Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
+                    f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
+                    f.room_join_rules(JoinRule::Public).into(),
+                    f.member(user_id!("@invited:localhost"))
+                        .sender(user_id!("@invited:localhost"))
+                        .leave()
+                        .into(),
                 ])
                 .add_timeline_bulk([
-                    Raw::new(&*test_json::sync_events::MEMBER_ADDITIONAL).unwrap().cast_unchecked(),
+                    f.member(user_id!("@invited:localhost")).into_raw_timeline().cast(),
                     Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
                 ]),
         )
@@ -1846,18 +1849,21 @@ async fn test_sync_processing_of_custom_join_rule() {
     server
         .mock_sync()
         .ok(|builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                        "content": {
-                            "join_rule": "my_custom_rule"
-                        },
-                        "event_id": "$15139375513VdeRF:localhost",
-                        "origin_server_ts": 151393755,
-                        "sender": "@example:localhost",
-                        "state_key": "",
-                        "type": "m.room.join_rules",
-                })),
-            ));
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_state_event(Raw::from_json(
+                    serde_json::value::to_raw_value(&json!({
+                            "content": {
+                                "join_rule": "my_custom_rule"
+                            },
+                            "event_id": "$15139375513VdeRF:localhost",
+                            "origin_server_ts": 151393755,
+                            "sender": "@example:localhost",
+                            "state_key": "",
+                            "type": "m.room.join_rules",
+                    }))
+                    .unwrap(),
+                )),
+            );
         })
         .mock_once()
         .mount()
