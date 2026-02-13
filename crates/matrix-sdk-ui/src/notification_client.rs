@@ -22,7 +22,9 @@ use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
-use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
+use matrix_sdk_base::{
+    RoomState, StoreError, deserialized_responses::TimelineEvent, store::CrossProcessStoreConfig,
+};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
@@ -49,7 +51,7 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     DEFAULT_SANITIZER_MODE,
-    encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
+    encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService},
     sync_service::SyncService,
 };
 
@@ -116,7 +118,16 @@ impl NotificationClient {
         parent_client: Client,
         process_setup: NotificationProcessSetup,
     ) -> Result<Self, Error> {
-        let client = parent_client.notification_client(Self::LOCK_ID.to_owned()).await?;
+        // Only create the lock id if cross process lock is needed (multiple processes)
+        let cross_process_store_config = match process_setup {
+            NotificationProcessSetup::MultipleProcesses => {
+                CrossProcessStoreConfig::multi_process(Self::LOCK_ID)
+            }
+            NotificationProcessSetup::SingleProcess { .. } => {
+                CrossProcessStoreConfig::SingleProcess
+            }
+        };
+        let client = parent_client.notification_client(cross_process_store_config).await?;
 
         Ok(NotificationClient {
             client,
@@ -231,11 +242,6 @@ impl NotificationClient {
         //
         // Keep timeouts small for both, since we might be short on time.
 
-        let with_locking = WithLocking::from(matches!(
-            self.process_setup,
-            NotificationProcessSetup::MultipleProcesses
-        ));
-
         let push_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
@@ -305,7 +311,6 @@ impl NotificationClient {
         let encryption_sync = EncryptionSyncService::new(
             self.client.clone(),
             Some((Duration::from_secs(3), Duration::from_secs(4))),
-            with_locking,
         )
         .await;
 

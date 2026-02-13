@@ -35,8 +35,8 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{
-        DynStateStore, RoomLoadSettings, SupportedVersionsResponse, TtlStoreValue,
-        WellKnownResponse,
+        CrossProcessStoreConfig, DynStateStore, RoomLoadSettings, SupportedVersionsResponse,
+        TtlStoreValue, WellKnownResponse,
     },
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
@@ -307,16 +307,15 @@ pub(crate) struct ClientInner {
     /// deduplicate multiple calls to a method.
     pub(crate) locks: ClientLocks,
 
-    /// The cross-process store locks holder name.
+    /// The cross-process store mode.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
-    /// `holder_name` is the value used for all cross-process store locks
-    /// used by this `Client`.
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when
+    /// [`CrossProcessStoreConfig::MultiProcess`] is used.
     ///
     /// If multiple `Client`s are running in different processes, this
     /// value MUST be different for each `Client`.
-    cross_process_store_locks_holder_name: String,
+    cross_process_store_config: CrossProcessStoreConfig,
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
@@ -420,7 +419,7 @@ impl ClientInner {
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
-        cross_process_store_locks_holder_name: String,
+        cross_process_store_config: CrossProcessStoreConfig,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
@@ -439,7 +438,7 @@ impl ClientInner {
             base_client,
             caches,
             locks: Default::default(),
-            cross_process_store_locks_holder_name,
+            cross_process_store_config,
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -536,14 +535,15 @@ impl Client {
         &self.inner.auth_ctx
     }
 
-    /// The cross-process store locks holder name.
+    /// The cross-process store mode.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
-    /// `holder_name` is the value used for all cross-process store locks
-    /// used by this `Client`.
-    pub fn cross_process_store_locks_holder_name(&self) -> &str {
-        &self.inner.cross_process_store_locks_holder_name
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when this
+    /// value is [`CrossProcessStoreConfig::MultiProcess`]. Its holder name is
+    /// the value used for all cross-process store locks used by this
+    /// `Client`.
+    pub fn cross_process_store_config(&self) -> &CrossProcessStoreConfig {
+        &self.inner.cross_process_store_config
     }
 
     /// Change the homeserver URL used by this client.
@@ -3089,12 +3089,12 @@ impl Client {
     /// Create a new specialized `Client` that can process notifications.
     ///
     /// See [`CrossProcessLock::new`] to learn more about
-    /// `cross_process_store_locks_holder_name`.
+    /// `cross_process_store_config`.
     ///
     /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
-        cross_process_store_locks_holder_name: String,
+        cross_process_store_config: CrossProcessStoreConfig,
     ) -> Result<Client> {
         let client = Client {
             inner: ClientInner::new(
@@ -3105,7 +3105,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
+                    .clone_with_in_memory_state_store(cross_process_store_config.clone(), false)
                     .await?,
                 self.inner.caches.supported_versions.read().await.clone(),
                 self.inner.caches.well_known.read().await.clone(),
@@ -3117,7 +3117,7 @@ impl Client {
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
-                cross_process_store_locks_holder_name,
+                cross_process_store_config,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
@@ -3429,6 +3429,7 @@ pub(crate) mod tests {
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+    use matrix_sdk_base::store::CrossProcessStoreConfig;
     use ruma::{
         RoomId, ServerName, UserId,
         api::{
@@ -3798,7 +3799,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3819,7 +3820,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3876,7 +3877,7 @@ pub(crate) mod tests {
         let client = Client::builder()
             .insecure_server_name_no_tls(server_name)
             .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                     .state_store(memory_store.clone()),
             )
             .build()
@@ -3895,7 +3896,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3939,7 +3940,7 @@ pub(crate) mod tests {
             .client_builder()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3957,7 +3958,7 @@ pub(crate) mod tests {
             .client_builder()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessStoreConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })

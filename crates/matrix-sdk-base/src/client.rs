@@ -64,9 +64,9 @@ use crate::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
-        BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult, RoomLoadSettings,
-        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, StoreConfig,
-        ambiguity_map::AmbiguityCache,
+        BaseStateStore, CrossProcessStoreConfig, DynStateStore, MemoryStore, Result as StoreResult,
+        RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        StoreConfig, ambiguity_map::AmbiguityCache,
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -78,10 +78,15 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+/// use matrix_sdk_base::{
+///     BaseClient, ThreadingSupport,
+///     store::{CrossProcessStoreConfig, StoreConfig},
+/// };
 ///
 /// let client = BaseClient::new(
-///     StoreConfig::new("cross-process-holder-name".to_owned()),
+///     StoreConfig::new(CrossProcessStoreConfig::multi_process(
+///         "cross-process-holder-name".to_owned(),
+///     )),
 ///     ThreadingSupport::Disabled,
 /// );
 /// ```
@@ -201,11 +206,10 @@ impl BaseClient {
     #[cfg(feature = "e2e-encryption")]
     pub async fn clone_with_in_memory_state_store(
         &self,
-        cross_process_store_locks_holder_name: &str,
+        cross_process_mode: CrossProcessStoreConfig,
         handle_verification_events: bool,
     ) -> Result<Self> {
-        let config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
-            .state_store(MemoryStore::new());
+        let config = StoreConfig::new(cross_process_mode).state_store(MemoryStore::new());
         let config = config.crypto_store(self.crypto_store.clone());
 
         let copy = Self {
@@ -238,11 +242,10 @@ impl BaseClient {
     #[allow(clippy::unused_async)]
     pub async fn clone_with_in_memory_state_store(
         &self,
-        cross_process_store_locks_holder: &str,
+        cross_process_store_config: CrossProcessStoreConfig,
         _handle_verification_events: bool,
     ) -> Result<Self> {
-        let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
-            .state_store(MemoryStore::new());
+        let config = StoreConfig::new(cross_process_store_config).state_store(MemoryStore::new());
         Ok(Self::new(config, ThreadingSupport::Disabled))
     }
 
@@ -432,8 +435,9 @@ impl BaseClient {
     /// ```rust
     /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
     /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
+    /// use matrix_sdk_base::store::CrossProcessStoreConfig;
     /// # async {
-    /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()), ThreadingSupport::Disabled);
+    /// # let client = BaseClient::new(StoreConfig::new(CrossProcessStoreConfig::multi_process("example")), ThreadingSupport::Disabled);
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
     /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
     /// # let room_id: &RoomId = todo!();
@@ -1167,7 +1171,7 @@ mod tests {
     use crate::{
         RoomDisplayName, RoomState, SessionMeta,
         client::ThreadingSupport,
-        store::{RoomLoadSettings, StateStoreExt, StoreConfig},
+        store::{CrossProcessStoreConfig, RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
     };
 
@@ -1461,7 +1465,7 @@ mod tests {
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
         client
@@ -1523,7 +1527,7 @@ mod tests {
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
         client
@@ -1587,7 +1591,7 @@ mod tests {
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
         client
@@ -1661,7 +1665,7 @@ mod tests {
     async fn test_ignored_user_list_changes() {
         let user_id = user_id!("@alice:example.org");
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
 
