@@ -40,7 +40,7 @@ use super::{
     RoomCreationData,
 };
 use crate::{
-    Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
+    BaseClient, Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
     utils::RawSyncStateEventWithKeys,
@@ -55,6 +55,7 @@ pub enum RoomUpdateKind {
 }
 
 pub async fn update_any_room(
+    client: &BaseClient,
     context: &mut Context,
     user_id: &UserId,
     room_creation_data: RoomCreationData<'_>,
@@ -86,13 +87,15 @@ pub async fn update_any_room(
 
     #[allow(unused_mut)] // Required for some feature flag combinations
     let (mut room, mut room_info, maybe_room_update_kind) = membership(
+        client,
         context,
         &mut raw_state_events,
         &invite_state_events,
         state_store,
         user_id,
         room_id,
-    );
+    )
+    .await;
 
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
@@ -213,7 +216,8 @@ pub async fn update_any_room(
 ///
 /// If there is any invite state events, the room can be considered an invited
 /// or knocked room, depending of the membership event (if any).
-fn membership(
+async fn membership(
+    client: &BaseClient,
     context: &mut Context,
     state_events: &mut [RawSyncStateEventWithKeys],
     invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
@@ -290,11 +294,13 @@ fn membership(
         // so we must process `required_state` and `timeline` looking for relevant
         // membership events.
         state_events::sync::own_membership_and_update_room_state(
+            client,
             context,
             user_id,
             state_events,
             &mut room_info,
-        );
+        )
+        .await;
 
         (room, room_info, None)
     }

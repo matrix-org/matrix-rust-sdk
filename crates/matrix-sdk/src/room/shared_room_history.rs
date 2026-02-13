@@ -126,9 +126,6 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
 pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
-    // TODO: retry this if it gets interrupted or it fails.
-    // TODO: do this in the background.
-
     let client = &room.client;
     let olm_machine = client.olm_machine().await;
 
@@ -186,6 +183,9 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
             warn!("Failed to deserialize room key bundle: {err}");
         }
     }
+
+    // Record that we have imported the key bundle.
+    olm_machine.store().record_room_key_bundle_imported(room.room_id()).await?;
 
     // TODO: Now that we downloaded and imported the bundle, or the bundle was
     // invalid, we can safely remove the info about the bundle.

@@ -128,14 +128,12 @@ async fn test_shared_history_out_of_order() {
     matrix_mock_server.mock_room_join(room_id).ok().mock_once().named("join").mount().await;
     bob_room.join().await.expect("Bob should be able to join the room");
 
-    let details = bob_room
-        .invite_acceptance_details()
-        .expect("We should have stored invite acceptance details");
+    let details =
+        bob_room.invite_details().await.expect("We should be able to access the invite details");
 
     assert_eq!(
-        details.inviter,
+        details.inviter.expect("We should be able to access the inviter").user_id(),
         alice.user_id().unwrap(),
-        "We should have recorded that Alice has invited us"
     );
 
     let bundle_info = bundle_info.await;
