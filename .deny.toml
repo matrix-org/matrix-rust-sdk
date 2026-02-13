@@ -52,5 +52,7 @@ allow-git = [
     # on releases.
     "https://github.com/matrix-org/vodozemac",
     # A patch override for the bindings: https://github.com/Alorel/rust-indexed-db/pull/72
-    "https://github.com/matrix-org/rust-indexed-db"
+    "https://github.com/matrix-org/rust-indexed-db",
+    # Required for the unstable-uniffi feature in ruma
+    "https://github.com/mozilla/uniffi-rs"
 ]
