@@ -4,7 +4,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use matrix_sdk::{store::RoomLoadSettings, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::{
     BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore, ThreadingSupport,
-    store::{CrossProcessStoreMode, StoreConfig},
+    store::{CrossProcessStoreConfig, StoreConfig},
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
@@ -57,8 +57,8 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .expect("initial filling of sqlite failed");
 
     let base_client = BaseClient::new(
-        StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-            "cross-process-store-locks-holder-name".to_owned(),
+        StoreConfig::new(CrossProcessStoreConfig::multi_process(
+            "cross-process-store-locks-holder-name",
         ))
         .state_store(sqlite_store),
         ThreadingSupport::Disabled,

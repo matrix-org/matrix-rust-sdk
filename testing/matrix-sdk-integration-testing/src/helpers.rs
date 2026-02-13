@@ -24,7 +24,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
-    store::CrossProcessStoreMode,
+    store::CrossProcessStoreConfig,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
@@ -49,7 +49,7 @@ pub struct TestClientBuilder {
     enable_share_history_on_invite: bool,
     threading_support: ThreadingSupport,
     http_proxy: Option<String>,
-    cross_process_mode: CrossProcessStoreMode,
+    cross_process_mode: CrossProcessStoreConfig,
 }
 
 impl TestClientBuilder {
@@ -69,7 +69,7 @@ impl TestClientBuilder {
             enable_share_history_on_invite: false,
             threading_support: ThreadingSupport::Disabled,
             http_proxy: None,
-            cross_process_mode: CrossProcessStoreMode::SingleProcess,
+            cross_process_mode: CrossProcessStoreConfig::SingleProcess,
         }
     }
 
@@ -117,7 +117,7 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn cross_process_mode(mut self, cross_process_mode: CrossProcessStoreMode) -> Self {
+    pub fn cross_process_mode(mut self, cross_process_mode: CrossProcessStoreConfig) -> Self {
         self.cross_process_mode = cross_process_mode;
         self
     }
@@ -135,7 +135,7 @@ impl TestClientBuilder {
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
             .with_threading_support(self.threading_support)
             .request_config(RequestConfig::short_retry())
-            .cross_process_store_mode(self.cross_process_mode.clone());
+            .cross_process_store_config(self.cross_process_mode.clone());
 
         if let Some(decryption_settings) = &self.decryption_settings {
             client_builder = client_builder.with_decryption_settings(decryption_settings.clone())

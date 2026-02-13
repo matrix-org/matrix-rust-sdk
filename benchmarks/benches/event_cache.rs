@@ -9,7 +9,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{
     event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore},
-    store::CrossProcessStoreMode,
+    store::CrossProcessStoreConfig,
 };
 use matrix_sdk_test::{ALICE, event_factory::EventFactory};
 use ruma::{
@@ -105,8 +105,8 @@ fn handle_room_updates(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-                                "cross-process-store-locks-holder-name".to_owned(),
+                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
                             ))
                             .state_store(state_store.clone())
                             .event_cache_store(event_cache_store.clone()),
@@ -273,8 +273,8 @@ fn find_event_relations(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-                                "cross-process-store-locks-holder-name".to_owned(),
+                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
                             ))
                             .state_store(state_store.clone())
                             .event_cache_store(event_cache_store),

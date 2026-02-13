@@ -24,7 +24,7 @@ use matrix_sdk_base::{
         Gap,
         store::{EventCacheStore, MemoryStore},
     },
-    store::CrossProcessStoreMode,
+    store::CrossProcessStoreConfig,
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
@@ -1377,7 +1377,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     // clients.
     let state_memory_store = matrix_sdk_base::store::MemoryStore::new();
     let event_cache_store = Arc::new(MemoryStore::new());
-    let store_config = StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodlor".to_owned()))
+    let store_config = StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
         .state_store(state_memory_store)
         .event_cache_store(event_cache_store);
     let client = server
@@ -2404,7 +2404,7 @@ async fn test_clear_all_rooms() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodlor".to_owned()))
+                StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
                     .event_cache_store(event_cache_store.clone()),
             )
         })
@@ -2484,7 +2484,7 @@ async fn test_sync_while_back_paginate() {
     ];
 
     let state_memory_store = matrix_sdk_base::store::MemoryStore::new();
-    let store_config = StoreConfig::new(CrossProcessStoreMode::MultiProcess("le_store".to_owned()))
+    let store_config = StoreConfig::new(CrossProcessStoreConfig::multi_process("le_store"))
         .event_cache_store(Arc::new(MemoryStore::new()))
         .state_store(state_memory_store);
 
@@ -2611,7 +2611,7 @@ async fn test_relations_ordering() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodlor".to_owned()))
+                StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
                     .event_cache_store(event_cache_store.clone()),
             )
         })
