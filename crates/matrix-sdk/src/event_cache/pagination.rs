@@ -182,18 +182,20 @@ impl RoomPagination {
         // there's no previous events chunk to load.
 
         loop {
-            let mut state_guard = self.inner.state.write().await?;
+            // Do not inline `load_outcome` in `match`, otherwise the write lock over the
+            // `state` won't be released inside the `match`.
+            let load_outcome = self.inner.state.write().await?.load_more_events_backwards().await?;
 
-            match state_guard.load_more_events_backwards().await? {
-                LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
-                    if prev_token.is_none() && !*state_guard.waited_for_initial_prev_token() {
+            match load_outcome {
+                LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token,
+                    waited_for_initial_prev_token,
+                } => {
+                    if prev_token.is_none() && !waited_for_initial_prev_token {
                         // We didn't reload a pagination token, and we haven't waited for one; wait
                         // and start over.
 
                         const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
-
-                        // Release the state guard while waiting, to not deadlock the sync task.
-                        drop(state_guard);
 
                         // Otherwise, wait for a notification that we received a previous-batch
                         // token.
@@ -219,7 +221,6 @@ impl RoomPagination {
                     }
 
                     // We have a gap, so resolve it with a network back-pagination.
-                    drop(state_guard);
                     return self.paginate_backwards_with_network(batch_size, prev_token).await;
                 }
 
