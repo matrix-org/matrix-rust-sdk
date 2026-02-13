@@ -632,6 +632,10 @@ async fn main() -> anyhow::Result<()> {
     let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
     #[cfg(not(feature = "e2ee-per-participant"))]
     let room_options_provider = DefaultRoomOptionsProvider;
+    #[cfg(not(feature = "e2ee-per-participant"))]
+    info!(
+        "`e2ee-per-participant` feature is disabled; this device will not send io.element.call.encryption_keys to-device messages"
+    );
     let connector = LiveKitSdkConnector::new(token_provider, room_options_provider);
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
