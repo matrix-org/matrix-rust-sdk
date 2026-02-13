@@ -58,10 +58,10 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use room::{
-    EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
-    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp,
-    RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
+    EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
+    RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
+    RoomMembersUpdate, RoomMemberships, RoomRecencyStamp, RoomState, RoomStateFilter,
+    SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,

@@ -22,8 +22,8 @@ use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId,
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
+    RoomAliasId, RoomId, RoomVersionId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
@@ -51,7 +51,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, field::debug, info, instrument, warn};
+use tracing::{field::debug, info, instrument, warn};
 
 use super::{
     AccountDataSource, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
@@ -70,18 +70,6 @@ use crate::{
 
 /// The default value of the maximum power level.
 const DEFAULT_MAX_POWER_LEVEL: i64 = 100;
-
-/// A struct remembering details of an invite and if the invite has been
-/// accepted on this particular client.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InviteAcceptanceDetails {
-    /// A timestamp remembering when we observed the user accepting an invite
-    /// using this client.
-    pub invite_accepted_at: MilliSecondsSinceUnixEpoch,
-
-    /// The user ID of the person that invited us.
-    pub inviter: OwnedUserId,
-}
 
 impl Room {
     /// Subscribe to the inner `RoomInfo`.
@@ -628,14 +616,6 @@ pub struct RoomInfo {
     /// stamp nicely acts as a default fallback.
     #[serde(default)]
     pub(crate) recency_stamp: Option<RoomRecencyStamp>,
-
-    /// A timestamp remembering when we observed the user accepting an invite on
-    /// this current device.
-    ///
-    /// This is useful to remember if the user accepted this join on this
-    /// specific client.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) invite_acceptance_details: Option<InviteAcceptanceDetails>,
 }
 
 impl RoomInfo {
@@ -658,7 +638,6 @@ impl RoomInfo {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
-            invite_acceptance_details: None,
         }
     }
 
@@ -689,12 +668,6 @@ impl RoomInfo {
 
     /// Set the membership RoomState of this Room
     pub fn set_state(&mut self, room_state: RoomState) {
-        if self.state() != RoomState::Joined && self.invite_acceptance_details.is_some() {
-            error!(room_id = %self.room_id, "The RoomInfo contains invite acceptance details but the room is not in the joined state");
-        }
-        // Changing our state removes the invite details since we can't know that they
-        // are relevant anymore.
-        self.invite_acceptance_details = None;
         self.room_state = room_state;
     }
 
@@ -929,20 +902,6 @@ impl RoomInfo {
     /// Updates the invited member count.
     pub(crate) fn update_invited_member_count(&mut self, count: u64) {
         self.summary.invited_member_count = count;
-    }
-
-    pub(crate) fn set_invite_acceptance_details(&mut self, details: InviteAcceptanceDetails) {
-        self.invite_acceptance_details = Some(details);
-    }
-
-    /// Returns the timestamp when an invite to this room has been accepted by
-    /// this specific client.
-    ///
-    /// # Returns
-    /// - `Some` if the invite has been accepted by this specific client.
-    /// - `None` if the invite has not been accepted
-    pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
-        self.invite_acceptance_details.clone()
     }
 
     /// Updates the room heroes.
@@ -1432,7 +1391,6 @@ mod tests {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: Some(42.into()),
-            invite_acceptance_details: None,
         };
 
         let info_json = json!({

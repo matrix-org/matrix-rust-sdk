@@ -22,7 +22,7 @@ use std::{
     time::Duration,
 };
 
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -90,6 +90,10 @@ pub struct Changes {
     /// The set of rooms for which we have requested all room keys from the
     /// backup in advance of constructing a room key bundle.
     pub room_key_backups_fully_downloaded: HashSet<OwnedRoomId>,
+
+    /// Tracks details of invite acceptance for specific rooms, including
+    /// whether the invite was accepted on this client.
+    pub invite_acceptance_details: HashMap<OwnedRoomId, Option<InviteAcceptanceDetails>>,
 }
 
 /// Information about an [MSC4268] room key bundle.
@@ -545,4 +549,17 @@ impl From<&StoredRoomKeyBundleData> for RoomKeyBundleInfo {
 
         Self { sender: sender_user.clone(), room_id: bundle_data.room_id.clone(), sender_key }
     }
+}
+
+/// A struct remembering details of an invite and if the invite has been
+/// accepted on this particular client. Used primarily to determine whether
+/// we should accept a room key bundle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InviteAcceptanceDetails {
+    /// A timestamp remembering when we observed the user accepting an invite
+    /// using this client.
+    pub invite_accepted_at: MilliSecondsSinceUnixEpoch,
+
+    /// The user ID of the person that invited us.
+    pub inviter: OwnedUserId,
 }

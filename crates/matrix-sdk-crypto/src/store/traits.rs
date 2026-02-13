@@ -36,7 +36,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         SenderDataType, Session,
     },
-    store::types::RoomKeyWithheldEntry,
+    store::types::{InviteAcceptanceDetails, RoomKeyWithheldEntry},
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -360,6 +360,17 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// room from the key backup in advance of building a room key bundle.
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error>;
 
+    /// Get the invite acceptance details for a given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to fetch the invite acceptance details
+    ///   for.
+    async fn get_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<InviteAcceptanceDetails>, Self::Error>;
+
     /// Get arbitrary data from the store
     ///
     /// # Arguments
@@ -633,6 +644,13 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error> {
         self.0.has_downloaded_all_room_keys(room_id).await.map_err(Into::into)
+    }
+
+    async fn get_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<InviteAcceptanceDetails>, Self::Error> {
+        self.0.get_invite_acceptance_details(room_id).await.map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

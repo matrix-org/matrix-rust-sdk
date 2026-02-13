@@ -43,8 +43,8 @@ use matrix_sdk_crypto::{
     store::{
         CryptoStore, CryptoStoreError,
         types::{
-            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
+            BackupKeys, Changes, DehydratedDeviceKey, InviteAcceptanceDetails, PendingChanges,
+            RoomKeyCounts, RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
     },
     vodozemac::base64_encode,
@@ -103,6 +103,8 @@ mod keys {
     pub const LEASE_LOCKS: &str = "lease_locks";
 
     pub const ROOM_KEY_BACKUPS_FULLY_DOWNLOADED: &str = "room_key_backups_fully_downloaded";
+
+    pub const INVITE_ACCEPTANCE_DETAILS: &str = "invite_acceptance_details";
 
     // keys
     pub const STORE_CIPHER: &str = "store_cipher";
@@ -746,6 +748,17 @@ impl IndexeddbCryptoStore {
                 room_store.put(
                     self.serializer.encode_key(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED, room_id),
                     JsValue::TRUE,
+                );
+            }
+        }
+
+        if !changes.invite_acceptance_details.is_empty() {
+            let mut room_store = indexeddb_changes.get(keys::INVITE_ACCEPTANCE_DETAILS);
+            for (room_id, details) in &changes.invite_acceptance_details {
+                let value = self.serializer.serialize_value(details)?;
+                room_store.put(
+                    self.serializer.encode_key(keys::INVITE_ACCEPTANCE_DETAILS, room_id),
+                    value,
                 );
             }
         }
@@ -1575,6 +1588,20 @@ impl_crypto_store! {
             .await?
             .is_some();
 
+        Ok(result)
+    }
+
+    async fn get_invite_acceptance_details(&self, room_id: &RoomId) -> Result<Option<InviteAcceptanceDetails>> {
+        let key = self.serializer.encode_key(keys::INVITE_ACCEPTANCE_DETAILS, room_id);
+        let result = self
+            .inner
+            .transaction(keys::INVITE_ACCEPTANCE_DETAILS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::INVITE_ACCEPTANCE_DETAILS)?
+            .get(&key)
+            .await?
+            .map(|v| self.serializer.deserialize_value(v)).transpose()?;
         Ok(result)
     }
 

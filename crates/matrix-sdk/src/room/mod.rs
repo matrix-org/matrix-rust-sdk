@@ -75,8 +75,9 @@ use ruma::events::{
     AnySyncTimelineEvent, SyncMessageLikeEvent, room::encrypted::OriginalSyncRoomEncryptedEvent,
 };
 use ruma::{
-    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    EventId, Int, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
+    OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt,
+    UserId,
     api::client::{
         config::{set_global_account_data, set_room_account_data},
         context,
@@ -3538,12 +3539,6 @@ impl Room {
     /// The membership details of the (latest) invite for the logged-in user in
     /// this room.
     pub async fn invite_details(&self) -> Result<Invite> {
-        let state = self.state();
-
-        if state != RoomState::Invited {
-            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Invited", state))));
-        }
-
         let invitee = self
             .get_member_no_sync(self.own_user_id())
             .await?
@@ -3551,7 +3546,21 @@ impl Room {
         let event = invitee.event();
         let inviter_id = event.sender();
         let inviter = self.get_member_no_sync(inviter_id).await?;
-        Ok(Invite { invitee, inviter })
+
+        #[cfg(feature = "e2e-encryption")]
+        let accepted_at = self
+            .client
+            .olm_machine()
+            .await
+            .as_ref()
+            .ok_or(Error::NoOlmMachine)?
+            .invite_acceptance_details(self.room_id())
+            .await?
+            .map(|details| details.invite_accepted_at);
+        #[cfg(not(feature = "e2e-encryption"))]
+        let accepted_at = None;
+
+        Ok(Invite { invitee, inviter, invite_accepted_at: accepted_at })
     }
 
     /// Get the membership details for the current user.
@@ -4450,6 +4459,8 @@ pub struct Invite {
     pub invitee: RoomMember,
     /// Who sent the invite.
     pub inviter: Option<RoomMember>,
+    /// The recorded timestamp of when we accepted the invite.
+    pub invite_accepted_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 #[derive(Error, Debug)]

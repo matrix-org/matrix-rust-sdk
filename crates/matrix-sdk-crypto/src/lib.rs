@@ -99,7 +99,7 @@ use serde::{Deserialize, Serialize};
 pub use session_manager::CollectStrategy;
 pub use store::{
     CryptoStoreError, SecretImportError, SecretInfo,
-    types::{CrossSigningKeyExport, TrackedUser},
+    types::{CrossSigningKeyExport, InviteAcceptanceDetails, TrackedUser},
 };
 pub use verification::{
     AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas, SasState,

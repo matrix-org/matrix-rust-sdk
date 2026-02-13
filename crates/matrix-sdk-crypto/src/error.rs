@@ -394,6 +394,20 @@ pub enum SetRoomSettingsError {
     Store(#[from] CryptoStoreError),
 }
 
+/// Errors that can be returned by
+/// [`crate::machine::OlmMachine::set_invite_acceptance_details`].
+#[derive(Debug, Error)]
+pub enum SetInviteAcceptanceDetailsError {
+    /// The attempted change is invalid because the existing invite details
+    /// are newer than the proposed details.
+    #[error("the existing invite details were stored after the proposed change")]
+    ExistingDetailsNewer,
+
+    /// The store ran into an error.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+}
+
 /// Error representing a problem when collecting the recipient devices for the
 /// room key, during an encryption operation.
 #[derive(Error, Debug)]

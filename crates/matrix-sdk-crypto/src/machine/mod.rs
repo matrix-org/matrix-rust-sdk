@@ -73,7 +73,10 @@ use crate::{
     RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
-    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
+    error::{
+        EventError, MegolmError, MegolmResult, OlmError, OlmResult,
+        SetInviteAcceptanceDetailsError, SetRoomSettingsError,
+    },
     gossiping::GossipMachine,
     identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
@@ -87,8 +90,9 @@ use crate::{
         Store, StoreTransaction,
         caches::StoreCache,
         types::{
-            Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
-            RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
+            Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges,
+            InviteAcceptanceDetails, PendingChanges, RoomKeyInfo, RoomSettings,
+            StoredRoomKeyBundleData,
         },
     },
     types::{
@@ -3016,6 +3020,51 @@ impl OlmMachine {
         store
             .save_changes(Changes {
                 room_settings: HashMap::from([(room_id.to_owned(), new_settings.clone())]),
+                ..Default::default()
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// Retrieve the details of an invite acceptance for a specific room if they
+    /// exist.The details include information such as the timestamp when
+    /// the invite was accepted.
+    pub async fn invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+    ) -> StoreResult<Option<InviteAcceptanceDetails>> {
+        self.inner.store.get_invite_acceptance_details(room_id).await
+    }
+
+    /// Set the details of an invite acceptance for a specific room.
+    ///
+    /// If the provided details indicate an invite acceptance that occurred earlier
+    /// than the existing stored details, the update will be rejected to prevent
+    /// overwriting with older data.
+    pub async fn set_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+        details: Option<&InviteAcceptanceDetails>,
+    ) -> Result<(), SetInviteAcceptanceDetailsError> {
+        let store = &self.inner.store;
+
+        // Prevent weirdness where we concurrently accept two invites.
+        let _store_transaction = store.transaction().await;
+
+        let existing = store.get_invite_acceptance_details(room_id).await?;
+
+        // Prevent new details from recording an invite was accepted before the existing
+        // one.
+        if let (Some(existing), Some(proposed)) = (existing, details)
+            && proposed.invite_accepted_at < existing.invite_accepted_at
+        {
+            return Err(SetInviteAcceptanceDetailsError::ExistingDetailsNewer);
+        }
+
+        store
+            .save_changes(Changes {
+                invite_acceptance_details: HashMap::from([(room_id.to_owned(), details.cloned())]),
                 ..Default::default()
             })
             .await?;

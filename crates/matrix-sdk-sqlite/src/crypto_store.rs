@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     fmt,
     path::Path,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -30,15 +31,15 @@ use matrix_sdk_crypto::{
     store::{
         CryptoStore,
         types::{
-            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
+            BackupKeys, Changes, DehydratedDeviceKey, InviteAcceptanceDetails, PendingChanges,
+            RoomKeyCounts, RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
         },
     },
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
-    events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UInt,
+    UserId, events::secret::request::SecretName,
 };
 use rusqlite::{OptionalExtension, named_params, params_from_iter};
 use tokio::{fs, sync::Mutex};
@@ -375,6 +376,12 @@ trait SqliteConnectionExt {
     ) -> rusqlite::Result<()>;
 
     fn set_has_downloaded_all_room_keys(&self, room_id: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_invite_acceptance_details(
+        &self,
+        room_id: &[u8],
+        details: Option<(i64, &[u8])>,
+    ) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -526,6 +533,24 @@ impl SqliteConnectionExt for rusqlite::Connection {
              ON CONFLICT(room_id) DO NOTHING",
             (room_id,),
         )?;
+        Ok(())
+    }
+
+    fn set_invite_acceptance_details(
+        &self,
+        room_id: &[u8],
+        details: Option<(i64, &[u8])>,
+    ) -> rusqlite::Result<()> {
+        if let Some((invite_accepted_ts, inviter_user_id)) = details {
+            self.execute(
+                "INSERT INTO invite_acceptance_details (room_id, invite_accepted_ts, inviter_user_id)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT (room_id) DO UPDATE SET invite_accepted_ts = ?2, inviter_user_id = ?3",
+                (room_id, invite_accepted_ts, inviter_user_id),
+            )?;
+        } else {
+            self.execute("DELETE FROM invite_acceptance_details WHERE room_id = ?1", (room_id,))?;
+        }
         Ok(())
     }
 }
@@ -845,6 +870,17 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             )
             .await?)
     }
+    async fn get_invite_acceptance_details(&self, room_id: Key) -> Result<Option<(i64, String)>> {
+        Ok(self.query_row(
+            "SELECT invite_accepted_ts, inviter_user_id FROM invite_acceptance_details WHERE room_id = ?",
+            (room_id,),
+            |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            },
+        )
+        .await
+        .optional()?)
+    }
 }
 
 #[async_trait]
@@ -1059,6 +1095,16 @@ impl CryptoStore for SqliteCryptoStore {
                 for room in changes.room_key_backups_fully_downloaded {
                     let room_id = this.encode_key("room_key_backups_fully_downloaded", &room);
                     txn.set_has_downloaded_all_room_keys(&room_id)?;
+                }
+
+                for (room, details) in changes.invite_acceptance_details {
+                    let room_id = this.encode_key("invite_acceptance_details", &room);
+                    txn.set_invite_acceptance_details(
+                        &room_id,
+                        details.as_ref().map(|details| {
+                            (details.invite_accepted_at.0.into(), details.inviter.as_bytes())
+                        }),
+                    )?;
                 }
 
                 Ok::<_, Error>(())
@@ -1496,6 +1542,28 @@ impl CryptoStore for SqliteCryptoStore {
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
         let room_id = self.encode_key("room_key_backups_fully_downloaded", room_id);
         self.acquire().await?.has_downloaded_all_room_keys(room_id).await
+    }
+
+    async fn get_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<InviteAcceptanceDetails>> {
+        let room_id = self.encode_key("invite_acceptance_details", room_id.as_bytes());
+        self.acquire()
+            .await?
+            .get_invite_acceptance_details(room_id)
+            .await?
+            .map(|(timestamp, inviter)| {
+                Ok(InviteAcceptanceDetails {
+                    invite_accepted_at: MilliSecondsSinceUnixEpoch(
+                        UInt::new(timestamp as u64)
+                            .ok_or_else(|| Error::InvalidData { details: "".to_owned() })?,
+                    ),
+                    inviter: OwnedUserId::from_str(&inviter)
+                        .map_err(|_| Error::InvalidData { details: "".to_owned() })?,
+                })
+            })
+            .transpose()
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {

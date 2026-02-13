@@ -20,9 +20,7 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
 };
-use matrix_sdk_base::{
-    InviteAcceptanceDetails, RoomState, crypto::store::types::RoomKeyBundleInfo,
-};
+use matrix_sdk_base::{RoomState, crypto::store::types::RoomKeyBundleInfo};
 use matrix_sdk_common::failures_cache::FailuresCache;
 #[cfg(not(feature = "experimental-encrypted-state-events"))]
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
@@ -37,7 +35,7 @@ use crate::{
     client::WeakClient,
     encryption::backups::UploadState,
     executor::{JoinHandle, spawn},
-    room::shared_room_history,
+    room::{Invite, shared_room_history},
 };
 
 /// A cache of room keys we already downloaded.
@@ -470,7 +468,7 @@ impl BundleReceiverTask {
 
     #[instrument(skip(room), fields(room_id = %room.room_id()))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
-        if Self::should_accept_bundle(room, bundle_info) {
+        if Self::should_accept_bundle(room, bundle_info).await {
             info!("Accepting a late key bundle.");
 
             if let Err(e) =
@@ -483,16 +481,20 @@ impl BundleReceiverTask {
         }
     }
 
-    fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
+    async fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
         // We accept historic room key bundles up to one day after we have accepted an
         // invite.
         const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Some(InviteAcceptanceDetails { invite_accepted_at, inviter }) =
-            room.invite_acceptance_details()
-        else {
+        let Ok(Invite { inviter, invite_accepted_at, .. }) = room.invite_details().await else {
+            return false;
+        };
+        let Some(inviter) = inviter else {
+            return false;
+        };
+        let Some(invite_accepted_at) = invite_accepted_at else {
             return false;
         };
 
@@ -502,7 +504,7 @@ impl BundleReceiverTask {
 
         match (state, elapsed_since_join) {
             (RoomState::Joined, Some(elapsed_since_join)) => {
-                elapsed_since_join < DAY && bundle_sender == &inviter
+                elapsed_since_join < DAY && bundle_sender == inviter.user_id()
             }
             (RoomState::Joined, None) => false,
             (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => {
@@ -624,7 +626,7 @@ mod test {
             client.get_room(joined_room_id).expect("We should have access to our joined room now");
 
         assert!(
-            room.invite_acceptance_details().is_none(),
+            room.invite_details().await.is_err(),
             "We shouldn't have any invite acceptance details if we didn't join the room on this Client"
         );
 
@@ -635,7 +637,7 @@ mod test {
         };
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should not accept a bundle if we did not join the room from this Client"
         );
 
@@ -643,7 +645,7 @@ mod test {
             client.get_room(invited_rom_id).expect("We should have access to our invited room now");
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info).await,
             "We should not accept a bundle if we didn't join the room."
         );
 
@@ -655,12 +657,17 @@ mod test {
             .expect("We should be able to join the invited room");
 
         let details = room
-            .invite_acceptance_details()
+            .invite_details()
+            .await
             .expect("We should have stored the invite acceptance details");
-        assert_eq!(details.inviter, bob_user_id, "We should have recorded that Bob has invited us");
+        assert_eq!(
+            details.inviter.expect("We should be able to access the inviting member").user_id(),
+            bob_user_id,
+            "We should have recorded that Bob has invited us"
+        );
 
         assert!(
-            BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should accept a bundle if we just joined the room and did so from this very Client object"
         );
     }
