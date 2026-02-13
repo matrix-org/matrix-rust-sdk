@@ -84,7 +84,7 @@ use crate::{
 /// };
 ///
 /// let client = BaseClient::new(
-///     StoreConfig::new(CrossProcessStoreConfig::MultiProcess(
+///     StoreConfig::new(CrossProcessStoreConfig::multi_process(
 ///         "cross-process-holder-name".to_owned(),
 ///     )),
 ///     ThreadingSupport::Disabled,
