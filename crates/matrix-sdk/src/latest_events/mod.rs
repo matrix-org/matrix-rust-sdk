@@ -663,7 +663,7 @@ fn local_room_message(body: &str) -> LocalLatestEventValue {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::HashMap, ops::Not};
+    use std::{collections::HashMap, ops::Not, time::Duration};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
@@ -683,7 +683,7 @@ mod tests {
         owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
-    use tokio::task::yield_now;
+    use tokio::{task::yield_now, time::timeout};
 
     use super::{
         LatestEventValue, RegisteredRooms, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
@@ -1432,7 +1432,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_latest_event_value_is_updated_via_room_infos() {
+    async fn test_latest_event_value_is_updated_via_room_infos_for_invites() {
         let room_id = owned_room_id!("!r0");
         let event_factory = EventFactory::new().room(&room_id);
         let event_id_0 = event_id!("$ev0");
@@ -1458,69 +1458,99 @@ mod tests {
         let now = MilliSecondsSinceUnixEpoch::now().get();
 
         // Update the room with a sync: the user is invited to a room.
-        server
-            .sync_room(
-                &client,
-                InvitedRoomBuilder::new(&room_id).add_state_event(
-                    event_factory.member(other_user_id).invited(own_user_id).event_id(event_id_0),
-                ),
-            )
-            .await;
+        {
+            server
+                .sync_room(
+                    &client,
+                    InvitedRoomBuilder::new(&room_id).add_state_event(
+                        event_factory
+                            .member(other_user_id)
+                            .invited(own_user_id)
+                            .event_id(event_id_0),
+                    ),
+                )
+                .await;
 
-        // The room has received its update from the sync. It has emitted a room info
-        // update, which has been received by `LatestEvents` tasks, up to the
-        // `compute_latest_events` which has updated the latest event value.
-        assert_matches!(
-            latest_event_stream.next().await,
-            Some(LatestEventValue::RemoteInvite { event_id, timestamp, inviter }) => {
-                // It's a stripped state event: they don't have an event ID.
-                assert!(event_id.is_none());
-                // It's a stripped state event: they don't have a timestamp (`origin_server_ts`), but `now` is normally used as a fallback.
-                assert!(timestamp.get() >= now);
-                assert_eq!(inviter.as_deref(), Some(other_user_id));
-            }
-        );
+            // The room has received its update from the sync. It has emitted a room info
+            // update, which has been received by `LatestEvents` tasks, up to the
+            // `compute_latest_events` which has updated the latest event value.
+            assert_matches!(
+                latest_event_stream.next().await,
+                Some(LatestEventValue::RemoteInvite { event_id, timestamp, inviter }) => {
+                    // It's a stripped state event: they don't have an event ID.
+                    assert!(event_id.is_none());
+                    // It's a stripped state event: they don't have a timestamp (`origin_server_ts`), but `now` is normally used as a fallback.
+                    assert!(timestamp.get() >= now);
+                    assert_eq!(inviter.as_deref(), Some(other_user_id));
+                }
+            );
 
-        assert_pending!(latest_event_stream);
+            assert_pending!(latest_event_stream);
+        };
+
+        // Update the room with a sync: the user is invited to the same room.
+        {
+            server
+                .sync_room(
+                    &client,
+                    InvitedRoomBuilder::new(&room_id).add_state_event(
+                        event_factory
+                            .member(other_user_id)
+                            .invited(own_user_id)
+                            .event_id(event_id_0),
+                    ),
+                )
+                .await;
+
+            // The room has received its update from the sync. It has emitted a room info
+            // update, which has been received by `LatestEvents` tasks, up to the
+            // `compute_latest_events` which has NOT updated the latest event value because
+            // a previous `RemoteInvite` was already computed.
+            assert!(timeout(Duration::from_secs(1), latest_event_stream.next()).await.is_err());
+
+            assert_pending!(latest_event_stream);
+        }
 
         // Update the room with a sync: the user is joining the room.
-        let now = u64::from(now) + 10; // time flies
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(&room_id).add_timeline_event(
-                    event_factory
-                        .member(own_user_id)
-                        .membership(MembershipState::Join)
-                        .event_id(event_id_1)
-                        .server_ts(now),
-                ),
-            )
-            .await;
+        {
+            let now = u64::from(now) + 10; // time flies
+            server
+                .sync_room(
+                    &client,
+                    JoinedRoomBuilder::new(&room_id).add_timeline_event(
+                        event_factory
+                            .member(own_user_id)
+                            .membership(MembershipState::Join)
+                            .event_id(event_id_1)
+                            .server_ts(now),
+                    ),
+                )
+                .await;
 
-        // The event cache has received its update from the sync. It has emitted a
-        // generic update, which has been received by `LatestEvents` tasks, up to the
-        // `compute_latest_events` which has updated the latest event value.
-        assert_matches!(
-            latest_event_stream.next().await,
-            Some(LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. })) => {
-                assert_matches!(
-                    event.deserialize().unwrap(),
-                    AnySyncTimelineEvent::State(
-                        AnySyncStateEvent::RoomMember(
-                            SyncRoomMemberEvent::Original(event)
-                        )
-                    ) => {
-                        assert_eq!(event.event_id, event_id_1);
-                        assert_eq!(event.content.membership, MembershipState::Join);
-                        assert_eq!(event.sender, own_user_id);
-                        assert_eq!(event.state_key, own_user_id);
-                        assert_eq!(u64::from(event.origin_server_ts.get()), now);
-                    }
-                );
-            }
-        );
+            // The event cache has received its update from the sync. It has emitted a
+            // generic update, which has been received by `LatestEvents` tasks, up to the
+            // `compute_latest_events` which has updated the latest event value.
+            assert_matches!(
+                latest_event_stream.next().await,
+                Some(LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. })) => {
+                    assert_matches!(
+                        event.deserialize().unwrap(),
+                        AnySyncTimelineEvent::State(
+                            AnySyncStateEvent::RoomMember(
+                                SyncRoomMemberEvent::Original(event)
+                            )
+                        ) => {
+                            assert_eq!(event.event_id, event_id_1);
+                            assert_eq!(event.content.membership, MembershipState::Join);
+                            assert_eq!(event.sender, own_user_id);
+                            assert_eq!(event.state_key, own_user_id);
+                            assert_eq!(u64::from(event.origin_server_ts.get()), now);
+                        }
+                    );
+                }
+            );
 
-        assert_pending!(latest_event_stream);
+            assert_pending!(latest_event_stream);
+        }
     }
 }
