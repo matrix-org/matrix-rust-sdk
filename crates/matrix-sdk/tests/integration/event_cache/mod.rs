@@ -9,7 +9,7 @@ use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate, RoomPaginationStatus,
+        BackPaginationOutcome, EventCacheError, PaginationStatus, RoomEventCacheUpdate,
         TimelineVectorDiffs,
     },
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
@@ -785,7 +785,7 @@ async fn test_limited_timeline_resets_pagination() {
     // At the beginning, the paginator is in the idle state.
     let pagination = room_event_cache.pagination();
     let mut pagination_status = pagination.status();
-    assert_eq!(pagination_status.get(), RoomPaginationStatus::Idle { hit_timeline_start: false });
+    assert_eq!(pagination_status.get(), PaginationStatus::Idle { hit_timeline_start: false });
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
@@ -809,7 +809,7 @@ async fn test_limited_timeline_resets_pagination() {
     // consistent with it:
     assert_next_matches_with_timeout!(
         pagination_status,
-        RoomPaginationStatus::Idle { hit_timeline_start: true }
+        PaginationStatus::Idle { hit_timeline_start: true }
     );
 
     // When a limited sync comes back from the server,
@@ -834,7 +834,7 @@ async fn test_limited_timeline_resets_pagination() {
     // start.
     assert_next_matches_with_timeout!(
         pagination_status,
-        RoomPaginationStatus::Idle { hit_timeline_start: false }
+        PaginationStatus::Idle { hit_timeline_start: false }
     );
 
     assert!(room_stream.is_empty());

@@ -80,7 +80,7 @@ mod redecryptor;
 mod room;
 
 pub use caches::TimelineVectorDiffs;
-pub use pagination::{RoomPagination, RoomPaginationStatus};
+pub use pagination::{PaginationStatus, RoomPagination};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber};
@@ -1101,7 +1101,7 @@ impl EventCacheInner {
                 }
 
                 let pagination_status =
-                    SharedObservable::new(RoomPaginationStatus::Idle { hit_timeline_start: false });
+                    SharedObservable::new(PaginationStatus::Idle { hit_timeline_start: false });
 
                 let Some(client) = self.client.get() else {
                     return Err(EventCacheError::ClientDropped);
