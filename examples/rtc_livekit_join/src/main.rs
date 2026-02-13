@@ -1477,7 +1477,7 @@ async fn send_per_participant_keys(
         let devices = client.encryption().get_user_devices(user_id).await?;
         let device_list: Vec<_> = devices.devices().collect();
 
-        info!(user_id = %user_id, device_count = device_list.len(), "per-participant E2EE device discovery");
+        //info!(user_id = %user_id, device_count = device_list.len(), "per-participant E2EE device discovery");
 
         for device in device_list {
             if let Some(own_user_id) = own_user_id.as_ref() {
@@ -1507,6 +1507,8 @@ async fn send_per_participant_keys(
         key_index,
         key_len = key.len(),
         room_id = %room.room_id(),
+        key = key,
+        keyb64 = key_b64,
         "sending per-participant E2EE keys to devices"
     );
 
