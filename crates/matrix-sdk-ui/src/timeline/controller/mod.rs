@@ -24,7 +24,7 @@ use matrix_sdk::Result;
 use matrix_sdk::{
     config::RequestConfig,
     deserialized_responses::TimelineEvent,
-    event_cache::{DecryptionRetryRequest, RoomEventCache, RoomPaginationStatus},
+    event_cache::{DecryptionRetryRequest, PaginationStatus, RoomEventCache},
     paginators::{PaginationResult, PaginationToken, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -437,14 +437,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 match room_event_cache.pagination().status().get() {
-                    RoomPaginationStatus::Idle { hit_timeline_start } => {
+                    PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
                             // Eagerly insert the timeline start item, since pagination claims
                             // we've already hit the timeline start.
                             self.insert_timeline_start_if_missing().await;
                         }
                     }
-                    RoomPaginationStatus::Paginating => {}
+                    PaginationStatus::Paginating => {}
                 }
 
                 Ok(has_events)
@@ -1821,23 +1821,20 @@ impl TimelineController {
     /// case: if the timeline has a skip count greater than 0, it will
     /// ensure that the pagination status says that we haven't reached the
     /// timeline start yet.
-    pub(super) async fn map_pagination_status(
-        &self,
-        status: RoomPaginationStatus,
-    ) -> RoomPaginationStatus {
+    pub(super) async fn map_pagination_status(&self, status: PaginationStatus) -> PaginationStatus {
         match status {
-            RoomPaginationStatus::Idle { hit_timeline_start } => {
+            PaginationStatus::Idle { hit_timeline_start } => {
                 if hit_timeline_start {
                     let state = self.state.read().await;
                     // If the skip count is greater than 0, it means that a subsequent pagination
                     // could return more items, so pretend we didn't get the information that the
                     // timeline start was hit.
                     if state.meta.subscriber_skip_count.get() > 0 {
-                        return RoomPaginationStatus::Idle { hit_timeline_start: false };
+                        return PaginationStatus::Idle { hit_timeline_start: false };
                     }
                 }
             }
-            RoomPaginationStatus::Paginating => {}
+            PaginationStatus::Paginating => {}
         }
 
         // You're perfect, just the way you are.
