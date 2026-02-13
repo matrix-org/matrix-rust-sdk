@@ -30,7 +30,7 @@ use matrix_sdk_base::crypto::DecryptionSettings;
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
     BaseClient, ThreadingSupport,
-    store::{CrossProcessStoreMode, StoreConfig},
+    store::{CrossProcessStoreConfig, StoreConfig},
 };
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -122,7 +122,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
-    cross_process_store_mode: CrossProcessStoreMode,
+    cross_process_store_config: CrossProcessStoreConfig,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
     search_index_store_kind: SearchIndexStoreKind,
@@ -137,8 +137,8 @@ impl ClientBuilder {
             sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::new(
-                CrossProcessStoreMode::MultiProcess(
-                    Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+                CrossProcessStoreConfig::multi_process(
+                    Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME,
                 ),
             )),
             request_config: Default::default(),
@@ -156,9 +156,9 @@ impl ClientBuilder {
             },
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: false,
-            cross_process_store_mode: CrossProcessStoreMode::MultiProcess(
-                Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
-            ),
+            cross_process_store_config: CrossProcessStoreConfig::MultiProcess {
+                holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+            },
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store_kind: SearchIndexStoreKind::InMemory,
@@ -302,14 +302,15 @@ impl ClientBuilder {
     /// # Examples
     ///
     /// ```
-    /// # use matrix_sdk_base::store::{CrossProcessStoreMode, MemoryStore};
+    /// # use matrix_sdk_base::store::{CrossProcessStoreConfig, MemoryStore};
     /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{Client, config::StoreConfig};
     ///
-    /// let store_config = StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-    ///     "cross-process-store-locks-holder-name".to_owned(),
-    /// ))
-    /// .state_store(custom_state_store);
+    /// let store_config =
+    ///     StoreConfig::new(CrossProcessStoreConfig::MultiProcess {
+    ///         holder_name: "cross-process-store-locks-holder-name".to_owned(),
+    ///     })
+    ///     .state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
@@ -494,11 +495,11 @@ impl ClientBuilder {
     ///
     /// If 2 concurrent `Client`s are running in 2 different process, this
     /// method must be called with different `hold_name` values.
-    pub fn cross_process_store_mode(
+    pub fn cross_process_store_config(
         mut self,
-        cross_process_store_mode: CrossProcessStoreMode,
+        cross_process_store_config: CrossProcessStoreConfig,
     ) -> Self {
-        self.cross_process_store_mode = cross_process_store_mode;
+        self.cross_process_store_config = cross_process_store_config;
         self
     }
 
@@ -551,7 +552,7 @@ impl ClientBuilder {
         } else {
             #[allow(unused_mut)]
             let mut client = BaseClient::new(
-                build_store_config(self.store_config, &self.cross_process_store_mode).await?,
+                build_store_config(self.store_config, &self.cross_process_store_config).await?,
                 self.threading_support,
             );
 
@@ -628,7 +629,7 @@ impl ClientBuilder {
             self.encryption_settings,
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
-            self.cross_process_store_mode,
+            self.cross_process_store_config,
             #[cfg(feature = "experimental-search")]
             search_index,
             thread_subscriptions_catchup,
@@ -653,13 +654,13 @@ pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseEr
 #[allow(clippy::unused_async, unused)] // False positive when building with !sqlite & !indexeddb
 async fn build_store_config(
     builder_config: BuilderStoreConfig,
-    cross_process_store_mode: &CrossProcessStoreMode,
+    cross_process_store_config: &CrossProcessStoreConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[allow(clippy::infallible_destructuring_match)]
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { config, cache_path } => {
-            let store_config = StoreConfig::new(cross_process_store_mode.clone())
+            let store_config = StoreConfig::new(cross_process_store_config.clone())
                 .state_store(
                     matrix_sdk_sqlite::SqliteStateStore::open_with_config(config.clone()).await?,
                 )
@@ -695,7 +696,7 @@ async fn build_store_config(
             build_indexeddb_store_config(
                 &name,
                 passphrase.as_deref(),
-                cross_process_store_mode.clone(),
+                cross_process_store_config.clone(),
             )
             .await?
         }
@@ -711,10 +712,10 @@ async fn build_store_config(
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
-    cross_process_store_mode: CrossProcessStoreMode,
+    cross_process_store_config: CrossProcessStoreConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
     let stores = matrix_sdk_indexeddb::IndexeddbStores::open(name, passphrase).await?;
-    let store_config = StoreConfig::new(cross_process_store_mode)
+    let store_config = StoreConfig::new(cross_process_store_config)
         .state_store(stores.state)
         .event_cache_store(stores.event_cache)
         .media_store(stores.media);
@@ -730,7 +731,7 @@ async fn build_indexeddb_store_config(
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
-    _cross_process_store_mode: CrossProcessStoreMode,
+    _cross_process_store_config: CrossProcessStoreConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
@@ -1083,24 +1084,26 @@ pub(crate) mod tests {
                 ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
 
             assert_let!(
-                CrossProcessStoreMode::MultiProcess(name) = client.cross_process_store_mode()
+                CrossProcessStoreConfig::MultiProcess { holder_name } =
+                    client.cross_process_store_config()
             );
-            assert_eq!(name, "main");
+            assert_eq!(holder_name, "main");
         }
 
         {
             let homeserver = make_mock_homeserver().await;
             let client = ClientBuilder::new()
                 .homeserver_url(homeserver.uri())
-                .cross_process_store_mode(CrossProcessStoreMode::MultiProcess("foo".to_owned()))
+                .cross_process_store_config(CrossProcessStoreConfig::multi_process("foo"))
                 .build()
                 .await
                 .unwrap();
 
             assert_let!(
-                CrossProcessStoreMode::MultiProcess(name) = client.cross_process_store_mode()
+                CrossProcessStoreConfig::MultiProcess { holder_name } =
+                    client.cross_process_store_config()
             );
-            assert_eq!(name, "foo");
+            assert_eq!(holder_name, "foo");
         }
     }
 }

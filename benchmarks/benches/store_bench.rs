@@ -7,7 +7,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{
     SessionMeta, StateStore as _,
-    store::{CrossProcessStoreMode, MemoryStore},
+    store::{CrossProcessStoreConfig, MemoryStore},
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{RoomId, device_id, user_id};
@@ -57,8 +57,8 @@ pub fn restore_session(c: &mut Criterion) {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
                 .store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-                        "cross-process-store-locks-holder-name".to_owned(),
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                        "cross-process-store-locks-holder-name",
                     ))
                     .state_store(store.clone()),
                 )
@@ -89,8 +89,8 @@ pub fn restore_session(c: &mut Criterion) {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
                         .store_config(
-                            StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-                                "cross-process-store-locks-holder-name".to_owned(),
+                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
                             ))
                             .state_store(store.clone()),
                         )

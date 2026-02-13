@@ -32,7 +32,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
-use matrix_sdk_base::store::CrossProcessStoreMode;
+use matrix_sdk_base::store::CrossProcessStoreConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{Span, debug, instrument, trace};
@@ -93,15 +93,11 @@ impl EncryptionSyncService {
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
-        if let CrossProcessStoreMode::MultiProcess(lock_holder_name) =
-            client.cross_process_store_mode()
+        if let CrossProcessStoreConfig::MultiProcess { holder_name } =
+            client.cross_process_store_config()
         {
             // Gently try to enable the cross-process lock on behalf of the user.
-            match client
-                .encryption()
-                .enable_cross_process_store_lock(lock_holder_name.clone())
-                .await
-            {
+            match client.encryption().enable_cross_process_store_lock(holder_name.clone()).await {
                 Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
                     // Ignore; we've already set the crypto store lock to
                     // something, and that's sufficient as
@@ -136,8 +132,8 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let lock_guard = if let CrossProcessStoreMode::MultiProcess(_) =
-            self.client.cross_process_store_mode()
+        let lock_guard = if let CrossProcessStoreConfig::MultiProcess { .. } =
+            self.client.cross_process_store_config()
         {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
@@ -268,8 +264,8 @@ impl EncryptionSyncService {
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
-        let guard = if let CrossProcessStoreMode::MultiProcess(_) =
-            self.client.cross_process_store_mode()
+        let guard = if let CrossProcessStoreConfig::MultiProcess { .. } =
+            self.client.cross_process_store_config()
         {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
         } else {

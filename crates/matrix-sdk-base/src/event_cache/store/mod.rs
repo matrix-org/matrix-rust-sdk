@@ -41,7 +41,7 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
-use crate::store::CrossProcessStoreMode;
+use crate::store::CrossProcessStoreConfig;
 
 /// The high-level public type to represent an `EventCacheStore` lock.
 #[derive(Clone)]
@@ -65,17 +65,17 @@ impl fmt::Debug for EventCacheStoreLock {
 impl EventCacheStoreLock {
     /// Create a new lock around the [`EventCacheStore`].
     ///
-    /// The `cross_process_store_mode` argument controls whether we need to hold
-    /// the cross process lock or not.
-    pub fn new<S>(store: S, cross_process_store_mode: CrossProcessStoreMode) -> Self
+    /// The `cross_process_store_config` argument controls whether we need to
+    /// hold the cross process lock or not.
+    pub fn new<S>(store: S, cross_process_store_config: CrossProcessStoreConfig) -> Self
     where
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
 
-        let holder = match cross_process_store_mode {
-            CrossProcessStoreMode::MultiProcess(holder) => Some(holder),
-            CrossProcessStoreMode::SingleProcess => None,
+        let holder = match cross_process_store_config {
+            CrossProcessStoreConfig::MultiProcess { holder_name } => Some(holder_name),
+            CrossProcessStoreConfig::SingleProcess => None,
         };
 
         let cross_process_lock = Arc::new(CrossProcessLock::new(

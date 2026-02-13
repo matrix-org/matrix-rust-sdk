@@ -85,14 +85,14 @@ mod tests {
         BaseClient, RoomState, SessionMeta,
         client::ThreadingSupport,
         response_processors as processors,
-        store::{CrossProcessStoreMode, RoomLoadSettings, StoreConfig},
+        store::{CrossProcessStoreConfig, RoomLoadSettings, StoreConfig},
     };
 
     #[async_test]
     async fn test_is_favourite() {
         // Given a room,
         let client = BaseClient::new(
-            StoreConfig::new(CrossProcessStoreMode::SingleProcess),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
 
@@ -188,7 +188,7 @@ mod tests {
     async fn test_is_low_priority() {
         // Given a room,
         let client = BaseClient::new(
-            StoreConfig::new(CrossProcessStoreMode::SingleProcess),
+            StoreConfig::new(CrossProcessStoreConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
 

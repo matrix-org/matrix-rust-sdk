@@ -21,15 +21,15 @@ use ruma::{UserId, owned_user_id};
 use crate::{
     BaseClient, SessionMeta,
     client::ThreadingSupport,
-    store::{CrossProcessStoreMode, RoomLoadSettings, StoreConfig},
+    store::{CrossProcessStoreConfig, RoomLoadSettings, StoreConfig},
 };
 
 /// Create a [`BaseClient`] with the given user id, if provided, or an hardcoded
 /// one otherwise.
 pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClient {
     let client = BaseClient::new(
-        StoreConfig::new(CrossProcessStoreMode::MultiProcess(
-            "cross-process-store-locks-holder-name".to_owned(),
+        StoreConfig::new(CrossProcessStoreConfig::multi_process(
+            "cross-process-store-locks-holder-name",
         )),
         ThreadingSupport::Disabled,
     );
