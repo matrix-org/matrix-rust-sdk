@@ -35,7 +35,7 @@ use ruma::DeviceId;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -477,15 +477,8 @@ impl BaseClient {
             if previous_state == RoomState::Invited
                 && let Some(inviter) = inviter
                 && let Some(olm_machine) = self.olm_machine().await.as_ref()
-                && let Err(err) = olm_machine
-                    .set_invite_acceptance_details(
-                        room_id,
-                        Some(&InviteAcceptanceDetails {
-                            invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
-                            inviter,
-                        }),
-                    )
-                    .await
+                && let Err(err) =
+                    olm_machine.store().store_invite_acceptance_details(room_id, &inviter).await
             {
                 error!("Failed to store invite acceptance details: {:?}", err)
             }
@@ -1049,7 +1042,7 @@ impl BaseClient {
             && room.state() == RoomState::Joined
             && let Some(olm_machine) = self.olm_machine().await.as_ref()
         {
-            return Ok(olm_machine.invite_acceptance_details(room_id).await?);
+            return Ok(olm_machine.store().get_invite_acceptance_details(room_id).await?);
         }
 
         Ok(None)

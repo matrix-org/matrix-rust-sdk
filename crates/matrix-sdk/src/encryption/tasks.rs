@@ -20,7 +20,10 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
 };
-use matrix_sdk_base::{RoomState, crypto::store::types::RoomKeyBundleInfo};
+use matrix_sdk_base::{
+    RoomState,
+    crypto::{InviteAcceptanceDetails, store::types::RoomKeyBundleInfo},
+};
 use matrix_sdk_common::failures_cache::FailuresCache;
 #[cfg(not(feature = "experimental-encrypted-state-events"))]
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
@@ -35,7 +38,7 @@ use crate::{
     client::WeakClient,
     encryption::backups::UploadState,
     executor::{JoinHandle, spawn},
-    room::{Invite, shared_room_history},
+    room::shared_room_history,
 };
 
 /// A cache of room keys we already downloaded.
@@ -488,15 +491,18 @@ impl BundleReceiverTask {
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Ok(Invite { inviter, invite_accepted_at, .. }) = room.invite_details().await else {
+        let Ok(Some(InviteAcceptanceDetails {
+            invite_accepted_at,
+            inviter,
+            has_imported_key_bundle,
+        })) = room.invite_acceptance_details().await
+        else {
             return false;
         };
-        let Some(inviter) = inviter else {
+        // If we have already imported a key bundle, we shouldn't import it again.
+        if has_imported_key_bundle {
             return false;
-        };
-        let Some(invite_accepted_at) = invite_accepted_at else {
-            return false;
-        };
+        }
 
         let state = room.state();
         let elapsed_since_join = invite_accepted_at.to_system_time().and_then(|t| t.elapsed().ok());
@@ -504,7 +510,7 @@ impl BundleReceiverTask {
 
         match (state, elapsed_since_join) {
             (RoomState::Joined, Some(elapsed_since_join)) => {
-                elapsed_since_join < DAY && bundle_sender == inviter.user_id()
+                elapsed_since_join < DAY && bundle_sender == &inviter
             }
             (RoomState::Joined, None) => false,
             (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => {

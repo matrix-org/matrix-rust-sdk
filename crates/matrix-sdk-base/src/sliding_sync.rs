@@ -134,6 +134,7 @@ impl BaseClient {
 
         for (room_id, room_response) in rooms {
             let Some((room_info, room_update)) = processors::room::msc4186::update_any_room(
+                self,
                 &mut context,
                 &user_id,
                 processors::room::RoomCreationData::new(

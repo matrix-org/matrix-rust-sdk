@@ -870,12 +870,19 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             )
             .await?)
     }
-    async fn get_invite_acceptance_details(&self, room_id: Key) -> Result<Option<(i64, String)>> {
+    async fn get_invite_acceptance_details(
+        &self,
+        room_id: Key,
+    ) -> Result<Option<(i64, String, bool)>> {
         Ok(self.query_row(
-            "SELECT invite_accepted_ts, inviter_user_id FROM invite_acceptance_details WHERE room_id = ?",
+            "SELECT invite_accepted_ts, inviter_user_id, has_imported_key_bundle FROM invite_acceptance_details WHERE room_id = ?",
             (room_id,),
             |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?
+                ))
             },
         )
         .await
@@ -1553,7 +1560,7 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .get_invite_acceptance_details(room_id)
             .await?
-            .map(|(timestamp, inviter)| {
+            .map(|(timestamp, inviter, has_imported_key_bundle)| {
                 Ok(InviteAcceptanceDetails {
                     invite_accepted_at: MilliSecondsSinceUnixEpoch(
                         UInt::new(timestamp as u64)
@@ -1561,6 +1568,7 @@ impl CryptoStore for SqliteCryptoStore {
                     ),
                     inviter: OwnedUserId::from_str(&inviter)
                         .map_err(|_| Error::InvalidData { details: "".to_owned() })?,
+                    has_imported_key_bundle,
                 })
             })
             .transpose()

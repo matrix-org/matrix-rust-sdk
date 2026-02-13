@@ -39,13 +39,13 @@ pub mod sync {
             AnySyncStateEvent, AnySyncTimelineEvent, StateEventType, room::member::MembershipState,
         },
     };
-    use tracing::instrument;
+    use tracing::{error, instrument};
 
     use super::{super::profiles, Context, Raw};
     #[cfg(feature = "experimental-encrypted-state-events")]
     use crate::response_processors::e2ee;
     use crate::{
-        RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
+        BaseClient, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
         utils::RawSyncStateEventWithKeys,
@@ -222,7 +222,8 @@ pub mod sync {
     /// Find any `m.room.member` events that refer to the current user, and emit
     /// a membership update accordingly, plus update the state in `room_info` to
     /// reflect the "membership" property.
-    pub fn own_membership_and_update_room_state(
+    pub async fn own_membership_and_update_room_state(
+        client: &BaseClient,
         context: &mut Context,
         user_id: &UserId,
         state_events: &mut [RawSyncStateEventWithKeys],
@@ -247,6 +248,35 @@ pub mod sync {
             let new_state: RoomState = member.membership().into();
 
             if new_state != room_info.state() {
+                #[cfg(feature = "e2e-encryption")]
+                if let Some(olm_machine) = client.olm_machine().await.as_ref() {
+                    if room_info.state() != RoomState::Joined
+                        && olm_machine
+                            .store()
+                            .get_invite_acceptance_details(room_info.room_id())
+                            .await
+                            .ok()
+                            .flatten()
+                            .is_some()
+                    {
+                        error!(
+                            room_id = %room_info.room_id(),
+                            "The RoomInfo contains invite acceptance details but the room is not in the joined state"
+                        );
+                    }
+
+                    if let Err(e) = olm_machine
+                        .store()
+                        .clear_invite_acceptance_details(room_info.room_id())
+                        .await
+                    {
+                        error!(
+                            room_id = %room_info.room_id(),
+                            "Failed to update room invite acceptance details: {e:?}",
+                        );
+                    }
+                }
+
                 room_info.set_state(new_state);
 
                 // Update an existing notable update entry or create a new one

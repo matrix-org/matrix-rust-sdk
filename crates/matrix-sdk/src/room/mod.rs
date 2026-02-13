@@ -36,7 +36,8 @@ pub use identity_status_changes::IdentityStatusChanges;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    IdentityStatusChange, RoomIdentityProvider, UserIdentity, types::events::CryptoContextInfo,
+    IdentityStatusChange, InviteAcceptanceDetails, RoomIdentityProvider, UserIdentity,
+    types::events::CryptoContextInfo,
 };
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
@@ -76,9 +77,8 @@ use ruma::events::{
     AnySyncTimelineEvent, SyncMessageLikeEvent, room::encrypted::OriginalSyncRoomEncryptedEvent,
 };
 use ruma::{
-    EventId, Int, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
-    OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt,
-    UserId,
+    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::client::{
         config::{set_global_account_data, set_room_account_data},
         context,
@@ -3673,20 +3673,21 @@ impl Room {
         let inviter_id = event.sender().to_owned();
         let inviter = self.get_member_no_sync(&inviter_id).await?;
 
-        #[cfg(feature = "e2e-encryption")]
-        let invite_accepted_at = self
+        Ok(Invite { invitee, inviter, inviter_id })
+    }
+
+    /// Details of the invite accepted to join this room.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn invite_acceptance_details(&self) -> Result<Option<InviteAcceptanceDetails>> {
+        Ok(self
             .client
             .olm_machine()
             .await
             .as_ref()
             .ok_or(Error::NoOlmMachine)?
-            .invite_acceptance_details(self.room_id())
-            .await?
-            .map(|details| details.invite_accepted_at);
-        #[cfg(not(feature = "e2e-encryption"))]
-        let accepted_at = None;
-
-        Ok(Invite { invitee, inviter, inviter_id, invite_accepted_at })
+            .store()
+            .get_invite_acceptance_details(self.room_id())
+            .await?)
     }
 
     /// Get the membership details for the current user.
@@ -4645,8 +4646,6 @@ pub struct Invite {
     ///
     /// If `None`, check `Self::inviter_id`, it might be useful as a fallback.
     pub inviter: Option<RoomMember>,
-    /// The recorded timestamp of when we accepted the invite.
-    pub invite_accepted_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 #[derive(Error, Debug)]

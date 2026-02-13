@@ -82,6 +82,10 @@ pub enum CryptoStoreError {
     /// An error due to an invalid generation in a cross-process locking scheme.
     #[error("invalid lock generation: {0}")]
     InvalidLockGeneration(String),
+
+    // An erorr due to existing or newply provided invite acceptance details being invalid.
+    #[error("received invalid invite acceptance details")]
+    InvalidInviteAcceptanceDetails,
 }
 
 impl CryptoStoreError {

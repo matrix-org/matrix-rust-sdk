@@ -562,4 +562,8 @@ pub struct InviteAcceptanceDetails {
 
     /// The user ID of the person that invited us.
     pub inviter: OwnedUserId,
+
+    /// Indicates whether a historic room key bundle has been imported for this
+    /// room.
+    pub has_imported_key_bundle: bool,
 }

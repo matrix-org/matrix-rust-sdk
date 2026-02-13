@@ -52,8 +52,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
-    events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+    encryption::KeyUsage, events::secret::request::SecretName,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -68,7 +68,7 @@ use self::types::{
     PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, UserKeyQueryResult,
 };
 use crate::{
-    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
+    CrossSigningStatus, InviteAcceptanceDetails, OwnUserIdentityData, RoomKeyImportResult,
     gossiping::GossippedSecret,
     identities::{Device, DeviceData, UserDevices, UserIdentityData, user::UserIdentity},
     olm::{
@@ -1837,6 +1837,88 @@ impl Store {
             ?session_id_to_withheld_code_map,
             "Successfully imported withheld info from room key bundle",
         );
+
+        Ok(())
+    }
+
+    /// Create the details of an invite acceptance for a specific room.
+    ///
+    /// If the provided details indicate an invite acceptance that occurred
+    /// earlier than the existing stored details, the update will be
+    /// rejected to prevent overwriting with older data.
+    pub async fn store_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+        inviter: &UserId,
+    ) -> Result<(), CryptoStoreError> {
+        // Prevent weirdness where we concurrently accept two invites.
+        let _store_transaction = self.transaction().await;
+
+        let existing = self.get_invite_acceptance_details(room_id).await?;
+
+        let invite_accepted_at = MilliSecondsSinceUnixEpoch::now();
+
+        // Prevent new details from recording an invite was accepted before the existing
+        // one.
+        if let Some(existing) = existing
+            && invite_accepted_at < existing.invite_accepted_at
+        {
+            return Err(CryptoStoreError::InvalidInviteAcceptanceDetails);
+        }
+
+        self.save_changes(Changes {
+            invite_acceptance_details: HashMap::from([(
+                room_id.to_owned(),
+                Some(InviteAcceptanceDetails {
+                    invite_accepted_at,
+                    inviter: inviter.to_owned(),
+                    has_imported_key_bundle: false,
+                }),
+            )]),
+            ..Default::default()
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Clear the invite acceptance details for a specific room.
+    ///
+    /// This will remove any stored details about the invite acceptance for the
+    /// given room.
+    pub async fn clear_invite_acceptance_details(&self, room_id: &RoomId) -> Result<()> {
+        self.save_changes(Changes {
+            invite_acceptance_details: HashMap::from([(room_id.to_owned(), None)]),
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// Records that a room key bundle has been imported for the specified room.
+    ///
+    /// This method updates the invite acceptance details for the given room to
+    /// indicate that a room key bundle has been successfully imported. If the
+    /// room does not have any invite acceptance details or if a bundle has
+    /// already been recorded as imported, an error is returned.
+    pub async fn record_room_key_bundle_imported(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), CryptoStoreError> {
+        let _store_transaction = self.transaction().await;
+
+        let Some(mut details) = self.get_invite_acceptance_details(room_id).await? else {
+            return Err(CryptoStoreError::InvalidInviteAcceptanceDetails);
+        };
+        if details.has_imported_key_bundle {
+            return Err(CryptoStoreError::InvalidInviteAcceptanceDetails);
+        }
+        details.has_imported_key_bundle = true;
+
+        self.save_changes(Changes {
+            invite_acceptance_details: HashMap::from([(room_id.to_owned(), Some(details))]),
+            ..Default::default()
+        })
+        .await?;
 
         Ok(())
     }
