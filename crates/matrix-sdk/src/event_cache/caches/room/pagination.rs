@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A sub-object for running pagination tasks on a given room.
+//! The [`RoomPagination`] type makes it possible to paginate a
+//! [`RoomEventCache`].
+//!
+//! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::sync::Arc;
 
@@ -21,8 +24,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::event_cache::Event;
 use ruma::api::Direction;
 
-pub use super::caches::pagination::PaginationStatus;
-use super::{
+use super::super::super::{
     EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     TimelineVectorDiffs,
     caches::pagination::{
@@ -30,18 +32,22 @@ use super::{
     },
     room::RoomEventCacheInner,
 };
+pub use super::super::pagination::PaginationStatus;
 use crate::room::MessagesOptions;
 
-/// An API object to run pagination queries on a [`super::RoomEventCache`].
+/// An API object to run pagination queries on a [`RoomEventCache`].
 ///
-/// Can be created with [`super::RoomEventCache::pagination()`].
+/// Can be created with [`RoomEventCache::pagination()`].
+///
+/// [`RoomEventCache`]: super::super::super::RoomEventCache
+/// [`RoomEventCache::pagination()`]: super::super::super::RoomEventCache::pagination
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct RoomPagination(Pagination<Arc<RoomEventCacheInner>>);
 
 impl RoomPagination {
     /// Construct a new [`RoomPagination`].
-    pub(super) fn new(cache: Arc<RoomEventCacheInner>) -> Self {
+    pub(in super::super::super) fn new(cache: Arc<RoomEventCacheInner>) -> Self {
         Self(Pagination::new(cache))
     }
 
