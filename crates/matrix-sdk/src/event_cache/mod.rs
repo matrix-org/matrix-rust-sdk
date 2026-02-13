@@ -79,8 +79,11 @@ mod persistence;
 mod redecryptor;
 mod room;
 
-pub use caches::TimelineVectorDiffs;
-pub use pagination::{PaginationStatus, RoomPagination};
+pub use caches::{
+    TimelineVectorDiffs,
+    pagination::{BackPaginationOutcome, PaginationStatus},
+};
+pub use pagination::RoomPagination;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber};
@@ -1168,21 +1171,6 @@ impl EventCacheInner {
             }
         }
     }
-}
-
-/// The result of a single back-pagination request.
-#[derive(Debug)]
-pub struct BackPaginationOutcome {
-    /// Did the back-pagination reach the start of the timeline?
-    pub reached_start: bool,
-
-    /// All the events that have been returned in the back-pagination
-    /// request.
-    ///
-    /// Events are presented in reverse order: the first element of the vec,
-    /// if present, is the most "recent" event from the chunk (or
-    /// technically, the last one in the topological ordering).
-    pub events: Vec<TimelineEvent>,
 }
 
 /// Represents a timeline update of a room. It hides the details of
