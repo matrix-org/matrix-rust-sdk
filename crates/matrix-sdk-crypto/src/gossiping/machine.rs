@@ -341,6 +341,7 @@ impl GossipMachine {
                             .insert(request.request_id.clone(), request);
                     }
                     Err(err) => {
+                        info!(?secret_name, device_id = ?device.device_id(), ?err, "Can't push secret to device");
                         errors.insert(device.device_id().to_owned(), err);
                     }
                 }
