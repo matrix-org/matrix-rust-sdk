@@ -5,7 +5,7 @@ use std::{env, fs};
 use anyhow::{anyhow, Context};
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{
-    engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+    engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
     Engine as _,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -632,6 +632,10 @@ async fn main() -> anyhow::Result<()> {
     let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
     #[cfg(not(feature = "e2ee-per-participant"))]
     let room_options_provider = DefaultRoomOptionsProvider;
+    #[cfg(not(feature = "e2ee-per-participant"))]
+    info!(
+        "`e2ee-per-participant` feature is disabled; this device will not send io.element.call.encryption_keys to-device messages"
+    );
     let connector = LiveKitSdkConnector::new(token_provider, room_options_provider);
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
@@ -1604,9 +1608,17 @@ fn register_e2ee_to_device_handler(
                 let Some(key_b64) = key_entry.get("key").and_then(|v| v.as_str()) else {
                     continue;
                 };
-                let key_bytes =
-                    STANDARD_NO_PAD.decode(key_b64).or_else(|_| STANDARD.decode(key_b64));
+                let key_bytes = STANDARD_NO_PAD
+                    .decode(key_b64)
+                    .or_else(|_| STANDARD.decode(key_b64))
+                    .or_else(|_| URL_SAFE_NO_PAD.decode(key_b64))
+                    .or_else(|_| URL_SAFE.decode(key_b64));
                 let Ok(key_bytes) = key_bytes else {
+                    info!(
+                        %identity,
+                        key_index = index,
+                        "failed to decode per-participant E2EE key payload"
+                    );
                     continue;
                 };
                 let key_set = key_provider.set_key(&identity, index as i32, key_bytes);
