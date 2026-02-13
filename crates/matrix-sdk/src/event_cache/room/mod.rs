@@ -47,8 +47,8 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
+    AutoShrinkChannelPayload, EventsOrigin, PaginationStatus, Result, RoomEventCacheGenericUpdate,
+    RoomEventCacheUpdate, RoomPagination,
 };
 use crate::{
     client::WeakClient,
@@ -164,7 +164,7 @@ impl RoomEventCache {
     pub(super) fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
@@ -497,7 +497,7 @@ pub(super) struct RoomEventCacheInner {
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
-    pub pagination_status: SharedObservable<RoomPaginationStatus>,
+    pub pagination_status: SharedObservable<PaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -522,7 +522,7 @@ impl RoomEventCacheInner {
     fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
@@ -715,8 +715,8 @@ mod private {
 
     use super::{
         super::{
-            BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
-            RoomPaginationStatus,
+            BackPaginationOutcome, EventCacheError, PaginationStatus,
+            RoomEventCacheLinkedChunkUpdate,
             caches::lock,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
@@ -754,7 +754,7 @@ mod private {
         /// Cache for pinned events in this room, initialized on-demand.
         pinned_event_cache: OnceLock<PinnedEventCache>,
 
-        pagination_status: SharedObservable<RoomPaginationStatus>,
+        pagination_status: SharedObservable<PaginationStatus>,
 
         /// A clone of [`super::RoomEventCacheInner::update_sender`].
         ///
@@ -818,7 +818,7 @@ mod private {
             generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
-            pagination_status: SharedObservable<RoomPaginationStatus>,
+            pagination_status: SharedObservable<PaginationStatus>,
         ) -> Result<Self, EventCacheError> {
             let store_guard = match store.lock().await? {
                 // Lock is clean: all good!
@@ -1278,9 +1278,7 @@ mod private {
             // Let pagination observers know that we may have not reached the start of the
             // timeline.
             // TODO: likely need to cancel any ongoing pagination.
-            self.state
-                .pagination_status
-                .set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+            self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
 
             // Don't propagate those updates to the store; this is only for the in-memory
             // representation that we're doing this. Let's drain those store updates.
@@ -1424,9 +1422,7 @@ mod private {
             self.state.waited_for_initial_prev_token = false;
 
             // TODO: likely must cancel any ongoing back-paginations too
-            self.state
-                .pagination_status
-                .set(RoomPaginationStatus::Idle { hit_timeline_start: false });
+            self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
 
             Ok(())
         }

@@ -30,10 +30,10 @@ use crate::{
     room::MessagesOptions,
 };
 
-/// Status for the back-pagination on a room event cache.
+/// Status for the back-pagination on a cache.
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum RoomPaginationStatus {
+pub enum PaginationStatus {
     /// No back-pagination is happening right now.
     Idle {
         /// Have we hit the start of the timeline, i.e. back-paginating wouldn't
@@ -48,8 +48,8 @@ pub enum RoomPaginationStatus {
 /// Small RAII guard to reset the pagination status on drop, if not disarmed in
 /// the meanwhile.
 struct ResetStatusOnDrop {
-    prev_status: Option<RoomPaginationStatus>,
-    pagination_status: SharedObservable<RoomPaginationStatus>,
+    prev_status: Option<PaginationStatus>,
+    pagination_status: SharedObservable<PaginationStatus>,
 }
 
 impl ResetStatusOnDrop {
@@ -138,8 +138,8 @@ impl RoomPagination {
         // First, ensure there's no other ongoing back-pagination.
         let status_observable = &self.inner.pagination_status;
 
-        let prev_status = status_observable.set(RoomPaginationStatus::Paginating);
-        if !matches!(prev_status, RoomPaginationStatus::Idle { .. }) {
+        let prev_status = status_observable.set(PaginationStatus::Paginating);
+        if !matches!(prev_status, PaginationStatus::Idle { .. }) {
             return Err(EventCacheError::AlreadyBackpaginating);
         }
 
@@ -156,7 +156,7 @@ impl RoomPagination {
 
                 // Notify subscribers that pagination ended.
                 status_observable
-                    .set(RoomPaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
+                    .set(PaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
 
                 Ok(Some(outcome))
             }
@@ -326,7 +326,7 @@ impl RoomPagination {
 
     /// Returns a subscriber to the pagination status used for the
     /// back-pagination integrated to the event cache.
-    pub fn status(&self) -> Subscriber<RoomPaginationStatus> {
+    pub fn status(&self) -> Subscriber<PaginationStatus> {
         self.inner.pagination_status.subscribe()
     }
 }
