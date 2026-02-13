@@ -24,9 +24,9 @@ use ruma::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, trace};
 
-use crate::event_cache::{
-    BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
-    caches::TimelineVectorDiffs,
+use super::super::{
+    EventsOrigin, RoomEventCacheLinkedChunkUpdate,
+    caches::{TimelineVectorDiffs, pagination::BackPaginationOutcome},
     deduplicator::DeduplicationOutcome,
     room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
 };
