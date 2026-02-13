@@ -68,6 +68,8 @@ use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
 use url::Url;
+#[cfg(feature = "experimental-widgets")]
+use uuid::Uuid;
 
 struct EnvLiveKitTokenProvider {
     token: String,
@@ -1178,7 +1180,7 @@ async fn publish_call_membership_via_widget(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let request_id = format!("publish-membership-{now_ms}");
+    let request_id = Uuid::new_v4().to_string();
     let event_id = format!("$local-call-member-{now_ms}");
 
     let state_event = serde_json::json!({
@@ -1213,7 +1215,7 @@ async fn publish_call_membership_via_widget(
     let update_state_message = serde_json::json!({
         "api": "toWidget",
         "widgetId": widget.widget_id,
-        "requestId": format!("{request_id}-state"),
+        "requestId": Uuid::new_v4().to_string(),
         "action": "update_state",
         "data": {
             "state": [state_event],
