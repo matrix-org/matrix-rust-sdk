@@ -173,6 +173,11 @@ impl RoomPagination {
     /// Returns `Ok(None)` if the pagination token used during a network
     /// pagination has disappeared from the in-memory linked chunk after
     /// handling the response.
+    ///
+    /// If there are no previous-batch tokens, it will wait for one for a short
+    /// while to get one, or if it's already done so or if it's seen a
+    /// previous-batch token before, it will immediately indicate it's
+    /// reached the end of the timeline.
     async fn paginate_backwards_impl(
         &self,
         batch_size: u16,
@@ -260,11 +265,6 @@ impl RoomPagination {
     }
 
     /// Run a single pagination request (/messages) to the server.
-    ///
-    /// If there are no previous-batch tokens, it will wait for one for a short
-    /// while to get one, or if it's already done so or if it's seen a
-    /// previous-batch token before, it will immediately indicate it's
-    /// reached the end of the timeline.
     ///
     /// Returns `Ok(None)` if the pagination token used during the request has
     /// disappeared from the in-memory linked chunk after handling the
