@@ -26,6 +26,9 @@ testing = ["matrix-sdk-crypto?/testing"]
 experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
+experimental-push-secrets = [
+    "matrix-sdk-crypto?/experimental-push-secrets"
+]
 
 [dependencies]
 async-trait.workspace = true

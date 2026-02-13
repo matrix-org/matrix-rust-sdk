@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@ use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{DehydrationError, GossipRequest};
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
     olm::{
@@ -81,6 +83,8 @@ pub struct Changes {
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
+    #[cfg(feature = "experimental-push-secrets")]
+    pub pushed_secrets: Vec<SecretPushContent>,
     pub next_batch_token: Option<String>,
 
     /// Historical room key history bundles that we have received and should
@@ -126,6 +130,11 @@ pub struct TrackedUser {
 impl Changes {
     /// Are there any changes stored or is this an empty `Changes` struct?
     pub fn is_empty(&self) -> bool {
+        #[cfg(feature = "experimental-push-secrets")]
+        let pushed_secrets_is_empty: bool = self.pushed_secrets.is_empty();
+        #[cfg(not(feature = "experimental-push-secrets"))]
+        let pushed_secrets_is_empty: bool = true;
+
         self.private_identity.is_none()
             && self.backup_version.is_none()
             && self.backup_decryption_key.is_none()
@@ -140,6 +149,7 @@ impl Changes {
             && self.withheld_session_info.is_empty()
             && self.room_settings.is_empty()
             && self.secrets.is_empty()
+            && pushed_secrets_is_empty
             && self.next_batch_token.is_none()
             && self.received_room_key_bundles.is_empty()
     }

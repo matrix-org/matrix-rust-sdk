@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,6 +67,8 @@ use self::types::{
     Changes, CrossSigningKeyExport, DeviceChanges, DeviceUpdates, IdentityChanges, IdentityUpdates,
     PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, UserKeyQueryResult,
 };
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
     gossiping::GossippedSecret,
@@ -1392,6 +1394,40 @@ impl Store {
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
         self.inner.store.secrets_stream()
+    }
+
+    /// Receive notifications of pushed secrets being received as a [`Stream`].
+    ///
+    /// The pushed secrets are received using the `m.secret.push` event type
+    /// and are guaranteed to have been received over a 1-to-1 Olm
+    /// [`Session`] from a verified [`Device`].
+    ///
+    /// The secret is not stored unless ... is called.
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # futures_executor::block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    ///
+    /// let pushed_secret_stream = machine.store().pushed_secrets_stream();
+    /// pin_mut!(pushed_secret_stream);
+    ///
+    /// for secret in pushed_secret_stream.next().await {
+    ///     // Accept the secret if it's valid, then delete all the secrets of this type.
+    /// }
+    /// # });
+    /// ```
+    #[cfg(feature = "experimental-push-secrets")]
+    pub fn pushed_secrets_stream(&self) -> impl Stream<Item = SecretPushContent> + use<> {
+        self.inner.store.pushed_secrets_stream()
     }
 
     /// Receive notifications of historic room key bundles as a [`Stream`].

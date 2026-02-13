@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,6 +33,8 @@ use js_sys::Array;
 use matrix_sdk_base::cross_process_lock::{
     CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
 };
+#[cfg(feature = "experimental-push-secrets")]
+use matrix_sdk_crypto::types::events::secret_push::SecretPushContent;
 use matrix_sdk_crypto::{
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
@@ -95,6 +97,8 @@ mod keys {
     pub const ROOM_SETTINGS: &str = "room_settings";
 
     pub const SECRETS_INBOX: &str = "secrets_inbox";
+
+    pub const PUSHED_SECRETS_INBOX: &str = "pushed_secrets_inbox";
 
     pub const WITHHELD_SESSIONS: &str = "withheld_sessions";
 
@@ -721,6 +725,21 @@ impl IndexeddbCryptoStore {
                 let key = self.serializer.encode_key(
                     keys::SECRETS_INBOX,
                     (secret.secret_name.as_str(), secret.event.content.request_id.as_str()),
+                );
+                let value = self.serializer.serialize_value(&secret)?;
+
+                secret_store.put(key, value);
+            }
+        }
+
+        #[cfg(feature = "experimental-push-secrets")]
+        if !changes.pushed_secrets.is_empty() {
+            let mut secret_store = indexeddb_changes.get(keys::PUSHED_SECRETS_INBOX);
+
+            for secret in &changes.pushed_secrets {
+                let key = self.serializer.encode_key(
+                    keys::PUSHED_SECRETS_INBOX,
+                    (secret.name.as_str(), secret.secret.as_str()),
                 );
                 let value = self.serializer.serialize_value(&secret)?;
 
@@ -1437,6 +1456,44 @@ impl_crypto_store! {
             .build()?;
         tx.object_store(keys::GOSSIP_REQUESTS)?.delete(jskey).build()?;
         tx.commit().await.map_err(|e| e.into())
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<SecretPushContent>> {
+        let range = self.serializer.encode_to_range(keys::PUSHED_SECRETS_INBOX, secret_name.as_str());
+
+        self.inner
+            .transaction(keys::PUSHED_SECRETS_INBOX)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::PUSHED_SECRETS_INBOX)?
+            .get_all()
+            .with_query(&range)
+            .await?
+            .map(|result| {
+                let d = result?;
+                let secret = self.serializer.deserialize_value(d)?;
+                Ok(secret)
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        let range = self.serializer.encode_to_range(keys::PUSHED_SECRETS_INBOX, secret_name.as_str());
+
+        let transaction = self
+            .inner
+            .transaction(keys::PUSHED_SECRETS_INBOX)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        transaction.object_store(keys::PUSHED_SECRETS_INBOX)?.delete(&range).build()?;
+        transaction.commit().await?;
+
+        Ok(())
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {

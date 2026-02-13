@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,6 +42,8 @@ use super::{
         StoredRoomKeyBundleData, TrackedUser,
     },
 };
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{DeviceData, UserIdentityData},
@@ -105,6 +107,8 @@ pub struct MemoryStore {
     custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
     leases: StdRwLock<HashMap<String, Lease>>,
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
+    #[cfg(feature = "experimental-push-secrets")]
+    pushed_secret_inbox: StdRwLock<HashMap<String, Vec<SecretPushContent>>>,
     backup_keys: RwLock<BackupKeys>,
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
@@ -306,6 +310,14 @@ impl CryptoStore for MemoryStore {
             let mut secret_inbox = self.secret_inbox.write();
             for secret in changes.secrets {
                 secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
+            }
+        }
+
+        #[cfg(feature = "experimental-push-secrets")]
+        {
+            let mut pushed_secret_inbox = self.pushed_secret_inbox.write();
+            for secret in changes.pushed_secrets {
+                pushed_secret_inbox.entry(secret.name.to_string()).or_default().push(secret);
             }
         }
 
@@ -743,6 +755,21 @@ impl CryptoStore for MemoryStore {
 
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         self.secret_inbox.write().remove(secret_name.as_str());
+
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<SecretPushContent>> {
+        Ok(self.pushed_secret_inbox.write().entry(secret_name.to_string()).or_default().to_owned())
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        self.pushed_secret_inbox.write().remove(secret_name.as_str());
 
         Ok(())
     }
@@ -1301,6 +1328,8 @@ mod integration_tests {
     use vodozemac::Curve25519PublicKey;
 
     use super::MemoryStore;
+    #[cfg(feature = "experimental-push-secrets")]
+    use crate::types::events::secret_push::SecretPushContent;
     use crate::{
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
         cryptostore_integration_tests, cryptostore_integration_tests_time,
@@ -1578,6 +1607,22 @@ mod integration_tests {
             secret_name: &SecretName,
         ) -> Result<(), Self::Error> {
             self.0.delete_secrets_from_inbox(secret_name).await
+        }
+
+        #[cfg(feature = "experimental-push-secrets")]
+        async fn get_pushed_secrets_from_inbox(
+            &self,
+            secret_name: &SecretName,
+        ) -> Result<Vec<SecretPushContent>, Self::Error> {
+            self.0.get_pushed_secrets_from_inbox(secret_name).await
+        }
+
+        #[cfg(feature = "experimental-push-secrets")]
+        async fn delete_pushed_secrets_from_inbox(
+            &self,
+            secret_name: &SecretName,
+        ) -> Result<(), Self::Error> {
+            self.0.delete_pushed_secrets_from_inbox(secret_name).await
         }
 
         async fn get_room_settings(
