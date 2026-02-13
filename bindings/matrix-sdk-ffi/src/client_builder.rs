@@ -32,7 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
-    store::CrossProcessStoreMode,
+    store::CrossProcessStoreConfig as SdkCrossProcessStoreConfig,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
@@ -132,7 +132,7 @@ pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     disable_automatic_token_refresh: bool,
-    cross_process_mode: CrossProcessMode,
+    cross_process_store_config: CrossProcessStoreConfig,
     enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     encryption_settings: EncryptionSettings,
@@ -177,7 +177,7 @@ impl ClientBuilder {
             #[cfg(not(target_family = "wasm"))]
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            cross_process_mode: CrossProcessMode::SingleProcess,
+            cross_process_store_config: CrossProcessStoreConfig::SingleProcess,
             enable_oidc_refresh_lock: false,
             session_delegate: None,
             #[cfg(not(target_family = "wasm"))]
@@ -200,9 +200,12 @@ impl ClientBuilder {
         })
     }
 
-    pub fn cross_process_mode(self: Arc<Self>, cross_process_mode: CrossProcessMode) -> Arc<Self> {
+    pub fn cross_process_store_config(
+        self: Arc<Self>,
+        cross_process_store_config: CrossProcessStoreConfig,
+    ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.cross_process_mode = cross_process_mode;
+        builder.cross_process_store_config = cross_process_store_config;
         Arc::new(builder)
     }
 
@@ -366,8 +369,8 @@ impl ClientBuilder {
 
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
-        let mut inner_builder =
-            MatrixClient::builder().cross_process_store_mode(builder.cross_process_mode.into());
+        let mut inner_builder = MatrixClient::builder()
+            .cross_process_store_config(builder.cross_process_store_config.into());
 
         let store_path = if let Some(store) = &builder.store {
             match store.build()? {
@@ -637,20 +640,22 @@ pub enum SlidingSyncVersionBuilder {
 
 #[derive(Clone, Debug, uniffi::Enum)]
 /// The cross-process mode for `Store`s.
-pub enum CrossProcessMode {
+pub enum CrossProcessStoreConfig {
     /// The stores will be used in multiple processes, the holder name for the
-    /// cross-process lock is the associated `String`.
-    MultiProcess { name: String },
+    /// cross-process lock is the `holder_name` String.
+    MultiProcess { holder_name: String },
     /// The stores will be used in a single process, there is no need for a
     /// cross-process lock.
     SingleProcess,
 }
 
-impl From<CrossProcessMode> for CrossProcessStoreMode {
-    fn from(store_mode: CrossProcessMode) -> Self {
+impl From<CrossProcessStoreConfig> for SdkCrossProcessStoreConfig {
+    fn from(store_mode: CrossProcessStoreConfig) -> Self {
         match store_mode {
-            CrossProcessMode::MultiProcess { name } => CrossProcessStoreMode::MultiProcess(name),
-            CrossProcessMode::SingleProcess => CrossProcessStoreMode::SingleProcess,
+            CrossProcessStoreConfig::MultiProcess { holder_name } => {
+                SdkCrossProcessStoreConfig::MultiProcess { holder_name }
+            }
+            CrossProcessStoreConfig::SingleProcess => SdkCrossProcessStoreConfig::SingleProcess,
         }
     }
 }

@@ -23,7 +23,7 @@ use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
 use matrix_sdk_base::{
-    RoomState, StoreError, deserialized_responses::TimelineEvent, store::CrossProcessStoreMode,
+    RoomState, StoreError, deserialized_responses::TimelineEvent, store::CrossProcessStoreConfig,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
@@ -119,13 +119,15 @@ impl NotificationClient {
         process_setup: NotificationProcessSetup,
     ) -> Result<Self, Error> {
         // Only create the lock id if cross process lock is needed (multiple processes)
-        let cross_process_store_mode = match process_setup {
+        let cross_process_store_config = match process_setup {
             NotificationProcessSetup::MultipleProcesses => {
-                CrossProcessStoreMode::MultiProcess(Self::LOCK_ID.to_owned())
+                CrossProcessStoreConfig::multi_process(Self::LOCK_ID)
             }
-            NotificationProcessSetup::SingleProcess { .. } => CrossProcessStoreMode::SingleProcess,
+            NotificationProcessSetup::SingleProcess { .. } => {
+                CrossProcessStoreConfig::SingleProcess
+            }
         };
-        let client = parent_client.notification_client(cross_process_store_mode).await?;
+        let client = parent_client.notification_client(cross_process_store_config).await?;
 
         Ok(NotificationClient {
             client,

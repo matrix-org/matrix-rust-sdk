@@ -2581,7 +2581,7 @@ mod timed_tests {
             ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update,
             lazy_loader::from_all_chunks,
         },
-        store::{CrossProcessStoreMode, StoreConfig},
+        store::{CrossProcessStoreConfig, StoreConfig},
         sync::{JoinedRoomUpdate, Timeline},
     };
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
@@ -2613,7 +2613,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2691,7 +2691,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2834,7 +2834,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2992,7 +2992,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("hodor".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3119,7 +3119,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("holder".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("holder"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3808,7 +3808,7 @@ mod timed_tests {
         let client_p0 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("process #0".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("process #0"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3819,7 +3819,7 @@ mod timed_tests {
         let client_p1 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("process #1".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("process #1"))
                         .event_cache_store(event_cache_store),
                 )
             })
@@ -4309,7 +4309,7 @@ mod timed_tests {
         let client_p0 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("process #0".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("process #0"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -4320,7 +4320,7 @@ mod timed_tests {
         let client_p1 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreMode::MultiProcess("process #1".to_owned()))
+                    StoreConfig::new(CrossProcessStoreConfig::multi_process("process #1"))
                         .event_cache_store(event_cache_store),
                 )
             })

@@ -360,7 +360,7 @@ mod tests {
 
     use ruma::events::AnyStrippedStateEvent;
 
-    use crate::store::CrossProcessStoreMode;
+    use crate::store::CrossProcessStoreConfig;
 
     fn invite_state_for(
         user_id: &UserId,
@@ -1276,7 +1276,7 @@ mod tests {
 
         {
             let client = {
-                let store = StoreConfig::new(CrossProcessStoreMode::SingleProcess);
+                let store = StoreConfig::new(CrossProcessStoreConfig::SingleProcess);
                 state_store = store.state_store.clone();
 
                 let client = BaseClient::new(store, ThreadingSupport::Disabled);
@@ -1308,7 +1308,7 @@ mod tests {
 
         {
             let client = {
-                let mut store = StoreConfig::new(CrossProcessStoreMode::SingleProcess);
+                let mut store = StoreConfig::new(CrossProcessStoreConfig::SingleProcess);
                 store.state_store = state_store;
                 let client = BaseClient::new(store, ThreadingSupport::Disabled);
                 client
