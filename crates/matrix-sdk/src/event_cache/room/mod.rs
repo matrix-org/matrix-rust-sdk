@@ -26,7 +26,6 @@ use std::{
 
 use events::sort_positions_descending;
 use eyeball::SharedObservable;
-use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
@@ -47,12 +46,12 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventsOrigin, PaginationStatus, Result, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, RoomPagination,
+    AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
+    RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
+    caches::{TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
 };
 use crate::{
     client::WeakClient,
-    event_cache::{EventCacheError, caches::TimelineVectorDiffs},
     room::{IncludeRelations, RelationsOptions, WeakRoom},
 };
 
@@ -338,7 +337,7 @@ impl RoomEventCache {
     /// Return a [`RoomPagination`] API object useful for running
     /// back-pagination queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
-        RoomPagination { inner: self.inner.clone() }
+        RoomPagination::new(self.inner.clone())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -655,27 +654,6 @@ impl RoomEventCacheInner {
     }
 }
 
-/// Internal type to represent the output of
-/// [`RoomEventCacheState::load_more_events_backwards`].
-#[derive(Debug)]
-pub(super) enum LoadMoreEventsBackwardsOutcome {
-    /// A gap has been inserted.
-    Gap {
-        /// The previous batch token to be used as the "end" parameter in the
-        /// back-pagination request.
-        prev_token: Option<String>,
-
-        /// Whether we've waited for the initial `prev_token` before.
-        waited_for_initial_prev_token: bool,
-    },
-
-    /// The start of the timeline has been reached.
-    StartOfTimeline,
-
-    /// Events have been inserted.
-    Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
-}
-
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
@@ -716,22 +694,22 @@ mod private {
 
     use super::{
         super::{
-            BackPaginationOutcome, EventCacheError, PaginationStatus,
-            RoomEventCacheLinkedChunkUpdate,
-            caches::lock,
+            EventCacheError, PaginationStatus, RoomEventCacheLinkedChunkUpdate,
+            caches::{
+                TimelineVectorDiffs, lock,
+                pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
+            },
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
-            room::{pinned_events::PinnedEventCache, threads::ThreadEventCache},
         },
-        EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
+        EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
         events::EventLinkedChunk,
+        pinned_events::PinnedEventCache,
         sort_positions_descending,
+        threads::ThreadEventCache,
     };
-    use crate::{
-        Room,
-        event_cache::{TimelineVectorDiffs, room::PostProcessingOrigin},
-    };
+    use crate::Room;
 
     pub(in super::super) struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
