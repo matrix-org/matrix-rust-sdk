@@ -270,7 +270,7 @@ impl RoomEventCache {
 
         loop {
             match outcome {
-                LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                LoadMoreEventsBackwardsOutcome::Gap { prev_token, .. } => {
                     // Start a threaded pagination from this gap.
                     let options = RelationsOptions {
                         from: prev_token.clone(),
@@ -664,6 +664,9 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
         /// The previous batch token to be used as the "end" parameter in the
         /// back-pagination request.
         prev_token: Option<String>,
+
+        /// Whether we've waited for the initial `prev_token` before.
+        waited_for_initial_prev_token: bool,
     },
 
     /// The start of the timeline has been reached.
@@ -1127,7 +1130,10 @@ mod private {
             // resolve the gap.
             if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.prev_token)
             {
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: Some(prev_token),
+                    waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                });
             }
 
             let prev_first_chunk = self
@@ -1162,7 +1168,10 @@ mod private {
                     }
 
                     // Otherwise, start back-pagination from the end of the room.
-                    return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None });
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: None,
+                        waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                    });
                 }
 
                 Err(err) => {
@@ -1214,7 +1223,10 @@ mod private {
             Ok(match chunk_content {
                 ChunkContent::Gap(gap) => {
                     trace!("reloaded chunk from disk (gap)");
-                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
+                    LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: Some(gap.prev_token),
+                        waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
+                    }
                 }
 
                 ChunkContent::Items(events) => {
