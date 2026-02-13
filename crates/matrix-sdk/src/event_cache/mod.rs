@@ -73,7 +73,6 @@ use crate::{
 
 mod caches;
 mod deduplicator;
-mod pagination;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
@@ -82,8 +81,8 @@ mod room;
 pub use caches::{
     TimelineVectorDiffs,
     pagination::{BackPaginationOutcome, PaginationStatus},
+    room::pagination::RoomPagination,
 };
-pub use pagination::RoomPagination;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber};
