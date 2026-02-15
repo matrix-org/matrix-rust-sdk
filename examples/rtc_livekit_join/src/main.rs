@@ -2,11 +2,11 @@
 
 use std::{env, fs};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{
-    engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
     Engine as _,
+    engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
 };
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
@@ -15,10 +15,10 @@ use matrix_sdk::encryption::secret_storage::SecretStore;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk::ruma::CanonicalJsonValue;
 use matrix_sdk::{
+    Client, RoomMemberships, RoomState,
     config::SyncSettings,
     event_handler::EventHandlerDropGuard,
     ruma::{OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
-    Client, RoomMemberships, RoomState,
 };
 #[cfg(feature = "experimental-widgets")]
 use matrix_sdk::{
@@ -36,27 +36,27 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_crypto::types::room_history::RoomKeyBundle;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
-use matrix_sdk_rtc::{livekit_service_url, LiveKitConnector, LiveKitResult};
+use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
-    key_provider::{KeyProvider, KeyProviderOptions},
     E2eeOptions, EncryptionType,
+    key_provider::{KeyProvider, KeyProviderOptions},
 };
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
-#[cfg(feature = "e2ee-per-participant")]
-use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, Room, RoomOptions,
 };
 use ruma::api::client::account::request_openid_token;
+#[cfg(feature = "e2ee-per-participant")]
+use ruma::events::AnyToDeviceEvent;
 #[cfg(feature = "experimental-widgets")]
 use ruma::events::call::member::{
     ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent, CallMemberEventContent,
     CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
-#[cfg(feature = "e2ee-per-participant")]
-use ruma::events::AnyToDeviceEvent;
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
 use serde_json::Value as JsonValue;
@@ -242,8 +242,8 @@ fn configure_v4l2_device(
 )> {
     use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
     use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
-    use v4l::video::Capture;
     use v4l::Device;
+    use v4l::video::Capture;
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
     let mut format = device.format().context("read V4L2 format")?;
@@ -365,8 +365,8 @@ fn set_format_with_fallback(
     device: &mut v4l::Device,
     mut format: v4l::format::Format,
 ) -> anyhow::Result<v4l::format::Format> {
-    use v4l::video::Capture;
     use v4l::FourCC;
+    use v4l::video::Capture;
 
     let nv12 = FourCC::new(b"NV12");
     let yuyv = FourCC::new(b"YUYV");
@@ -1336,7 +1336,7 @@ async fn build_per_participant_e2ee(
     room: &matrix_sdk::Room,
 ) -> anyhow::Result<Option<PerParticipantE2eeContext>> {
     use matrix_sdk_rtc_livekit::matrix_keys::{
-        room_olm_machine, OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider,
+        OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
     };
 
     let encryption_state =
@@ -1409,8 +1409,8 @@ fn derive_per_participant_key(_bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>
     //
     // In Element Call (matrix-js-sdk), the sender key seed is 16 bytes.
     // Keeping this at 16 bytes is important for interoperability with the LiveKit E2EE ratchet.
-    use rand::rngs::OsRng;
     use rand::RngCore;
+    use rand::rngs::OsRng;
 
     let mut key = [0u8; 16];
     OsRng.fill_bytes(&mut key);
@@ -1465,8 +1465,8 @@ async fn send_per_participant_keys(
     key: &[u8],
     target_device_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     if key.is_empty() {
         info!(key_index, "per-participant E2EE key payload is empty; skipping send");
@@ -1569,10 +1569,18 @@ fn register_e2ee_to_device_handler(
     room_id: OwnedRoomId,
     key_provider: KeyProvider,
 ) -> EventHandlerDropGuard {
+    info!(%room_id, "registering per-participant E2EE to-device handler");
+
+    let seen_first_event = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| {
         let key_provider = key_provider.clone();
         let room_id = room_id.clone();
+        let seen_first_event = seen_first_event.clone();
         async move {
+            if !seen_first_event.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                info!("per-participant E2EE to-device handler observed first to-device event");
+            }
+
             let Ok(value) = raw.deserialize_as::<serde_json::Value>() else {
                 return;
             };
