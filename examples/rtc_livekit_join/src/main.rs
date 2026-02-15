@@ -2,11 +2,11 @@
 
 use std::{env, fs};
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{
-    Engine as _,
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
+    Engine as _,
 };
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
@@ -15,10 +15,10 @@ use matrix_sdk::encryption::secret_storage::SecretStore;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk::ruma::CanonicalJsonValue;
 use matrix_sdk::{
-    Client, RoomMemberships, RoomState,
     config::SyncSettings,
     event_handler::EventHandlerDropGuard,
     ruma::{OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+    Client, RoomMemberships, RoomState,
 };
 #[cfg(feature = "experimental-widgets")]
 use matrix_sdk::{
@@ -36,27 +36,27 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_crypto::types::room_history::RoomKeyBundle;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
-use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
-#[cfg(feature = "e2ee-per-participant")]
-use matrix_sdk_rtc_livekit::livekit::RoomEvent;
+use matrix_sdk_rtc::{livekit_service_url, LiveKitConnector, LiveKitResult};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
-    E2eeOptions, EncryptionType,
     key_provider::{KeyProvider, KeyProviderOptions},
+    E2eeOptions, EncryptionType,
 };
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, Room, RoomOptions,
 };
 use ruma::api::client::account::request_openid_token;
-#[cfg(feature = "e2ee-per-participant")]
-use ruma::events::AnyToDeviceEvent;
 #[cfg(feature = "experimental-widgets")]
 use ruma::events::call::member::{
     ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent, CallMemberEventContent,
     CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
+#[cfg(feature = "e2ee-per-participant")]
+use ruma::events::AnyToDeviceEvent;
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
 use serde_json::Value as JsonValue;
@@ -242,8 +242,8 @@ fn configure_v4l2_device(
 )> {
     use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
     use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
-    use v4l::Device;
     use v4l::video::Capture;
+    use v4l::Device;
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
     let mut format = device.format().context("read V4L2 format")?;
@@ -365,8 +365,8 @@ fn set_format_with_fallback(
     device: &mut v4l::Device,
     mut format: v4l::format::Format,
 ) -> anyhow::Result<v4l::format::Format> {
-    use v4l::FourCC;
     use v4l::video::Capture;
+    use v4l::FourCC;
 
     let nv12 = FourCC::new(b"NV12");
     let yuyv = FourCC::new(b"YUYV");
@@ -1336,16 +1336,25 @@ async fn build_per_participant_e2ee(
     room: &matrix_sdk::Room,
 ) -> anyhow::Result<Option<PerParticipantE2eeContext>> {
     use matrix_sdk_rtc_livekit::matrix_keys::{
-        OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
+        room_olm_machine, OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider,
     };
 
+    info!(room_id = %room.room_id(), "starting per-participant E2EE context build");
     let encryption_state =
         room.latest_encryption_state().await.context("load room encryption state")?;
+    info!(
+        room_id = %room.room_id(),
+        is_encrypted = encryption_state.is_encrypted(),
+        "loaded room encryption state for per-participant E2EE"
+    );
     if !encryption_state.is_encrypted() {
-        info!("room is not encrypted; per-participant E2EE disabled");
+        info!(
+            room_id = %room.room_id(),
+            "build_per_participant_e2ee returning None: room is not encrypted"
+        );
         return Ok(None);
     }
-    info!("room encryption enabled; attempting per-participant E2EE setup");
+    info!(room_id = %room.room_id(), "room encryption enabled; attempting per-participant E2EE setup");
 
     let force_download = bool_env("PER_PARTICIPANT_FORCE_BACKUP_DOWNLOAD");
     if force_download {
@@ -1359,7 +1368,7 @@ async fn build_per_participant_e2ee(
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
         Err(err) => {
-            info!(?err, "no olm machine available; per-participant E2EE disabled");
+            info!(?err, room_id = %room.room_id(), "build_per_participant_e2ee returning None: no olm machine available");
             return Ok(None);
         }
     };
@@ -1375,7 +1384,11 @@ async fn build_per_participant_e2ee(
             break bundle;
         }
         if attempt >= retries {
-            info!(retries, "per-participant key bundle is empty; E2EE disabled");
+            info!(
+                retries,
+                room_id = %room.room_id(),
+                "build_per_participant_e2ee returning None: per-participant key bundle is empty"
+            );
             return Ok(None);
         }
         attempt += 1;
@@ -1397,9 +1410,28 @@ async fn build_per_participant_e2ee(
     info!("per-participant key bundle available; enabling E2EE");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
     let local_key = derive_per_participant_key(&bundle)?;
+    info!(
+        room_id = %room.room_id(),
+        key_index = 0,
+        local_key_len = local_key.len(),
+        "derived local per-participant E2EE key material"
+    );
     send_per_participant_keys(room, 0, &local_key, None).await?;
+    info!(
+        room_id = %room.room_id(),
+        key_index = 0,
+        "sent initial per-participant E2EE key to devices"
+    );
 
-    Ok(Some(PerParticipantE2eeContext { key_provider, key_index: 0, local_key }))
+    let context = PerParticipantE2eeContext { key_provider, key_index: 0, local_key };
+    info!(
+        room_id = %room.room_id(),
+        key_index = context.key_index,
+        local_key_len = context.local_key.len(),
+        "build_per_participant_e2ee returning Some context"
+    );
+
+    Ok(Some(context))
 }
 
 #[cfg(feature = "e2ee-per-participant")]
@@ -1409,8 +1441,8 @@ fn derive_per_participant_key(_bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>
     //
     // In Element Call (matrix-js-sdk), the sender key seed is 16 bytes.
     // Keeping this at 16 bytes is important for interoperability with the LiveKit E2EE ratchet.
-    use rand::RngCore;
     use rand::rngs::OsRng;
+    use rand::RngCore;
 
     let mut key = [0u8; 16];
     OsRng.fill_bytes(&mut key);
@@ -1465,8 +1497,8 @@ async fn send_per_participant_keys(
     key: &[u8],
     target_device_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    use base64::Engine as _;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
 
     if key.is_empty() {
         info!(key_index, "per-participant E2EE key payload is empty; skipping send");
