@@ -1375,22 +1375,24 @@ async fn build_per_participant_e2ee(
     let provider = OlmMachineKeyMaterialProvider::new(olm_machine);
     let retries = retry_attempts_from_env("PER_PARTICIPANT_KEY_RETRIES", 0);
     let mut attempt = 0usize;
-    let bundle = loop {
+    loop {
         let bundle = provider
             .per_participant_key_bundle(room.room_id())
             .await
             .context("build per-participant key bundle")?;
-        if !bundle.is_empty() {
-            break bundle;
+
+        info!(
+            room_keys = bundle.room_keys.len(),
+            withheld_keys = bundle.withheld.len(),
+            attempt,
+            retries,
+            "per-participant key bundle details"
+        );
+
+        if !bundle.is_empty() || attempt >= retries {
+            break;
         }
-        if attempt >= retries {
-            info!(
-                retries,
-                room_id = %room.room_id(),
-                "build_per_participant_e2ee returning None: per-participant key bundle is empty"
-            );
-            return Ok(None);
-        }
+
         attempt += 1;
         if force_download {
             let backups = room.client().encryption().backups();
@@ -1401,15 +1403,10 @@ async fn build_per_participant_e2ee(
         }
         info!(attempt, retries, "per-participant key bundle empty; retrying after delay");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    };
-    info!(
-        room_keys = bundle.room_keys.len(),
-        withheld_keys = bundle.withheld.len(),
-        "per-participant key bundle details"
-    );
-    info!("per-participant key bundle available; enabling E2EE");
+    }
+    info!("proceeding with per-participant E2EE setup (sender key is freshly generated)");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
-    let local_key = derive_per_participant_key(&bundle)?;
+    let local_key = derive_per_participant_key()?;
     info!(
         room_id = %room.room_id(),
         key_index = 0,
@@ -1435,7 +1432,7 @@ async fn build_per_participant_e2ee(
 }
 
 #[cfg(feature = "e2ee-per-participant")]
-fn derive_per_participant_key(_bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>> {
+fn derive_per_participant_key() -> anyhow::Result<Vec<u8>> {
     // Element Call / MatrixRTC uses fresh random key material for per-participant media E2EE
     // and distributes it via `io.element.call.encryption_keys`.
     //
