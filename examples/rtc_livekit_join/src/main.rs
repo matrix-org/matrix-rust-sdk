@@ -859,6 +859,15 @@ fn spawn_livekit_e2ee_event_resend(
     });
 }
 
+#[cfg(feature = "e2ee-per-participant")]
+fn per_participant_key_grace_period() -> std::time::Duration {
+    let grace_ms = std::env::var("PER_PARTICIPANT_KEY_GRACE_PERIOD_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(300);
+    std::time::Duration::from_millis(grace_ms)
+}
+
 #[cfg(not(feature = "e2ee-per-participant"))]
 fn spawn_periodic_e2ee_key_resend(_room: matrix_sdk::Room, _context: ()) {}
 
@@ -1739,6 +1748,26 @@ where
                     key_set,
                     "enabled per-participant E2EE for local participant"
                 );
+
+                if let Err(err) =
+                    send_per_participant_keys(room, context.key_index, &context.local_key, None)
+                        .await
+                {
+                    info!(
+                        ?err,
+                        "failed to send per-participant E2EE keys immediately after room connect"
+                    );
+                }
+
+                let key_grace_period = per_participant_key_grace_period();
+                if !key_grace_period.is_zero() {
+                    info!(
+                        key_grace_period_ms = key_grace_period.as_millis(),
+                        "waiting for per-participant E2EE key grace period before publishing media"
+                    );
+                    tokio::time::sleep(key_grace_period).await;
+                }
+
                 if let Some(events) = livekit_events {
                     spawn_livekit_e2ee_event_resend(room.clone(), events, context.clone());
                 }
