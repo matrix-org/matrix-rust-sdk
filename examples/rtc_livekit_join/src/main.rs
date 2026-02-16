@@ -56,7 +56,7 @@ use ruma::events::call::member::{
     CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
 #[cfg(feature = "e2ee-per-participant")]
-use ruma::events::AnyToDeviceEvent;
+use ruma::events::{AnySyncMessageLikeEvent, AnyToDeviceEvent};
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
 use serde_json::Value as JsonValue;
@@ -574,6 +574,11 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "e2ee-per-participant")]
     let to_device_key_provider = KeyProvider::new(KeyProviderOptions::default());
+    #[cfg(feature = "e2ee-per-participant")]
+    let _to_device_probe_guard = register_any_to_device_probe_handler(&client);
+    #[cfg(feature = "e2ee-per-participant")]
+    let _room_message_probe_guard =
+        register_room_message_key_probe_handler(&client, room.room_id().to_owned());
     #[cfg(feature = "e2ee-per-participant")]
     let _e2ee_to_device_guard = register_e2ee_to_device_handler(
         &client,
@@ -1591,6 +1596,53 @@ async fn send_per_participant_keys(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn register_any_to_device_probe_handler(client: &Client) -> EventHandlerDropGuard {
+    info!("registering probe handler for all to-device events");
+
+    let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| async move {
+        let event_type = raw
+            .get_field::<String>("type")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "<missing>".to_owned());
+        let sender = raw
+            .get_field::<String>("sender")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "<missing>".to_owned());
+        info!(event_type, sender, "probe observed to-device event");
+    });
+
+    client.event_handler_drop_guard(handle)
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn register_room_message_key_probe_handler(
+    client: &Client,
+    room_id: OwnedRoomId,
+) -> EventHandlerDropGuard {
+    info!(%room_id, "registering room message-like probe for encryption keys");
+
+    let handle =
+        client.add_room_event_handler(&room_id, move |raw: Raw<AnySyncMessageLikeEvent>| {
+            let room_id = room_id.clone();
+            async move {
+                let event_type = raw
+                    .get_field::<String>("type")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "<missing>".to_owned());
+
+                if event_type == "io.element.call.encryption_keys" {
+                    info!(%room_id, "probe observed room message-like encryption key event");
+                }
+            }
+        });
+
+    client.event_handler_drop_guard(handle)
 }
 
 #[cfg(feature = "e2ee-per-participant")]
