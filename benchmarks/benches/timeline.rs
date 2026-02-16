@@ -79,7 +79,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
     }
 
     let builder = JoinedRoomBuilder::new(&room_id)
-        .add_state_event(f.room_encryption())
+        .add_state_event(f.room_encryption().sender(&sender_id))
         .add_timeline_bulk(events);
 
     let room = runtime.block_on(async move {
