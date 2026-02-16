@@ -519,7 +519,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         transaction
             .get_room_events(room_id)
             .await
-            .map(|vec| {
+            .map(|mut vec| {
+                vec.dedup_by(|a, b| {
+                    if let (Some(a), Some(b)) = (a.event_id(), b.event_id()) {
+                        a == b
+                    } else {
+                        false
+                    }
+                });
                 vec.into_iter()
                     .map(Event::from)
                     .filter(|e| {
