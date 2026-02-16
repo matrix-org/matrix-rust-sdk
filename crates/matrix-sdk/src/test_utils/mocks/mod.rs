@@ -28,7 +28,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, test_json,
+    SyncResponseBuilder, event_factory::EventFactory, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
@@ -2801,7 +2801,8 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// ```
     pub fn encrypted(self) -> MatrixMock<'a> {
         self.respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+            ResponseTemplate::new(200)
+                .set_body_json(EventFactory::new().room_encryption().into_content()),
         )
     }
 
@@ -2831,7 +2832,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub fn state_encrypted(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(
-            &*test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
+            EventFactory::new().room_encryption_with_state_encryption().into_content(),
         ))
     }
 

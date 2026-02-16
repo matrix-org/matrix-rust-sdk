@@ -13,23 +13,6 @@ pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "algorithm": "m.megolm.v1.aes-sha2",
-        "rotation_period_ms": 604800000,
-        "rotation_period_msgs": 100
-    })
-});
-
-pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "algorithm": "m.megolm.v1.aes-sha2",
-        "rotation_period_ms": 604800000,
-        "rotation_period_msgs": 100,
-        "io.element.msc4362.encrypt_state_events": true
-    })
-});
-
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
 pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
     json!({
