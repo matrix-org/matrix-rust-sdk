@@ -21,7 +21,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
-        self, TAG,
+        self,
         sync::{
             MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
             MIXED_SYNC,
@@ -29,7 +29,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, OwnedUserId, RoomId, RoomVersionId,
+    EventId, Int, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -45,12 +45,13 @@ use ruma::{
     directory::Filter,
     event_id,
     events::{
-        AnyInitialStateEvent,
+        AnyInitialStateEvent, AnyRoomAccountDataEvent,
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
         },
+        tag::{TagEventContent, TagInfo, TagName, Tags},
     },
     owned_event_id, owned_room_id,
     room::JoinRule,
@@ -1365,7 +1366,10 @@ async fn test_restore_room() {
 
     let mut changes = StateChanges::default();
 
-    let raw_tag_event = Raw::new(&*TAG).unwrap().cast_unchecked();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+    let mut tags = Tags::new();
+    tags.insert(TagName::Favorite, TagInfo::default());
+    let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(TagEventContent::new(tags)).into();
     let tag_event = raw_tag_event.deserialize().unwrap();
     changes.add_room_account_data(room_id, tag_event, raw_tag_event);
 
@@ -1484,7 +1488,15 @@ async fn test_room_sync_state_after() {
                 .use_state_after()
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
-                    Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
+                    {
+                        let mut users = BTreeMap::new();
+                        users.insert(
+                            user_id!("@example:localhost").to_owned(),
+                            Int::new(100).unwrap(),
+                        );
+                        users.insert(user_id!("@bob:localhost").to_owned(), Int::new(0).unwrap());
+                        f.power_levels(&mut users).into()
+                    },
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     f.room_join_rules(JoinRule::Public).into(),
                     f.member(user_id!("@invited:localhost"))
@@ -1494,7 +1506,7 @@ async fn test_room_sync_state_after() {
                 ])
                 .add_timeline_bulk([
                     f.member(user_id!("@invited:localhost")).into_raw_timeline().cast(),
-                    Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
+                    f.room_name("room name").into_raw_timeline().cast(),
                 ]),
         )
         .await;
