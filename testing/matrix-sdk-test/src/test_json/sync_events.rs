@@ -172,19 +172,3 @@ pub static PRESENCE: Lazy<JsonValue> = Lazy::new(|| {
         "type": "m.presence"
     })
 });
-
-pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "tags": {
-                "m.favourite": {
-                    "order": 0.0
-                },
-                "u.work": {
-                    "order": 0.9
-                }
-            }
-        },
-        "type": "m.tag"
-    })
-});

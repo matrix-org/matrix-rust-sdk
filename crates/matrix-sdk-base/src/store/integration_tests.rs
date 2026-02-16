@@ -29,6 +29,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             topic::RoomTopicEventContent,
         },
+        tag::{TagInfo, TagName, Tags},
     },
     owned_event_id, owned_mxc_uri,
     push::Ruleset,
@@ -140,8 +141,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut room = RoomInfo::new(room_id, RoomState::Joined);
         room.mark_as_left();
 
-        let tag_json: &JsonValue = &test_json::TAG;
-        let tag_raw = serde_json::from_value::<Raw<AnyRoomAccountDataEvent>>(tag_json.clone())?;
+        let mut tags = Tags::new();
+        tags.insert(TagName::Favorite, TagInfo::new());
+        tags.insert(TagName::User("work".to_owned()), TagInfo::new());
+        let tag_raw: Raw<AnyRoomAccountDataEvent> = f.tag(tags.into()).into();
         let tag_event = tag_raw.deserialize()?;
         changes.add_room_account_data(room_id, tag_event, tag_raw);
 
