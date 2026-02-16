@@ -1369,7 +1369,7 @@ async fn test_restore_room() {
     let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
     let mut tags = Tags::new();
     tags.insert(TagName::Favorite, TagInfo::default());
-    let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(TagEventContent::new(tags)).into();
+    let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(tags).into();
     let tag_event = raw_tag_event.deserialize().unwrap();
     changes.add_room_account_data(room_id, tag_event, raw_tag_event);
 
