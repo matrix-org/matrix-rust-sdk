@@ -56,7 +56,7 @@ use ruma::events::call::member::{
     CallMemberStateKey, CallScope, Focus, LivekitFocus,
 };
 #[cfg(feature = "e2ee-per-participant")]
-use ruma::events::AnyToDeviceEvent;
+use ruma::events::{AnySyncMessageLikeEvent, AnyToDeviceEvent};
 #[cfg(feature = "e2ee-per-participant")]
 use ruma::serde::Raw;
 use serde_json::Value as JsonValue;
@@ -572,6 +572,20 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "experimental-widgets"))]
     let _ = &widget;
 
+    #[cfg(feature = "e2ee-per-participant")]
+    let to_device_key_provider = KeyProvider::new(KeyProviderOptions::default());
+    #[cfg(feature = "e2ee-per-participant")]
+    let _to_device_probe_guard = register_any_to_device_probe_handler(&client);
+    #[cfg(feature = "e2ee-per-participant")]
+    let _room_message_probe_guard =
+        register_room_message_key_probe_handler(&client, room.room_id().to_owned());
+    #[cfg(feature = "e2ee-per-participant")]
+    let _e2ee_to_device_guard = register_e2ee_to_device_handler(
+        &client,
+        room.room_id().to_owned(),
+        to_device_key_provider.clone(),
+    );
+
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move { sync_client.sync(SyncSettings::new()).await });
 
@@ -620,14 +634,6 @@ async fn main() -> anyhow::Result<()> {
     if let Some(context) = e2ee_context.as_ref() {
         spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
     }
-    #[cfg(feature = "e2ee-per-participant")]
-    let _e2ee_to_device_guard = e2ee_context.as_ref().map(|context| {
-        register_e2ee_to_device_handler(
-            &client,
-            room.room_id().to_owned(),
-            context.key_provider.clone(),
-        )
-    });
     #[cfg(feature = "e2ee-per-participant")]
     let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
     #[cfg(not(feature = "e2ee-per-participant"))]
@@ -1339,13 +1345,22 @@ async fn build_per_participant_e2ee(
         room_olm_machine, OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider,
     };
 
+    info!(room_id = %room.room_id(), "starting per-participant E2EE context build");
     let encryption_state =
         room.latest_encryption_state().await.context("load room encryption state")?;
+    info!(
+        room_id = %room.room_id(),
+        is_encrypted = encryption_state.is_encrypted(),
+        "loaded room encryption state for per-participant E2EE"
+    );
     if !encryption_state.is_encrypted() {
-        info!("room is not encrypted; per-participant E2EE disabled");
+        info!(
+            room_id = %room.room_id(),
+            "build_per_participant_e2ee returning None: room is not encrypted"
+        );
         return Ok(None);
     }
-    info!("room encryption enabled; attempting per-participant E2EE setup");
+    info!(room_id = %room.room_id(), "room encryption enabled; attempting per-participant E2EE setup");
 
     let force_download = bool_env("PER_PARTICIPANT_FORCE_BACKUP_DOWNLOAD");
     if force_download {
@@ -1359,25 +1374,31 @@ async fn build_per_participant_e2ee(
     let olm_machine = match room_olm_machine(room).await {
         Ok(machine) => machine,
         Err(err) => {
-            info!(?err, "no olm machine available; per-participant E2EE disabled");
+            info!(?err, room_id = %room.room_id(), "build_per_participant_e2ee returning None: no olm machine available");
             return Ok(None);
         }
     };
     let provider = OlmMachineKeyMaterialProvider::new(olm_machine);
     let retries = retry_attempts_from_env("PER_PARTICIPANT_KEY_RETRIES", 0);
     let mut attempt = 0usize;
-    let bundle = loop {
+    loop {
         let bundle = provider
             .per_participant_key_bundle(room.room_id())
             .await
             .context("build per-participant key bundle")?;
-        if !bundle.is_empty() {
-            break bundle;
+
+        info!(
+            room_keys = bundle.room_keys.len(),
+            withheld_keys = bundle.withheld.len(),
+            attempt,
+            retries,
+            "per-participant key bundle details"
+        );
+
+        if !bundle.is_empty() || attempt >= retries {
+            break;
         }
-        if attempt >= retries {
-            info!(retries, "per-participant key bundle is empty; E2EE disabled");
-            return Ok(None);
-        }
+
         attempt += 1;
         if force_download {
             let backups = room.client().encryption().backups();
@@ -1388,22 +1409,36 @@ async fn build_per_participant_e2ee(
         }
         info!(attempt, retries, "per-participant key bundle empty; retrying after delay");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    };
-    info!(
-        room_keys = bundle.room_keys.len(),
-        withheld_keys = bundle.withheld.len(),
-        "per-participant key bundle details"
-    );
-    info!("per-participant key bundle available; enabling E2EE");
+    }
+    info!("proceeding with per-participant E2EE setup (sender key is freshly generated)");
     let key_provider = KeyProvider::new(KeyProviderOptions::default());
-    let local_key = derive_per_participant_key(&bundle)?;
+    let local_key = derive_per_participant_key()?;
+    info!(
+        room_id = %room.room_id(),
+        key_index = 0,
+        local_key_len = local_key.len(),
+        "derived local per-participant E2EE key material"
+    );
     send_per_participant_keys(room, 0, &local_key, None).await?;
+    info!(
+        room_id = %room.room_id(),
+        key_index = 0,
+        "sent initial per-participant E2EE key to devices"
+    );
 
-    Ok(Some(PerParticipantE2eeContext { key_provider, key_index: 0, local_key }))
+    let context = PerParticipantE2eeContext { key_provider, key_index: 0, local_key };
+    info!(
+        room_id = %room.room_id(),
+        key_index = context.key_index,
+        local_key_len = context.local_key.len(),
+        "build_per_participant_e2ee returning Some context"
+    );
+
+    Ok(Some(context))
 }
 
 #[cfg(feature = "e2ee-per-participant")]
-fn derive_per_participant_key(_bundle: &RoomKeyBundle) -> anyhow::Result<Vec<u8>> {
+fn derive_per_participant_key() -> anyhow::Result<Vec<u8>> {
     // Element Call / MatrixRTC uses fresh random key material for per-participant media E2EE
     // and distributes it via `io.element.call.encryption_keys`.
     //
@@ -1564,38 +1599,106 @@ async fn send_per_participant_keys(
 }
 
 #[cfg(feature = "e2ee-per-participant")]
+fn register_any_to_device_probe_handler(client: &Client) -> EventHandlerDropGuard {
+    info!("registering probe handler for all to-device events");
+
+    let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| async move {
+        let event_type = raw
+            .get_field::<String>("type")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "<missing>".to_owned());
+        let sender = raw
+            .get_field::<String>("sender")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "<missing>".to_owned());
+        info!(event_type, sender, "probe observed to-device event");
+    });
+
+    client.event_handler_drop_guard(handle)
+}
+
+#[cfg(feature = "e2ee-per-participant")]
+fn register_room_message_key_probe_handler(
+    client: &Client,
+    room_id: OwnedRoomId,
+) -> EventHandlerDropGuard {
+    info!(%room_id, "registering room message-like probe for encryption keys");
+
+    let handle =
+        client.add_room_event_handler(&room_id, move |raw: Raw<AnySyncMessageLikeEvent>| {
+            let room_id = room_id.clone();
+            async move {
+                let event_type = raw
+                    .get_field::<String>("type")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "<missing>".to_owned());
+
+                if event_type == "io.element.call.encryption_keys" {
+                    info!(%room_id, "probe observed room message-like encryption key event");
+                }
+            }
+        });
+
+    client.event_handler_drop_guard(handle)
+}
+
+#[cfg(feature = "e2ee-per-participant")]
 fn register_e2ee_to_device_handler(
     client: &Client,
     room_id: OwnedRoomId,
     key_provider: KeyProvider,
 ) -> EventHandlerDropGuard {
+    info!(%room_id, "registering per-participant E2EE to-device handler");
+
+    let seen_first_event = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| {
         let key_provider = key_provider.clone();
         let room_id = room_id.clone();
+        let seen_first_event = seen_first_event.clone();
         async move {
+            if !seen_first_event.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                info!("per-participant E2EE to-device handler observed first to-device event");
+            }
+
             let Ok(value) = raw.deserialize_as::<serde_json::Value>() else {
+                info!("to-device event ignored: failed to deserialize raw event");
                 return;
             };
             let Some(event_type) = value.get("type").and_then(|v| v.as_str()) else {
+                info!("to-device event ignored: missing event type");
                 return;
             };
             if event_type != "io.element.call.encryption_keys" {
+                info!(event_type, "to-device event ignored: not an encryption key event");
                 return;
             }
 
             let Some(sender) = value.get("sender").and_then(|v| v.as_str()) else {
+                info!("to-device encryption key event ignored: missing sender");
                 return;
             };
             let Some(content) = value.get("content").and_then(|v| v.as_object()) else {
+                info!(sender, "to-device encryption key event ignored: missing content object");
                 return;
             };
             let Some(content_room_id) = content.get("room_id").and_then(|v| v.as_str()) else {
+                info!(sender, "to-device encryption key event ignored: missing content.room_id");
                 return;
             };
             if content_room_id != room_id.as_str() {
+                info!(
+                    sender,
+                    expected_room_id = %room_id,
+                    received_room_id = content_room_id,
+                    "to-device encryption key event ignored: room_id mismatch"
+                );
                 return;
             }
             let Some(device_id) = content.get("device_id").and_then(|v| v.as_str()) else {
+                info!(sender, "to-device encryption key event ignored: missing content.device_id");
                 return;
             };
             let keys = content.get("keys");
@@ -1605,16 +1708,39 @@ fn register_e2ee_to_device_handler(
                 }
                 Some(value) if value.is_object() => vec![value],
                 _ => {
+                    info!(
+                        sender,
+                        device_id,
+                        "to-device encryption key event ignored: missing/invalid content.keys"
+                    );
                     return;
                 }
             };
 
+            if key_entries.is_empty() {
+                info!(
+                    sender,
+                    device_id,
+                    "to-device encryption key event ignored: content.keys had no entries"
+                );
+                return;
+            }
+
+            info!(
+                sender,
+                device_id,
+                key_count = key_entries.len(),
+                "processing per-participant E2EE to-device key event"
+            );
+
             let identity = ParticipantIdentity(format!("{sender}:{device_id}"));
             for key_entry in key_entries {
                 let Some(index) = key_entry.get("index").and_then(|v| v.as_i64()) else {
+                    info!(%identity, "to-device key entry ignored: missing numeric index");
                     continue;
                 };
                 let Some(key_b64) = key_entry.get("key").and_then(|v| v.as_str()) else {
+                    info!(%identity, key_index = index, "to-device key entry ignored: missing string key");
                     continue;
                 };
                 let key_bytes = STANDARD_NO_PAD
