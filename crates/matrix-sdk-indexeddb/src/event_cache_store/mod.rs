@@ -546,15 +546,23 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             return Ok(());
         };
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_room(room_id, &event_id).await? {
-            Some(inner) => inner.with_content(event),
-            None => types::Event::OutOfBand(OutOfBandEvent {
+
+        let mut events = transaction
+            .get_events_by_room(room_id, &event_id)
+            .await?
+            .into_iter()
+            .map(|e| e.with_content(event.clone()))
+            .collect::<Vec<types::Event>>();
+        if events.is_empty() {
+            events.push(types::Event::OutOfBand(OutOfBandEvent {
                 linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
                 content: event,
                 position: (),
-            }),
-        };
-        transaction.put_event(&event).await?;
+            }));
+        }
+        for event in events {
+            transaction.put_event(&event).await?;
+        }
         transaction.commit().await?;
         Ok(())
     }
