@@ -15,7 +15,6 @@ pub mod keys_query_sets;
 pub mod members;
 pub mod search_users;
 pub mod sync;
-pub mod sync_events;
 
 pub use api_responses::{
     DEVICE, DEVICES, GET_ALIAS, KEYS_QUERY, KEYS_QUERY_TWO_DEVICES_ONE_SIGNED, KEYS_UPLOAD, LOGIN,
@@ -26,9 +25,6 @@ pub use api_responses::{
 pub use members::MEMBERS;
 pub use sync::{
     DEFAULT_SYNC_SUMMARY, INVITE_SYNC, JOIN_SPACE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, SYNC,
-};
-pub use sync_events::{
-    MEMBER, MEMBER_BAN, MEMBER_INVITE, MEMBER_STRIPPED, NAME, NAME_STRIPPED, POWER_LEVELS, PRESENCE,
 };
 
 /// An empty response.
