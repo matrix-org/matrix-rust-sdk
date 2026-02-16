@@ -52,8 +52,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, UserId,
-    encryption::KeyUsage, events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId,
+    OwnedUserId, RoomId, UserId, encryption::KeyUsage, events::secret::request::SecretName,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -1435,6 +1435,12 @@ impl Store {
     /// ```
     pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         self.inner.store.historic_room_key_stream()
+    }
+
+    pub fn invite_acceptance_details_stream(
+        &self,
+    ) -> impl Stream<Item = (OwnedRoomId, Option<InviteAcceptanceDetails>)> + use<> {
+        self.inner.store.invite_acceptance_details_stream()
     }
 
     /// Import the given room keys into the store.

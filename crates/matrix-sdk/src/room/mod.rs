@@ -3690,6 +3690,22 @@ impl Room {
             .await?)
     }
 
+    pub async fn invite_acceptance_details_stream(
+        &self,
+    ) -> Result<impl Stream<Item = Option<InviteAcceptanceDetails>> + '_> {
+        Ok(self
+            .client
+            .olm_machine()
+            .await
+            .as_ref()
+            .ok_or(Error::NoOlmMachine)?
+            .store()
+            .invite_acceptance_details_stream()
+            .filter_map(move |(room_id, details)| async move {
+                if room_id == self.room_id() { Some(details) } else { None }
+            }))
+    }
+
     /// Get the membership details for the current user.
     ///
     /// Returns:

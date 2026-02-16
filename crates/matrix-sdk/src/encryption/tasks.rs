@@ -491,16 +491,28 @@ impl BundleReceiverTask {
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
+        let Ok(detail_stream) = room.invite_acceptance_details_stream().await else {
+            return false;
+        };
+        pin_mut!(detail_stream);
+        let Some(details) = detail_stream.next().await else {
+            return false;
+        };
+
         let Ok(Some(InviteAcceptanceDetails {
             invite_accepted_at,
             inviter,
             has_imported_key_bundle,
         })) = room.invite_acceptance_details().await
         else {
+            debug!("Not accepting key bundle as there are no recorded invite acceptance details");
             return false;
         };
         // If we have already imported a key bundle, we shouldn't import it again.
         if has_imported_key_bundle {
+            debug!(
+                "Not accepting key bundle as we have already imported a key bundle for this room"
+            );
             return false;
         }
 

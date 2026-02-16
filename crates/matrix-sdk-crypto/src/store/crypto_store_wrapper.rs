@@ -3,7 +3,7 @@ use std::{future, ops::Deref, sync::Arc};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::cross_process_lock::CrossProcessLock;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, UserId};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
@@ -13,10 +13,10 @@ use super::{
     types::RoomKeyBundleInfo,
 };
 use crate::{
-    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
+    CryptoStoreError, GossippedSecret, InviteAcceptanceDetails, OwnUserIdentityData, Session,
+    UserIdentityData,
     olm::InboundGroupSession,
-    store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    store::{self, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -53,6 +53,11 @@ pub(crate) struct CryptoStoreWrapper {
     /// The sender side of a broadcast channel which sends out information about
     /// historic room key bundles we have received.
     historic_room_key_bundles_broadcaster: broadcast::Sender<RoomKeyBundleInfo>,
+
+    /// The sender side of a broadcast channel which sendsa out information about accepted
+    /// room invites.
+    invite_acceptance_details_broadcaster:
+        broadcast::Sender<(OwnedRoomId, Option<InviteAcceptanceDetails>)>,
 }
 
 impl CryptoStoreWrapper {
@@ -64,6 +69,7 @@ impl CryptoStoreWrapper {
         // devices, that's why we increase the capacity here.
         let identities_broadcaster = broadcast::Sender::new(20);
         let historic_room_key_bundles_broadcaster = broadcast::Sender::new(10);
+        let invite_acceptance_details_broadcaster = broadcast::Sender::new(10);
 
         Self {
             user_id: user_id.to_owned(),
@@ -75,6 +81,7 @@ impl CryptoStoreWrapper {
             secrets_broadcaster,
             identities_broadcaster,
             historic_room_key_bundles_broadcaster,
+            invite_acceptance_details_broadcaster,
         }
     }
 
@@ -118,6 +125,11 @@ impl CryptoStoreWrapper {
         let identities = changes.identities.to_owned();
         let room_key_bundle_updates: Vec<_> =
             changes.received_room_key_bundles.iter().map(RoomKeyBundleInfo::from).collect();
+        let invite_acceptance_details_updates: Vec<_> = changes
+            .invite_acceptance_details
+            .iter()
+            .map(|(id, room)| (id.to_owned(), room.to_owned()))
+            .collect();
 
         if devices
             .changed
@@ -172,6 +184,10 @@ impl CryptoStoreWrapper {
 
         for bundle_info in room_key_bundle_updates {
             let _ = self.historic_room_key_bundles_broadcaster.send(bundle_info);
+        }
+
+        for (room_id, details) in invite_acceptance_details_updates {
+            let _ = self.invite_acceptance_details_broadcaster.send((room_id, details));
         }
 
         if !devices.is_empty() || !identities.is_empty() {
@@ -350,6 +366,13 @@ impl CryptoStoreWrapper {
     pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         let stream = BroadcastStream::new(self.historic_room_key_bundles_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "bundle_stream")
+    }
+
+    pub fn invite_acceptance_details_stream(
+        &self,
+    ) -> impl Stream<Item = (OwnedRoomId, Option<InviteAcceptanceDetails>)> + use<> {
+        let stream = BroadcastStream::new(self.invite_acceptance_details_broadcaster.subscribe());
+        Self::filter_errors_out_of_stream(stream, "invite_acceptance_details_stream")
     }
 
     /// Returns a stream of newly created or updated cryptographic identities.

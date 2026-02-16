@@ -320,6 +320,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 15 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/015_invite_acceptance_details.sql"
+            ))?;
+            txn.set_db_version(15)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
