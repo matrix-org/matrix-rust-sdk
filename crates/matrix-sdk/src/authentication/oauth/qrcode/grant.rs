@@ -1175,7 +1175,11 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        grant.await.expect_err("Alice should abort the login");
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::Unknown(_)),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
@@ -1276,9 +1280,12 @@ mod test {
             .await;
         });
 
-        grant.await.expect_err("Alice should abort the login");
-
         // Wait for all tasks to finish / fail.
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::Unknown(_)),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
@@ -1404,7 +1411,11 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        grant.await.expect_err("Alice should abort the login");
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::DeviceIDAlreadyInUse),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
@@ -1515,7 +1526,11 @@ mod test {
         });
 
         // Wait for all tasks to finish.
-        grant.await.expect_err("Alice should abort the login");
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::DeviceIDAlreadyInUse),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
@@ -1651,7 +1666,13 @@ mod test {
             .await;
         });
 
-        grant.await.expect_err("Alice should abort the login");
+        // TODO: the DeviceIDAlreadyInUse error here doesn't make much sense, instead
+        // something like UnableToCreateDevice?
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::DeviceIDAlreadyInUse),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
@@ -1770,7 +1791,13 @@ mod test {
             .await;
         });
 
-        grant.await.expect_err("Alice should abort the login");
+        // TODO: the DeviceIDAlreadyInUse error here doesn't make much sense, instead
+        // something like UnableToCreateDevice?
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::DeviceIDAlreadyInUse),
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
