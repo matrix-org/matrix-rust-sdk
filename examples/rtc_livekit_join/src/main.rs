@@ -572,6 +572,15 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "experimental-widgets"))]
     let _ = &widget;
 
+    #[cfg(feature = "e2ee-per-participant")]
+    let to_device_key_provider = KeyProvider::new(KeyProviderOptions::default());
+    #[cfg(feature = "e2ee-per-participant")]
+    let _e2ee_to_device_guard = register_e2ee_to_device_handler(
+        &client,
+        room.room_id().to_owned(),
+        to_device_key_provider.clone(),
+    );
+
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move { sync_client.sync(SyncSettings::new()).await });
 
@@ -620,14 +629,6 @@ async fn main() -> anyhow::Result<()> {
     if let Some(context) = e2ee_context.as_ref() {
         spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
     }
-    #[cfg(feature = "e2ee-per-participant")]
-    let _e2ee_to_device_guard = e2ee_context.as_ref().map(|context| {
-        register_e2ee_to_device_handler(
-            &client,
-            room.room_id().to_owned(),
-            context.key_provider.clone(),
-        )
-    });
     #[cfg(feature = "e2ee-per-participant")]
     let room_options_provider = E2eeRoomOptionsProvider { e2ee: e2ee_context.clone() };
     #[cfg(not(feature = "e2ee-per-participant"))]
