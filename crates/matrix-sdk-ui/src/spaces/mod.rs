@@ -687,8 +687,7 @@ mod tests {
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
-        event_factory::EventFactory,
+        JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
         MilliSecondsSinceUnixEpoch, RoomVersionId, UserId, event_id, owned_room_id, room_id,
@@ -1707,12 +1706,7 @@ mod tests {
                 .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type());
 
             if let Some(order) = parameters.order {
-                builder = builder.add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "type": "m.space_order",
-                      "content": {
-                        "order": order
-                      }
-                })));
+                builder = builder.add_account_data(factory.space_order(order));
             }
 
             for parent_id in parameters.parents {

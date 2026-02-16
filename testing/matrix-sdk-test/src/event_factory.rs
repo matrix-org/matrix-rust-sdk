@@ -89,6 +89,7 @@ use ruma::{
             notification::{NotificationType, RtcNotificationEventContent},
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+        space_order::SpaceOrderEventContent,
         sticker::StickerEventContent,
         tag::TagEventContent,
         typing::TypingEventContent,
@@ -1513,6 +1514,13 @@ impl EventFactory {
     /// Create a new `m.tag` room account data event with the given tags.
     pub fn tag(&self, content: TagEventContent) -> EventBuilder<TagEventContent> {
         self.room_account_data(content)
+    }
+
+    /// Create a new `m.space_order` room account data event with the given
+    /// order.
+    pub fn space_order(&self, order: &str) -> EventBuilder<SpaceOrderEventContent> {
+        let order = ruma::SpaceChildOrder::parse(order).expect("order should be valid");
+        self.room_account_data(SpaceOrderEventContent::new(order))
     }
 
     /// Create a new `m.presence` event.
