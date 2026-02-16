@@ -464,9 +464,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_room(room_id, event_id)
+            .get_events_by_room(room_id, event_id)
             .await
-            .map(|ok| ok.map(Into::into))
+            .map(|mut events| events.pop().map(Into::into))
             .map_err(Into::into)
     }
 
