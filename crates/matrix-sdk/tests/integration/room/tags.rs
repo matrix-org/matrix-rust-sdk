@@ -52,8 +52,7 @@ async fn mock_sync_with_tags(
     tags: Tags,
 ) {
     let f = EventFactory::new();
-    let content = TagEventContent::new(tags);
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_account_data(f.tag(content)));
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_account_data(f.tag(tags)));
     mock_sync(server, sync_builder.build_json_sync_response(), None).await;
 }
 

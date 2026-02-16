@@ -1571,7 +1571,7 @@ mod tests {
         let mut tags = Tags::new();
         tags.insert(TagName::Favorite, TagInfo::new());
         tags.insert(TagName::User(UserTagName::from_str("u.work").unwrap()), TagInfo::new());
-        let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(tags.into()).into();
+        let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(tags).into();
         let tag_event = raw_tag_event.deserialize().unwrap();
         changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
 

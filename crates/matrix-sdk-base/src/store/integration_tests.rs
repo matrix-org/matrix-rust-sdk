@@ -155,7 +155,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut tags = Tags::new();
         tags.insert(TagName::Favorite, TagInfo::new());
         tags.insert(TagName::User(UserTagName::from_str("u.work").unwrap()), TagInfo::new());
-        let tag_raw: Raw<AnyRoomAccountDataEvent> = f.tag(tags.into()).into();
+        let tag_raw: Raw<AnyRoomAccountDataEvent> = f.tag(tags).into();
         let tag_event = tag_raw.deserialize()?;
         changes.add_room_account_data(room_id, tag_event, tag_raw);
 

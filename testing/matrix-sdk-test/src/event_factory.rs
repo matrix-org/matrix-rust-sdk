@@ -91,7 +91,7 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         space_order::SpaceOrderEventContent,
         sticker::StickerEventContent,
-        tag::TagEventContent,
+        tag::{TagEventContent, Tags},
         typing::TypingEventContent,
     },
     presence::PresenceState,
@@ -1512,8 +1512,8 @@ impl EventFactory {
     }
 
     /// Create a new `m.tag` room account data event with the given tags.
-    pub fn tag(&self, content: TagEventContent) -> EventBuilder<TagEventContent> {
-        self.room_account_data(content)
+    pub fn tag(&self, tags: Tags) -> EventBuilder<TagEventContent> {
+        self.room_account_data(tags.into())
     }
 
     /// Create a new `m.space_order` room account data event with the given
