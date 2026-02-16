@@ -774,7 +774,7 @@ async fn test_is_direct() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [
-                *test_json::MEMBER,
+                f.member(user_id!("@example:localhost")).display_name("example").into_raw_sync_state(),
                 f.member(&BOB).sender(&BOB).into_raw_sync_state(),
             ],
         })))
