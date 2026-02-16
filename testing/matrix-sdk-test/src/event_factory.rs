@@ -405,6 +405,14 @@ where
     pub fn into_event(self) -> TimelineEvent {
         TimelineEvent::from_plaintext(self.into_raw_sync())
     }
+
+    /// Returns just the event content as a JSON value.
+    ///
+    /// This is useful when you need only the content portion of an event,
+    /// for example when mocking HTTP responses that return event content.
+    pub fn into_content(self) -> serde_json::Value {
+        json!(self.content)
+    }
 }
 
 impl EventBuilder<RoomEncryptedEventContent> {
