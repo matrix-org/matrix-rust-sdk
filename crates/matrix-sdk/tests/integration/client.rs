@@ -51,7 +51,7 @@ use ruma::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
         },
-        tag::{TagEventContent, TagInfo, TagName, Tags},
+        tag::{TagInfo, TagName, Tags},
     },
     owned_event_id, owned_room_id,
     room::JoinRule,
