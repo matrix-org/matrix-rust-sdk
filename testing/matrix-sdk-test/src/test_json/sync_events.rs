@@ -30,21 +30,6 @@ pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT: Lazy<JsonValue> = Laz
     })
 });
 
-pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": *ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
-        "event_id": "$143273582443PhrSn:example.org",
-        "origin_server_ts": 1432735824653u64,
-        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-        "sender": "@example:example.org",
-        "state_key": "",
-        "type": "m.room.encryption",
-        "unsigned": {
-            "age": 1234
-        }
-    })
-});
-
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
 pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -67,40 +52,6 @@ pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
         "unsigned": {
             "age": 297036,
             "replaces_state": "$151800111315tsynI:localhost"
-        }
-    })
-});
-
-// Make @invited:localhost a member (note the confusing name)
-pub static MEMBER_ADDITIONAL: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "membership": "join",
-        },
-        "event_id": "$747273582443PhrSn:localhost",
-        "origin_server_ts": 1472735824,
-        "sender": "@example:localhost",
-        "state_key": "@invited:localhost",
-        "type": "m.room.member",
-        "unsigned": {
-            "age": 1234
-        }
-    })
-});
-
-// Make @invited:localhost leave the room (note the confusing name)
-pub static MEMBER_LEAVE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "membership": "leave",
-        },
-        "event_id": "$747273582443PhrS9:localhost",
-        "origin_server_ts": 1472735820,
-        "sender": "@example:localhost",
-        "state_key": "@invited:localhost",
-        "type": "m.room.member",
-        "unsigned": {
-            "age": 1234
         }
     })
 });
@@ -154,32 +105,6 @@ pub static MEMBER_INVITE: Lazy<JsonValue> = Lazy::new(|| {
                     "type": "m.room.join_rules"
                 }
             ]
-        }
-    })
-});
-
-// TODO: Move `prev_content` into `unsigned` once ruma supports it
-pub static MEMBER_NAME_CHANGE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "avatar_url": null,
-            "displayname": "changed",
-            "membership": "join"
-        },
-        "event_id": "$151800234427abgho:localhost",
-        "membership": "join",
-        "origin_server_ts": 151800152,
-        "sender": "@example:localhost",
-        "state_key": "@example:localhost",
-        "type": "m.room.member",
-        "prev_content": {
-            "avatar_url": null,
-            "displayname": "example",
-            "membership": "join"
-        },
-        "unsigned": {
-            "age": 297032,
-            "replaces_state": "$151800140517rfvjc:localhost"
         }
     })
 });
@@ -272,63 +197,6 @@ pub static PRESENCE: Lazy<JsonValue> = Lazy::new(|| {
         },
         "sender": "@example:localhost",
         "type": "m.presence"
-    })
-});
-
-pub static REDACTED_INVALID: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {},
-        "event_id": "$15275046980maRLj:localhost",
-        "origin_server_ts": 1527504698,
-        "sender": "@example:localhost",
-        "type": "m.room.message"
-    })
-});
-
-pub static REDACTED_STATE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {},
-        "event_id": "$example_id:example.org",
-        "origin_server_ts": 153232493,
-        "sender": "@example:example.org",
-        "state_key": "test_state_key",
-        "type": "m.some.state",
-        "unsigned": {
-            "age": 3069315,
-            "redacted_because": {
-                "content": {},
-                "event_id": "$redaction_example_id:example.org",
-                "origin_server_ts": 153232494,
-                "redacts": "$example_id:example.org",
-                "sender": "@example:example:org",
-                "type": "m.room.redaction",
-                "unsigned": {"age": 30693147}
-            },
-            "redacted_by": "$redaction_example_id:example.org"
-        }
-    })
-});
-
-pub static ROOM_AVATAR: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "info": {
-                "h": 398,
-                "mimetype": "image/jpeg",
-                "size": 31037,
-                "w": 394
-            },
-            "url": "mxc://domain.com/JWEIFJgwEIhweiWJE"
-        },
-        "event_id": "$143273582443PhrSn:domain.com",
-        "origin_server_ts": 143273582,
-        "room_id": "!jEsUZKDJdhlrceRyVU:domain.com",
-        "sender": "@example:domain.com",
-        "state_key": "",
-        "type": "m.room.avatar",
-        "unsigned": {
-            "age": 1234
-        }
     })
 });
 
