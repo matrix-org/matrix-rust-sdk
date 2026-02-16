@@ -420,13 +420,13 @@ impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
     }
 }
 
-/// The value associated with the [primary key](IndexedEvent::id) of the
+/// The value associated with the [`room`](IndexedEvent::room) index of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) hashed Room ID
 /// - The (possibly) hashed Event ID.
 ///
-/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
+/// [1]: crate::event_cache_store::migrations::v3::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventRoomKey(IndexedRoomId, IndexedEventId);
 
