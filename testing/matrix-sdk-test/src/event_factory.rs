@@ -89,6 +89,7 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
+        tag::TagEventContent,
         typing::TypingEventContent,
     },
     push::Ruleset,
@@ -1505,6 +1506,11 @@ impl EventFactory {
     /// Create a new `m.marked_unread` room account data event.
     pub fn marked_unread(&self, unread: bool) -> EventBuilder<MarkedUnreadEventContent> {
         self.room_account_data(MarkedUnreadEventContent::new(unread))
+    }
+
+    /// Create a new `m.tag` room account data event with the given tags.
+    pub fn tag(&self, content: TagEventContent) -> EventBuilder<TagEventContent> {
+        self.room_account_data(content)
     }
 }
 
