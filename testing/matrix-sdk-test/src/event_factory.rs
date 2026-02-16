@@ -53,6 +53,7 @@ use ruma::{
                 UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
             },
         },
+        presence::{PresenceEvent, PresenceEventContent},
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
@@ -92,6 +93,7 @@ use ruma::{
         tag::TagEventContent,
         typing::TypingEventContent,
     },
+    presence::PresenceState,
     push::Ruleset,
     room::RoomType,
     room_version_rules::AuthorizationRules,
@@ -1511,6 +1513,67 @@ impl EventFactory {
     /// Create a new `m.tag` room account data event with the given tags.
     pub fn tag(&self, content: TagEventContent) -> EventBuilder<TagEventContent> {
         self.room_account_data(content)
+    }
+
+    /// Create a new `m.presence` event.
+    ///
+    /// This is a special event type that has its own structure different from
+    /// regular Matrix events.
+    pub fn presence(&self, state: PresenceState) -> PresenceBuilder {
+        PresenceBuilder { sender: self.sender.clone(), content: PresenceEventContent::new(state) }
+    }
+}
+
+/// Builder for presence events.
+#[derive(Debug)]
+pub struct PresenceBuilder {
+    sender: Option<OwnedUserId>,
+    content: PresenceEventContent,
+}
+
+impl PresenceBuilder {
+    /// Set the sender of the presence event.
+    pub fn sender(mut self, sender: &UserId) -> Self {
+        self.sender = Some(sender.to_owned());
+        self
+    }
+
+    /// Set the avatar URL.
+    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
+        self.content.avatar_url = Some(url.to_owned());
+        self
+    }
+
+    /// Set whether the user is currently active.
+    pub fn currently_active(mut self, active: bool) -> Self {
+        self.content.currently_active = Some(active);
+        self
+    }
+
+    /// Set the last active time in milliseconds.
+    pub fn last_active_ago(mut self, ms: u64) -> Self {
+        self.content.last_active_ago = Some(UInt::try_from(ms).unwrap());
+        self
+    }
+
+    /// Set the status message.
+    pub fn status_msg(mut self, msg: impl Into<String>) -> Self {
+        self.content.status_msg = Some(msg.into());
+        self
+    }
+
+    /// Set the display name.
+    pub fn display_name(mut self, name: impl Into<String>) -> Self {
+        self.content.displayname = Some(name.into());
+        self
+    }
+}
+
+impl From<PresenceBuilder> for Raw<PresenceEvent> {
+    fn from(builder: PresenceBuilder) -> Self {
+        let sender = builder.sender.expect("sender must be set for presence events");
+        let event = PresenceEvent { content: builder.content, sender };
+        Raw::new(&event).unwrap().cast_unchecked()
     }
 }
 
