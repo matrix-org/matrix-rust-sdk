@@ -3,16 +3,6 @@
 use once_cell::sync::Lazy;
 use serde_json::{Value as JsonValue, json};
 
-pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "event_id": "$someplace:example.org"
-        },
-        "room_id": "!somewhere:example.org",
-        "type": "m.fully_read"
-    })
-});
-
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
 pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -196,14 +186,5 @@ pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
             }
         },
         "type": "m.tag"
-    })
-});
-
-pub static MARKED_UNREAD: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "unread": true,
-        },
-        "type": "m.marked_unread",
     })
 });

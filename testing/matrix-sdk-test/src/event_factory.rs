@@ -29,19 +29,21 @@ use ruma::{
     OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
     RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyStateEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
+        AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
         EphemeralRoomEventContent, EventContentFromType, False, GlobalAccountDataEventContent,
         Mentions, MessageLikeEvent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent, StateEvent,
-        StateEventContent, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
-        SyncMessageLikeEvent, SyncStateEvent,
+        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
+        RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         macros::EventContent,
+        marked_unread::MarkedUnreadEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -180,6 +182,8 @@ enum EventFormat {
     Ephemeral,
     /// A global account data.
     GlobalAccountData,
+    /// A room account data.
+    RoomAccountData,
 }
 
 impl EventFormat {
@@ -612,6 +616,24 @@ where
         Raw::<AnyGlobalAccountDataEvent>::from(val)
             .deserialize()
             .expect("expected global account data")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for Raw<AnyRoomAccountDataEvent>
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::RoomAccountData).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for AnyRoomAccountDataEvent
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyRoomAccountDataEvent>::from(val).deserialize().expect("expected room account data")
     }
 }
 
@@ -1465,6 +1487,24 @@ impl EventFactory {
         C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
     {
         self.event(content).format(EventFormat::GlobalAccountData)
+    }
+
+    /// Create a new room account data event of the given `C` content type.
+    pub fn room_account_data<C>(&self, content: C) -> EventBuilder<C>
+    where
+        C: RoomAccountDataEventContent + StaticEventContent<IsPrefix = False>,
+    {
+        self.event(content).format(EventFormat::RoomAccountData)
+    }
+
+    /// Create a new `m.fully_read` room account data event.
+    pub fn fully_read(&self, event_id: &EventId) -> EventBuilder<FullyReadEventContent> {
+        self.room_account_data(FullyReadEventContent::new(event_id.to_owned()))
+    }
+
+    /// Create a new `m.marked_unread` room account data event.
+    pub fn marked_unread(&self, unread: bool) -> EventBuilder<MarkedUnreadEventContent> {
+        self.room_account_data(MarkedUnreadEventContent::new(unread))
     }
 }
 
