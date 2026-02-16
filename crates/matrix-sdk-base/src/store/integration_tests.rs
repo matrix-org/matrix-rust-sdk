@@ -1,11 +1,14 @@
 //! Trait and macro of integration tests for StateStore implementations.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    str::FromStr,
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
-use matrix_sdk_test::{TestResult, event_factory::EventFactory, test_json};
+use matrix_sdk_test::{TestResult, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
@@ -29,16 +32,17 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
             topic::RoomTopicEventContent,
         },
-        tag::{TagInfo, TagName, Tags},
+        tag::{TagInfo, TagName, Tags, UserTagName},
     },
-    owned_event_id, owned_mxc_uri,
+    mxc_uri, owned_event_id, owned_mxc_uri,
+    presence::PresenceState,
     push::Ruleset,
     room_id,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     uint, user_id,
 };
-use serde_json::{json, value::Value as JsonValue};
+use serde_json::json;
 
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
@@ -118,7 +122,6 @@ pub trait StateStoreIntegrationTests {
 
 impl StateStoreIntegrationTests for DynStateStore {
     async fn populate(&self) -> TestResult {
-        let f = EventFactory::new();
         let mut changes = StateChanges::default();
 
         let user_id = user_id();
@@ -128,11 +131,18 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
-        let presence_json: &JsonValue = &test_json::PRESENCE;
-        let presence_raw = serde_json::from_value::<Raw<PresenceEvent>>(presence_json.clone())?;
+        let f = EventFactory::new().sender(user_id);
+        let presence_raw: Raw<PresenceEvent> = f
+            .presence(PresenceState::Online)
+            .avatar_url(mxc_uri!("mxc://localhost/wefuiwegh8742w"))
+            .currently_active(false)
+            .last_active_ago(1)
+            .status_msg("Making cupcakes")
+            .into();
         let presence_event = presence_raw.deserialize()?;
         changes.add_presence_event(presence_event, presence_raw);
 
+        let f = EventFactory::new().sender(user_id);
         let pushrules_raw: Raw<AnyGlobalAccountDataEvent> =
             f.push_rules(Ruleset::server_default(user_id)).into();
         let pushrules_event = pushrules_raw.deserialize()?;
@@ -141,15 +151,16 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut room = RoomInfo::new(room_id, RoomState::Joined);
         room.mark_as_left();
 
+        let f = EventFactory::new().sender(user_id).room(room_id);
         let mut tags = Tags::new();
         tags.insert(TagName::Favorite, TagInfo::new());
-        tags.insert(TagName::User("work".to_owned()), TagInfo::new());
+        tags.insert(TagName::User(UserTagName::from_str("u.work").unwrap()), TagInfo::new());
         let tag_raw: Raw<AnyRoomAccountDataEvent> = f.tag(tags.into()).into();
         let tag_event = tag_raw.deserialize()?;
         changes.add_room_account_data(room_id, tag_event, tag_raw);
 
-        let name_json: &JsonValue = &test_json::NAME;
-        let name_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(name_json.clone())?;
+        let f = EventFactory::new().sender(user_id).room(room_id);
+        let name_raw: Raw<AnySyncStateEvent> = f.room_name("room name").into();
         let name_event = name_raw.deserialize()?;
         room.handle_state_event(
             &mut RawSyncStateEventWithKeys::try_from_raw_state_event(name_raw.clone())
@@ -157,6 +168,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         changes.add_state_event(room_id, name_event, name_raw);
 
+        let f = EventFactory::new().sender(user_id);
         let receipt_content = f
             .room(room_id)
             .read_receipts()
@@ -182,30 +194,36 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut room_ambiguity_map = HashMap::new();
         let mut room_profiles = BTreeMap::new();
 
-        let member_json: &JsonValue = &test_json::MEMBER;
-        let member_event: SyncRoomMemberEvent = serde_json::from_value(member_json.clone())?;
+        let f = EventFactory::new().sender(user_id).room(room_id);
+        let member_raw: Raw<SyncRoomMemberEvent> =
+            f.member(user_id).display_name("example").previous(MembershipState::Invite).into();
+        let member_event: SyncRoomMemberEvent = member_raw.deserialize()?;
         let displayname = DisplayName::new(
             member_event.as_original().unwrap().content.displayname.as_ref().unwrap(),
         );
         room_ambiguity_map.insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
         room_profiles.insert(user_id.to_owned(), (&member_event).into());
 
-        let member_state_raw =
-            serde_json::from_value::<Raw<AnySyncStateEvent>>(member_json.clone())?;
-        let member_state_event = member_state_raw.deserialize()?;
-        changes.add_state_event(room_id, member_state_event, member_state_raw);
+        let member_raw: Raw<AnySyncStateEvent> = member_raw.cast_unchecked();
+        let member_state_event = member_raw.deserialize()?;
+        changes.add_state_event(room_id, member_state_event, member_raw);
 
-        let invited_member_json: &JsonValue = &test_json::MEMBER_INVITE;
+        let f = EventFactory::new().sender(user_id).room(room_id);
+        let invited_member_raw: Raw<SyncRoomMemberEvent> = f
+            .member(invited_user_id)
+            .invited(invited_user_id)
+            .display_name("example")
+            .avatar_url(mxc_uri!("mxc://localhost/SEsfnsuifSDFSSEF"))
+            .reason("Looking for support")
+            .into();
         // FIXME: Should be stripped room member event
-        let invited_member_event: SyncRoomMemberEvent =
-            serde_json::from_value(invited_member_json.clone())?;
+        let invited_member_event: SyncRoomMemberEvent = invited_member_raw.deserialize()?;
         room_ambiguity_map.entry(displayname).or_default().insert(invited_user_id.to_owned());
         room_profiles.insert(invited_user_id.to_owned(), (&invited_member_event).into());
 
-        let invited_member_state_raw =
-            serde_json::from_value::<Raw<AnySyncStateEvent>>(invited_member_json.clone())?;
-        let invited_member_state_event = invited_member_state_raw.deserialize()?;
-        changes.add_state_event(room_id, invited_member_state_event, invited_member_state_raw);
+        let invited_member_raw: Raw<AnySyncStateEvent> = invited_member_raw.cast_unchecked();
+        let invited_member_state_event = invited_member_raw.deserialize()?;
+        changes.add_state_event(room_id, invited_member_state_event, invited_member_raw);
 
         changes.ambiguity_maps.insert(room_id.to_owned(), room_ambiguity_map);
         changes.profiles.insert(room_id.to_owned(), room_profiles);
@@ -213,9 +231,8 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let mut stripped_room = RoomInfo::new(stripped_room_id, RoomState::Invited);
 
-        let stripped_name_json: &JsonValue = &test_json::NAME_STRIPPED;
-        let stripped_name_raw =
-            serde_json::from_value::<Raw<AnyStrippedStateEvent>>(stripped_name_json.clone())?;
+        let f = EventFactory::new().sender(user_id).room(stripped_room_id);
+        let stripped_name_raw: Raw<AnyStrippedStateEvent> = f.room_name("room name").into();
         let stripped_name_event = stripped_name_raw.deserialize()?;
         stripped_room.handle_stripped_state_event(&stripped_name_event);
         changes.stripped_state.insert(
@@ -231,9 +248,10 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         changes.add_room(stripped_room);
 
-        let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
-        let stripped_member_event = Raw::new(&stripped_member_json.clone())?.cast_unchecked();
-        changes.add_stripped_member(stripped_room_id, user_id, stripped_member_event);
+        let f = EventFactory::new().sender(user_id).room(stripped_room_id);
+        let stripped_member_raw: Raw<StrippedRoomMemberEvent> =
+            f.member(user_id).display_name("example").into();
+        changes.add_stripped_member(stripped_room_id, user_id, stripped_member_raw);
 
         self.save_changes(&changes).await?;
 
