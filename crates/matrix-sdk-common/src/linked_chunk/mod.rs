@@ -119,6 +119,8 @@ pub enum LinkedChunkId<'a> {
     Thread(&'a RoomId, &'a EventId),
     /// A room's list of pinned events.
     PinnedEvents(&'a RoomId),
+    /// An event-focused timeline (e.g., for permalinks).
+    EventFocused(&'a RoomId, &'a EventId),
 }
 
 impl Display for LinkedChunkId<'_> {
@@ -131,6 +133,9 @@ impl Display for LinkedChunkId<'_> {
             Self::PinnedEvents(room_id) => {
                 write!(f, "{room_id}:pinned")
             }
+            Self::EventFocused(room_id, event_id) => {
+                write!(f, "{room_id}:event_focused:{event_id}")
+            }
         }
     }
 }
@@ -141,6 +146,9 @@ impl LinkedChunkId<'_> {
             LinkedChunkId::Room(room_id) => room_id.to_string(),
             LinkedChunkId::Thread(room_id, event_id) => format!("t:{room_id}:{event_id}"),
             LinkedChunkId::PinnedEvents(room_id) => format!("pinned:{room_id}"),
+            LinkedChunkId::EventFocused(room_id, event_id) => {
+                format!("event_focused:{room_id}:{event_id}")
+            }
         }
     }
 
@@ -152,6 +160,9 @@ impl LinkedChunkId<'_> {
             }
             LinkedChunkId::PinnedEvents(room_id) => {
                 OwnedLinkedChunkId::PinnedEvents((*room_id).to_owned())
+            }
+            LinkedChunkId::EventFocused(room_id, event_id) => {
+                OwnedLinkedChunkId::EventFocused((*room_id).to_owned(), (*event_id).to_owned())
             }
         }
     }
@@ -171,6 +182,9 @@ impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
             (LinkedChunkId::Thread(r, ev), OwnedLinkedChunkId::Thread(r2, ev2)) => {
                 r == r2 && ev == ev2
             }
+            (LinkedChunkId::EventFocused(r, ev), OwnedLinkedChunkId::EventFocused(r2, ev2)) => {
+                r == r2 && ev == ev2
+            }
             _ => false,
         }
     }
@@ -188,6 +202,7 @@ pub enum OwnedLinkedChunkId {
     Room(OwnedRoomId),
     Thread(OwnedRoomId, OwnedEventId),
     PinnedEvents(OwnedRoomId),
+    EventFocused(OwnedRoomId, OwnedEventId),
 }
 
 impl Display for OwnedLinkedChunkId {
@@ -206,6 +221,9 @@ impl OwnedLinkedChunkId {
             OwnedLinkedChunkId::PinnedEvents(room_id) => {
                 LinkedChunkId::PinnedEvents(room_id.as_ref())
             }
+            OwnedLinkedChunkId::EventFocused(room_id, event_id) => {
+                LinkedChunkId::EventFocused(room_id.as_ref(), event_id.as_ref())
+            }
         }
     }
 
@@ -213,7 +231,8 @@ impl OwnedLinkedChunkId {
         match self {
             OwnedLinkedChunkId::Room(room_id)
             | OwnedLinkedChunkId::Thread(room_id, ..)
-            | OwnedLinkedChunkId::PinnedEvents(room_id, ..) => room_id,
+            | OwnedLinkedChunkId::PinnedEvents(room_id, ..)
+            | OwnedLinkedChunkId::EventFocused(room_id, ..) => room_id,
         }
     }
 }
