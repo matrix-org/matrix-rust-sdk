@@ -1611,28 +1611,41 @@ fn register_e2ee_to_device_handler(
             }
 
             let Ok(value) = raw.deserialize_as::<serde_json::Value>() else {
+                info!("to-device event ignored: failed to deserialize raw event");
                 return;
             };
             let Some(event_type) = value.get("type").and_then(|v| v.as_str()) else {
+                info!("to-device event ignored: missing event type");
                 return;
             };
             if event_type != "io.element.call.encryption_keys" {
+                info!(event_type, "to-device event ignored: not an encryption key event");
                 return;
             }
 
             let Some(sender) = value.get("sender").and_then(|v| v.as_str()) else {
+                info!("to-device encryption key event ignored: missing sender");
                 return;
             };
             let Some(content) = value.get("content").and_then(|v| v.as_object()) else {
+                info!(sender, "to-device encryption key event ignored: missing content object");
                 return;
             };
             let Some(content_room_id) = content.get("room_id").and_then(|v| v.as_str()) else {
+                info!(sender, "to-device encryption key event ignored: missing content.room_id");
                 return;
             };
             if content_room_id != room_id.as_str() {
+                info!(
+                    sender,
+                    expected_room_id = %room_id,
+                    received_room_id = content_room_id,
+                    "to-device encryption key event ignored: room_id mismatch"
+                );
                 return;
             }
             let Some(device_id) = content.get("device_id").and_then(|v| v.as_str()) else {
+                info!(sender, "to-device encryption key event ignored: missing content.device_id");
                 return;
             };
             let keys = content.get("keys");
@@ -1642,16 +1655,39 @@ fn register_e2ee_to_device_handler(
                 }
                 Some(value) if value.is_object() => vec![value],
                 _ => {
+                    info!(
+                        sender,
+                        device_id,
+                        "to-device encryption key event ignored: missing/invalid content.keys"
+                    );
                     return;
                 }
             };
 
+            if key_entries.is_empty() {
+                info!(
+                    sender,
+                    device_id,
+                    "to-device encryption key event ignored: content.keys had no entries"
+                );
+                return;
+            }
+
+            info!(
+                sender,
+                device_id,
+                key_count = key_entries.len(),
+                "processing per-participant E2EE to-device key event"
+            );
+
             let identity = ParticipantIdentity(format!("{sender}:{device_id}"));
             for key_entry in key_entries {
                 let Some(index) = key_entry.get("index").and_then(|v| v.as_i64()) else {
+                    info!(%identity, "to-device key entry ignored: missing numeric index");
                     continue;
                 };
                 let Some(key_b64) = key_entry.get("key").and_then(|v| v.as_str()) else {
+                    info!(%identity, key_index = index, "to-device key entry ignored: missing string key");
                     continue;
                 };
                 let key_bytes = STANDARD_NO_PAD
