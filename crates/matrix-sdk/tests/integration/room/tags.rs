@@ -5,14 +5,13 @@ use matrix_sdk::{
     config::{SyncSettings, SyncToken},
 };
 use matrix_sdk_test::{
-    JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, async_test, test_json,
+    JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory, test_json,
 };
 use ruma::{
     RoomId,
     events::tag::{TagInfo, TagName, Tags},
     room_id,
 };
-use serde_json::json;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path_regex},
@@ -52,15 +51,9 @@ async fn mock_sync_with_tags(
     room_id: &RoomId,
     tags: Tags,
 ) {
-    let json = json!({
-        "content": {
-            "tags": tags,
-        },
-        "type": "m.tag"
-    });
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::Custom(json)),
-    );
+    let f = EventFactory::new();
+    let content = TagEventContent::new(tags);
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_account_data(f.tag(content)));
     mock_sync(server, sync_builder.build_json_sync_response(), None).await;
 }
 
