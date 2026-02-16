@@ -24,10 +24,7 @@ use matrix_sdk::{
         MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
-    event_factory::EventFactory,
-};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
@@ -615,10 +612,12 @@ async fn test_read_marker() {
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
+    let f = EventFactory::new();
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::FullyRead),
+            JoinedRoomBuilder::new(room_id)
+                .add_account_data(f.fully_read(event_id!("$someplace:example.org"))),
         )
         .await;
 
