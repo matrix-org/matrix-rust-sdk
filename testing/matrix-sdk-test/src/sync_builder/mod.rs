@@ -21,14 +21,12 @@ mod invited_room;
 mod joined_room;
 mod knocked_room;
 mod left_room;
-mod test_event;
 
 pub use bulk::bulk_room_members;
 pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
-pub use test_event::RoomAccountDataTestEvent;
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
 /// responses for testing. These can be then fed into either `Client` or `Room`.
