@@ -23,8 +23,7 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
-    event_factory::EventFactory,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
 use ruma::{
@@ -671,12 +670,7 @@ async fn test_send_single_receipt() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": first_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(first_receipts_event_id)),
         )
         .await;
 
@@ -768,12 +762,7 @@ async fn test_send_single_receipt() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": second_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(second_receipts_event_id)),
         )
         .await;
 
@@ -837,12 +826,7 @@ async fn test_send_single_receipt() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": third_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(third_receipts_event_id)),
         )
         .await;
 
@@ -1014,13 +998,8 @@ async fn test_send_single_receipt_with_unread_flag() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": first_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                })))
-                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+                .add_account_data(f.fully_read(&first_receipts_event_id))
+                .add_account_data(f.marked_unread(true)),
         )
         .await;
     assert!(room.is_marked_unread());
@@ -1201,11 +1180,9 @@ async fn test_mark_as_read_with_unread_flag() {
     let client = server.client_builder().build().await;
 
     // Initial sync with our test room, marked unread.
+    let f = EventFactory::new();
     let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
-        )
+        .sync_room(&client, JoinedRoomBuilder::default().add_account_data(f.marked_unread(true)))
         .await;
     assert!(room.is_marked_unread());
 
@@ -1348,12 +1325,7 @@ async fn test_send_multiple_receipts() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": first_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(first_receipts_event_id)),
         )
         .await;
 
@@ -1408,12 +1380,7 @@ async fn test_send_multiple_receipts() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": second_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(second_receipts_event_id)),
         )
         .await;
 
@@ -1443,12 +1410,7 @@ async fn test_send_multiple_receipts() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": third_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                }))),
+                .add_account_data(f.fully_read(third_receipts_event_id)),
         )
         .await;
 
@@ -1492,13 +1454,8 @@ async fn test_send_multiple_receipts_with_unread_flag() {
                         )
                         .into_event(),
                 )
-                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                    "content": {
-                        "event_id": first_receipts_event_id,
-                    },
-                    "type": "m.fully_read",
-                })))
-                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+                .add_account_data(f.fully_read(&first_receipts_event_id))
+                .add_account_data(f.marked_unread(true)),
         )
         .await;
     assert!(room.is_marked_unread());
