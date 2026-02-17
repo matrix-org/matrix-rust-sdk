@@ -58,6 +58,23 @@ impl ThreadPagination {
         }))
     }
 
+    /// Starts a back-pagination for the requested number of events.
+    ///
+    /// This automatically takes care of waiting for a pagination token from
+    /// sync, if we haven't done that before.
+    ///
+    /// It will run multiple back-paginations until one of these two conditions
+    /// is met:
+    /// - either we've reached the start of the timeline,
+    /// - or we've obtained enough events to fulfill the requested number of
+    ///   events.
+    pub async fn run_backwards_until(
+        &self,
+        num_requested_events: u16,
+    ) -> Result<BackPaginationOutcome> {
+        self.0.run_backwards_until(num_requested_events).await
+    }
+
     /// Run a single back-pagination for the requested number of events.
     ///
     /// This automatically takes care of waiting for a pagination token from

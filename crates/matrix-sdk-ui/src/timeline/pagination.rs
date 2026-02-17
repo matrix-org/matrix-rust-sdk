@@ -55,8 +55,10 @@ impl super::Timeline {
             }
             TimelineFocusKind::Thread { root_event_id } => Ok(self
                 .event_cache
-                .paginate_thread_backwards(root_event_id.to_owned(), num_events)
-                .await?),
+                .thread_pagination(root_event_id.to_owned())
+                .run_backwards_once(num_events)
+                .await
+                .map(|outcome| outcome.reached_start)?),
             TimelineFocusKind::PinnedEvents => Err(Error::PaginationError(NotSupported)),
         }
     }
