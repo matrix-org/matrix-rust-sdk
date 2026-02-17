@@ -1184,6 +1184,12 @@ mod private {
             self.state.pinned_event_cache.get()
         }
 
+        /// Get a reference to all the live [`event_focused_caches`].
+        #[cfg(feature = "e2e-encryption")]
+        pub fn event_focused_caches(&self) -> impl Iterator<Item = &EventFocusedCache> {
+            self.state.event_focused_caches.values()
+        }
+
         /// Get the `waited_for_initial_prev_token` value.
         pub fn waited_for_initial_prev_token(&mut self) -> &mut bool {
             &mut self.state.waited_for_initial_prev_token

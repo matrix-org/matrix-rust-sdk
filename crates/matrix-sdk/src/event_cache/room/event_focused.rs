@@ -29,10 +29,12 @@
 //! case where we'd want to persist these caches on disk (e.g., for permalinks
 //! to work across sessions).
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::linked_chunk::Position;
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{TimelineEvent, TimelineEventKind},
     event_cache::{Event, Gap},
     linked_chunk::OwnedLinkedChunkId,
 };
@@ -40,6 +42,8 @@ use matrix_sdk_common::{
     linked_chunk::{ChunkContent, ChunkIdentifier},
     serde_helpers::extract_thread_root,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::EventId;
 use ruma::{OwnedEventId, UInt, api::Direction};
 use tokio::sync::{
     RwLock,
@@ -262,16 +266,15 @@ impl EventFocusedCacheInner {
     /// Propagate changes to the linked chunk update sender.
     fn propagate_changes(&mut self) {
         let updates = self.chunk.store_updates().take();
-        if updates.is_empty() {
-            return;
+        if !updates.is_empty() {
+            let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+                updates,
+                linked_chunk_id: OwnedLinkedChunkId::EventFocused(
+                    self.room.room_id().to_owned(),
+                    self.focused_event_id.clone(),
+                ),
+            });
         }
-        let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-            updates,
-            linked_chunk_id: OwnedLinkedChunkId::EventFocused(
-                self.room.room_id().to_owned(),
-                self.focused_event_id.clone(),
-            ),
-        });
     }
 
     /// Notify subscribers of timeline updates.
@@ -489,6 +492,25 @@ impl EventFocusedCacheInner {
 
         Ok((result.chunk, result.next_batch_token))
     }
+
+    /// Find an event in the linked chunk by its event ID, and return its
+    /// location.
+    ///
+    /// Note: the in-memory content is always the same as the one in the store,
+    /// since the store is updated synchronously with changes in the linked
+    /// chunk, so we can afford to only look for the event in the memory
+    /// linked chunk.
+    // TODO(bnjbvr): common out in EventLinkedChunk! use it both here and for the pinned event
+    // cache.
+    #[cfg(feature = "e2e-encryption")]
+    fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
+        for (position, event) in self.chunk.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Some((position, event.clone()));
+            }
+        }
+        None
+    }
 }
 
 /// A cache for an event-focused timeline.
@@ -577,6 +599,54 @@ impl EventFocusedCache {
         match &self.inner.read().await.pagination_mode {
             EventFocusedPaginationMode::Thread { thread_root } => Some(thread_root.clone()),
             _ => None,
+        }
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them, while alerting observers
+    /// about the update.
+    pub async fn replace_utds(&self, events: &[ResolvedUtd]) {
+        let mut guard = self.inner.write().await;
+
+        let event_set = guard
+            .chunk
+            .events()
+            .filter_map(|(_pos, ev)| ev.event_id())
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        let mut replaced_some = false;
+
+        for (event_id, decrypted, actions) in events {
+            // As a performance optimization, do a lookup in the current pinned events
+            // check, before looking for the event in the linked chunk.
+
+            if !event_set.contains(event_id) {
+                continue;
+            }
+
+            // The event should be in the linked chunk.
+            let Some((position, mut target_event)) = guard.find_event(event_id) else {
+                continue;
+            };
+
+            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+            if let Some(actions) = actions {
+                target_event.set_push_actions(actions.clone());
+            }
+
+            guard
+                .chunk
+                .replace_event_at(position, target_event.clone())
+                .expect("position should be valid");
+
+            replaced_some = true;
+        }
+
+        if replaced_some {
+            guard.propagate_changes();
+            guard.notify_subscribers(EventsOrigin::Cache);
         }
     }
 }

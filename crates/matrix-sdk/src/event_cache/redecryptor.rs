@@ -121,7 +121,7 @@ use std::{
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::{StreamExt, future::join_all, pin_mut};
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
@@ -380,6 +380,13 @@ impl EventCache {
         if let Some(pinned_cache) = state.pinned_event_cache() {
             pinned_cache.replace_utds(&events).await?;
         }
+
+        // Consider all the live event-focused caches too.
+        // TODO: This ain't great for performance; there shouldn't be that many
+        // event-focused caches alive at the same time, but they could
+        // accumulate over time. Consider keeping track of which linked chunk contain
+        // which event id, to avoid doing the linear searches here.
+        join_all(state.event_focused_caches().map(|cache| cache.replace_utds(&events))).await;
 
         // Consider the room linked chunk.
         for (event_id, decrypted, actions) in events {
