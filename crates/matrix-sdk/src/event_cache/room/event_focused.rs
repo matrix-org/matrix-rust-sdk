@@ -29,10 +29,10 @@
 //! case where we'd want to persist these caches on disk (e.g., for permalinks
 //! to work across sessions).
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use matrix_sdk_base::{
-    deserialized_responses::{TimelineEvent, TimelineEventKind},
+    deserialized_responses::TimelineEvent,
     event_cache::{Event, Gap},
     linked_chunk::OwnedLinkedChunkId,
 };
@@ -582,47 +582,10 @@ impl EventFocusedCache {
     /// Try to locate the events in the linked chunk corresponding to the given
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
-    // TODO(bnjbvr): common out
+    #[cfg(feature = "e2e-encryption")]
     pub async fn replace_utds(&self, events: &[ResolvedUtd]) {
         let mut guard = self.inner.write().await;
-
-        let event_set = guard
-            .chunk
-            .events()
-            .filter_map(|(_pos, ev)| ev.event_id())
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-
-        let mut replaced_some = false;
-
-        for (event_id, decrypted, actions) in events {
-            // As a performance optimization, do a lookup in the current pinned events
-            // check, before looking for the event in the linked chunk.
-
-            if !event_set.contains(event_id) {
-                continue;
-            }
-
-            // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = guard.chunk.find_event(event_id) else {
-                continue;
-            };
-
-            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
-
-            if let Some(actions) = actions {
-                target_event.set_push_actions(actions.clone());
-            }
-
-            guard
-                .chunk
-                .replace_event_at(position, target_event.clone())
-                .expect("position should be valid");
-
-            replaced_some = true;
-        }
-
-        if replaced_some {
+        if guard.chunk.replace_utds(events) {
             guard.propagate_changes();
             guard.notify_subscribers(EventsOrigin::Cache);
         }

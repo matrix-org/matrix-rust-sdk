@@ -15,8 +15,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
@@ -263,40 +261,7 @@ impl PinnedEventCache {
     pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
         let mut guard = self.state.write().await?;
 
-        let pinned_events_set =
-            guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
-
-        let mut replaced_some = false;
-
-        for (event_id, decrypted, actions) in events {
-            // As a performance optimization, do a lookup in the current pinned events
-            // check, before looking for the event in the linked chunk.
-
-            if !pinned_events_set.contains(event_id) {
-                continue;
-            }
-
-            // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = guard.state.chunk.find_event(event_id) else {
-                continue;
-            };
-
-            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
-
-            if let Some(actions) = actions {
-                target_event.set_push_actions(actions.clone());
-            }
-
-            guard
-                .state
-                .chunk
-                .replace_event_at(position, target_event.clone())
-                .expect("position should be valid");
-
-            replaced_some = true;
-        }
-
-        if replaced_some {
+        if guard.state.chunk.replace_utds(events) {
             guard.propagate_changes().await?;
 
             let diffs = guard.state.chunk.updates_as_vector_diffs();

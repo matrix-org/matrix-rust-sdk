@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
+
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
@@ -28,6 +33,9 @@ use matrix_sdk_common::linked_chunk::{
 };
 use ruma::EventId;
 use tracing::trace;
+
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor::ResolvedUtd;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -452,6 +460,45 @@ impl EventLinkedChunk {
             }
         }
         None
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them.
+    ///
+    /// Returns true if at least one event has been replaced, false otherwise.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn replace_utds(&mut self, events: &[ResolvedUtd]) -> bool {
+        let event_set =
+            self.events().filter_map(|(_pos, ev)| ev.event_id()).collect::<BTreeSet<_>>();
+
+        let mut replaced_some = false;
+
+        for (event_id, decrypted, actions) in events {
+            // As a performance optimization, do a lookup in the current pinned events
+            // check, before looking for the event in the linked chunk.
+
+            if !event_set.contains(event_id) {
+                continue;
+            }
+
+            // The event should be in the linked chunk.
+            let Some((position, mut target_event)) = self.find_event(event_id) else {
+                continue;
+            };
+
+            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+            if let Some(actions) = actions {
+                target_event.set_push_actions(actions.clone());
+            }
+
+            self.replace_event_at(position, target_event.clone())
+                .expect("position should be valid");
+
+            replaced_some = true;
+        }
+
+        replaced_some
     }
 }
 
