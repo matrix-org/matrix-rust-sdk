@@ -116,14 +116,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
             // empty), and return.
             if self.state.chunk.events().next().is_some() {
                 self.state.chunk.reset();
-
-                let diffs = self.state.chunk.updates_as_vector_diffs();
-                if !diffs.is_empty() {
-                    let _ = self
-                        .state
-                        .sender
-                        .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-                }
+                self.notify_subscribers(EventsOrigin::Sync);
             }
 
             return Ok(());
@@ -145,11 +138,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         self.state.chunk.store_updates().take();
 
         // Let observers know about it.
-        let diffs = self.state.chunk.updates_as_vector_diffs();
-        if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-        }
+        self.notify_subscribers(EventsOrigin::Sync);
 
         Ok(())
     }
@@ -172,13 +161,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
         self.state.chunk.push_live_events(None, &new_events);
         self.propagate_changes().await?;
-
-        let diffs = self.state.chunk.updates_as_vector_diffs();
-
-        if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-        }
+        self.notify_subscribers(EventsOrigin::Sync);
 
         Ok(())
     }
@@ -195,6 +178,14 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
             updates,
         )
         .await
+    }
+
+    /// Notify subscribers of timeline updates.
+    fn notify_subscribers(&mut self, origin: EventsOrigin) {
+        let diffs = self.state.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.state.sender.send(TimelineVectorDiffs { diffs, origin });
+        }
     }
 }
 
@@ -263,10 +254,7 @@ impl PinnedEventCache {
 
         if guard.state.chunk.replace_utds(events) {
             guard.propagate_changes().await?;
-
-            let diffs = guard.state.chunk.updates_as_vector_diffs();
-            let _ =
-                guard.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            guard.notify_subscribers(EventsOrigin::Cache);
         }
 
         Ok(())
@@ -357,14 +345,7 @@ impl PinnedEventCache {
             guard.state.chunk.push_live_events(None, &new_relations);
 
             guard.propagate_changes().await?;
-
-            let diffs = guard.state.chunk.updates_as_vector_diffs();
-            if !diffs.is_empty() {
-                let _ = guard
-                    .state
-                    .sender
-                    .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-            }
+            guard.notify_subscribers(EventsOrigin::Sync);
         }
 
         Ok(())
