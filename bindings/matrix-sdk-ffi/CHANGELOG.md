@@ -75,6 +75,16 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
+- Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Cancelled` for when the grant is cancelled
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::OtherDeviceAlreadySignedIn` for when the other device is already signed in
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
 ### Refactor
 

@@ -405,14 +405,36 @@ pub enum HumanQrGrantLoginError {
     /// An unknown error has happened.
     #[error("An unknown error has happened.")]
     Unknown(String),
+
+    /// The requested device was not returned by the homeserver.
+    #[error("The requested device was not returned by the homeserver.")]
+    DeviceNotFound,
+
+    /// The other device is already signed in and so does not need to sign in.
+    #[error("The other device is already signed and so does not need to sign in.")]
+    OtherDeviceAlreadySignedIn,
+
+    /// The sign in was cancelled.
+    #[error("The sign in was cancelled.")]
+    Cancelled,
+
+    /// The sign in was not completed in the required time.
+    #[error("The sign in was not completed in the required time.")]
+    Expired,
+
+    /// A secure connection could not have been established between the two
+    /// devices.
+    #[error("A secure connection could not have been established between the two devices.")]
+    ConnectionInsecure,
 }
 
 impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
     fn from(value: qrcode::QRCodeGrantLoginError) -> Self {
-        use qrcode::QRCodeGrantLoginError;
+        use qrcode::{QRCodeGrantLoginError, SecureChannelError};
 
         match value {
             QRCodeGrantLoginError::DeviceIDAlreadyInUse => Self::DeviceIDAlreadyInUse,
+            QRCodeGrantLoginError::DeviceNotFound => Self::DeviceNotFound,
             QRCodeGrantLoginError::InvalidCheckCode => Self::InvalidCheckCode,
             QRCodeGrantLoginError::UnableToCreateDevice => Self::UnableToCreateDevice,
             QRCodeGrantLoginError::UnsupportedProtocol(protocol) => {
@@ -422,7 +444,28 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 Self::MissingSecretsBackup(error.map_or("other".to_owned(), |e| e.to_string()))
             }
             QRCodeGrantLoginError::NotFound => Self::NotFound,
+            QRCodeGrantLoginError::SecureChannel(e) => match e {
+                SecureChannelError::Utf8(_)
+                | SecureChannelError::MessageDecode(_)
+                | SecureChannelError::Json(_)
+                | SecureChannelError::RendezvousChannel(_)
+                | SecureChannelError::UnsupportedQrCodeType => Self::Unknown(e.to_string()),
+                SecureChannelError::SecureChannelMessage { .. }
+                | SecureChannelError::Ecies(_)
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::CannotReceiveCheckCode => Self::ConnectionInsecure,
+                SecureChannelError::InvalidIntent => Self::OtherDeviceAlreadySignedIn,
+            },
+            QRCodeGrantLoginError::UnexpectedMessage { .. } => Self::Unknown(value.to_string()),
             QRCodeGrantLoginError::Unknown(string) => Self::Unknown(string),
+            QRCodeGrantLoginError::LoginFailure { reason, .. } => match reason {
+                LoginFailureReason::UnsupportedProtocol => Self::UnsupportedProtocol(
+                    "Other device does not support any of our protocols".to_owned(),
+                ),
+                LoginFailureReason::AuthorizationExpired => Self::Expired,
+                LoginFailureReason::UserCancelled => Self::Cancelled,
+                _ => Self::Unknown(reason.to_string()),
+            },
         }
     }
 }
