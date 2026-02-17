@@ -90,6 +90,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `HumanQrGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - [**breaking**] Removed `ClientBuilder::enable_oidc_refresh_lock` in favour of using `ClientBuilder::cross_process_lock_config`
   to configure that lock when a `MultiProcess` configuration is supplied. ([#6204](https://github.com/matrix-org/matrix-rust-sdk/pull/6204))
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.
