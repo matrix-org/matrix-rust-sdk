@@ -18,6 +18,7 @@ use matrix_sdk_base::BoxFuture;
 use oauth2::{
     AsyncHttpClient, ErrorResponse, HttpClientError, HttpRequest, HttpResponse, RequestTokenError,
 };
+use oauth2_reqwest::ReqwestClient;
 
 /// An HTTP client for making OAuth 2.0 requests.
 #[derive(Debug, Clone)]
@@ -54,7 +55,7 @@ impl<'c> AsyncHttpClient<'c> for OAuthHttpClient {
                 request
             };
 
-            let response = self.inner.call(request).await?;
+            let response = ReqwestClient::from(&self.inner).call(request).await?;
 
             Ok(response)
         })

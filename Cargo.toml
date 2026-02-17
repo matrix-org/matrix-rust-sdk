@@ -59,7 +59,8 @@ insta = { version = "1.44.1", features = ["json", "redactions"] }
 itertools = "0.14.0"
 js-sys = "0.3.82"
 mime = "0.3.17"
-oauth2 = { version = "5.1.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
+oauth2 = { version = "5.0.0", default-features = false, features = ["timing-resistant-secret-traits"] }
+oauth2-reqwest = { version = "0.1.0-alpha.1" }
 once_cell = "1.21.3"
 pbkdf2 = { version = "0.12.2" }
 pin-project-lite = "0.2.16"
@@ -208,14 +209,3 @@ tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba05
 tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-appender = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-
-##################################################
-# TODO: REMOVE THIS!
-#
-# This patch is only here temporarily. Once the following pull request is merged,
-# the line below can be removed.
-#
-# https://github.com/ramosbugs/oauth2-rs/pull/334
-##################################################
-oauth2 = { git = "https://github.com/ramosbugs/oauth2-rs.git", rev = "ffcdb1d6f7226e1391393a83e713e095d06bac0b" }
-##################################################

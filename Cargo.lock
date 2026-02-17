@@ -3281,6 +3281,7 @@ dependencies = [
  "mime",
  "mime2ext",
  "oauth2",
+ "oauth2-reqwest",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -4026,21 +4027,32 @@ dependencies = [
 
 [[package]]
 name = "oauth2"
-version = "5.1.0"
-source = "git+https://github.com/ramosbugs/oauth2-rs.git?rev=ffcdb1d6f7226e1391393a83e713e095d06bac0b#ffcdb1d6f7226e1391393a83e713e095d06bac0b"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
  "base64",
  "chrono",
  "getrandom 0.2.15",
  "http",
- "rand 0.9.2",
- "reqwest 0.13.1",
+ "rand 0.8.5",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_path_to_error",
  "sha2",
- "thiserror 2.0.17",
+ "thiserror 1.0.63",
  "url",
+]
+
+[[package]]
+name = "oauth2-reqwest"
+version = "0.1.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5816f968971645805831cfc55f4476c89f22a0982d719a9bd9d81e04810c2c1"
+dependencies = [
+ "oauth2",
+ "reqwest 0.13.1",
 ]
 
 [[package]]
