@@ -398,10 +398,6 @@ pub enum HumanQrGrantLoginError {
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
 
-    /// The device could not be created.
-    #[error("The device could not be created.")]
-    UnableToCreateDevice,
-
     /// An unknown error has happened.
     #[error("An unknown error has happened.")]
     Unknown(String),
@@ -436,7 +432,6 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             QRCodeGrantLoginError::DeviceIDAlreadyInUse => Self::DeviceIDAlreadyInUse,
             QRCodeGrantLoginError::DeviceNotFound => Self::DeviceNotFound,
             QRCodeGrantLoginError::InvalidCheckCode => Self::InvalidCheckCode,
-            QRCodeGrantLoginError::UnableToCreateDevice => Self::UnableToCreateDevice,
             QRCodeGrantLoginError::UnsupportedProtocol(protocol) => {
                 Self::UnsupportedProtocol(protocol.to_string())
             }
