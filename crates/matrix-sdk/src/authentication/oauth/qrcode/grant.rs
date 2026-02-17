@@ -115,7 +115,7 @@ async fn finish_login_grant<Q>(
             .unwrap_or(device_authorization_grant.verification_uri.to_string())
             .as_str(),
     )
-    .map_err(|_| QRCodeGrantLoginError::UnableToCreateDevice)?;
+    .map_err(|e| QRCodeGrantLoginError::Unknown(e.to_string()))?;
     state.set(GrantLoginProgress::WaitingForAuth { verification_uri });
 
     // We send the new device the m.login.protocol_accepted message to let it know

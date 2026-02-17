@@ -151,10 +151,6 @@ pub enum QRCodeGrantLoginError {
     #[error("The check code was incorrect")]
     InvalidCheckCode,
 
-    /// The device could not be created.
-    #[error("The device could not be created")]
-    UnableToCreateDevice,
-
     /// The rendezvous session was not found and might have expired.
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,

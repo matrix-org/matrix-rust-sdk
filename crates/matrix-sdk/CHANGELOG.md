@@ -77,6 +77,11 @@ All notable changes to this project will be documented in this file.
   the new device is not returned by the homeserver.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
+### Refactor
+
+- [**breaking**] `QRCodeGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
