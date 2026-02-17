@@ -74,9 +74,9 @@ impl AccountManagementActionFull {
     pub fn action_type(&self) -> AccountManagementAction {
         match self {
             Self::Profile => AccountManagementAction::Profile,
-            Self::SessionsList => AccountManagementAction::SessionsList,
-            Self::SessionView { .. } => AccountManagementAction::SessionView,
-            Self::SessionEnd { .. } => AccountManagementAction::SessionEnd,
+            Self::SessionsList => AccountManagementAction::UnstableSessionsList,
+            Self::SessionView { .. } => AccountManagementAction::UnstableSessionView,
+            Self::SessionEnd { .. } => AccountManagementAction::UnstableSessionEnd,
             Self::AccountDeactivate => AccountManagementAction::AccountDeactivate,
             Self::CrossSigningReset => AccountManagementAction::CrossSigningReset,
         }

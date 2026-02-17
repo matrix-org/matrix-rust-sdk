@@ -45,11 +45,12 @@ experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-em
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 extension-trait = "1.0.2"
 eyeball-im.workspace = true
 futures-util.workspace = true
 language-tags = "0.3.2"
-log-panics = { version = "2.1.0", features = ["with-backtrace"] }
+log-panics = { version = "2.1.0", default-features = false, features = ["with-backtrace"] }
 matrix-sdk = { workspace = true, features = [
     "anyhow",
     "e2e-encryption",
@@ -63,7 +64,7 @@ matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
-mime = "0.3.17"
+mime = { version = "0.3.17", default-features = false }
 once_cell.workspace = true
 ruma = { workspace = true, features = [
     "html",
@@ -91,10 +92,11 @@ ruma = { workspace = true, features = [
 ] }
 serde.workspace = true
 serde_json.workspace = true
-sentry = { workspace = true, optional = true, default-features = false, features = [
+sentry = { workspace = true, optional = true, features = [
   # Most default features enabled otherwise.
   "backtrace",
   "contexts",
+  "debug-images",
   "panic",
   "reqwest",
   "sentry-debug-images",
@@ -106,12 +108,12 @@ tracing-appender.workspace = true
 tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
-uuid = { version = "1.4.1", features = ["v4"] }
+uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
 oauth2.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-console_error_panic_hook = "0.1.7"
+console_error_panic_hook = { version = "0.1.7", default-features = false }
 tokio = { workspace = true, features = ["sync", "macros"] }
 uniffi = { workspace = true, features = ["wasm-unstable-single-threaded"] }
 futures-executor.workspace = true
@@ -122,10 +124,11 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 uniffi = { workspace = true, features = ["tokio"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-paranoid-android = "0.2.2"
+paranoid-android = { version = "0.2.2", default-features = false }
 
 [dev-dependencies]
 similar-asserts.workspace = true
+tempfile.workspace = true
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }

@@ -13,8 +13,13 @@ All notable changes to this project will be documented in this file.
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the
   stores to be used independent of and in combination with the others.
   ([#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946))
-- Implement new method `CyptoStore::has_downloaded_all_room_keys`.
+- Implement new method `CyptoStore::has_downloaded_all_room_keys`, and process
+  `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+  ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
+- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks may no longer
+  reference chunk identifiers which do not yet exist in the store
+  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
 ### Bug Fixes
 

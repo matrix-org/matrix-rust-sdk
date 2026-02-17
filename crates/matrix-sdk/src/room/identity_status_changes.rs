@@ -593,8 +593,6 @@ mod tests {
     // figure out how to get out own user into a non-pinned state.
 
     mod test_setup {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
         use futures_core::Stream;
         use matrix_sdk_base::{
             RoomState,
@@ -604,14 +602,15 @@ mod tests {
             },
         };
         use matrix_sdk_test::{
-            DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
-            test_json, test_json::keys_query_sets::IdentityChangeDataSet,
+            DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder,
+            event_factory::EventFactory, test_json,
+            test_json::keys_query_sets::IdentityChangeDataSet,
         };
         use ruma::{
             OwnedUserId, TransactionId, UserId,
             api::client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
             events::room::member::MembershipState,
-            owned_user_id,
+            owned_user_id, user_id,
         };
         use serde_json::json;
         use wiremock::{
@@ -836,14 +835,14 @@ mod tests {
             }
 
             async fn bob_membership_change(&mut self, new_state: MembershipState) {
+                let f = EventFactory::new().sender(user_id!("@example:localhost"));
                 let sync_response = self
                     .sync_response_builder
-                    .add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
-                        StateTestEvent::Custom(sync_response_member(
-                            &self.bob_user_id,
-                            new_state.clone(),
-                        )),
-                    ))
+                    .add_joined_room(
+                        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+                            f.member(&self.bob_user_id).membership(new_state.clone()),
+                        ),
+                    )
                     .build_sync_response();
                 self.room.client.process_sync(sync_response).await.unwrap();
 
@@ -895,11 +894,11 @@ mod tests {
             client: &Client,
             sync_response_builder: &mut SyncResponseBuilder,
         ) -> Room {
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let create_room_sync_response = sync_response_builder
-                .add_joined_room(
-                    JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                        .add_state_event(StateTestEvent::Member),
-                )
+                .add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+                    f.member(user_id!("@example:localhost")).display_name("example"),
+                ))
                 .build_sync_response();
             client.process_sync(create_room_sync_response).await.unwrap();
             let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
@@ -912,14 +911,14 @@ mod tests {
             client: &Client,
             other_user_id: &UserId,
         ) -> Room {
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let create_room_sync_response = builder
                 .add_joined_room(
                     JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-                        .add_state_event(StateTestEvent::Member)
-                        .add_state_event(StateTestEvent::Custom(sync_response_member(
-                            other_user_id,
-                            MembershipState::Join,
-                        ))),
+                        .add_state_event(
+                            f.member(user_id!("@example:localhost")).display_name("example"),
+                        )
+                        .add_state_event(f.member(other_user_id).membership(MembershipState::Join)),
                 )
                 .build_sync_response();
             client.process_sync(create_room_sync_response).await.unwrap();
@@ -967,28 +966,6 @@ mod tests {
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
                 .mount(server)
                 .await;
-        }
-
-        fn sync_response_member(
-            user_id: &UserId,
-            membership: MembershipState,
-        ) -> serde_json::Value {
-            json!({
-                "content": {
-                    "membership": membership.to_string(),
-                },
-                "event_id": format!(
-                    "$aa{}bb:localhost",
-                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 100_000
-                ),
-                "origin_server_ts": 1472735824,
-                "sender": "@example:localhost",
-                "state_key": user_id,
-                "type": "m.room.member",
-                "unsigned": {
-                    "age": 1234
-                }
-            })
         }
     }
 }

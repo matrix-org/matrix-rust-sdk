@@ -723,7 +723,7 @@ impl Timeline {
     /// pinned.
     async fn pin_event(&self, event_id: String) -> Result<bool, ClientError> {
         let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
-        self.inner.pin_event(&event_id).await.map_err(ClientError::from)
+        self.inner.room().pin_event(&event_id).await.map_err(ClientError::from)
     }
 
     /// Adds a new pinned event by sending an updated `m.room.pinned_events`
@@ -733,7 +733,7 @@ impl Timeline {
     /// pinned
     async fn unpin_event(&self, event_id: String) -> Result<bool, ClientError> {
         let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
-        self.inner.unpin_event(&event_id).await.map_err(ClientError::from)
+        self.inner.room().unpin_event(&event_id).await.map_err(ClientError::from)
     }
 
     pub fn create_message_content(
@@ -1327,6 +1327,11 @@ pub enum LatestEventValue {
         profile: ProfileDetails,
         content: TimelineItemContent,
     },
+    RemoteInvite {
+        timestamp: Timestamp,
+        inviter: Option<String>,
+        inviter_profile: ProfileDetails,
+    },
     Local {
         timestamp: Timestamp,
         sender: String,
@@ -1347,6 +1352,13 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     is_own,
                     profile: profile.into(),
                     content: content.into(),
+                }
+            }
+            UiLatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile } => {
+                Self::RemoteInvite {
+                    timestamp: timestamp.into(),
+                    inviter: inviter.map(|inviter| inviter.to_string()),
+                    inviter_profile: inviter_profile.into(),
                 }
             }
             UiLatestEventValue::Local { timestamp, sender, profile, content, state } => {

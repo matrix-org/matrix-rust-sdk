@@ -46,6 +46,7 @@ use matrix_sdk_base::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     media::{MediaThumbnailSettings, store::IgnoreMediaRetentionPolicy},
+    serde_helpers::extract_relation,
     store::{StateStoreExt, ThreadSubscriptionStatus},
 };
 #[cfg(feature = "e2e-encryption")]
@@ -109,6 +110,7 @@ use ruma::{
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        relation::RelationType,
         room::{
             ImageInfo, MediaSource, ThumbnailInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -137,6 +139,7 @@ use ruma::{
     push::{Action, AnyPushRuleRef, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
+    uint,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
@@ -826,6 +829,129 @@ impl Room {
             }
         }
         self.event(event_id, request_config).await
+    }
+
+    /// Try to load the event and its relations from the
+    /// [`EventCache`][crate::event_cache], if it's enabled, or fetch it
+    /// from the homeserver.
+    ///
+    /// You can control which types of related events are retrieved using
+    /// `filter`. A `None` value will retrieve any type of related event.
+    ///
+    /// If the event is found in the event cache, but we can't find any
+    /// relations for it there, then we will still attempt to fetch the
+    /// relations from the homeserver.
+    ///
+    /// When running any request against the homeserver, it uses the given
+    /// [`RequestConfig`] if provided, or the client's default one
+    /// otherwise.
+    ///
+    /// Returns a tuple formed of the event and a vector of its relations (that
+    /// can be empty).
+    pub async fn load_or_fetch_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+        request_config: Option<RequestConfig>,
+    ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
+        let fetch_relations = async || {
+            // If there's only a single filter, we can use a more efficient request,
+            // specialized on the filter type.
+            //
+            // Otherwise, we need to get all the relations:
+            // - either because no filters implies we fetch all relations,
+            // - or because there are multiple filters and we must filter out manually.
+            let include_relations = if let Some(filter) = &filter
+                && filter.len() == 1
+            {
+                IncludeRelations::RelationsOfType(filter[0].clone())
+            } else {
+                IncludeRelations::AllRelations
+            };
+
+            let mut opts = RelationsOptions {
+                include_relations,
+                recurse: true,
+                limit: Some(uint!(256)),
+                ..Default::default()
+            };
+
+            let mut events = Vec::new();
+            loop {
+                match self.relations(event_id.to_owned(), opts.clone()).await {
+                    Ok(relations) => {
+                        if let Some(filter) = filter.as_ref() {
+                            // Manually filter out the relation types we're interested in.
+                            events.extend(relations.chunk.into_iter().filter_map(|ev| {
+                                let (rel_type, _) = extract_relation(ev.raw())?;
+                                filter
+                                    .iter()
+                                    .any(|ruma_filter| ruma_filter == &rel_type)
+                                    .then_some(ev)
+                            }));
+                        } else {
+                            // No filter: include all events from the response.
+                            events.extend(relations.chunk);
+                        }
+
+                        if let Some(next_from) = relations.next_batch_token {
+                            opts.from = Some(next_from);
+                        } else {
+                            break events;
+                        }
+                    }
+
+                    Err(err) => {
+                        warn!(%event_id, "error when loading relations of pinned event from server: {err}");
+                        break events;
+                    }
+                }
+            }
+        };
+
+        // First, try to load the event *and* its relations from the event cache, all at
+        // once.
+        let event_cache = match self.event_cache().await {
+            Ok((event_cache, drop_handles)) => {
+                if let Some((event, mut relations)) =
+                    event_cache.find_event_with_relations(event_id, filter.clone()).await?
+                {
+                    if relations.is_empty() {
+                        // The event cache doesn't have any relations for this event, try to fetch
+                        // them from the server instead.
+                        relations = fetch_relations().await;
+                    }
+
+                    return Ok((event, relations));
+                }
+
+                // Otherwise, get the event from the server.
+                Some((event_cache, drop_handles))
+            }
+
+            Err(err) => {
+                debug!("error when getting the event cache: {err}");
+                // Fallthrough: try with a request.
+                None
+            }
+        };
+
+        // Fetch the event from the server. A failure here is fatal, as we must return
+        // the target event.
+        let event = self.event(event_id, request_config).await?;
+
+        // Try to get the relations from the event cache (if we have one).
+        if let Some((event_cache, _drop_handles)) = event_cache
+            && let Some(relations) =
+                event_cache.find_event_relations(event_id, filter.clone()).await.ok()
+            && !relations.is_empty()
+        {
+            return Ok((event, relations));
+        }
+
+        // We couldn't find the relations in the event cache; fetch them from the
+        // server.
+        Ok((event, fetch_relations().await))
     }
 
     /// Fetch the event with the given `EventId` in this room, using the
@@ -3549,9 +3675,11 @@ impl Room {
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
-        let inviter_id = event.sender();
-        let inviter = self.get_member_no_sync(inviter_id).await?;
-        Ok(Invite { invitee, inviter })
+
+        let inviter_id = event.sender().to_owned();
+        let inviter = self.get_member_no_sync(&inviter_id).await?;
+
+        Ok(Invite { invitee, inviter_id, inviter })
     }
 
     /// Get the membership details for the current user.
@@ -4113,7 +4241,7 @@ impl Room {
     }
 
     /// Retrieve a list of relations for the given event, according to the given
-    /// options.
+    /// options, using the network.
     ///
     /// Since this client-server API is paginated, the return type may include a
     /// token used to resuming back-pagination into the list of results, in
@@ -4381,6 +4509,58 @@ impl Room {
                 })
             })?)
     }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event containing the new event id.
+    ///
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we pinned the event, `false` if the event was already
+    /// pinned.
+    pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = if let Some(event_ids) = self.pinned_event_ids() {
+            event_ids
+        } else {
+            self.load_pinned_events().await?.unwrap_or_default()
+        };
+        let event_id = event_id.to_owned();
+        if pinned_event_ids.contains(&event_id) {
+            Ok(false)
+        } else {
+            pinned_event_ids.push(event_id);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.send_state_event(content).await?;
+            Ok(true)
+        }
+    }
+
+    /// Removes a pinned event by sending an updated `m.room.pinned_events`
+    /// event without the event id we want to remove.
+    ///
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we unpinned the event, `false` if the event wasn't
+    /// pinned before.
+    pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = if let Some(event_ids) = self.pinned_event_ids() {
+            event_ids
+        } else {
+            self.load_pinned_events().await?.unwrap_or_default()
+        };
+        let event_id = event_id.to_owned();
+        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
+            pinned_event_ids.remove(idx);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.send_state_event(content).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(feature = "e2e-encryption")]
@@ -4448,7 +4628,15 @@ impl WeakRoom {
 pub struct Invite {
     /// Who has been invited.
     pub invitee: RoomMember,
+
+    /// The user ID of who sent the invite.
+    ///
+    /// This is useful if `Self::inviter` is `None`.
+    pub inviter_id: OwnedUserId,
+
     /// Who sent the invite.
+    ///
+    /// If `None`, check `Self::inviter_id`, it might be useful as a fallback.
     pub inviter: Option<RoomMember>,
 }
 
@@ -4699,8 +4887,7 @@ mod tests {
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-        event_factory::EventFactory, test_json,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory, test_json,
     };
     use ruma::{
         RoomVersionId, event_id,
@@ -4760,12 +4947,15 @@ mod tests {
                 )
                 .mount(&server)
                 .await;
+            let f = EventFactory::new().sender(user_id!("@example:localhost"));
             let response = SyncResponseBuilder::default()
                 .add_joined_room(
                     JoinedRoomBuilder::default()
-                        .add_state_event(StateTestEvent::Member)
-                        .add_state_event(StateTestEvent::PowerLevels)
-                        .add_state_event(StateTestEvent::Encryption),
+                        .add_state_event(
+                            f.member(user_id!("@example:localhost")).display_name("example"),
+                        )
+                        .add_state_event(f.default_power_levels())
+                        .add_state_event(f.room_encryption()),
                 )
                 .build_sync_response();
             client.base_client().receive_sync_response(response).await.unwrap();

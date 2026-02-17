@@ -74,6 +74,7 @@ pub use self::{
 use super::ReactionsByKeyBySender;
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
     MsgLike(MsgLikeContent),
@@ -835,7 +836,9 @@ mod tests {
         assign,
         events::{
             FullStateEventContent,
-            room::member::{MembershipState, RoomMemberEventContent},
+            room::member::{
+                MembershipState, PossiblyRedactedRoomMemberEventContent, RoomMemberEventContent,
+            },
         },
         room_version_rules::RedactionRules,
     };
@@ -850,7 +853,9 @@ mod tests {
                 content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
                     reason: Some("🤬".to_owned()),
                 }),
-                prev_content: Some(RoomMemberEventContent::new(MembershipState::Join)),
+                prev_content: Some(PossiblyRedactedRoomMemberEventContent::new(
+                    MembershipState::Join,
+                )),
             },
             change: Some(MembershipChange::Banned),
         });

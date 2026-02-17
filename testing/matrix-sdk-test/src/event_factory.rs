@@ -63,6 +63,9 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
+            encryption::RoomEncryptionEventContent,
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
@@ -71,6 +74,7 @@ use ruma::{
                 RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
             server_acl::RoomServerAclEventContent,
@@ -143,6 +147,9 @@ struct Unsigned<C: StaticEventContent> {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     age: Option<Int>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    invite_room_state: Option<Vec<Raw<AnyStrippedStateEvent>>>,
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
@@ -154,6 +161,7 @@ impl<C: StaticEventContent> Default for Unsigned<C> {
             relations: None,
             redacted_because: None,
             age: None,
+            invite_room_state: None,
         }
     }
 }
@@ -185,7 +193,7 @@ impl EventFormat {
         matches!(self, Self::Timeline | Self::SyncTimeline)
     }
 
-    /// Whether this format ha an `room_id` field.
+    /// Whether this format has an `room_id` field.
     fn has_room_id(self) -> bool {
         matches!(self, Self::Timeline)
     }
@@ -251,6 +259,12 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
     /// Add age to unsigned data in this event.
     pub fn age(mut self, age: impl Into<Int>) -> Self {
         self.unsigned.get_or_insert_with(Default::default).age = Some(age.into());
+        self
+    }
+
+    /// Set the previous content for this state event (in the unsigned section).
+    pub fn prev_content(mut self, prev: E) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev);
         self
     }
 
@@ -975,6 +989,60 @@ impl EventFactory {
         event
     }
 
+    /// Create a state event for room encryption with recommended defaults.
+    ///
+    /// This creates an `m.room.encryption` event with the
+    /// `m.megolm.v1.aes-sha2` algorithm and recommended rotation settings.
+    pub fn room_encryption(&self) -> EventBuilder<RoomEncryptionEventContent> {
+        let mut event = self.event(RoomEncryptionEventContent::with_recommended_defaults());
+        // The state key is empty for a room encryption state event.
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a state event for room encryption with state event encryption
+    /// enabled.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn room_encryption_with_state_encryption(
+        &self,
+    ) -> EventBuilder<RoomEncryptionEventContent> {
+        let mut content = RoomEncryptionEventContent::with_recommended_defaults();
+        content.encrypt_state_events = true;
+        let mut event = self.event(content);
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a room history visibility state event.
+    ///
+    /// This creates an `m.room.history_visibility` event with the given
+    /// visibility setting.
+    pub fn room_history_visibility(
+        &self,
+        visibility: HistoryVisibility,
+    ) -> EventBuilder<RoomHistoryVisibilityEventContent> {
+        let mut event = self.event(RoomHistoryVisibilityEventContent::new(visibility));
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a room join rules state event.
+    ///
+    /// This creates an `m.room.join_rules` event with the given join rule.
+    pub fn room_join_rules(&self, join_rule: JoinRule) -> EventBuilder<RoomJoinRulesEventContent> {
+        let mut event = self.event(RoomJoinRulesEventContent::new(join_rule));
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a state event for the room's pinned events.
+    pub fn room_pinned_events(
+        &self,
+        pinned: Vec<OwnedEventId>,
+    ) -> EventBuilder<RoomPinnedEventsEventContent> {
+        self.event(RoomPinnedEventsEventContent::new(pinned)).state_key("")
+    }
+
     /// Create a new `m.member_hints` event with the given service members.
     ///
     /// ```
@@ -1214,9 +1282,16 @@ impl EventFactory {
         &self,
         map: &mut BTreeMap<OwnedUserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut event = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-        event.users.append(map);
-        self.event(event)
+        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
+        content.users.append(map);
+        let mut event = self.event(content);
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a new `m.room.power_levels` event with default values.
+    pub fn default_power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
+        self.power_levels(&mut BTreeMap::new())
     }
 
     /// Create a new `m.room.server_acl` event.
@@ -1235,10 +1310,13 @@ impl EventFactory {
         alias: Option<OwnedRoomAliasId>,
         alt_aliases: Vec<OwnedRoomAliasId>,
     ) -> EventBuilder<RoomCanonicalAliasEventContent> {
-        let mut event = RoomCanonicalAliasEventContent::new();
-        event.alias = alias;
-        event.alt_aliases = alt_aliases;
-        self.event(event)
+        let mut content = RoomCanonicalAliasEventContent::new();
+        content.alias = alias;
+        content.alt_aliases = alt_aliases;
+        let mut event = self.event(content);
+        // The state key is empty for a canonical alias state event.
+        event.state_key = Some("".to_owned());
+        event
     }
 
     /// Create a new `org.matrix.msc3672.beacon` event.
@@ -1413,6 +1491,15 @@ impl EventBuilder<RoomMemberEventContent> {
         self
     }
 
+    /// Set that the sender of this event left the room (self-leave).
+    ///
+    /// This sets the membership to Leave and uses the sender as the state_key.
+    pub fn leave(mut self) -> Self {
+        self.content.membership = MembershipState::Leave;
+        self.state_key = Some(self.sender.as_ref().expect("sender must be set").to_string());
+        self
+    }
+
     /// Set that the sender of this event kicked the user passed as a parameter
     /// here.
     pub fn kicked(mut self, kicked_user: &UserId) -> Self {
@@ -1470,6 +1557,20 @@ impl EventBuilder<RoomMemberEventContent> {
         }
 
         self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev_content);
+        self
+    }
+
+    /// Set the invite room state (in the unsigned section).
+    ///
+    /// This is used to provide context about the room when a user is invited,
+    /// such as the room name and join rules.
+    pub fn invite_room_state<I, E>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<Raw<AnyStrippedStateEvent>>,
+    {
+        self.unsigned.get_or_insert_with(Default::default).invite_room_state =
+            Some(events.into_iter().map(Into::into).collect());
         self
     }
 }

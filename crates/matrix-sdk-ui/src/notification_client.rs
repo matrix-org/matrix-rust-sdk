@@ -393,24 +393,21 @@ impl NotificationClient {
             move |raw: Raw<AnySyncTimelineEvent>| async move {
                 match &raw.get_field::<OwnedEventId>("event_id") {
                     Ok(Some(event_id)) => {
-                        let request =
-                            &requests.iter().find(|request| request.event_ids.contains(event_id));
-                        if request.is_none() {
+                        let Some(request) =
+                            &requests.iter().find(|request| request.event_ids.contains(event_id))
+                        else {
                             return;
-                        }
-                        let room_id = request.unwrap().room_id.clone();
-                        for request in requests.iter() {
-                            if request.event_ids.contains(event_id) {
-                                // found it! There shouldn't be a previous event before, but if
-                                // there is, that should be ok to
-                                // just replace it.
-                                handler_raw_notification.lock().unwrap().insert(
-                                    event_id.to_owned(),
-                                    (room_id, Some(RawNotificationEvent::Timeline(raw))),
-                                );
-                                return;
-                            }
-                        }
+                        };
+
+                        let room_id = request.room_id.clone();
+
+                        // found it! There shouldn't be a previous event before, but if
+                        // there is, that should be ok to
+                        // just replace it.
+                        handler_raw_notification.lock().unwrap().insert(
+                            event_id.to_owned(),
+                            (room_id, Some(RawNotificationEvent::Timeline(raw))),
+                        );
                     }
                     Ok(None) => {
                         warn!("a sync event had no event id");
@@ -494,10 +491,12 @@ impl NotificationClient {
             (StateEventType::RoomMember, "$ME".to_owned()),
             (StateEventType::RoomCanonicalAlias, "".to_owned()),
             (StateEventType::RoomName, "".to_owned()),
+            (StateEventType::RoomAvatar, "".to_owned()),
             (StateEventType::RoomPowerLevels, "".to_owned()),
             (StateEventType::RoomJoinRules, "".to_owned()),
             (StateEventType::CallMember, "*".to_owned()),
             (StateEventType::RoomCreate, "".to_owned()),
+            (StateEventType::MemberHints, "".to_owned()),
         ];
 
         let invites = SlidingSyncList::builder("invites")

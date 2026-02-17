@@ -1,7 +1,7 @@
 // TODO: Remove this once all tests are re-enabled.
 #![allow(unused)]
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, ensure};
 use assert_matches::assert_matches;
@@ -14,9 +14,12 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign,
         events::{
-            AnyStrippedStateEvent, SyncMessageLikeEvent, TimelineEventType,
+            AnyInitialStateEvent, AnyStrippedStateEvent, InitialStateEvent, StaticEventContent,
+            SyncMessageLikeEvent, TimelineEventType,
+            member_hints::{InitialMemberHintsEvent, MemberHintsEventContent},
             room::{member::MembershipState, message::RoomMessageEventContent},
         },
+        serde::Raw,
     },
 };
 use matrix_sdk_ui::{

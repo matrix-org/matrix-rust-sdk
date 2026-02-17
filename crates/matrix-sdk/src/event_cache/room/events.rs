@@ -297,7 +297,7 @@ impl EventLinkedChunk {
             }
         }
 
-        self.chunks.push_items_back(events.to_vec());
+        self.chunks.push_items_back(events.iter().cloned());
     }
 
     /// Finish a network back-pagination for this linked chunk by updating the

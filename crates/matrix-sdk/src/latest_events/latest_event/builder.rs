@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     iter::once,
     ops::{ControlFlow, Deref},
 };
@@ -25,7 +26,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
         relation::Replacement,
         room::{
-            member::MembershipState,
+            member::MembershipChange,
             message::{MessageType, Relation, RoomMessageEventContent},
             power_levels::RoomPowerLevels,
             redaction::RoomRedactionEventContent,
@@ -34,7 +35,7 @@ use ruma::{
 };
 use tracing::error;
 
-use crate::{event_cache::RoomEventCache, send_queue::RoomSendQueueUpdate};
+use crate::{Room, event_cache::RoomEventCache, room::Invite, send_queue::RoomSendQueueUpdate};
 
 /// A builder of [`LatestEventValue`]s.
 pub(super) struct Builder;
@@ -57,14 +58,16 @@ impl Builder {
         let mut room_has_been_emptied = true;
         let mut current_value_must_be_erased = false;
 
+        // Track the most recent edit for each event.
+        let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
+
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, previous_event| {
+            .rfind_map_event_in_memory_by(|event| {
                 // At least one event lives in-memory: we consider the room is not empty.
                 room_has_been_emptied = false;
 
                 match filter_timeline_event(
                     event,
-                    previous_event,
                     current_value_event_id.as_ref(),
                     own_user_id,
                     power_levels,
@@ -72,14 +75,29 @@ impl Builder {
                     // Let's continue, event is not suitable.
                     ControlFlow::Continue(FilterContinue {
                         current_value_must_be_erased: erased,
+                        edited_event_id,
                     }) => {
                         current_value_must_be_erased = erased;
+
+                        if let Some(edited_event_id) = edited_event_id {
+                            // This is an edit. Store it if we haven't seen an edit for the
+                            // targeted event yet.
+                            latest_edit_for_event.entry(edited_event_id).or_insert(event.clone());
+                        }
 
                         None
                     }
 
                     // Stop! We found a suitable event!
-                    ControlFlow::Break(()) => Some(event.clone()),
+                    ControlFlow::Break(()) => {
+                        // Return the latest known edit of the event or the event itself if it
+                        // hasn't been replaced.
+                        event
+                            .event_id()
+                            .and_then(|event_id| latest_edit_for_event.get(&event_id))
+                            .cloned()
+                            .or_else(|| Some(event.clone()))
+                    }
                 }
             })
             .await
@@ -92,6 +110,36 @@ impl Builder {
             }
 
             current_value_must_be_erased.then(LatestEventValue::default)
+        }
+    }
+
+    pub async fn new_remote_for_invite(room: &Room) -> LatestEventValue {
+        let (event_id, timestamp, inviter_id) = room
+            .invite_details()
+            .await
+            .map(|Invite { invitee, inviter_id, .. }| {
+                let event = invitee.event();
+
+                (
+                    // If the event is a stripped state event, it has no event ID. This is
+                    // acceptable.
+                    event.event_id().map(ToOwned::to_owned),
+                    // If the event is a stripped state event, it has no timestamp (no
+                    // `origin_server_ts`). If, in any case, it has one (it could happen depending
+                    // of the server implementation), let's use it.
+                    event.timestamp().map(MilliSecondsSinceUnixEpoch),
+                    Some(inviter_id),
+                )
+            })
+            .unwrap_or_else(|_| (None, None, None));
+
+        LatestEventValue::RemoteInvite {
+            event_id,
+            // If the event is a stripped state event, it should not have a timestamp. Let's use
+            // `now()` as a fallback so that the `LatestEventValue` can be used to sort rooms in a
+            // room list for example.
+            timestamp: timestamp.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+            inviter: inviter_id,
         }
     }
 
@@ -120,7 +168,6 @@ impl Builder {
                         Ok(content) => {
                             if filter_any_message_like_event_content(
                                 content,
-                                None,
                                 current_value_event_id.as_ref(),
                             )
                             .is_break()
@@ -219,7 +266,7 @@ impl Builder {
                             | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
                                 return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value });
                             }
-                            LatestEventValue::Remote(_) | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
+                            LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         }
                     }
                 }
@@ -247,7 +294,6 @@ impl Builder {
                         Ok(content) => {
                             if filter_any_message_like_event_content(
                                 content,
-                                None,
                                 current_value_event_id.as_ref(),
                             )
                             .is_break()
@@ -532,6 +578,8 @@ impl BufferOfValuesForLocalEvents {
 struct FilterContinue {
     /// Whether the current [`LatestEventValue`] must be erased or not.
     current_value_must_be_erased: bool,
+    /// When the event is a replacement, this is the targeted event ID.
+    edited_event_id: Option<OwnedEventId>,
 }
 
 /// Build the [`ControlFlow::Break`] for the filters.
@@ -541,12 +589,27 @@ fn filter_break() -> ControlFlow<(), FilterContinue> {
 
 /// Build the [`ControlFlow::Continue`] for the filters.
 fn filter_continue() -> ControlFlow<(), FilterContinue> {
-    ControlFlow::Continue(FilterContinue { current_value_must_be_erased: false })
+    ControlFlow::Continue(FilterContinue {
+        current_value_must_be_erased: false,
+        edited_event_id: None,
+    })
 }
 
 /// Build the [`ControlFlow::Continue`] with erasing, for the filters.
 fn filter_continue_with_erasing() -> ControlFlow<(), FilterContinue> {
-    ControlFlow::Continue(FilterContinue { current_value_must_be_erased: true })
+    ControlFlow::Continue(FilterContinue {
+        current_value_must_be_erased: true,
+        edited_event_id: None,
+    })
+}
+
+/// Build the [`ControlFlow::Continue`] with an edited event ID, for the
+/// filters.
+fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), FilterContinue> {
+    ControlFlow::Continue(FilterContinue {
+        current_value_must_be_erased: false,
+        edited_event_id: Some(edited_event_id),
+    })
 }
 
 /// Filter a [`TimelineEvent`].
@@ -554,14 +617,10 @@ fn filter_continue_with_erasing() -> ControlFlow<(), FilterContinue> {
 /// Be careful:
 ///
 /// - `event` is the current event in the collection of events that is scanned.
-/// - `previous_event` is the event sitting next to `event` in this collection,
-///   it's the event that comes before `event` (`previous_event` is older than
-///   `event`).
 /// - `current_value_event_id` is the event ID of the current
 ///   [`LatestEventValue`].
 fn filter_timeline_event(
     event: &TimelineEvent,
-    previous_event: Option<&TimelineEvent>,
     current_value_event_id: Option<&OwnedEventId>,
     own_user_id: &UserId,
     power_levels: Option<&RoomPowerLevels>,
@@ -585,7 +644,6 @@ fn filter_timeline_event(
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
-                    previous_event,
                     current_value_event_id,
                 ),
 
@@ -602,7 +660,6 @@ fn filter_timeline_event(
 
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-    previous_event: Option<&TimelineEvent>,
     current_value_event_id: Option<&OwnedEventId>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
@@ -620,13 +677,10 @@ fn filter_any_message_like_event_content(
             // Not all relations are accepted. Let's filter them.
             match relates_to {
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
-                    // If the edit relates to the immediate previous event, this is an acceptable
-                    // latest event candidate, otherwise let's ignore it.
-                    if Some(event_id) == previous_event.and_then(|event| event.event_id()) {
-                        filter_break()
-                    } else {
-                        filter_continue()
-                    }
+                    // Edits are suitable as latest events if and only if the targeted event is also
+                    // suitable. Let's remember this edit, and the associated
+                    // targeted event ID.
+                    filter_continue_with_edit(event_id)
                 }
 
                 _ => filter_break(),
@@ -674,14 +728,14 @@ fn filter_any_sync_state_event(
     power_levels: Option<&RoomPowerLevels>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
-        AnySyncStateEvent::RoomMember(member) => {
-            match member.membership() {
-                MembershipState::Knock => {
+        AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
+            match member.membership_change() {
+                MembershipChange::Knocked => {
                     let can_accept_or_decline_knocks = match power_levels {
                         Some(room_power_levels) => {
                             room_power_levels.user_can_invite(own_user_id)
                                 || room_power_levels
-                                    .user_can_kick_user(own_user_id, member.state_key())
+                                    .user_can_kick_user(own_user_id, &member.state_key)
                         }
                         None => false,
                     };
@@ -689,39 +743,28 @@ fn filter_any_sync_state_event(
                     // The current user can act on the knock changes, so they should be
                     // displayed
                     if can_accept_or_decline_knocks {
-                        // We can only decide whether the user can accept or decline knocks if the
-                        // event isn't redacted.
-                        return if matches!(member, SyncStateEvent::Original(_)) {
-                            filter_break()
-                        } else {
-                            filter_continue()
-                        };
+                        return filter_break();
                     }
 
                     filter_continue()
                 }
 
-                // A member is joining or is being invited…
-                MembershipState::Join | MembershipState::Invite => {
+                // A member has joined one way or another.
+                MembershipChange::Joined
+                | MembershipChange::Invited
+                | MembershipChange::InvitationAccepted
+                | MembershipChange::KnockAccepted => {
                     // This member _is_ the current user, not someone else! This is a valid state
                     // event:
                     //
-                    // - the user is joining a room: we want a `LatestEventValue` to get a first
-                    //   value!
+                    // - the user is joining a room (for the first time or again): we want a
+                    //   `LatestEventValue` to get a first value!
                     // - the user is being invited: we want a `LatestEventValue` to represent the
                     //   invitation!
-                    match member {
-                        // We can only decide whether the user is joining or is being invited if the
-                        // event isn't redacted.
-                        SyncStateEvent::Original(state) => {
-                            if state.state_key.deref() == own_user_id {
-                                filter_break()
-                            } else {
-                                filter_continue()
-                            }
-                        }
-
-                        _ => filter_continue(),
+                    if member.state_key.deref() == own_user_id {
+                        filter_break()
+                    } else {
+                        filter_continue()
                     }
                 }
 
@@ -738,10 +781,13 @@ mod filter_tests {
     use std::ops::Not;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::event_factory::EventFactory;
+    use matrix_sdk_test::event_factory::{EventFactory, PreviousMembership};
     use ruma::{
         event_id,
-        events::{room::message::RoomMessageEventContent, rtc::notification::NotificationType},
+        events::{
+            room::{member::MembershipState, message::RoomMessageEventContent},
+            rtc::notification::NotificationType,
+        },
         owned_user_id, user_id,
     };
 
@@ -767,7 +813,7 @@ mod filter_tests {
             };
 
             assert_matches!(
-                filter_timeline_event(&event, None, None, user_id!("@mnt_io:matrix.org"), None),
+                filter_timeline_event(&event, None, user_id!("@mnt_io:matrix.org"), None),
                 $expect
             );
         };
@@ -785,46 +831,17 @@ mod filter_tests {
     fn test_room_message_replacement() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id);
+        let event_id = event_id!("$ev0");
         let event = event_factory
             .text_msg("bonjour")
-            .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
+            .edit(event_id, RoomMessageEventContent::text_plain("hello").into())
             .into_event();
 
-        // Without a previous event.
-        //
-        // This is an edge case where either the event cache has been emptied and only
-        // the edit is received via the sync for example, or either the previous event
-        // is part of another chunk that is not loaded in memory yet. In this case,
-        // let's not consider the event as a `LatestEventValue` candidate.
-        {
-            let previous_event = None;
-
-            assert!(
-                filter_timeline_event(&event, previous_event, None, user_id, None).is_continue()
-            );
-        }
-
-        // With a previous event, but not the one being replaced.
-        {
-            let previous_event =
-                Some(event_factory.text_msg("no!").event_id(event_id!("$ev1")).into_event());
-
-            assert!(
-                filter_timeline_event(&event, previous_event.as_ref(), None, user_id, None)
-                    .is_continue()
-            );
-        }
-
-        // With a previous event, and that's the one being replaced!
-        {
-            let previous_event =
-                Some(event_factory.text_msg("hello").event_id(event_id!("$ev0")).into_event());
-
-            assert!(
-                filter_timeline_event(&event, previous_event.as_ref(), None, user_id, None)
-                    .is_break()
-            );
-        }
+        assert_matches!(filter_timeline_event(&event, None, user_id, None), ControlFlow::Continue(FilterContinue { current_value_must_be_erased, edited_event_id }) => {
+                    assert!(current_value_must_be_erased.not());
+                    assert_eq!(edited_event_id, Some(event_id.to_owned()));
+                }
+        );
     }
 
     #[test]
@@ -840,9 +857,10 @@ mod filter_tests {
             let current_value_event_id = None;
 
             assert_matches!(
-                filter_timeline_event(&event, None, current_value_event_id, user_id, None),
-                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                filter_timeline_event(&event, current_value_event_id, user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased, edited_event_id }) => {
                     assert!(current_value_must_be_erased.not());
+                    assert!(edited_event_id.is_none());
                 }
             );
         }
@@ -853,9 +871,10 @@ mod filter_tests {
             let current_value_event_id = Some(event_id!("$ev1").to_owned());
 
             assert_matches!(
-                filter_timeline_event(&event, None, current_value_event_id.as_ref(), user_id, None),
-                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                filter_timeline_event(&event, current_value_event_id.as_ref(), user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased, edited_event_id }) => {
                     assert!(current_value_must_be_erased.not());
+                    assert!(edited_event_id.is_none());
                 }
             );
         }
@@ -866,9 +885,10 @@ mod filter_tests {
             let current_value_event_id = Some(event_id.to_owned());
 
             assert_matches!(
-                filter_timeline_event(&event, None, current_value_event_id.as_ref(), user_id, None),
-                ControlFlow::Continue(FilterContinue { current_value_must_be_erased }) => {
+                filter_timeline_event(&event, current_value_event_id.as_ref(), user_id, None),
+                ControlFlow::Continue(FilterContinue { current_value_must_be_erased, edited_event_id }) => {
                     assert!(current_value_must_be_erased);
+                    assert!(edited_event_id.is_none());
                 }
             );
         }
@@ -996,12 +1016,12 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_knocked_state_event_without_power_levels() {
+    fn test_knocked_without_power_levels() {
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
-                    .membership(ruma::events::room::member::MembershipState::Knock)
+                    .membership(MembershipState::Knock)
                     .into_event()
             }
             is not a candidate
@@ -1009,12 +1029,9 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_knocked_state_event_with_power_levels() {
+    fn test_knocked_with_power_levels() {
         use ruma::{
-            events::room::{
-                member::MembershipState,
-                power_levels::{RoomPowerLevels, RoomPowerLevelsSource},
-            },
+            events::room::power_levels::{RoomPowerLevels, RoomPowerLevelsSource},
             room_version_rules::AuthorizationRules,
         };
 
@@ -1034,7 +1051,7 @@ mod filter_tests {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels))
                     .is_continue(),
                 "cannot accept, cannot decline",
             );
@@ -1045,8 +1062,7 @@ mod filter_tests {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 10.into();
             assert!(
-                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
-                    .is_break(),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
                 "can accept, cannot decline",
             );
         }
@@ -1056,8 +1072,7 @@ mod filter_tests {
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
-                    .is_break(),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
                 "cannot accept, can decline",
             );
         }
@@ -1067,8 +1082,7 @@ mod filter_tests {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 0.into();
             assert!(
-                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
-                    .is_break(),
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels)).is_break(),
                 "can accept, can decline",
             );
         }
@@ -1084,7 +1098,7 @@ mod filter_tests {
             room_power_levels.kick = 0.into();
 
             assert!(
-                filter_timeline_event(&event, None, None, user_id, Some(&room_power_levels))
+                filter_timeline_event(&event, None, user_id, Some(&room_power_levels))
                     .is_continue(),
                 "cannot accept, can decline, at least same user levels",
             );
@@ -1092,9 +1106,37 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_join_state_event() {
-        use ruma::events::room::member::MembershipState;
+    fn test_knock_accepted() {
+        // The current user was knocking and now is invited.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Knock)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
 
+    #[test]
+    fn test_knock_accepted_from_someone_else() {
+        // The current user sees an accepted knock but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Knock)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_joined() {
         // The current user is joining the room.
         assert_latest_event_content!(
             event | event_factory | {
@@ -1108,7 +1150,22 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_join_state_event_for_someone_else() {
+    fn test_joined_from_left() {
+        // The current user was left and now joins again.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Leave)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_joined_for_someone_else() {
         use ruma::events::room::member::MembershipState;
 
         // The current user sees a join but for someone else.
@@ -1124,10 +1181,7 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_invite_state_event() {
-        use ruma::events::room::member::MembershipState;
-
-        // The current user is receiving an invite.
+    fn test_invited() {
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
@@ -1140,15 +1194,73 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_invite_state_event_for_someone_else() {
-        use ruma::events::room::member::MembershipState;
+    fn test_invited_from_left() {
+        // The current user was left and now is invited again.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Invite)
+                    .previous(MembershipState::Leave)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
 
+    #[test]
+    fn test_invited_for_someone_else() {
         // The current user sees an invite but for someone else.
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
                     .membership(MembershipState::Invite)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_invitation_accepted() {
+        // The current user was invited and now is joined.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite)
+                    .into_event()
+            }
+            is a candidate
+        );
+    }
+
+    #[test]
+    fn test_invitation_accepted_from_someone_else() {
+        // The current user sees an accepted invitation but for someone else.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite)
+                    .into_event()
+            }
+            is not a candidate
+        );
+    }
+
+    #[test]
+    fn test_profile_changed() {
+        // The current user has a new display name.
+        assert_latest_event_content!(
+            event | event_factory | {
+                event_factory
+                    .member(user_id!("@mnt_io:matrix.org"))
+                    .membership(MembershipState::Join)
+                    .previous(PreviousMembership::new(MembershipState::Join).display_name("Coucou"))
                     .into_event()
             }
             is not a candidate
@@ -2029,6 +2141,356 @@ mod builder_tests {
         );
     }
 
+    #[async_test]
+    async fn test_remote_edit() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a text message
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                                // a replacement of the previous message
+                                event_factory
+                                    .text_msg("* goodbye")
+                                    .event_id(event_id_1)
+                                    .edit(
+                                        event_id_0,
+                                        RoomMessageEventContent::text_plain("goodbye").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_1` because it edits `event_id_0` which is a candidate.
+            Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "* goodbye"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_double_edit() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a text message
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                                // a replacement of the previous message
+                                event_factory
+                                    .text_msg("* goodbye")
+                                    .event_id(event_id_1)
+                                    .edit(
+                                        event_id_0,
+                                        RoomMessageEventContent::text_plain("goodbye").into(),
+                                    )
+                                    .into(),
+                                // another replacement of the first message
+                                event_factory
+                                    .text_msg("* err, hello")
+                                    .event_id(event_id_2)
+                                    .edit(
+                                        event_id_0,
+                                        RoomMessageEventContent::text_plain("err, hello").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_1` because `event_id_2` isn't a candidate,
+            // and `event_id_0` hasn't been read yet (because events are read
+            // backwards).
+            Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "* err, hello"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_latest_edit_targets_older_event() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+        let event_id_3 = event_id!("$ev3");
+        let event_id_4 = event_id!("$ev4");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a text message
+                                event_factory.text_msg("A").event_id(event_id_0).into(),
+                                // another text message
+                                event_factory.text_msg("B").event_id(event_id_1).into(),
+                                // and a third text message
+                                event_factory.text_msg("C").event_id(event_id_2).into(),
+                                // a replacement of the last message
+                                event_factory
+                                    .text_msg("* D")
+                                    .event_id(event_id_3)
+                                    .edit(
+                                        event_id_2,
+                                        RoomMessageEventContent::text_plain("D").into(),
+                                    )
+                                    .into(),
+                                // another replacement but this time for the first message
+                                event_factory
+                                    .text_msg("* X")
+                                    .event_id(event_id_4)
+                                    .edit(
+                                        event_id_0,
+                                        RoomMessageEventContent::text_plain("X").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_3` because `event_id_4` edits an older event.
+            Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "* D"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_latest_edit_preceded_by_unrelated_event() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a text message
+                                event_factory.text_msg("A").event_id(event_id_0).into(),
+                                // a replacement of another event
+                                event_factory
+                                    .text_msg("* B")
+                                    .event_id(event_id_1)
+                                    .edit(
+                                        event_id_2,
+                                        RoomMessageEventContent::text_plain("B").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_0` because `event_id_1` edits an event that is unknown.
+            Builder::new_remote(&room_event_cache, None, user_id, None).await => with body = "A"
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_latest_edit_without_previous_events() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a replacement of an unknown event
+                                event_factory
+                                    .text_msg("* B")
+                                    .event_id(event_id_0)
+                                    .edit(
+                                        event_id_1,
+                                        RoomMessageEventContent::text_plain("B").into(),
+                                    )
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        // We get no latest event value because no candidate event is known.
+        assert!(Builder::new_remote(&room_event_cache, None, user_id, None).await.is_none());
+    }
+
     async fn local_prelude() -> (Client, OwnedRoomId, RoomSendQueue, RoomEventCache) {
         let room_id = room_id!("!r0").to_owned();
 
@@ -2587,6 +3049,83 @@ mod builder_tests {
             );
 
             assert_eq!(buffer.buffer.len(), 0);
+        }
+    }
+
+    #[async_test]
+    async fn test_local_replaced_local_event_twice() {
+        let (client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+        let user_id = client.user_id().unwrap();
+
+        let mut buffer = BufferOfValuesForLocalEvents::new();
+        let transaction_id = OwnedTransactionId::from("txnid0");
+
+        // Receiving one `NewLocalEvent`.
+        let previous_value = {
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            // The `LatestEventValue` matches the new local event.
+            let value = assert_local_value_matches_room_message_with_body!(
+                Builder::new_local(&update, &mut buffer, &room_event_cache, None, user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "A"
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
+
+            value
+        };
+
+        // Receiving a `ReplacedLocalEvent` targeting the event.
+        // The `LatestEventValue` is changing.
+        {
+            let LocalEchoContent::Event { serialized_event: new_content, .. } =
+                new_local_echo_content(&room_send_queue, &transaction_id, "B")
+            else {
+                panic!("oopsy");
+            };
+
+            let update = RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: transaction_id.clone(),
+                new_content,
+            };
+
+            // The `LatestEventValue` has changed, it still matches the latest local
+            // event but with its new content.
+            assert_local_value_matches_room_message_with_body!(
+                Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value.event_id(), user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "B"
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
+        }
+
+        // Receiving another `ReplacedLocalEvent` targeting the event.
+        // The `LatestEventValue` is changing again.
+        {
+            let LocalEchoContent::Event { serialized_event: new_content, .. } =
+                new_local_echo_content(&room_send_queue, &transaction_id, "C")
+            else {
+                panic!("oopsy");
+            };
+
+            let update = RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: transaction_id.clone(),
+                new_content,
+            };
+
+            // The `LatestEventValue` has changed, it still matches the latest local
+            // event but with its new content.
+            assert_local_value_matches_room_message_with_body!(
+                Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value.event_id(), user_id, None).await,
+                LatestEventValue::LocalIsSending => with body = "C"
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
         }
     }
 

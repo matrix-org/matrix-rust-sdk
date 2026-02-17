@@ -21,6 +21,7 @@ use std::{
 };
 
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use thiserror::Error;
 
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::{
@@ -87,6 +88,18 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
 }
 
+/// An error type for representing the possible failures
+/// in operations on a [`RelationalLinkedChunk`].
+#[derive(Debug, Error)]
+pub enum RelationalLinkedChunkError {
+    /// A chunk identifier is invalid.
+    #[error("invalid chunk identifier: `{identifier:?}`")]
+    InvalidChunkIdentifier {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
+}
+
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
 /// [`RelationalLinkedChunk`].
 pub trait IndexableItem {
@@ -128,15 +141,15 @@ where
         &mut self,
         linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Item, Gap>>,
-    ) {
+    ) -> Result<(), RelationalLinkedChunkError> {
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next)?;
                 }
 
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next)?;
                     self.items_chunks.push(ItemRow {
                         linked_chunk_id: linked_chunk_id.to_owned(),
                         position: Position::new(new, 0),
@@ -274,6 +287,7 @@ where
                 }
             }
         }
+        Ok(())
     }
 
     fn insert_chunk(
@@ -282,7 +296,7 @@ where
         previous: Option<ChunkIdentifier>,
         new: ChunkIdentifier,
         next: Option<ChunkIdentifier>,
-    ) {
+    ) -> Result<(), RelationalLinkedChunkError> {
         // Find the previous chunk, and update its next chunk.
         if let Some(previous) = previous {
             let entry_for_previous_chunk = chunks
@@ -290,7 +304,9 @@ where
                 .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
                     linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
                 })
-                .expect("Previous chunk should be present");
+                .ok_or(RelationalLinkedChunkError::InvalidChunkIdentifier {
+                    identifier: previous,
+                })?;
 
             // Link the chunk.
             entry_for_previous_chunk.next_chunk = Some(new);
@@ -303,7 +319,7 @@ where
                 .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
                     linked_chunk_id == linked_chunk_id_candidate && *chunk == next
                 })
-                .expect("Next chunk should be present");
+                .ok_or(RelationalLinkedChunkError::InvalidChunkIdentifier { identifier: next })?;
 
             // Link the chunk.
             entry_for_next_chunk.previous_chunk = Some(new);
@@ -316,6 +332,8 @@ where
             chunk: new,
             next_chunk: next,
         });
+
+        Ok(())
     }
 
     fn remove_chunk(
@@ -747,23 +765,33 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // 0
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // 1 after 0
-                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
-                // 2 before 0
-                Update::NewItemsChunk { previous: None, new: CId::new(2), next: Some(CId::new(0)) },
-                // 3 between 2 and 0
-                Update::NewItemsChunk {
-                    previous: Some(CId::new(2)),
-                    new: CId::new(3),
-                    next: Some(CId::new(0)),
-                },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // 0
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // 1 after 0
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                    },
+                    // 2 before 0
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: CId::new(2),
+                        next: Some(CId::new(0)),
+                    },
+                    // 3 between 2 and 0
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(2)),
+                        new: CId::new(3),
+                        next: Some(CId::new(0)),
+                    },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -807,22 +835,28 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // 0
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // 1 after 0
-                Update::NewGapChunk {
-                    previous: Some(CId::new(0)),
-                    new: CId::new(1),
-                    next: None,
-                    gap: (),
-                },
-                // 2 after 1
-                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // 0
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // 1 after 0
+                    Update::NewGapChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                        gap: (),
+                    },
+                    // 2 after 1
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(1)),
+                        new: CId::new(2),
+                        next: None,
+                    },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -866,24 +900,30 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // 0
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // 1 after 0
-                Update::NewGapChunk {
-                    previous: Some(CId::new(0)),
-                    new: CId::new(1),
-                    next: None,
-                    gap: (),
-                },
-                // 2 after 1
-                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
-                // remove 1
-                Update::RemoveChunk(CId::new(1)),
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // 0
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // 1 after 0
+                    Update::NewGapChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                        gap: (),
+                    },
+                    // 2 after 1
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(1)),
+                        new: CId::new(2),
+                        next: None,
+                    },
+                    // remove 1
+                    Update::RemoveChunk(CId::new(1)),
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -915,21 +955,34 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
-                // new chunk (to test new items are pushed in the correct chunk)
-                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
-                // new items on 1
-                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['x', 'y', 'z'] },
-                // new items on 0 again
-                Update::PushItems { at: Position::new(CId::new(0), 3), items: vec!['d', 'e'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // new chunk (this is not mandatory for this test, but let's try to be
+                    // realistic)
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                    // new chunk (to test new items are pushed in the correct chunk)
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                    },
+                    // new items on 1
+                    Update::PushItems {
+                        at: Position::new(CId::new(1), 0),
+                        items: vec!['x', 'y', 'z'],
+                    },
+                    // new items on 0 again
+                    Update::PushItems { at: Position::new(CId::new(0), 3), items: vec!['d', 'e'] },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -1004,22 +1057,25 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems {
-                    at: Position::new(CId::new(0), 0),
-                    items: vec!['a', 'b', 'c', 'd', 'e'],
-                },
-                // remove an item: 'a'
-                Update::RemoveItem { at: Position::new(CId::new(0), 0) },
-                // remove an item: 'd'
-                Update::RemoveItem { at: Position::new(CId::new(0), 2) },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // new chunk (this is not mandatory for this test, but let's try to be
+                    // realistic)
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c', 'd', 'e'],
+                    },
+                    // remove an item: 'a'
+                    Update::RemoveItem { at: Position::new(CId::new(0), 0) },
+                    // remove an item: 'd'
+                    Update::RemoveItem { at: Position::new(CId::new(0), 2) },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -1061,24 +1117,33 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // new chunk
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new chunk
-                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
-                // new items on 0
-                Update::PushItems {
-                    at: Position::new(CId::new(0), 0),
-                    items: vec!['a', 'b', 'c', 'd', 'e'],
-                },
-                // new items on 1
-                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['x', 'y', 'z'] },
-                // detach last items on 0
-                Update::DetachLastItems { at: Position::new(CId::new(0), 2) },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // new chunk
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new chunk
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                    },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c', 'd', 'e'],
+                    },
+                    // new items on 1
+                    Update::PushItems {
+                        at: Position::new(CId::new(1), 0),
+                        items: vec!['x', 'y', 'z'],
+                    },
+                    // detach last items on 0
+                    Update::DetachLastItems { at: Position::new(CId::new(0), 2) },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -1138,10 +1203,12 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![Update::StartReattachItems, Update::EndReattachItems],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![Update::StartReattachItems, Update::EndReattachItems],
+            )
+            .unwrap();
 
         // Nothing happened.
         assert!(relational_linked_chunk.chunks.is_empty());
@@ -1158,25 +1225,34 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id0.as_ref(),
-            vec![
-                // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id0.as_ref(),
+                vec![
+                    // new chunk (this is not mandatory for this test, but let's try to be
+                    // realistic)
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                ],
+            )
+            .unwrap();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id1.as_ref(),
-            vec![
-                // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id1.as_ref(),
+                vec![
+                    // new chunk (this is not mandatory for this test, but let's try to be
+                    // realistic)
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x'] },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -1225,7 +1301,9 @@ mod tests {
         );
 
         // Now, time for a clean up.
-        relational_linked_chunk.apply_updates(linked_chunk_id0.as_ref(), vec![Update::Clear]);
+        relational_linked_chunk
+            .apply_updates(linked_chunk_id0.as_ref(), vec![Update::Clear])
+            .unwrap();
 
         // Only items from r1 remain.
         assert_eq!(
@@ -1267,10 +1345,12 @@ mod tests {
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, char>::new();
 
         // When I store an empty items chunks,
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![Update::NewItemsChunk { previous: None, new: CId::new(0), next: None }],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![Update::NewItemsChunk { previous: None, new: CId::new(0), next: None }],
+            )
+            .unwrap();
 
         // It correctly gets reloaded as such.
         let lc = from_all_chunks::<3, _, _>(
@@ -1289,26 +1369,38 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, char>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // new chunk
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
-                // a gap chunk
-                Update::NewGapChunk {
-                    previous: Some(CId::new(0)),
-                    new: CId::new(1),
-                    next: None,
-                    gap: 'g',
-                },
-                // another items chunk
-                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(2), 0), items: vec!['d', 'e', 'f'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // new chunk
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                    // a gap chunk
+                    Update::NewGapChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                        gap: 'g',
+                    },
+                    // another items chunk
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(1)),
+                        new: CId::new(2),
+                        next: None,
+                    },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(2), 0),
+                        items: vec!['d', 'e', 'f'],
+                    },
+                ],
+            )
+            .unwrap();
 
         let lc = from_all_chunks::<3, _, _>(
             relational_linked_chunk.load_all_chunks(linked_chunk_id.as_ref()).unwrap(),
@@ -1327,17 +1419,23 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                // new items on 0
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
-                // update item at (0; 1).
-                Update::ReplaceItem { at: Position::new(CId::new(0), 1), item: 'B' },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    // new chunk (this is not mandatory for this test, but let's try to be
+                    // realistic)
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    // new items on 0
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                    // update item at (0; 1).
+                    Update::ReplaceItem { at: Position::new(CId::new(0), 1), item: 'B' },
+                ],
+            )
+            .unwrap();
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -1383,23 +1481,40 @@ mod tests {
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
-                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
-                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['d', 'e', 'f'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(CId::new(1), 0),
+                        items: vec!['d', 'e', 'f'],
+                    },
+                ],
+            )
+            .unwrap();
 
-        relational_linked_chunk.apply_updates(
-            other_linked_chunk_id.as_ref(),
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x', 'y', 'z'] },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                other_linked_chunk_id.as_ref(),
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    Update::PushItems {
+                        at: Position::new(CId::new(0), 0),
+                        items: vec!['x', 'y', 'z'],
+                    },
+                ],
+            )
+            .unwrap();
 
         let events = BTreeMap::from_iter(
             relational_linked_chunk.unordered_linked_chunk_items(&linked_chunk_id),
@@ -1432,13 +1547,18 @@ mod tests {
 
         // Case #2: only one chunk is present.
         {
-            relational_linked_chunk.apply_updates(
-                linked_chunk_id.as_ref(),
-                vec![
-                    Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
-                    Update::PushItems { at: Position::new(CId::new(42), 0), items: vec!['a', 'b'] },
-                ],
-            );
+            relational_linked_chunk
+                .apply_updates(
+                    linked_chunk_id.as_ref(),
+                    vec![
+                        Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                        Update::PushItems {
+                            at: Position::new(CId::new(42), 0),
+                            items: vec!['a', 'b'],
+                        },
+                    ],
+                )
+                .unwrap();
 
             let (last_chunk, chunk_identifier_generator) =
                 relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap();
@@ -1457,20 +1577,22 @@ mod tests {
 
         // Case #3: more chunks are present.
         {
-            relational_linked_chunk.apply_updates(
-                linked_chunk_id.as_ref(),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: Some(CId::new(42)),
-                        new: CId::new(7),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(CId::new(7), 0),
-                        items: vec!['c', 'd', 'e'],
-                    },
-                ],
-            );
+            relational_linked_chunk
+                .apply_updates(
+                    linked_chunk_id.as_ref(),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: Some(CId::new(42)),
+                            new: CId::new(7),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(CId::new(7), 0),
+                            items: vec!['c', 'd', 'e'],
+                        },
+                    ],
+                )
+                .unwrap();
 
             let (last_chunk, chunk_identifier_generator) =
                 relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap();
@@ -1496,20 +1618,22 @@ mod tests {
         let linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
-        relational_linked_chunk.apply_updates(
-            linked_chunk_id.as_ref(),
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                Update::NewItemsChunk {
-                    // Because `previous` connects to chunk #0, it will create a cycle.
-                    // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
-                    // **does not exist**. We have to detect this cycle.
-                    previous: Some(CId::new(0)),
-                    new: CId::new(1),
-                    next: Some(CId::new(0)),
-                },
-            ],
-        );
+        relational_linked_chunk
+            .apply_updates(
+                linked_chunk_id.as_ref(),
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                    Update::NewItemsChunk {
+                        // Because `previous` connects to chunk #0, it will create a cycle.
+                        // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                        // **does not exist**. We have to detect this cycle.
+                        previous: Some(CId::new(0)),
+                        new: CId::new(1),
+                        next: Some(CId::new(0)),
+                    },
+                ],
+            )
+            .unwrap();
 
         relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap_err();
     }
@@ -1533,10 +1657,12 @@ mod tests {
         // Case #2: there is one chunk only: we request the previous on this
         // one, it doesn't exist.
         {
-            relational_linked_chunk.apply_updates(
-                linked_chunk_id.as_ref(),
-                vec![Update::NewItemsChunk { previous: None, new: CId::new(42), next: None }],
-            );
+            relational_linked_chunk
+                .apply_updates(
+                    linked_chunk_id.as_ref(),
+                    vec![Update::NewItemsChunk { previous: None, new: CId::new(42), next: None }],
+                )
+                .unwrap();
 
             let previous_chunk = relational_linked_chunk
                 .load_previous_chunk(linked_chunk_id.as_ref(), CId::new(42))
@@ -1547,21 +1673,23 @@ mod tests {
 
         // Case #3: there is two chunks.
         {
-            relational_linked_chunk.apply_updates(
-                linked_chunk_id.as_ref(),
-                vec![
-                    // new chunk before the one that exists.
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: CId::new(7),
-                        next: Some(CId::new(42)),
-                    },
-                    Update::PushItems {
-                        at: Position::new(CId::new(7), 0),
-                        items: vec!['a', 'b', 'c'],
-                    },
-                ],
-            );
+            relational_linked_chunk
+                .apply_updates(
+                    linked_chunk_id.as_ref(),
+                    vec![
+                        // new chunk before the one that exists.
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: CId::new(7),
+                            next: Some(CId::new(42)),
+                        },
+                        Update::PushItems {
+                            at: Position::new(CId::new(7), 0),
+                            items: vec!['a', 'b', 'c'],
+                        },
+                    ],
+                )
+                .unwrap();
 
             let previous_chunk = relational_linked_chunk
                 .load_previous_chunk(linked_chunk_id.as_ref(), CId::new(42))

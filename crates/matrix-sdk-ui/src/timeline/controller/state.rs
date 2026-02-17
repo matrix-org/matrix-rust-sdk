@@ -170,7 +170,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
             TimelineFocusKind::Thread { root_event_id, .. } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
-            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => {
                 // Don't add new items to these timelines; aggregations are added independently
                 // of the `should_add_new_items` value.
                 false

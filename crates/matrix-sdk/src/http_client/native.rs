@@ -111,17 +111,18 @@ impl HttpClient {
 
         send_request
             .retry(backoff)
-            .adjust(|err, default_timeout| {
+            .adjust(|err, backon_suggested_timeout| {
                 match err.retry_kind() {
                     RetryKind::Transient { retry_after } => {
                         // This bit is somewhat tricky but it's necessary so we respect the
                         // `max_times` limit from `backon`.
                         //
                         // The exponential backoff in `backon` is implemented as an iterator that
-                        // returns `None` when we hit the `max_times` limit. So it's necessary to
-                        // only override the `default_timeout` if it's `Some`.
-                        if default_timeout.is_some() {
-                            retry_after.or(default_timeout)
+                        // returns `None` when we hit the `max_times` limit; if it returned `None`,
+                        // that means we ran out of attempts. So it's necessary to only override
+                        // the `backon_suggested_timeout` if it's `Some`.
+                        if backon_suggested_timeout.is_some() {
+                            retry_after.or(backon_suggested_timeout)
                         } else {
                             None
                         }
@@ -131,7 +132,7 @@ impl HttpClient {
                         // If we ran into a network failure, only retry if there's some retry limit
                         // associated to this request's configuration; otherwise, we would end up
                         // running an infinite loop of network requests in offline mode.
-                        if has_retry_limit { default_timeout } else { None }
+                        if has_retry_limit { backon_suggested_timeout } else { None }
                     }
                 }
             })

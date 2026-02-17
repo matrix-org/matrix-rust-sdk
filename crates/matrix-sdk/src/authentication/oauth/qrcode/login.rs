@@ -18,7 +18,7 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use matrix_sdk_base::{
     SessionMeta, boxed_into_future,
-    crypto::types::qr_login::{QrCodeData, QrCodeMode},
+    crypto::types::qr_login::{QrCodeData, QrCodeIntent},
     store::RoomLoadSettings,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
@@ -339,7 +339,7 @@ impl<'a> LoginWithQrCode<'a> {
         let channel = EstablishedSecureChannel::from_qr_code(
             http_client,
             self.qr_code_data,
-            QrCodeMode::Login,
+            QrCodeIntent::Login,
         )
         .await?;
 
@@ -488,7 +488,10 @@ mod test {
 
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
-    use matrix_sdk_base::crypto::types::{SecretsBundle, qr_login::QrCodeModeData};
+    use matrix_sdk_base::crypto::types::{
+        SecretsBundle,
+        qr_login::{Msc4108IntentData, QrCodeIntentData},
+    };
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
@@ -612,7 +615,12 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeIntentData::Msc4108 {
+                data: Msc4108IntentData::Reciprocate { server_name },
+                ..
+            } = &alice.qr_code_data().intent_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)
@@ -671,7 +679,7 @@ mod test {
         let mut channel = EstablishedSecureChannel::from_qr_code(
             alice.inner.http_client.inner.clone(),
             &qr_code_data,
-            QrCodeMode::Reciprocate,
+            QrCodeIntent::Reciprocate,
         )
         .await
         .expect("Alice should be able to establish the secure channel");
@@ -787,7 +795,10 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_matches!(
+            secure_channel.qr_code_data().intent_data(),
+            QrCodeIntentData::Msc4108 { data: Msc4108IntentData::Login, .. }
+        );
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -892,7 +903,10 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_matches!(
+            secure_channel.qr_code_data().intent_data(),
+            QrCodeIntentData::Msc4108 { data: Msc4108IntentData::Login, .. }
+        );
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -1005,7 +1019,12 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeIntentData::Msc4108 {
+                data: Msc4108IntentData::Reciprocate { server_name },
+                ..
+            } = &alice.qr_code_data().intent_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)
@@ -1119,7 +1138,10 @@ mod test {
             .await
             .expect("Bob should be able to create a secure channel");
 
-        assert_eq!(QrCodeModeData::Login, secure_channel.qr_code_data().mode_data);
+        assert_matches!(
+            secure_channel.qr_code_data().intent_data(),
+            QrCodeIntentData::Msc4108 { data: Msc4108IntentData::Login, .. }
+        );
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
@@ -1334,7 +1356,12 @@ mod test {
             .await
             .expect("Alice should be able to create a secure channel.");
 
-        assert_let!(QrCodeModeData::Reciprocate { server_name } = &alice.qr_code_data().mode_data);
+        assert_let!(
+            QrCodeIntentData::Msc4108 {
+                data: Msc4108IntentData::Reciprocate { server_name },
+                ..
+            } = &alice.qr_code_data().intent_data()
+        );
 
         let bob = Client::builder()
             .server_name_or_homeserver_url(server_name)

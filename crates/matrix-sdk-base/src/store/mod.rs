@@ -180,10 +180,17 @@ pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
     room_load_settings: Arc<RwLock<RoomLoadSettings>>,
+
+    /// A sender that is used to communicate changes to room information. Each
+    /// tick contains the room ID and the reasons that have generated this tick.
+    pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
+
     /// All rooms the store knows about.
     rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
+
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
     lock: Arc<Mutex<()>>,
@@ -196,10 +203,23 @@ pub(crate) struct BaseStateStore {
 impl BaseStateStore {
     /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<DynStateStore>) -> Self {
+        // Create the channel to receive `RoomInfoNotableUpdate`.
+        //
+        // Let's consider the channel will receive 5 updates for 100 rooms maximum. This
+        // is unrealistic in practise, as the sync mechanism is pretty unlikely to
+        // trigger such amount of updates, it's a safe value.
+        //
+        // Also, note that it must not be zero, because (i) it will panic,
+        // (ii) a new user has no room, but can create rooms; remember that the
+        // channel's capacity is immutable.
+        let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
+            broadcast::channel(500);
+
         Self {
             inner,
             session_meta: Default::default(),
             room_load_settings: Default::default(),
+            room_info_notable_update_sender,
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             lock: Default::default(),
@@ -227,7 +247,6 @@ impl BaseStateStore {
         &self,
         user_id: &UserId,
         room_load_settings: RoomLoadSettings,
-        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Result<()> {
         *self.room_load_settings.write().await = room_load_settings.clone();
 
@@ -240,7 +259,7 @@ impl BaseStateStore {
                 user_id,
                 self.inner.clone(),
                 room_info,
-                room_info_notable_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
             let new_room_id = new_room.room_id().to_owned();
 
@@ -295,19 +314,14 @@ impl BaseStateStore {
     /// Restore the session meta, sync token and rooms from an existing
     /// [`BaseStateStore`].
     #[cfg(any(feature = "e2e-encryption", test))]
-    pub(crate) async fn derive_from_other(
-        &self,
-        other: &Self,
-        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
-    ) -> Result<()> {
+    pub(crate) async fn derive_from_other(&self, other: &Self) -> Result<()> {
         let Some(session_meta) = other.session_meta.get() else {
             return Ok(());
         };
 
         let room_load_settings = other.room_load_settings.read().await.clone();
 
-        self.load_rooms(&session_meta.user_id, room_load_settings, room_info_notable_update_sender)
-            .await?;
+        self.load_rooms(&session_meta.user_id, room_load_settings).await?;
         self.load_sync_token().await?;
         self.set_session_meta(session_meta.clone());
 
@@ -355,12 +369,7 @@ impl BaseStateStore {
 
     /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
     /// exist yet in the store
-    pub fn get_or_create_room(
-        &self,
-        room_id: &RoomId,
-        room_state: RoomState,
-        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
-    ) -> Room {
+    pub fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
@@ -373,7 +382,7 @@ impl BaseStateStore {
                     self.inner.clone(),
                     room_id,
                     room_state,
-                    room_info_notable_update_sender,
+                    self.room_info_notable_update_sender.clone(),
                 )
             })
             .clone()
@@ -859,12 +868,11 @@ impl StoreConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{ops::Not, sync::Arc};
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{owned_device_id, owned_user_id, room_id, user_id};
-    use tokio::sync::broadcast;
 
     use super::{BaseStateStore, MemoryStore, RoomLoadSettings};
     use crate::{RoomInfo, RoomState, SessionMeta, StateChanges};
@@ -909,22 +917,17 @@ mod tests {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
             device_id: owned_device_id!("HELLOYOU"),
         };
-        let (room_info_notable_update_sender, _) = broadcast::channel(1);
         let room_id_0 = room_id!("!r0");
 
         other
-            .load_rooms(
-                &session_meta.user_id,
-                RoomLoadSettings::One(room_id_0.to_owned()),
-                &room_info_notable_update_sender,
-            )
+            .load_rooms(&session_meta.user_id, RoomLoadSettings::One(room_id_0.to_owned()))
             .await
             .unwrap();
         other.set_session_meta(session_meta.clone());
 
         // Derive another store.
         let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
-        store.derive_from_other(&other, &room_info_notable_update_sender).await.unwrap();
+        store.derive_from_other(&other).await.unwrap();
 
         // `SessionMeta` is derived.
         assert_eq!(store.session_meta.get(), Some(&session_meta));
@@ -932,6 +935,14 @@ mod tests {
         assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::One(ref room_id) => {
             assert_eq!(room_id, room_id_0);
         });
+
+        // The `RoomInfoNotableUpdate` is not derived. Every one has its own channel.
+        assert!(
+            store
+                .room_info_notable_update_sender
+                .same_channel(&other.room_info_notable_update_sender)
+                .not()
+        );
     }
 
     #[test]
@@ -960,16 +971,12 @@ mod tests {
         // Check a `BaseStateStore` is able to load all rooms.
         {
             let store = BaseStateStore::new(memory_state_store.clone());
-            let (room_info_notable_update_sender, _) = broadcast::channel(2);
 
             // Default value.
             assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
 
             // Load rooms.
-            store
-                .load_rooms(user_id, RoomLoadSettings::All, &room_info_notable_update_sender)
-                .await
-                .unwrap();
+            store.load_rooms(user_id, RoomLoadSettings::All).await.unwrap();
 
             // Check the last room load settings.
             assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
@@ -1009,20 +1016,12 @@ mod tests {
         // Check a `BaseStateStore` is able to load one room.
         {
             let store = BaseStateStore::new(memory_state_store.clone());
-            let (room_info_notable_update_sender, _) = broadcast::channel(2);
 
             // Default value.
             assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
 
             // Load rooms.
-            store
-                .load_rooms(
-                    user_id,
-                    RoomLoadSettings::One(room_id_1.to_owned()),
-                    &room_info_notable_update_sender,
-                )
-                .await
-                .unwrap();
+            store.load_rooms(user_id, RoomLoadSettings::One(room_id_1.to_owned())).await.unwrap();
 
             // Check the last room load settings.
             assert_matches!(

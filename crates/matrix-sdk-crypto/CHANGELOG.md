@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add MSC4388 support to the QrcodeData struct.
+  ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
+
+- Improved logging when we are sending secrets in `GossipMachine`.
+  ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
+  ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
 - Added a new field `forwarder` to `InboundGroupSession` of type `ForwarderData`, which stores information about the forwarder of a session shared in a room key bundle under [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5980])(https://github.com/matrix-org/matrix-rust-sdk/pull/5980)
 - The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
@@ -18,9 +24,16 @@ All notable changes to this project will be documented in this file.
   to building an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
   key bundle.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
-
+  ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
 
 ### Refactor
+
+- [**breaking**] The QrcodeData struct has been reworked in preparation to
+  support MSC4388. The fields of the QrcodeData struct are not anymore publicly
+  accessible. The `mode_data()` method has been renamed to `intent_data()` and
+  returns an MSC-specific struct now. The `rendezvous_url()` method has been
+  removed.
+  ([#6081](https://github.com/matrix-org/matrix-rust-sdk/pull/6081))
 
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
   been eliminated entirely.

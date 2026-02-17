@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
+  upload errors from `/keys/upload`.
+  ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
+- Add `Room::pin_event` and `Room::unpin_event`, which allow pinning and unpinning events from a
+  room. These were extracted from the `matrix_sdk_ui` crate, with no changes in functionality.
+  ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))
+- `LatestEventValue::RemoteInvite` is added to handle a Latest Event for invite room.
+  ([#6056](https://github.com/matrix-org/matrix-rust-sdk/pull/6056))
 - Add `Room::set_own_member_display_name` to set the current user's display name
   within only the one single room (can be used for /myroomnick functionality).
   [#5981](https://github.com/matrix-org/matrix-rust-sdk/pull/5981)
@@ -45,6 +53,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Latest Event is correctly computed when multiple edits exist for the same event candidate.
+  ([#6096](https://github.com/matrix-org/matrix-rust-sdk/pull/6096))
+- Restrict which `m.room.member` can be a `LatestEventValue` candidate by relying on `MembershipChange` for more control.
+  ([#6143](https://github.com/matrix-org/matrix-rust-sdk/pull/6143))
 - Add manual WAL checkpoints when opening Sqlite DBs and when vacuuming them, since the WAL files aren't automatically shrinking. ([#6004](https://github.com/matrix-org/matrix-rust-sdk/pull/6004))
 - Use the server name extracted from the user id in `Client::fetch_client_well_known` as a fallback value. Otherwise, sometimes the server name is not available and we can't reload the well-known contents. ([#5996](https://github.com/matrix-org/matrix-rust-sdk/pull/5996))
 - Latest Event is lazier: a `RoomLatestEvents` can be registered even if its

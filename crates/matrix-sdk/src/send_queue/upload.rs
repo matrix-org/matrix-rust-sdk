@@ -19,7 +19,10 @@ use std::{collections::HashMap, iter::zip};
 
 use matrix_sdk_base::{
     RoomState,
-    media::{MediaFormat, MediaRequestParameters, store::IgnoreMediaRetentionPolicy},
+    media::{
+        MediaFormat, MediaRequestParameters, MediaThumbnailSettings,
+        store::IgnoreMediaRetentionPolicy,
+    },
     store::{
         ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
         QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
@@ -439,6 +442,9 @@ impl RoomSendQueue {
             let (data, content_type, thumbnail_info) = thumbnail.into_parts();
             let file_size = data.len();
 
+            let thumbnail_height = thumbnail_info.height;
+            let thumbnail_width = thumbnail_info.width;
+
             // Cache thumbnail in the cache store.
             let thumbnail_media_request = Media::make_local_file_media_request(&txn);
             media_store
@@ -460,8 +466,8 @@ impl RoomSendQueue {
                 queue_thumbnail_info: Some(QueueThumbnailInfo {
                     finish_upload_thumbnail_info: FinishUploadThumbnailInfo {
                         txn,
-                        width: None,
-                        height: None,
+                        width: thumbnail_width,
+                        height: thumbnail_height,
                     },
                     media_request_parameters: thumbnail_media_request,
                     content_type,
@@ -932,7 +938,7 @@ async fn update_media_cache_keys_after_upload(
     let media_store =
         client.media_store().lock().await.map_err(RoomSendQueueStorageError::LockError)?;
 
-    // The media can now be removed during cleanups.
+    // The media file can now be removed during cleanups.
     media_store
         .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
         .await
@@ -947,27 +953,82 @@ async fn update_media_cache_keys_after_upload(
         .map_err(RoomSendQueueStorageError::MediaStoreError)?;
 
     // Rename the thumbnail too, if needs be.
-    if let Some((info, new_source)) = thumbnail_info.as_ref().zip(sent_media.thumbnail.clone()) {
-        // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
-        // for send queue requests that were in the state store before the change.
-        let from_req = if let Some((height, width)) = info.height.zip(info.width) {
-            Media::make_local_thumbnail_media_request(&info.txn, height, width)
+    if let Some((info, remote_thumbnail_source)) =
+        thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
+    {
+        let from_request_params = Media::make_local_file_media_request(&info.txn);
+
+        if let Some((height, width)) = info.height.zip(info.width) {
+            trace!(
+                from = ?from_req.source,
+                to = ?remote_thumbnail_source,
+                height = u64::from(height),
+                width = u64::from(width),
+                "storing thumbnail as a thumbnail for the uploaded media, and a file in itself, in cache store"
+            );
+
+            // Try to reload the content of the thumbnail from the media store. As it's not
+            // a strong requirement to store the thumbnail a second time, we
+            // silently log errors instead of propagating them to the caller.
+            match media_store
+                .get_media_content(&MediaRequestParameters {
+                    source: from_request_params.source.clone(),
+                    format: MediaFormat::File,
+                })
+                .await
+            {
+                Ok(Some(thumbnail_content)) => {
+                    // Also cache this as a thumbnail for the thumbnail, in the media store; the
+                    // ElementX apps expect that specific format for thumbnails.
+                    media_store
+                        .add_media_content(
+                            &MediaRequestParameters {
+                                source: remote_thumbnail_source.clone(),
+                                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                                    width, height,
+                                )),
+                            },
+                            thumbnail_content,
+                            IgnoreMediaRetentionPolicy::No,
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::MediaStoreError)?;
+                }
+
+                Ok(None) => {
+                    warn!(
+                        from = ?from_request_params.source,
+                        "unable to reload thumbnail content from media store: no content found",
+                    );
+                }
+
+                Err(err) => {
+                    // Silently log the error, but proceed, as storing the thumbnail as such isn't
+                    // a strong requirement.
+                    error!(
+                        from = ?from_request_params.source,
+                        "unable to reload thumbnail content from media store: {err}"
+                    );
+                }
+            }
         } else {
-            Media::make_local_file_media_request(&info.txn)
-        };
+            trace!(from = ?from_req.source, to = ?remote_thumbnail_source, "only renaming thumbnail key to file in cache store");
+        }
 
-        trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
-
-        // The media can now be removed during cleanups.
+        // The thumbnail file can now be removed during cleanups.
         media_store
-            .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+            .set_ignore_media_retention_policy(&from_request_params, IgnoreMediaRetentionPolicy::No)
             .await
             .map_err(RoomSendQueueStorageError::MediaStoreError)?;
 
+        // Save the thumbnail as a file as well.
         media_store
             .replace_media_key(
-                &from_req,
-                &MediaRequestParameters { source: new_source, format: MediaFormat::File },
+                &from_request_params,
+                &MediaRequestParameters {
+                    source: remote_thumbnail_source,
+                    format: MediaFormat::File,
+                },
             )
             .await
             .map_err(RoomSendQueueStorageError::MediaStoreError)?;

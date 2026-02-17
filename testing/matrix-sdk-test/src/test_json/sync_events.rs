@@ -3,58 +3,6 @@
 use once_cell::sync::Lazy;
 use serde_json::{Value as JsonValue, json};
 
-pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "alias": "#tutorial:localhost"
-        },
-        "event_id": "$15139375513VdeRF:localhost",
-        "origin_server_ts": 151393755,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.canonical_alias",
-        "unsigned": {
-            "age": 703422
-        }
-    })
-});
-
-pub static ALIASES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "aliases": [
-                "#tutorial:localhost"
-            ]
-        },
-        "event_id": "$15139375516NUgtD:localhost",
-        "origin_server_ts": 151393755,
-        "sender": "@example:localhost",
-        "state_key": "localhost",
-        "type": "m.room.aliases",
-        "unsigned": {
-            "age": 703422
-        }
-    })
-});
-
-pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "creator": "@example:localhost",
-            "m.federate": true,
-            "room_version": "1"
-        },
-        "event_id": "$151957878228ekrDs:localhost",
-        "origin_server_ts": 15195787,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.create",
-        "unsigned": {
-            "age": 139298
-        }
-    })
-});
-
 pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -65,58 +13,11 @@ pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static HISTORY_VISIBILITY: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "history_visibility": "world_readable"
-        },
-        "event_id": "$151957878235ricnD:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.history_visibility",
-        "unsigned": {
-          "age": 1392989
-        }
-    })
-});
-
-pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "join_rule": "public"
-        },
-        "event_id": "$151957878231iejdB:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.join_rules",
-        "unsigned": {
-          "age": 1392989
-        }
-    })
-});
-
 pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "algorithm": "m.megolm.v1.aes-sha2",
         "rotation_period_ms": 604800000,
         "rotation_period_msgs": 100
-    })
-});
-
-pub static ENCRYPTION: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": *ENCRYPTION_CONTENT,
-        "event_id": "$143273582443PhrSn:example.org",
-        "origin_server_ts": 1432735824653u64,
-        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-        "sender": "@example:example.org",
-        "state_key": "",
-        "type": "m.room.encryption",
-        "unsigned": {
-            "age": 1234
-        }
     })
 });
 
@@ -323,22 +224,6 @@ pub static NAME_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static PINNED_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "pinned": [ "$a", "$b" ]
-        },
-        "event_id": "$15139375513VdeRF:localhost",
-        "origin_server_ts": 151393755,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.room.pinned_events",
-        "unsigned": {
-            "age": 703422
-        }
-    })
-});
-
 pub static POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -460,44 +345,6 @@ pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
             }
         },
         "type": "m.tag"
-    })
-});
-
-// TODO: Move `prev_content` into `unsigned` once ruma supports it
-pub static TOPIC: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "topic": "😀"
-        },
-        "event_id": "$151957878228ssqrJ:localhost",
-        "origin_server_ts": 151957878,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-        "type": "m.room.topic",
-        "prev_content": {
-            "topic": "test"
-        },
-        "unsigned": {
-          "age": 1392989,
-          "prev_sender": "@example:localhost",
-          "replaces_state": "$151957069225EVYKm:localhost"
-        }
-    })
-});
-
-pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {},
-        "redacts": "$151957878228ssqrJ:localhost",
-        "event_id": "$151957878228ssqrJ_REDACTION:localhost",
-        "origin_server_ts": 151957879,
-        "sender": "@example:localhost",
-        "type": "m.room.redaction",
-        "unsigned": {
-          "age": 1392990,
-          "prev_sender": "@example:localhost",
-        }
     })
 });
 

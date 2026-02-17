@@ -368,12 +368,12 @@ impl OAuthCrossSigningResetInfo {
 
 /// A struct that helps to parse the custom error message Synapse posts if a
 /// duplicate one-time key is uploaded.
-#[derive(Debug)]
-struct DuplicateOneTimeKeyErrorMessage {
+#[derive(Clone, Debug)]
+pub struct DuplicateOneTimeKeyErrorMessage {
     /// The previously uploaded one-time key.
-    old_key: Curve25519PublicKey,
+    pub old_key: Curve25519PublicKey,
     /// The one-time key we're attempting to upload right now.
-    new_key: Curve25519PublicKey,
+    pub new_key: Curve25519PublicKey,
 }
 
 impl FromStr for DuplicateOneTimeKeyErrorMessage {
@@ -678,9 +678,10 @@ impl Client {
                                         .is_some();
 
                                     if message.starts_with("One time key") && !already_reported {
-                                        if let Ok(message) =
-                                            DuplicateOneTimeKeyErrorMessage::from_str(message)
-                                        {
+                                        let error_message =
+                                            DuplicateOneTimeKeyErrorMessage::from_str(message);
+
+                                        if let Ok(message) = &error_message {
                                             error!(
                                                 sentry = true,
                                                 old_key = %message.old_key,
@@ -700,6 +701,17 @@ impl Client {
                                                 StateStoreDataValue::OneTimeKeyAlreadyUploaded,
                                             )
                                             .await?;
+
+                                        if let Err(e) = self
+                                            .inner
+                                            .duplicate_key_upload_error_sender
+                                            .send(error_message.ok())
+                                        {
+                                            error!(
+                                                "Failed to dispatch duplicate key upload error notification: {}",
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -2017,12 +2029,13 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-        test_json,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+        event_factory::EventFactory, test_json,
     };
     use ruma::{
         event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
+        user_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -2066,12 +2079,15 @@ mod tests {
             .mount(&server)
             .await;
 
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
-                    .add_state_event(StateTestEvent::Member)
-                    .add_state_event(StateTestEvent::PowerLevels)
-                    .add_state_event(StateTestEvent::Encryption),
+                    .add_state_event(
+                        f.member(user_id!("@example:localhost")).display_name("example"),
+                    )
+                    .add_state_event(f.default_power_levels())
+                    .add_state_event(f.room_encryption()),
             )
             .build_sync_response();
 

@@ -340,6 +340,14 @@ impl CryptoStore for MemoryStore {
             }
         }
 
+        if !changes.room_key_backups_fully_downloaded.is_empty() {
+            let mut room_key_backups_fully_downloaded =
+                self.room_key_backups_fully_downloaded.write();
+            for room in changes.room_key_backups_fully_downloaded {
+                room_key_backups_fully_downloaded.insert(room);
+            }
+        }
+
         Ok(())
     }
 

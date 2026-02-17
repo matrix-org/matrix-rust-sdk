@@ -39,6 +39,7 @@ use matrix_sdk_base::{
         WellKnownResponse,
     },
     sync::{Notification, RoomUpdates},
+    task_monitor::TaskMonitor,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
@@ -118,7 +119,10 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     cross_process_lock::CrossProcessLock,
-    encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
+    encryption::{
+        DuplicateOneTimeKeyErrorMessage, Encryption, EncryptionData, EncryptionSettings,
+        VerificationState,
+    },
 };
 
 mod builder;
@@ -383,6 +387,15 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
+
+    /// A monitor for background tasks spawned by the client.
+    pub(crate) task_monitor: TaskMonitor,
+
+    /// A sender to notify subscribers about duplicate key upload errors
+    /// triggered by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) duplicate_key_upload_error_sender:
+        broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 }
 
 impl ClientInner {
@@ -449,6 +462,9 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            task_monitor: TaskMonitor::new(),
+            #[cfg(feature = "e2e-encryption")]
+            duplicate_key_upload_error_sender: broadcast::channel(1).0,
         };
 
         #[allow(clippy::let_and_return)]
@@ -460,10 +476,7 @@ impl ClientInner {
         let _ = client
             .event_cache
             .get_or_init(|| async {
-                EventCache::new(
-                    WeakClient::from_inner(&client),
-                    client.base_client.event_cache_store().clone(),
-                )
+                EventCache::new(&client, client.base_client.event_cache_store().clone())
             })
             .await;
 
@@ -3130,6 +3143,7 @@ impl Client {
                     WeakClient::from_client(self),
                     self.event_cache().clone(),
                     SendQueue::new(self.clone()),
+                    self.room_info_notable_update_receiver(),
                 )
             })
             .await
@@ -3311,6 +3325,21 @@ impl Client {
             media_store: media_store_size,
         })
     }
+
+    /// Get a reference to the client's task monitor, for spawning background
+    /// tasks.
+    pub fn task_monitor(&self) -> &TaskMonitor {
+        &self.inner.task_monitor
+    }
+
+    /// Add a subscriber for duplicate key upload error notifications triggered
+    /// by requests to /keys/upload.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn subscribe_to_duplicate_key_upload_errors(
+        &self,
+    ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
+        self.inner.duplicate_key_upload_error_sender.subscribe()
+    }
 }
 
 /// Contains the disk size of the different stores, if known. It won't be
@@ -3394,7 +3423,7 @@ pub(crate) mod tests {
         store::{MemoryStore, StoreConfig},
     };
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
     #[cfg(target_family = "wasm")]
@@ -3522,13 +3551,16 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
                 builder.add_joined_room(
                     JoinedRoomBuilder::default()
-                        .add_state_event(StateTestEvent::Member)
-                        .add_state_event(StateTestEvent::PowerLevels),
+                        .add_state_event(
+                            f.member(user_id!("@example:localhost")).display_name("example"),
+                        )
+                        .add_state_event(f.default_power_levels()),
                 );
             })
             .await;
@@ -3542,15 +3574,15 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
-            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(4)))
             .build()
             .await;
 
-        assert!(client.request_config().retry_limit.unwrap() == 3);
+        assert!(client.request_config().retry_limit.unwrap() == 4);
 
-        server.mock_login().error500().expect(3).mount().await;
+        server.mock_who_am_i().error500().expect(4).mount().await;
 
-        client.matrix_auth().login_username("example", "wordpass").send().await.unwrap_err();
+        client.whoami().await.unwrap_err();
     }
 
     #[async_test]
@@ -4466,11 +4498,9 @@ pub(crate) mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
-            )
+            .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
             )
@@ -4490,10 +4520,11 @@ pub(crate) mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
             )
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
@@ -4518,11 +4549,11 @@ pub(crate) mod tests {
         // GlobalAccountDataTestEvent::Direct with the invited test.
         let user_id = user_id!("@invited:localhost");
 
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new();
+        // When we receive a sync response saying "invited" has left a DM
+        let f = EventFactory::new().sender(user_id);
         let response = SyncResponseBuilder::default()
             .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
+                JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
             )
             .add_global_account_data(
                 f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),

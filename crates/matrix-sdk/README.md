@@ -2,7 +2,7 @@ A high-level, batteries-included [Matrix](https://matrix.org/) client library
 written in Rust.
 
 This crate seeks to be a general-purpose library for writing software using the
-Matrix [Client-Server API](https://matrix.org/docs/spec/client_server/latest)
+Matrix [Client-Server API](https://spec.matrix.org/latest/client-server-api/)
 to communicate with a Matrix homeserver. If you're writing a typical Matrix
 client or bot, this is likely the crate you need.
 

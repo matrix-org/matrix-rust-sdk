@@ -17,11 +17,17 @@ use std::collections::{HashMap, HashSet};
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::{
-    ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
+    ThreadSummary as SdkThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+    UnsignedEventLocation,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
-    events::AnySyncTimelineEvent, push::Action, serde::Raw,
+    events::{
+        AnySyncTimelineEvent,
+        receipt::{ReceiptThread, ReceiptType},
+    },
+    push::Action,
+    serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -474,9 +480,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
 
         match &self.focus {
-            TimelineFocusKind::PinnedEvents { .. } => {
-                // Only add pinned events for the pinned events timeline.
-                room_data_provider.is_pinned_event(event.event_id())
+            TimelineFocusKind::PinnedEvents => {
+                // The pinned events timeline only receives updates for, well, pinned events.
+                true
             }
 
             TimelineFocusKind::Event { paginator } => {
@@ -671,6 +677,74 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             .map(Box::new)
     }
 
+    /// Compute the thread public and private receipts, for the sake of the
+    /// [`ThreadSummary`] of an event.
+    async fn compute_summary_thread_receipts(
+        &self,
+        event: &TimelineEvent,
+        summary: &SdkThreadSummary,
+        room_data_provider: &P,
+        settings: &TimelineSettings,
+    ) -> (Option<OwnedEventId>, Option<OwnedEventId>) {
+        if !settings.track_read_receipts.is_enabled() {
+            return (None, None);
+        }
+
+        // Load the public and private read receipts for the user, in the thread. In the
+        // future, we might move this code in the event cache, so that read
+        // receipt handling happens there instead.
+
+        // As an exception to handle the latest "implicit" read receipt (which is the
+        // latest event sent by the user): if the latest event has been sent by
+        // the current user, then we consider that as a read receipt.
+        #[allow(clippy::collapsible_if)] // clippy has poor taste
+        if let Some(ref latest_reply) = summary.latest_reply {
+            if let Ok(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
+                .await
+                .inspect_err(|err| {
+                    warn!("Failed to load thread latest event: {err}");
+                })
+            {
+                // Parse the sender.
+                if let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender")
+                    && sender == self.meta.own_user_id
+                {
+                    let latest = Some(latest_reply.clone());
+                    return (latest.clone(), latest);
+                }
+            }
+        }
+
+        // Otherwise, resort to trying to load receipts from the database.
+        let own_thread_public_receipt = if let Some(event_id) = event.event_id() {
+            room_data_provider
+                .load_user_receipt(
+                    ReceiptType::Read,
+                    ReceiptThread::Thread(event_id),
+                    &self.meta.own_user_id,
+                )
+                .await
+                .map(|(event_id, _receipt)| event_id)
+        } else {
+            None
+        };
+
+        let own_thread_private_receipt = if let Some(event_id) = event.event_id() {
+            room_data_provider
+                .load_user_receipt(
+                    ReceiptType::ReadPrivate,
+                    ReceiptThread::Thread(event_id),
+                    &self.meta.own_user_id,
+                )
+                .await
+                .map(|(event_id, _receipt)| event_id)
+        } else {
+            None
+        };
+
+        (own_thread_public_receipt, own_thread_private_receipt)
+    }
+
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
@@ -692,9 +766,16 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             } else {
                 None
             };
+
+            let (own_thread_public_receipt, own_thread_private_receipt) = self
+                .compute_summary_thread_receipts(&event, summary, room_data_provider, settings)
+                .await;
+
             Some(ThreadSummary {
                 latest_event: TimelineDetails::from_initial_value(latest_reply_item),
                 num_replies: summary.num_replies,
+                public_read_receipt_event_id: own_thread_public_receipt,
+                private_read_receipt_event_id: own_thread_private_receipt,
             })
         } else {
             None

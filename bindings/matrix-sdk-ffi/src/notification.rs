@@ -1,8 +1,23 @@
+// Copyright 2025 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for that specific language governing permissions and
+// limitations under the License.
+
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_ui::notification_client::{
     NotificationClient as SdkNotificationClient, NotificationEvent as SdkNotificationEvent,
     NotificationItem as SdkNotificationItem, NotificationStatus as SdkNotificationStatus,
+    RawNotificationEvent as SdkRawNotificationEvent,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 
@@ -43,6 +58,9 @@ pub struct NotificationRoomInfo {
 pub struct NotificationItem {
     pub event: NotificationEvent,
 
+    /// The raw JSON of the underlying event.
+    pub raw_event: String,
+
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
 
@@ -67,8 +85,15 @@ impl NotificationItem {
                 NotificationEvent::Invite { sender: event.sender.to_string() }
             }
         };
+
+        let raw_event = match &item.raw_event {
+            SdkRawNotificationEvent::Timeline(raw) => raw.json().get().to_owned(),
+            SdkRawNotificationEvent::Invite(raw) => raw.json().get().to_owned(),
+        };
+
         Self {
             event,
+            raw_event,
             sender_info: NotificationSenderInfo {
                 display_name: item.sender_display_name,
                 avatar_url: item.sender_avatar_url,

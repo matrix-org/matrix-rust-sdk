@@ -701,7 +701,7 @@ pub enum RoomEventDecryptionResult {
 /// This section will guide you through the steps required to set up the
 /// encryption process, including establishing the necessary sessions and
 /// encrypting messages using the Megolm group session. The specific steps are
-/// outlined bellow:
+/// outlined below:
 ///
 /// 1. [Cryptographic devices of other users need to be
 ///    discovered](#tracking-users)
@@ -752,7 +752,7 @@ pub enum RoomEventDecryptionResult {
 /// outlined in the Matrix specification in the "[Tracking the device list for a
 /// user]" section.
 ///
-/// A simplified sequence diagram of the process can also be found bellow.
+/// A simplified sequence diagram of the process can also be found below.
 ///
 /// ```mermaid
 /// sequenceDiagram
@@ -1097,7 +1097,7 @@ pub enum RoomEventDecryptionResult {
 /// [end-to-end-encryption]: https://en.wikipedia.org/wiki/End-to-end_encryption
 /// [homeserver]: https://spec.matrix.org/unstable/#architecture
 /// [key-agreement protocol]: https://en.wikipedia.org/wiki/Key-agreement_protocol
-/// [client-server specification]: https://matrix.org/docs/spec/client_server/
+/// [client-server specification]: https://spec.matrix.org/latest/client-server-api
 /// [forward secrecy]: https://en.wikipedia.org/wiki/Forward_secrecy
 /// [replay attacks]: https://en.wikipedia.org/wiki/Replay_attack
 /// [Tracking the device list for a user]: https://spec.matrix.org/unstable/client-server-api/#tracking-the-device-list-for-a-user

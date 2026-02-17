@@ -6,9 +6,9 @@ use futures_util::pin_mut;
 use matrix_sdk::{
     assert_next_with_timeout, encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItem};
-use ruma::{device_id, event_id, room_id, user_id};
+use ruma::{RoomVersionId, device_id, event_id, room_id, user_id};
 use serde_json::{Value, json};
 
 // Helper function to test the redecryption of different event types.
@@ -55,14 +55,14 @@ async fn test_redecryption(
     // Ensure that Alice and Bob are aware of their devices and identities.
     matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
 
-    let event_factory = EventFactory::new().room(room_id);
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
     let alice_member_event = event_factory.member(alice_user_id).into_raw();
     let bob_member_event = event_factory.member(bob_user_id).into_raw();
 
     // Let us now create a room for them.
     let room_builder = JoinedRoomBuilder::new(room_id)
-        .add_state_event(StateTestEvent::Create)
-        .add_state_event(StateTestEvent::Encryption);
+        .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
+        .add_state_event(event_factory.room_encryption());
 
     matrix_mock_server
         .mock_sync()

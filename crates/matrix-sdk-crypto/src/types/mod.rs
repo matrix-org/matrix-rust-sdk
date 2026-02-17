@@ -90,6 +90,7 @@ macro_rules! to_base64 {
 /// Struct containing the bundle of secrets to fully activate a new devices for
 /// end-to-end encryption.
 #[derive(Debug, Deserialize, Clone, Serialize, ZeroizeOnDrop)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct SecretsBundle {
     /// The cross-signing keys.
     pub cross_signing: CrossSigningSecrets,
@@ -98,6 +99,7 @@ pub struct SecretsBundle {
 }
 
 /// Data for the secrets bundle containing the cross-signing keys.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 #[derive(Deserialize, Clone, Serialize, ZeroizeOnDrop)]
 pub struct CrossSigningSecrets {
     /// The seed for the private part of the cross-signing master key, encoded
@@ -139,6 +141,7 @@ to_base64!(BackupDecryptionKey, backup_key_to_base64);
 
 /// Enum for the algorithm-specific secrets for the room key backup.
 #[derive(Debug, Clone, ZeroizeOnDrop, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 #[serde(tag = "algorithm")]
 pub enum BackupSecrets {
     /// Backup secrets for the `m.megolm_backup.v1.curve25519-aes-sha2` backup

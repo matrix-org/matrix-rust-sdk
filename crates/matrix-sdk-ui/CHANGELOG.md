@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Ensure that the display name of a `Room` in a `NotificationStatus` coming 
+  from a `NotificationClient` excludes service members.
+  ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
 - Fix the `is_last_admin` check in `LeaveSpaceRoom` since it was not
   accounting for the membership state.
   [#6032](https://github.com/matrix-org/matrix-rust-sdk/pull/6032)
@@ -21,6 +24,16 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
+  event as the root of a thread.
+  ([#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050))
+- [**breaking**] Remove `TimelineEventTypeFilter` which has been replaced by
+  the more generic `TimelineEventFilter`.
+  ([#6070](https://github.com/matrix-org/matrix-rust-sdk/pull/6070/))
+- Add `TimelineEventFilter` for filtering events based on their type or
+  content. For content filtering, only membership and profile change filters
+  are available as of now.
+  ([#6048](https://github.com/matrix-org/matrix-rust-sdk/pull/6048/))
 - Introduce `SpaceFilter`s as a mechanism for narrowing down what's displayed in
   the room list ([#6025](https://github.com/matrix-org/matrix-rust-sdk/pull/6025))
 - Utilize the cache and include common relations when focusing a timeline on an event without
@@ -48,6 +61,13 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] The [`Timeline::pin_event`] and [`Timeline::unpin_event`] methods have been
+  moved to the SDK crate, in the `Room` object. Users can replace previous uses with
+  `timeline.room().pin_event()` etc.
+  ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))
+- [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
+  account also for v12 rooms, where creators and users with PL 150 matter.
+  ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
 - [**breaking**] The `SpaceService` will no longer auto-subscribe to required
   client events when invoking the `subscribe_to_joined_spaces` but instead do it
   through its, now async, constructor.
@@ -239,7 +259,7 @@ All notable changes to this project will be documented in this file.
 
 - Don't consider rooms in the banned state to be non-left rooms. This bug was
   introduced due to the introduction of the banned state for rooms, and the
-  non-left room filter did not take the new room stat into account.
+  non-left room filter did not take the new room state into account.
   ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
 
 - Fix `EventTimelineItem::latest_edit_json()` when it is populated by a live

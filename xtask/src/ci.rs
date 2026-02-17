@@ -18,6 +18,31 @@ pub struct CiArgs {
     cmd: Option<CiCommand>,
 }
 
+/// The kind of runner for WebAssembly tests run with `wasm-pack test`.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum WasmTestRunner {
+    // Run with all available runners.
+    #[default]
+    All,
+    // Run with the Node.js runner.
+    Node,
+    // Run with the Firefox runner.
+    Firefox,
+    // Run with the Chrome runner.
+    Chrome,
+}
+
+impl Display for WasmTestRunner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WasmTestRunner::All => write!(f, "all"),
+            WasmTestRunner::Node => write!(f, "node"),
+            WasmTestRunner::Firefox => write!(f, "firefox"),
+            WasmTestRunner::Chrome => write!(f, "chrome"),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum CiCommand {
     /// Check style
@@ -48,6 +73,9 @@ enum CiCommand {
     WasmPack {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
+
+        #[clap(long, default_value_t = WasmTestRunner::All)]
+        runner: WasmTestRunner,
     },
 
     /// Run tests for the different crypto crate features
@@ -151,7 +179,7 @@ impl CiArgs {
                 CiCommand::Docs => check_docs(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
-                CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
+                CiCommand::WasmPack { cmd, runner } => run_wasm_pack_tests(cmd, runner),
                 CiCommand::TestCrypto => run_crypto_tests(),
                 CiCommand::Bindings => check_bindings(),
                 CiCommand::Examples => check_examples(),
@@ -394,13 +422,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     Ok(())
 }
 
-fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
+fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> Result<()> {
     if let Some(WasmFeatureSet::Indexeddb) = cmd {
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbAllFeatures))?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbCrypto))?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbState))?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbAllFeatures), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbCrypto), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbState), runner)?;
         return Ok(());
     }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
@@ -432,30 +461,42 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let sh = sh();
-    let run = |(folder, arg_set): (&str, &str)| {
+    let run = |runner: WasmTestRunner, (folder, arg_set): (&str, &str)| {
         let _pwd = sh.push_dir(folder);
-        cmd!(sh, "pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
-        cmd!(sh, "wasm-pack test --node -- ")
-            .args(arg_set.split_whitespace())
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()?;
-        cmd!(sh, "wasm-pack test --firefox --headless --")
-            .args(arg_set.split_whitespace())
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()?;
-        cmd!(sh, "wasm-pack test --chrome --headless --")
-            .args(arg_set.split_whitespace())
-            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
-            .run()
+
+        cmd!(sh, "pwd").run()?; // print dir so we know what might have failed
+
+        if matches!(runner, WasmTestRunner::All | WasmTestRunner::Node) {
+            cmd!(sh, "wasm-pack test --node -- ")
+                .args(arg_set.split_whitespace())
+                .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .run()?;
+        }
+
+        if matches!(runner, WasmTestRunner::All | WasmTestRunner::Firefox) {
+            cmd!(sh, "wasm-pack test --firefox --headless --")
+                .args(arg_set.split_whitespace())
+                .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .run()?;
+        }
+
+        if matches!(runner, WasmTestRunner::All | WasmTestRunner::Chrome) {
+            cmd!(sh, "wasm-pack test --chrome --headless --")
+                .args(arg_set.split_whitespace())
+                .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .run()?;
+        }
+
+        Ok::<_, xshell::Error>(())
     };
 
     match cmd {
         Some(cmd) => {
-            run(args[&cmd])?;
+            run(runner, args[&cmd])?;
         }
         None => {
             for &arg_set in args.values() {
-                run(arg_set)?;
+                run(runner, arg_set)?;
             }
         }
     }

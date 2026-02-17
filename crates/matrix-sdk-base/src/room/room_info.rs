@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::{Arc, atomic::AtomicBool},
 };
 
+use as_variant::as_variant;
 use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
@@ -28,21 +29,25 @@ use ruma::{
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
         SyncStateEvent,
-        beacon_info::BeaconInfoEventContent,
-        call::member::{CallMemberEventContent, CallMemberStateKey, MembershipData},
+        call::member::{
+            CallMemberStateKey, MembershipData, PossiblyRedactedCallMemberEventContent,
+        },
         direct::OwnedDirectUserIdentifier,
+        member_hints::PossiblyRedactedMemberHintsEventContent,
         room::{
-            avatar::{self, RoomAvatarEventContent},
-            canonical_alias::RoomCanonicalAliasEventContent,
+            avatar::{self, PossiblyRedactedRoomAvatarEventContent},
+            canonical_alias::PossiblyRedactedRoomCanonicalAliasEventContent,
             encryption::RoomEncryptionEventContent,
-            guest_access::{GuestAccess, RoomGuestAccessEventContent},
-            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
-            join_rules::{JoinRule, RoomJoinRulesEventContent},
-            name::RoomNameEventContent,
+            guest_access::{GuestAccess, PossiblyRedactedRoomGuestAccessEventContent},
+            history_visibility::{
+                HistoryVisibility, PossiblyRedactedRoomHistoryVisibilityEventContent,
+            },
+            join_rules::{JoinRule, PossiblyRedactedRoomJoinRulesEventContent},
+            name::PossiblyRedactedRoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             redaction::SyncRoomRedactionEvent,
-            tombstone::RoomTombstoneEventContent,
-            topic::RoomTopicEventContent,
+            tombstone::PossiblyRedactedRoomTombstoneEventContent,
+            topic::PossiblyRedactedRoomTopicEventContent,
         },
         tag::{TagEventContent, TagName, Tags},
     },
@@ -58,14 +63,18 @@ use super::{
     RoomHero, RoomNotableTags, RoomState, RoomSummary,
 };
 use crate::{
-    MinimalStateEvent, OriginalMinimalStateEvent,
+    MinimalStateEvent,
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
+    utils::RawSyncStateEventWithKeys,
 };
+
+/// The default value of the maximum power level.
+const DEFAULT_MAX_POWER_LEVEL: i64 = 100;
 
 /// A struct remembering details of an invite and if the invite has been
 /// accepted on this particular client.
@@ -122,12 +131,10 @@ impl Room {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
-    /// All shared live location beacons of this room.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
-    pub(crate) beacons: BTreeMap<OwnedUserId, MinimalStateEvent<BeaconInfoEventContent>>,
+    pub(crate) avatar: Option<MinimalStateEvent<PossiblyRedactedRoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
+    pub(crate) canonical_alias:
+        Option<MinimalStateEvent<PossiblyRedactedRoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
@@ -136,24 +143,28 @@ pub struct BaseRoomInfo {
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
+    pub(crate) guest_access: Option<MinimalStateEvent<PossiblyRedactedRoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
+    pub(crate) history_visibility:
+        Option<MinimalStateEvent<PossiblyRedactedRoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
+    pub(crate) join_rules: Option<MinimalStateEvent<PossiblyRedactedRoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
+    /// The member hints for the room as per MSC4171, including service members,
+    /// if available.
+    pub(crate) member_hints: Option<MinimalStateEvent<PossiblyRedactedMemberHintsEventContent>>,
     /// The `m.room.name` of this room.
-    pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
+    pub(crate) name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
+    pub(crate) tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
     /// The topic of this room.
-    pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
+    pub(crate) topic: Option<MinimalStateEvent<PossiblyRedactedRoomTopicEventContent>>,
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member_events:
-        BTreeMap<CallMemberStateKey, MinimalStateEvent<CallMemberEventContent>>,
+        BTreeMap<CallMemberStateKey, MinimalStateEvent<PossiblyRedactedCallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
@@ -181,88 +192,213 @@ impl BaseRoomInfo {
     /// For room versions earlier than room version 11, if the event is
     /// redacted, this will return the default of [`RoomVersionId::V1`].
     pub fn room_version(&self) -> Option<&RoomVersionId> {
-        match self.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => Some(&ev.content.room_version),
-            MinimalStateEvent::Redacted(ev) => Some(&ev.content.room_version),
-        }
+        Some(&self.create.as_ref()?.content.room_version)
     }
 
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
-        match ev {
-            AnySyncStateEvent::BeaconInfo(b) => {
-                self.beacons.insert(b.state_key().clone(), b.into());
+    pub fn handle_state_event(&mut self, raw_event: &mut RawSyncStateEventWithKeys) -> bool {
+        match (&raw_event.event_type, raw_event.state_key.as_str()) {
+            (StateEventType::RoomEncryption, "") => {
+                // No redacted or failed deserialization branch - enabling encryption cannot be
+                // undone.
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::RoomEncryption)
+                    })
+                {
+                    self.encryption = Some(event.content.clone());
+                    true
+                } else {
+                    false
+                }
             }
-            // No redacted branch - enabling encryption cannot be undone.
-            AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
-                self.encryption = Some(encryption.content.clone());
+            (StateEventType::RoomAvatar, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomAvatar)
+                }) {
+                    self.avatar = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.avatar.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomAvatar(a) => {
-                self.avatar = Some(a.into());
+            (StateEventType::RoomName, "") => {
+                if let Some(event) = raw_event
+                    .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomName))
+                {
+                    self.name = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.name.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomName(n) => {
-                self.name = Some(n.into());
+            // `m.room.create` CANNOT be overwritten.
+            (StateEventType::RoomCreate, "") if self.create.is_none() => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomCreate)
+                }) {
+                    self.create = Some(event.into());
+                    true
+                } else {
+                    false
+                }
             }
-            // `m.room.create` can NOT be overwritten.
-            AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.into());
+            (StateEventType::RoomHistoryVisibility, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomHistoryVisibility)
+                }) {
+                    self.history_visibility = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.history_visibility.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = Some(h.into());
+            (StateEventType::RoomGuestAccess, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomGuestAccess)
+                }) {
+                    self.guest_access = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.guest_access.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = Some(g.into());
+            (StateEventType::MemberHints, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::MemberHints)
+                }) {
+                    self.member_hints = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.member_hints.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomJoinRules(c) => match c.join_rule() {
-                JoinRule::Invite
-                | JoinRule::Knock
-                | JoinRule::Private
-                | JoinRule::Restricted(_)
-                | JoinRule::KnockRestricted(_)
-                | JoinRule::Public => self.join_rules = Some(c.into()),
-                r => warn!("Encountered a custom join rule {}, skipping", r.as_str()),
-            },
-            AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = Some(a.into());
+            (StateEventType::RoomJoinRules, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomJoinRules)
+                }) {
+                    match event.join_rule() {
+                        JoinRule::Invite
+                        | JoinRule::Knock
+                        | JoinRule::Private
+                        | JoinRule::Restricted(_)
+                        | JoinRule::KnockRestricted(_)
+                        | JoinRule::Public => {
+                            self.join_rules = Some(event.into());
+                            true
+                        }
+                        r => {
+                            warn!(join_rule = ?r.as_str(), "Encountered a custom join rule, skipping");
+                            // Remove the previous content if the new content is unsupported.
+                            self.join_rules.take().is_some()
+                        }
+                    }
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.join_rules.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.into());
+            (StateEventType::RoomCanonicalAlias, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomCanonicalAlias)
+                }) {
+                    self.canonical_alias = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.canonical_alias.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomTombstone(t) => {
-                self.tombstone = Some(t.into());
+            (StateEventType::RoomTopic, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomTopic)
+                }) {
+                    self.topic = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.topic.take().is_some()
+                }
             }
-            AnySyncStateEvent::RoomPowerLevels(p) => {
-                // The rules and creators do not affect the max power level.
-                self.max_power_level = p.power_levels(&AuthorizationRules::V1, vec![]).max().into();
+            (StateEventType::RoomTombstone, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomTombstone)
+                }) {
+                    self.tombstone = Some(event.into());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.tombstone.take().is_some()
+                }
             }
-            AnySyncStateEvent::CallMember(m) => {
-                let Some(o_ev) = m.as_original() else {
-                    return false;
-                };
+            (StateEventType::RoomPowerLevels, "") => {
+                if let Some(event) = raw_event.deserialize_as(|any_event| {
+                    as_variant!(any_event, AnySyncStateEvent::RoomPowerLevels)
+                }) {
+                    // The rules and creators do not affect the max power level.
+                    self.max_power_level =
+                        event.power_levels(&AuthorizationRules::V1, vec![]).max().into();
+                    true
+                } else if self.max_power_level != DEFAULT_MAX_POWER_LEVEL {
+                    // Reset the previous value if the new value is unknown.
+                    self.max_power_level = DEFAULT_MAX_POWER_LEVEL;
+                    true
+                } else {
+                    false
+                }
+            }
+            (StateEventType::CallMember, _) => {
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::CallMember)
+                    })
+                {
+                    // we modify the event so that `origin_server_ts` gets copied into
+                    // `content.created_ts`
+                    let mut event = event.clone();
+                    event.content.set_created_ts_if_none(event.origin_server_ts);
 
-                // we modify the event so that `origin_sever_ts` gets copied into
-                // `content.created_ts`
-                let mut o_ev = o_ev.clone();
-                o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
+                    // Add the new event.
+                    self.rtc_member_events
+                        .insert(event.state_key.clone(), SyncStateEvent::Original(event).into());
 
-                // Add the new event.
-                self.rtc_member_events
-                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+                    // Remove all events that don't contain any memberships anymore.
+                    self.rtc_member_events
+                        .retain(|_, ev| !ev.content.active_memberships(None).is_empty());
 
-                // Remove all events that don't contain any memberships anymore.
-                self.rtc_member_events.retain(|_, ev| {
-                    ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
-                });
+                    true
+                } else if let Ok(call_member_key) =
+                    raw_event.state_key.parse::<CallMemberStateKey>()
+                {
+                    // Remove the previous content with the same state key if the new content is
+                    // unknown.
+                    self.rtc_member_events.remove(&call_member_key).is_some()
+                } else {
+                    false
+                }
             }
-            AnySyncStateEvent::RoomPinnedEvents(p) => {
-                self.pinned_events = p.as_original().map(|p| p.content.clone());
+            (StateEventType::RoomPinnedEvents, "") => {
+                if let Some(SyncStateEvent::Original(event)) =
+                    raw_event.deserialize_as(|any_event| {
+                        as_variant!(any_event, AnySyncStateEvent::RoomPinnedEvents)
+                    })
+                {
+                    self.pinned_events = Some(event.content.clone());
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.pinned_events.take().is_some()
+                }
             }
-            _ => return false,
+            _ => false,
         }
-
-        true
     }
 
     /// Handle a stripped state event for this room and update our info
@@ -344,44 +480,44 @@ impl BaseRoomInfo {
             .redaction;
 
         if let Some(ev) = &mut self.avatar
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.canonical_alias
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.create
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.guest_access
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.history_visibility
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.join_rules
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.name
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.tombstone
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.topic
-            && ev.event_id() == Some(redacts)
+            && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else {
             self.rtc_member_events
-                .retain(|_, member_event| member_event.event_id() != Some(redacts));
+                .retain(|_, member_event| member_event.event_id.as_deref() != Some(redacts));
         }
     }
 
@@ -404,15 +540,15 @@ impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
             avatar: None,
-            beacons: BTreeMap::new(),
             canonical_alias: None,
             create: None,
             dm_targets: Default::default(),
+            member_hints: None,
             encryption: None,
             guest_access: None,
             history_visibility: None,
             join_rules: None,
-            max_power_level: 100,
+            max_power_level: DEFAULT_MAX_POWER_LEVEL,
             name: None,
             tombstone: None,
             topic: None,
@@ -694,11 +830,12 @@ impl RoomInfo {
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
+    pub fn handle_state_event(&mut self, raw_event: &mut RawSyncStateEventWithKeys) -> bool {
         // Store the state event in the `BaseRoomInfo` first.
-        let base_info_has_been_modified = self.base_info.handle_state_event(event);
+        let base_info_has_been_modified = self.base_info.handle_state_event(raw_event);
 
-        if let AnySyncStateEvent::RoomEncryption(_) = event {
+        if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
+        {
             // The `m.room.encryption` event was or wasn't explicitly requested, we don't
             // know here (see `Self::handle_encryption_state`) but we got one in
             // return! In this case, we can deduce the room _is_ encrypted, but we cannot
@@ -737,28 +874,22 @@ impl RoomInfo {
 
     /// Returns the current room avatar.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        self.base_info
-            .avatar
-            .as_ref()
-            .and_then(|e| e.as_original().and_then(|e| e.content.url.as_deref()))
+        self.base_info.avatar.as_ref().and_then(|e| e.content.url.as_deref())
     }
 
     /// Update the room avatar.
     pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
         self.base_info.avatar = url.map(|url| {
-            let mut content = RoomAvatarEventContent::new();
+            let mut content = PossiblyRedactedRoomAvatarEventContent::new();
             content.url = Some(url);
 
-            MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
+            MinimalStateEvent { content, event_id: None }
         });
     }
 
     /// Returns information about the current room avatar.
     pub fn avatar_info(&self) -> Option<&avatar::ImageInfo> {
-        self.base_info
-            .avatar
-            .as_ref()
-            .and_then(|e| e.as_original().and_then(|e| e.content.info.as_deref()))
+        self.base_info.avatar.as_ref().and_then(|e| e.content.info.as_deref())
     }
 
     /// Update the notifications count.
@@ -854,7 +985,7 @@ impl RoomInfo {
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<&RoomAliasId> {
-        self.base_info.canonical_alias.as_ref()?.as_original()?.content.alias.as_deref()
+        self.base_info.canonical_alias.as_ref()?.content.alias.as_deref()
     }
 
     /// Get the alternative aliases of this room.
@@ -862,7 +993,6 @@ impl RoomInfo {
         self.base_info
             .canonical_alias
             .as_ref()
-            .and_then(|ev| ev.as_original())
             .map(|ev| ev.content.alt_aliases.as_ref())
             .unwrap_or_default()
     }
@@ -901,35 +1031,27 @@ impl RoomInfo {
 
     /// Get the room type of this room.
     pub fn room_type(&self) -> Option<&RoomType> {
-        match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => ev.content.room_type.as_ref(),
-            MinimalStateEvent::Redacted(ev) => ev.content.room_type.as_ref(),
-        }
+        self.base_info.create.as_ref()?.content.room_type.as_ref()
     }
 
     /// Get the creators of this room.
     pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
-        match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => Some(ev.content.creators()),
-            MinimalStateEvent::Redacted(ev) => Some(ev.content.creators()),
-        }
+        Some(self.base_info.create.as_ref()?.content.creators())
     }
 
     pub(super) fn guest_access(&self) -> &GuestAccess {
-        match &self.base_info.guest_access {
-            Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
-            _ => &GuestAccess::Forbidden,
-        }
+        self.base_info
+            .guest_access
+            .as_ref()
+            .and_then(|event| event.content.guest_access.as_ref())
+            .unwrap_or(&GuestAccess::Forbidden)
     }
 
     /// Returns the history visibility for this room.
     ///
     /// Returns None if the event was never seen during sync.
     pub fn history_visibility(&self) -> Option<&HistoryVisibility> {
-        match &self.base_info.history_visibility {
-            Some(MinimalStateEvent::Original(ev)) => Some(&ev.content.history_visibility),
-            _ => None,
-        }
+        Some(&self.base_info.history_visibility.as_ref()?.content.history_visibility)
     }
 
     /// Returns the history visibility for this room, or a sensible default.
@@ -939,40 +1061,39 @@ impl RoomInfo {
     ///
     /// [spec]: https://spec.matrix.org/latest/client-server-api/#server-behaviour-7
     pub fn history_visibility_or_default(&self) -> &HistoryVisibility {
-        match &self.base_info.history_visibility {
-            Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
-            _ => &HistoryVisibility::Shared,
-        }
+        self.history_visibility().unwrap_or(&HistoryVisibility::Shared)
     }
 
     /// Return the join rule for this room, if the `m.room.join_rules` event is
     /// available.
     pub fn join_rule(&self) -> Option<&JoinRule> {
-        match &self.base_info.join_rules {
-            Some(MinimalStateEvent::Original(ev)) => Some(&ev.content.join_rule),
-            _ => None,
-        }
+        Some(&self.base_info.join_rules.as_ref()?.content.join_rule)
+    }
+
+    /// Return the service members for this room if the `m.member_hints` event
+    /// is available
+    pub fn service_members(&self) -> Option<&BTreeSet<OwnedUserId>> {
+        self.base_info.member_hints.as_ref()?.content.service_members.as_ref()
     }
 
     /// Get the name of this room.
     pub fn name(&self) -> Option<&str> {
-        let name = &self.base_info.name.as_ref()?.as_original()?.content.name;
-        (!name.is_empty()).then_some(name)
+        self.base_info.name.as_ref()?.content.name.as_deref().filter(|name| !name.is_empty())
     }
 
     /// Get the content of the `m.room.create` event if any.
     pub fn create(&self) -> Option<&RoomCreateWithCreatorEventContent> {
-        Some(&self.base_info.create.as_ref()?.as_original()?.content)
+        Some(&self.base_info.create.as_ref()?.content)
     }
 
     /// Get the content of the `m.room.tombstone` event if any.
-    pub fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
-        Some(&self.base_info.tombstone.as_ref()?.as_original()?.content)
+    pub fn tombstone(&self) -> Option<&PossiblyRedactedRoomTombstoneEventContent> {
+        Some(&self.base_info.tombstone.as_ref()?.content)
     }
 
     /// Returns the topic for this room, if set.
     pub fn topic(&self) -> Option<&str> {
-        Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
+        self.base_info.topic.as_ref()?.content.topic.as_deref()
     }
 
     /// Get a list of all the valid (non expired) matrixRTC memberships and
@@ -984,15 +1105,9 @@ impl RoomInfo {
             .base_info
             .rtc_member_events
             .iter()
-            .filter_map(|(user_id, ev)| {
-                ev.as_original().map(|ev| {
-                    ev.content
-                        .active_memberships(None)
-                        .into_iter()
-                        .map(move |m| (user_id.clone(), m))
-                })
+            .flat_map(|(state_key, ev)| {
+                ev.content.active_memberships(None).into_iter().map(move |m| (state_key.clone(), m))
             })
-            .flatten()
             .collect::<Vec<_>>();
         v.sort_by_key(|(_, m)| m.created_ts());
         v
@@ -1099,13 +1214,10 @@ impl RoomInfo {
             {
                 // Pinned events are never in stripped state.
                 Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) => {
-                    match raw_event.deserialize() {
-                        Ok(event) => {
-                            self.handle_state_event(&event.into());
-                        }
-                        Err(error) => {
-                            warn!("Failed to deserialize room pinned events: {error}");
-                        }
+                    if let Some(mut raw_event) =
+                        RawSyncStateEventWithKeys::try_from_raw_state_event(raw_event.cast())
+                    {
+                        self.handle_state_event(&mut raw_event);
                     }
                 }
                 Ok(_) => {
@@ -1260,13 +1372,10 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{
-        async_test,
-        test_json::{TAG, sync_events::PINNED_EVENTS},
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, test_json::TAG};
     use ruma::{
         assign, events::room::pinned_events::RoomPinnedEventsEventContent, owned_event_id,
-        owned_mxc_uri, owned_user_id, room_id, serde::Raw,
+        owned_mxc_uri, owned_user_id, room_id, serde::Raw, user_id,
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
@@ -1352,6 +1461,7 @@ mod tests {
                 "is_marked_unread_source": "Unstable",
                 "join_rules": null,
                 "max_power_level": 100,
+                "member_hints": null,
                 "name": null,
                 "tombstone": null,
                 "topic": null,
@@ -1454,7 +1564,10 @@ mod tests {
         let tag_event = raw_tag_event.deserialize().unwrap();
         changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
 
-        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast_unchecked();
+        let f = EventFactory::new().room(&room_info.room_id).sender(user_id!("@example:localhost"));
+        let raw_pinned_events_event: Raw<_> = f
+            .room_pinned_events(vec![owned_event_id!("$a"), owned_event_id!("$b")])
+            .into_raw_sync_state();
         let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
         changes.add_state_event(&room_info.room_id, pinned_events_event, raw_pinned_events_event);
 
@@ -1505,6 +1618,7 @@ mod tests {
                 "history_visibility": null,
                 "join_rules": null,
                 "max_power_level": 100,
+                "member_hints": null,
                 "name": null,
                 "tombstone": null,
                 "topic": null,
@@ -1544,6 +1658,7 @@ mod tests {
         assert!(info.base_info.history_visibility.is_none());
         assert!(info.base_info.join_rules.is_none());
         assert_eq!(info.base_info.max_power_level, 100);
+        assert!(info.base_info.member_hints.is_none());
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());

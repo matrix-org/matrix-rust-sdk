@@ -47,7 +47,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 use crate::spaces::{graph::SpaceGraph, leave::LeaveSpaceHandle, room::SpaceRoomChildState};
 pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
@@ -72,9 +72,17 @@ pub enum Error {
     #[error("Missing `{0}` for `{1}`")]
     MissingState(StateEventType, OwnedRoomId),
 
-    /// Failed to set the expected m.space.parent or m.space.child state events.
-    #[error("Failed updating space parent/child relationship")]
+    /// Failed to set either of the m.space.parent or m.space.child state
+    /// events.
+    #[error("Failed to set either of the m.space.parent or m.space.child state events")]
     UpdateRelationship(SDKError),
+
+    /// Failed to set the expected m.space.parent state event (but any
+    /// m.space.child changes were successful).
+    #[error(
+        "Failed to set the expected m.space.parent state event (but any m.space.child changes were successful)"
+    )]
+    UpdateInverseRelationship(SDKError),
 
     /// Failed to leave a space.
     #[error("Failed to leave space")]
@@ -375,11 +383,12 @@ impl SpaceService {
 
         // Add the space as parent of the child if allowed.
         if child_power_levels.user_can_send_state(user_id, StateEventType::SpaceParent) {
-            let parent_route = space_room.route().await.map_err(Error::UpdateRelationship)?;
+            let parent_route =
+                space_room.route().await.map_err(Error::UpdateInverseRelationship)?;
             child_room
                 .send_state_event_for_key(&space_id, SpaceParentEventContent::new(parent_route))
                 .await
-                .map_err(Error::UpdateRelationship)?;
+                .map_err(Error::UpdateInverseRelationship)?;
         } else {
             warn!("The current user doesn't have permission to set the child's parent.");
         }
@@ -392,6 +401,7 @@ impl SpaceService {
         child_id: OwnedRoomId,
         space_id: OwnedRoomId,
     ) -> Result<(), Error> {
+        let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
         let space_room =
             self.client.get_room(&space_id).ok_or(Error::RoomNotFound(space_id.to_owned()))?;
 
@@ -413,9 +423,14 @@ impl SpaceService {
         }
 
         if let Some(child_room) = self.client.get_room(&child_id) {
-            if let Ok(Some(_)) = child_room
-                .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
-                .await
+            let power_levels = child_room.power_levels().await.map_err(|error| {
+                Error::UpdateInverseRelationship(matrix_sdk::Error::from(error))
+            })?;
+
+            if power_levels.user_can_send_state(user_id, StateEventType::SpaceParent)
+                && let Ok(Some(_)) = child_room
+                    .get_state_event_static_for_key::<SpaceParentEventContent, _>(&space_id)
+                    .await
             {
                 // Same as the comment above.
                 child_room
@@ -425,7 +440,7 @@ impl SpaceService {
                         serde_json::json!({}),
                     )
                     .await
-                    .map_err(Error::UpdateRelationship)?;
+                    .map_err(Error::UpdateInverseRelationship)?;
             } else {
                 warn!("A space parent event wasn't found on the child, ignoring.");
             }
@@ -501,7 +516,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
                         None
                     }
                 }).for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
@@ -526,7 +541,7 @@ impl SpaceService {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
-                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
+                        trace!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
                         None
                     }
                 }).for_each(|child| graph.add_edge(space.room_id().to_owned(), child));
@@ -675,7 +690,10 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, RoomAccountDataTestEvent, async_test,
         event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, UserId, event_id, owned_room_id, room_id};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, RoomVersionId, UserId, event_id, owned_room_id, room_id,
+        serde::Raw,
+    };
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
 
@@ -1567,6 +1585,116 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[async_test]
+    async fn test_space_child_updates() {
+        // Test child updates received via sync.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_id = room_id!("!space:localhost");
+        let first_child_id = room_id!("!first_child:localhost");
+        let second_child_id = room_id!("!second_child:localhost");
+
+        // The space is joined.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V11).with_space_type()),
+            )
+            .await;
+
+        // Build the `SpaceService` and expect the room to show up with no updates
+        // pending
+        let space_service = SpaceService::new(client.clone()).await;
+
+        let (initial_values, joined_spaces_subscriber) =
+            space_service.subscribe_to_top_level_joined_spaces().await;
+        pin_mut!(joined_spaces_subscriber);
+        assert_pending!(joined_spaces_subscriber);
+
+        assert_eq!(
+            initial_values,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)].into()
+        );
+
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)]
+        );
+
+        // Two children are added.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id)
+                    .add_state_event(
+                        factory
+                            .space_child(space_id.to_owned(), first_child_id.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_child(space_id.to_owned(), second_child_id.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        // And expect the list to update.
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
+        );
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
+                        .into()
+                },
+            ]
+        );
+
+        // Then remove a child by replacing the state event with an empty one.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(space_id).add_state_bulk([Raw::new(&json!({
+                    "content": {},
+                    "type": "m.space.child",
+                    "event_id": "$cancelsecondchild",
+                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                    "sender": user_id,
+                    "state_key": second_child_id,
+                }))
+                .unwrap()
+                .cast_unchecked()]),
+            )
+            .await;
+
+        // And expect the list to update.
+        assert_eq!(
+            space_service.top_level_joined_spaces().await,
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
+        );
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
+                        .into()
+                },
+            ]
+        );
+    }
+
     async fn add_space_rooms(
         rooms: Vec<MockSpaceRoomParameters>,
         client: &Client,
@@ -1603,13 +1731,15 @@ mod tests {
                 );
             }
 
-            if let Some(power_level) = parameters.power_level {
-                let mut power_levels = BTreeMap::from([(user_id.to_owned(), power_level.into())]);
+            let mut power_levels = if let Some(power_level) = parameters.power_level {
+                BTreeMap::from([(user_id.to_owned(), power_level.into())])
+            } else {
+                BTreeMap::from([(user_id.to_owned(), 100.into())])
+            };
 
-                builder = builder.add_state_event(
-                    factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                );
-            }
+            builder = builder.add_state_event(
+                factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+            );
 
             server.sync_room(client, builder).await;
         }

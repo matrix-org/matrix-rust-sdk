@@ -373,6 +373,8 @@ trait SqliteConnectionExt {
         user_id: &[u8],
         data: &[u8],
     ) -> rusqlite::Result<()>;
+
+    fn set_has_downloaded_all_room_keys(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -513,6 +515,16 @@ impl SqliteConnectionExt for rusqlite::Connection {
             VALUES (?1, ?2, ?3)
             ON CONFLICT (room_id, sender_user_id) DO UPDATE SET bundle_data = ?3",
             (room_id, sender_user_id, data),
+        )?;
+        Ok(())
+    }
+
+    fn set_has_downloaded_all_room_keys(&self, room_id: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO room_key_backups_fully_downloaded(room_id)
+             VALUES (?1)
+             ON CONFLICT(room_id) DO NOTHING",
+            (room_id,),
         )?;
         Ok(())
     }
@@ -1042,6 +1054,11 @@ impl CryptoStore for SqliteCryptoStore {
                     let user_id = this.encode_key("received_room_key_bundle", &bundle.sender_user);
                     let value = this.serialize_value(&bundle)?;
                     txn.set_received_room_key_bundle(&room_id, &user_id, &value)?;
+                }
+
+                for room in changes.room_key_backups_fully_downloaded {
+                    let room_id = this.encode_key("room_key_backups_fully_downloaded", &room);
+                    txn.set_has_downloaded_all_room_keys(&room_id)?;
                 }
 
                 Ok::<_, Error>(())

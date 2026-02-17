@@ -2119,28 +2119,51 @@ async fn test_media_uploads() {
     let file_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters { source: new_content.source, format: MediaFormat::File },
+            &MediaRequestParameters {
+                source: new_content.source.clone(),
+                format: MediaFormat::File,
+            },
             true,
         )
         .await
         .expect("media should be found with its final MXC uri in the cache");
     assert_eq!(file_media, b"hello world");
 
-    let new_thumbnail_source = new_content.info.unwrap().thumbnail_source.unwrap();
-    assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
+    let new_thumbnail_source =
+        new_content.info.as_ref().unwrap().thumbnail_source.as_ref().unwrap();
+    assert_let!(MediaSource::Plain(new_uri) = new_thumbnail_source);
     assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail"));
 
-    let thumbnail_media = client
+    // The thumbnail can be retrieved as a file, using its own MXC URI:
+    let thumbnail_media_as_file = client
         .media()
         .get_media_content(
-            &MediaRequestParameters { source: new_thumbnail_source, format: MediaFormat::File },
+            &MediaRequestParameters {
+                source: new_thumbnail_source.clone(),
+                format: MediaFormat::File,
+            },
             true,
         )
         .await
         .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
+    assert_eq!(thumbnail_media_as_file, b"thumbnail");
 
-    // The local URI does not work anymore.
+    // The thumbnail can be retrieved as a thumbnail of itself, using
+    // the sent media MXC URI:
+    let thumbnail_media_as_thumbnail = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: new_thumbnail_source.clone(),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(37), uint!(13))),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media_as_thumbnail, b"thumbnail");
+
+    // The local URI for the thumbnail does not work anymore (it's been renamed).
     client
         .media()
         .get_media_content(
