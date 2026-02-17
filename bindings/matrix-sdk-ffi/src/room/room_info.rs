@@ -49,6 +49,7 @@ pub struct RoomInfo {
     /// If present, it means the room has been archived/upgraded.
     successor_room: Option<SuccessorRoom>,
     is_favourite: bool,
+    is_low_priority: bool,
     canonical_alias: Option<String>,
     alternative_aliases: Vec<String>,
     membership: Membership,
@@ -134,6 +135,7 @@ impl RoomInfo {
             is_space: room.is_space(),
             successor_room: room.successor_room().map(Into::into),
             is_favourite: room.is_favourite(),
+            is_low_priority: room.is_low_priority(),
             canonical_alias: room.canonical_alias().map(Into::into),
             alternative_aliases: room.alt_aliases().into_iter().map(Into::into).collect(),
             membership: room.state().into(),
