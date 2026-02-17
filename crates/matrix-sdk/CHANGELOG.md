@@ -66,6 +66,23 @@ All notable changes to this project will be documented in this file.
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 
+### Refactor
+
+- The `RoomEventCache::paginate_thread_backwards` method is replaced by `RoomEventCache::thread_pagination` which returns a new `ThreadPagination` type, similar to `RoomPagination`.
+  ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174))
+
+  Before:
+
+  ```rust
+  room_event_cache.paginate_thread_backwards(thread_id, 42).await
+  ```
+
+  After:
+
+  ```rust
+  room_event_cache.thread_pagination(thread_id).run_backwards_once(42).await
+  ```
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
