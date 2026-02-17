@@ -31,6 +31,16 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Cancelled` for when the grant is cancelled
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::OtherDeviceAlreadySignedIn` for when the other device is already signed in
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `RoomInfo::is_low_priority` for getting the room's `m.lowpriority` tag state
   ([#6183](https://github.com/matrix-org/matrix-rust-sdk/pull/6183))
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
