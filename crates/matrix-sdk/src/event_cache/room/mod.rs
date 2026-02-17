@@ -2291,12 +2291,9 @@ mod private {
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
-        for (position, event) in room_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Ok(Some((EventLocation::Memory(position), event.clone())));
-            }
+        if let Some((position, event)) = room_linked_chunk.find_event(event_id) {
+            return Ok(Some((EventLocation::Memory(position), event)));
         }
-
         Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
     }
 

@@ -31,8 +31,6 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::linked_chunk::Position;
 use matrix_sdk_base::{
     deserialized_responses::{TimelineEvent, TimelineEventKind},
     event_cache::{Event, Gap},
@@ -42,8 +40,6 @@ use matrix_sdk_common::{
     linked_chunk::{ChunkContent, ChunkIdentifier},
     serde_helpers::extract_thread_root,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::EventId;
 use ruma::{OwnedEventId, UInt, api::Direction};
 use tokio::sync::{
     RwLock,
@@ -492,25 +488,6 @@ impl EventFocusedCacheInner {
 
         Ok((result.chunk, result.next_batch_token))
     }
-
-    /// Find an event in the linked chunk by its event ID, and return its
-    /// location.
-    ///
-    /// Note: the in-memory content is always the same as the one in the store,
-    /// since the store is updated synchronously with changes in the linked
-    /// chunk, so we can afford to only look for the event in the memory
-    /// linked chunk.
-    // TODO(bnjbvr): common out in EventLinkedChunk! use it both here and for the pinned event
-    // cache.
-    #[cfg(feature = "e2e-encryption")]
-    fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
-        for (position, event) in self.chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Some((position, event.clone()));
-            }
-        }
-        None
-    }
 }
 
 /// A cache for an event-focused timeline.
@@ -605,6 +582,7 @@ impl EventFocusedCache {
     /// Try to locate the events in the linked chunk corresponding to the given
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
+    // TODO(bnjbvr): common out
     pub async fn replace_utds(&self, events: &[ResolvedUtd]) {
         let mut guard = self.inner.write().await;
 
@@ -626,7 +604,7 @@ impl EventFocusedCache {
             }
 
             // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = guard.find_event(event_id) else {
+            let Some((position, mut target_event)) = guard.chunk.find_event(event_id) else {
                 continue;
             };
 

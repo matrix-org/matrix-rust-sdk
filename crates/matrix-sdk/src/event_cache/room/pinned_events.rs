@@ -16,15 +16,13 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::{deserialized_responses::TimelineEventKind, linked_chunk::Position};
+use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
     serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::EventId;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
     events::{
@@ -207,24 +205,6 @@ impl PinnedEventCacheState {
     fn current_event_ids(&self) -> Vec<OwnedEventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
     }
-
-    /// Find an event in the linked chunk by its event ID, and return its
-    /// location.
-    ///
-    /// Note: the in-memory content is always the same as the one in the store,
-    /// since the store is updated synchronously with changes in the linked
-    /// chunk, so we can afford to only look for the event in the memory
-    /// linked chunk.
-    #[cfg(feature = "e2e-encryption")]
-    fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
-        for (position, event) in self.chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Some((position, event.clone()));
-            }
-        }
-
-        None
-    }
 }
 
 /// All the information related to a room's pinned events cache.
@@ -297,7 +277,7 @@ impl PinnedEventCache {
             }
 
             // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = guard.state.find_event(event_id) else {
+            let Some((position, mut target_event)) = guard.state.chunk.find_event(event_id) else {
                 continue;
             };
 
