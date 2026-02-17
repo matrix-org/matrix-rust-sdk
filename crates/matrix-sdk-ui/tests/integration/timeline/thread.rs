@@ -1906,9 +1906,12 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
         .await;
 
     let (room_event_cache, _drop_guards) = room.event_cache().await.unwrap();
-    let hit_start =
-        room_event_cache.paginate_thread_backwards(thread_root.to_owned(), 42).await.unwrap();
-    assert!(hit_start.not());
+    let outcome = room_event_cache
+        .thread_pagination(thread_root.to_owned())
+        .run_backwards_once(42)
+        .await
+        .unwrap();
+    assert!(outcome.reached_start.not());
 
     sleep(Duration::from_millis(100)).await;
 

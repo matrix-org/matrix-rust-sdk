@@ -250,26 +250,16 @@ impl RoomEventCache {
         state.subscribe_to_pinned_events(room).await
     }
 
-    /// Paginate backwards in a thread, given its root event ID.
-    ///
-    /// Returns whether we've hit the start of the thread, in which case the
-    /// root event will be prepended to the thread.
-    #[instrument(skip(self), fields(room_id = %self.inner.room_id))]
-    pub async fn paginate_thread_backwards(
-        &self,
-        thread_root: OwnedEventId,
-        num_events: u16,
-    ) -> Result<bool> {
-        ThreadPagination::new(self.inner.clone(), thread_root)
-            .run_backwards_once(num_events)
-            .await
-            .map(|o| o.reached_start)
-    }
-
     /// Return a [`RoomPagination`] API object useful for running
     /// back-pagination queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination::new(self.inner.clone())
+    }
+
+    /// Return a `ThreadPagination` API object useful for running
+    /// back-pagination queries in the `thread_id` thread.
+    pub fn thread_pagination(&self, thread_id: OwnedEventId) -> ThreadPagination {
+        ThreadPagination::new(self.inner.clone(), thread_id)
     }
 
     /// Try to find a single event in this room, starting from the most recent
