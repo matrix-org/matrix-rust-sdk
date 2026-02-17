@@ -34,7 +34,6 @@ use matrix_sdk_base::{
 };
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId,
-    api::Direction,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
@@ -48,12 +47,12 @@ use tracing::{instrument, trace, warn};
 use super::{
     AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
     RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
-    caches::{TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
+    caches::{
+        TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome,
+        thread::pagination::ThreadPagination,
+    },
 };
-use crate::{
-    client::WeakClient,
-    room::{IncludeRelations, RelationsOptions, WeakRoom},
-};
+use crate::{client::WeakClient, room::WeakRoom};
 
 pub(super) mod events;
 mod pinned_events;
@@ -261,77 +260,10 @@ impl RoomEventCache {
         thread_root: OwnedEventId,
         num_events: u16,
     ) -> Result<bool> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
-
-        // Take the lock only for a short time here.
-        let mut outcome =
-            self.inner.state.write().await?.load_more_thread_events_backwards(thread_root.clone());
-
-        loop {
-            match outcome {
-                LoadMoreEventsBackwardsOutcome::Gap { prev_token, .. } => {
-                    // Start a threaded pagination from this gap.
-                    let options = RelationsOptions {
-                        from: prev_token.clone(),
-                        dir: Direction::Backward,
-                        limit: Some(num_events.into()),
-                        include_relations: IncludeRelations::AllRelations,
-                        recurse: true,
-                    };
-
-                    let mut result = room
-                        .relations(thread_root.clone(), options)
-                        .await
-                        .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
-
-                    let reached_start = result.next_batch_token.is_none();
-                    trace!(num_events = result.chunk.len(), %reached_start, "received a /relations response");
-
-                    // Because the state lock is taken again in `load_or_fetch_event`, we need
-                    // to do this *before* we take the state lock again.
-                    let root_event =
-                        if reached_start {
-                            // Prepend the thread root event to the results.
-                            Some(room.load_or_fetch_event(&thread_root, None).await.map_err(
-                                |err| EventCacheError::BackpaginationError(Box::new(err)),
-                            )?)
-                        } else {
-                            None
-                        };
-
-                    let mut state = self.inner.state.write().await?;
-
-                    // Save all the events (but the thread root) in the store.
-                    state.save_events(result.chunk.iter().cloned()).await?;
-
-                    // Note: the events are still in the reversed order at this point, so
-                    // pushing will eventually make it so that the root event is the first.
-                    result.chunk.extend(root_event);
-
-                    if let Some(outcome) = state.finish_thread_network_pagination(
-                        thread_root.clone(),
-                        prev_token,
-                        result.next_batch_token,
-                        result.chunk,
-                    ) {
-                        return Ok(outcome.reached_start);
-                    }
-
-                    // fallthrough: restart the pagination.
-                    outcome = state.load_more_thread_events_backwards(thread_root.clone());
-                }
-
-                LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
-                    // We're done!
-                    return Ok(true);
-                }
-
-                LoadMoreEventsBackwardsOutcome::Events { .. } => {
-                    // TODO: implement :)
-                    unimplemented!("loading from disk for threads is not implemented yet");
-                }
-            }
-        }
+        ThreadPagination::new(self.inner.clone(), thread_root)
+            .run_backwards_once(num_events)
+            .await
+            .map(|o| o.reached_start)
     }
 
     /// Return a [`RoomPagination`] API object useful for running
@@ -1637,26 +1569,6 @@ mod private {
             self.get_or_reload_thread(root).subscribe()
         }
 
-        /// Back paginate in the given thread.
-        ///
-        /// Will always start from the end, unless we previously paginated.
-        pub fn finish_thread_network_pagination(
-            &mut self,
-            root: OwnedEventId,
-            prev_token: Option<String>,
-            new_token: Option<String>,
-            events: Vec<Event>,
-        ) -> Option<BackPaginationOutcome> {
-            self.get_or_reload_thread(root).finish_network_pagination(prev_token, new_token, events)
-        }
-
-        pub fn load_more_thread_events_backwards(
-            &mut self,
-            root: OwnedEventId,
-        ) -> LoadMoreEventsBackwardsOutcome {
-            self.get_or_reload_thread(root).load_more_events_backwards()
-        }
-
         // --------------------------------------------
         // utility methods
         // --------------------------------------------
@@ -1747,7 +1659,10 @@ mod private {
             Ok(())
         }
 
-        fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
+        pub(in super::super) fn get_or_reload_thread(
+            &mut self,
+            root_event_id: OwnedEventId,
+        ) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
             let room_id = self.state.room_id.clone();
