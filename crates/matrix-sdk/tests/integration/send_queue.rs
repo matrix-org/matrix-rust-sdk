@@ -2,22 +2,24 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
 use assert_matches2::{assert_let, assert_matches};
+use eyeball_im::VectorDiff;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
     Client, MemoryStore, ThreadingSupport, assert_let_timeout,
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
     config::StoreConfig,
+    event_cache::RoomEventCacheUpdate,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     room::reply::Reply,
     send_queue::{
         AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError,
         RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
-    test_utils::mocks::{MatrixMock, MatrixMockServer},
+    test_utils::mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{
-    ALICE, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
+    ALICE, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
     event_factory::EventFactory,
 };
 #[cfg(feature = "unstable-msc4274")]
@@ -3859,4 +3861,77 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 
     sleep(Duration::from_millis(100)).await;
+}
+
+#[async_test]
+async fn test_sending_event_still_saves_sync_gap() {
+    let server = MatrixMockServer::new().await;
+
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // Send a message in the room.
+    let content = RoomMessageEventContent::text_plain("hello world");
+    server.mock_room_send().ok(event_id!("$msg_now")).mock_once().mount().await;
+
+    let send_queue = room.send_queue();
+    let mut stream = send_queue.subscribe().await.unwrap().1;
+
+    // Wait for the send queue to send the message.
+    send_queue.send(content.into()).await.unwrap();
+    assert_let_timeout!(Ok(RoomSendQueueUpdate::NewLocalEvent(..)) = stream.recv());
+
+    // Let the send queue save the event in the cache.
+    sleep(Duration::from_millis(500)).await;
+
+    // Now, assume that a /sync response comes with only this message as part of the
+    // response, and with a previous gap. This can happen under real-world
+    // conditions, like the timeline_limit being set to 1, and a fast client
+    // sending an event before the timeline_limit is updated to another value.
+    let own_user_id = client.user_id().unwrap();
+    let f = EventFactory::new().room(room_id).sender(own_user_id);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello world").event_id(event_id!("$msg_now")))
+                .set_timeline_prev_batch("prev_batch")
+                .set_timeline_limited(),
+        )
+        .await;
+
+    // When paginating with this previous batch token, we should get new events from
+    // this room.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("bye").event_id(event_id!("$past_msg"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Sanity check: there's the sent event, and only that one.
+    assert_eq!(events.len(), 1);
+
+    // Run a pagination; it should return the past message.
+    let outcome = room_event_cache.pagination().run_backwards_once(42).await.unwrap();
+    assert!(outcome.reached_start);
+
+    // We should have received the past message.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
+    assert_eq!(update.diffs.len(), 1);
+    assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
+    assert_eq!(event.event_id().as_deref().unwrap(), event_id!("$past_msg"));
 }
