@@ -573,18 +573,10 @@ async fn main() -> anyhow::Result<()> {
     let _ = &widget;
 
     #[cfg(feature = "e2ee-per-participant")]
-    let to_device_key_provider = KeyProvider::new(KeyProviderOptions::default());
-    #[cfg(feature = "e2ee-per-participant")]
     let _to_device_probe_guard = register_any_to_device_probe_handler(&client);
     #[cfg(feature = "e2ee-per-participant")]
     let _room_message_probe_guard =
         register_room_message_key_probe_handler(&client, room.room_id().to_owned());
-    #[cfg(feature = "e2ee-per-participant")]
-    let _e2ee_to_device_guard = register_e2ee_to_device_handler(
-        &client,
-        room.room_id().to_owned(),
-        to_device_key_provider.clone(),
-    );
 
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move { sync_client.sync(SyncSettings::new()).await });
@@ -630,6 +622,14 @@ async fn main() -> anyhow::Result<()> {
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
+    #[cfg(feature = "e2ee-per-participant")]
+    let _e2ee_to_device_guard = e2ee_context.as_ref().map(|context| {
+        register_e2ee_to_device_handler(
+            &client,
+            room.room_id().to_owned(),
+            context.key_provider.clone(),
+        )
+    });
     #[cfg(feature = "e2ee-per-participant")]
     if let Some(context) = e2ee_context.as_ref() {
         spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
@@ -1537,13 +1537,13 @@ async fn send_per_participant_keys(
     let member_id = format!("{own_user_id}:{claimed}");
 
     let content_raw = Raw::new(&serde_json::json!({
-        "keys": { "index": key_index, "key": key_b64 },
+        "keys": [{ "index": key_index, "key": key_b64 }],
         "device_id": claimed,
         "member": { "claimed_device_id": claimed, "id": member_id },
         "room_id": room.room_id().to_string(),
         "session": {
             "application": "m.call",
-            "call_id": "",
+            "call_id": room.room_id().to_string(),
             "scope": "m.room"
         },
         "sent_ts": sent_ts,
