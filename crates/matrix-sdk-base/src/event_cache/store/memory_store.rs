@@ -246,6 +246,13 @@ impl EventCacheStore for MemoryStore {
                     .is_none_or(|event_type| Some(event_type) == e.kind.event_type().as_deref())
             })
             .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
+            .map(|e| {
+                e.event_id()
+                    .map(|id| (id, e))
+                    .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?
+            .into_values()
             .collect();
 
         Ok(event)
