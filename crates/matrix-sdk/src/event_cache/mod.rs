@@ -1119,7 +1119,10 @@ impl EventCacheInner {
 
                 let update_sender = Sender::new(32);
 
+                let own_user_id =
+                    client.user_id().expect("the user must be logged in, at this point").to_owned();
                 let room_state = RoomEventCacheStateLock::new(
+                    own_user_id,
                     room_id.to_owned(),
                     room_version_rules,
                     enabled_thread_support,
