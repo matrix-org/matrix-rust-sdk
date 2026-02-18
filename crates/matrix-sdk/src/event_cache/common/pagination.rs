@@ -67,9 +67,10 @@ impl Drop for ResetStatusOnDrop {
     }
 }
 
-/// An API object to run pagination queries on a [`super::RoomEventCache`].
+/// An API object to run pagination queries on a
+/// [`crate::event_cache::RoomEventCache`].
 ///
-/// Can be created with [`super::RoomEventCache::pagination()`].
+/// Can be created with [`crate::event_cache::RoomEventCache::pagination()`].
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct RoomPagination {
