@@ -12,24 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Different kinds of caches included in the event cache.
+//! Common utilities for the different event caches.
 
-use eyeball_im::VectorDiff;
-use matrix_sdk_base::event_cache::Event;
-
-use crate::event_cache::EventsOrigin;
-
-pub(super) mod pinned_events;
-pub(super) mod room;
-pub(super) mod thread;
-
-pub use room::{RoomEventCache, RoomEventCacheSubscriber};
-
-/// A diff update for an event cache timeline represented as a vector.
-#[derive(Clone, Debug)]
-pub struct TimelineVectorDiffs {
-    /// New vector diff for the thread timeline.
-    pub diffs: Vec<VectorDiff<Event>>,
-    /// The origin that triggered this update.
-    pub origin: EventsOrigin,
-}
+pub(super) mod deduplicator;
+pub(super) mod event_linked_chunk;
+pub(super) mod lock;
+pub(super) mod pagination;
+pub(super) mod persistence;

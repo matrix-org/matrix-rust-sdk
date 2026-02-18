@@ -26,13 +26,12 @@ use tracing::{error, trace};
 
 use crate::event_cache::{
     BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
-    caches::TimelineVectorDiffs,
-    deduplicator::DeduplicationOutcome,
-    room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
+    caches::{TimelineVectorDiffs, room::LoadMoreEventsBackwardsOutcome},
+    common::{deduplicator::DeduplicationOutcome, event_linked_chunk::EventLinkedChunk},
 };
 
 /// All the information related to a single thread.
-pub(crate) struct ThreadEventCache {
+pub(in crate::event_cache) struct ThreadEventCache {
     /// The room owning this thread.
     room_id: OwnedRoomId,
 
@@ -142,7 +141,7 @@ impl ThreadEventCache {
     ///
     /// If the event has been found and removed, then an update will be
     /// propagated to observers.
-    pub(crate) fn remove_if_present(&mut self, event_id: &EventId) {
+    pub(in crate::event_cache) fn remove_if_present(&mut self, event_id: &EventId) {
         let Some(pos) = self.chunk.events().find_map(|(pos, event)| {
             (event.event_id().as_deref() == Some(event_id)).then_some(pos)
         }) else {
