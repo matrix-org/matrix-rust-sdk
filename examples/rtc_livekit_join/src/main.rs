@@ -1195,37 +1195,17 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
     let request_id = Uuid::new_v4().to_string();
-    let event_id = format!("$local-call-member-{now_ms}");
-
-    let state_event = serde_json::json!({
-        "type": "org.matrix.msc3401.call.member",
-        "sender": own_user_id.to_string(),
-        "content": content,
-        "state_key": state_key.as_ref(),
-        "origin_server_ts": now_ms,
-        "unsigned": {
-            "prev_content": {},
-            "prev_sender": own_user_id.to_string(),
-            "membership": "join",
-            "age": 0,
-        },
-        "event_id": event_id,
-        "room_id": room.room_id().to_string(),
-    });
-
-
     let send_event_message = serde_json::json!({
-        "api": "toWidget",
+        "api": "fromWidget",
         "widgetId": widget.widget_id,
         "requestId": request_id,
         "action": "send_event",
-        "data": state_event.clone(),
-        "response": {},
+        "data": {
+            "type": "org.matrix.msc3401.call.member",
+            "state_key": state_key.as_ref(),
+            "content": content,
+        },
     });
 
     let send_event_message_json = send_event_message.to_string();
@@ -1236,29 +1216,6 @@ async fn publish_call_membership_via_widget(
 
     if !widget.handle.send(send_event_message.to_string()).await {
         return Err(anyhow!("widget driver handle closed before sending membership send_event"));
-    }
-
-    let update_state_message = serde_json::json!({
-        "api": "toWidget",
-        "widgetId": widget.widget_id,
-        "requestId": Uuid::new_v4().to_string(),
-        "action": "update_state",
-        "data": {
-            "state": [state_event],
-        },
-        "response": {},
-    });
-
-    let update_state_message_json = update_state_message.to_string();
-    info!(
-        request_body = update_state_message_json.as_str(),
-        "Publishing MatrixRTC membership update_state via widget api"
-    );
-
-
-
-    if !widget.handle.send(update_state_message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership update_state"));
     }
 
     info!(state_key = state_key.as_ref(), "published MatrixRTC membership via widget api");
@@ -1642,8 +1599,9 @@ fn register_room_message_key_probe_handler(
     info!(%room_id, "registering room message-like probe for encryption keys");
 
     let room_id_for_handler = room_id.clone();
-    let handle =
-        client.add_room_event_handler(&room_id_for_handler, move |raw: Raw<AnySyncMessageLikeEvent>| {
+    let handle = client.add_room_event_handler(
+        &room_id_for_handler,
+        move |raw: Raw<AnySyncMessageLikeEvent>| {
             let room_id = room_id.clone();
             async move {
                 let event_type = raw
@@ -1656,7 +1614,8 @@ fn register_room_message_key_probe_handler(
                     info!(%room_id, "probe observed room message-like encryption key event");
                 }
             }
-        });
+        },
+    );
 
     client.event_handler_drop_guard(handle)
 }
