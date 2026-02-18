@@ -1042,6 +1042,11 @@ async fn start_element_call_widget(
             let Some(request_id) = value.get("requestId").and_then(|v| v.as_str()) else {
                 continue;
             };
+            let api = value.get("api").and_then(|v| v.as_str());
+            let is_request = value.get("response").is_none();
+            if api != Some("toWidget") || !is_request {
+                continue;
+            }
             if action == "capabilities" {
                 info!(request_id, "widget requested capabilities");
                 let response = serde_json::json!({
@@ -1087,34 +1092,6 @@ async fn start_element_call_widget(
                     );
                 } else {
                     info!(request_id, event_type, "widget send_to_device received");
-                }
-            }
-            if action == "send_event" {
-                info!(request_id, "widget send_event received");
-                let response = serde_json::json!({
-                    "api": "toWidget",
-                    "widgetId": outbound_widget_id,
-                    "requestId": request_id,
-                    "action": "send_event",
-                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "response": {},
-                });
-                if !outbound_handle.send(response.to_string()).await {
-                    break;
-                }
-            }
-            if action == "update_state" {
-                info!(request_id, "widget update_state received");
-                let response = serde_json::json!({
-                    "api": "toWidget",
-                    "widgetId": outbound_widget_id,
-                    "requestId": request_id,
-                    "action": "update_state",
-                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "response": {},
-                });
-                if !outbound_handle.send(response.to_string()).await {
-                    break;
                 }
             }
         }
