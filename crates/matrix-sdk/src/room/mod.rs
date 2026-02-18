@@ -36,7 +36,8 @@ pub use identity_status_changes::IdentityStatusChanges;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    IdentityStatusChange, RoomIdentityProvider, UserIdentity, types::events::CryptoContextInfo,
+    IdentityStatusChange, InviteAcceptanceDetails, RoomIdentityProvider, UserIdentity,
+    types::events::CryptoContextInfo,
 };
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
@@ -3664,22 +3665,45 @@ impl Room {
     /// The membership details of the (latest) invite for the logged-in user in
     /// this room.
     pub async fn invite_details(&self) -> Result<Invite> {
-        let state = self.state();
-
-        if state != RoomState::Invited {
-            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Invited", state))));
-        }
-
         let invitee = self
             .get_member_no_sync(self.own_user_id())
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
-
         let inviter_id = event.sender().to_owned();
         let inviter = self.get_member_no_sync(&inviter_id).await?;
 
-        Ok(Invite { invitee, inviter_id, inviter })
+        Ok(Invite { invitee, inviter, inviter_id })
+    }
+
+    /// Details of the invite accepted to join this room.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn invite_acceptance_details(&self) -> Result<Option<InviteAcceptanceDetails>> {
+        Ok(self
+            .client
+            .olm_machine()
+            .await
+            .as_ref()
+            .ok_or(Error::NoOlmMachine)?
+            .store()
+            .get_invite_acceptance_details(self.room_id())
+            .await?)
+    }
+
+    pub async fn invite_acceptance_details_stream(
+        &self,
+    ) -> Result<impl Stream<Item = Option<InviteAcceptanceDetails>> + '_> {
+        Ok(self
+            .client
+            .olm_machine()
+            .await
+            .as_ref()
+            .ok_or(Error::NoOlmMachine)?
+            .store()
+            .invite_acceptance_details_stream()
+            .filter_map(move |(room_id, details)| async move {
+                if room_id == self.room_id() { Some(details) } else { None }
+            }))
     }
 
     /// Get the membership details for the current user.

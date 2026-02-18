@@ -49,7 +49,7 @@ use crate::{
         OutboundGroupSession, PickledAccount, PickledInboundGroupSession, PickledSession,
         PrivateCrossSigningIdentity, SenderDataType, StaticAccountData,
     },
-    store::types::RoomKeyWithheldEntry,
+    store::types::{InviteAcceptanceDetails, RoomKeyWithheldEntry},
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
@@ -112,6 +112,7 @@ pub struct MemoryStore {
     room_key_bundles:
         StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
     room_key_backups_fully_downloaded: StdRwLock<HashSet<OwnedRoomId>>,
+    invite_acceptance_details: StdRwLock<HashMap<OwnedRoomId, InviteAcceptanceDetails>>,
 
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -768,6 +769,13 @@ impl CryptoStore for MemoryStore {
         Ok(guard.contains(room_id))
     }
 
+    async fn get_invite_acceptance_details(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<InviteAcceptanceDetails>> {
+        Ok(self.invite_acceptance_details.read().get(room_id).cloned())
+    }
+
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         Ok(self.custom_values.read().get(key).cloned())
     }
@@ -1311,8 +1319,9 @@ mod integration_tests {
         store::{
             CryptoStore,
             types::{
-                BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-                RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData, TrackedUser,
+                BackupKeys, Changes, DehydratedDeviceKey, InviteAcceptanceDetails, PendingChanges,
+                RoomKeyCounts, RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
+                TrackedUser,
             },
         },
     };
@@ -1600,6 +1609,13 @@ mod integration_tests {
             room_id: &RoomId,
         ) -> Result<bool, Self::Error> {
             self.0.has_downloaded_all_room_keys(room_id).await
+        }
+
+        async fn get_invite_acceptance_details(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Option<InviteAcceptanceDetails>, Self::Error> {
+            self.0.get_invite_acceptance_details(room_id).await
         }
 
         async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
