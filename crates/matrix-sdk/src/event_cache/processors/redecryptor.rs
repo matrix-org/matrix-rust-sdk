@@ -153,14 +153,14 @@ use tokio_stream::wrappers::{
 use tracing::{info, instrument, trace, warn};
 
 #[cfg(doc)]
-use super::RoomEventCache;
-use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
+use crate::event_cache::caches::room::RoomEventCache;
 use crate::{
     Client, Result, Room,
     encryption::backups::BackupState,
     event_cache::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorDiffs,
-        room::PostProcessingOrigin,
+        EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
+        RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs,
+        caches::room::PostProcessingOrigin,
     },
     room::PushContext,
 };
@@ -206,15 +206,14 @@ pub enum RedecryptorReport {
     BackupAvailable,
 }
 
-pub(super) struct RedecryptorChannels {
+pub(in crate::event_cache) struct RedecryptorChannels {
     utd_reporter: Sender<RedecryptorReport>,
-    pub(super) decryption_request_sender: UnboundedSender<DecryptionRetryRequest>,
-    pub(super) decryption_request_receiver:
-        Mutex<Option<UnboundedReceiver<DecryptionRetryRequest>>>,
+    pub decryption_request_sender: UnboundedSender<DecryptionRetryRequest>,
+    pub decryption_request_receiver: Mutex<Option<UnboundedReceiver<DecryptionRetryRequest>>>,
 }
 
 impl RedecryptorChannels {
-    pub(super) fn new() -> Self {
+    pub(in crate::event_cache) fn new() -> Self {
         let (utd_reporter, _) = broadcast::channel(100);
         let (decryption_request_sender, decryption_request_receiver) = unbounded_channel();
 
@@ -792,7 +791,7 @@ async fn send_report_and_retry_memory_events(
 /// various streams that should trigger redecryption attempts.
 ///
 /// For more info see the [module level docs](self).
-pub(crate) struct Redecryptor {
+pub(in crate::event_cache) struct Redecryptor {
     _task: BackgroundTaskHandle,
 }
 
@@ -801,7 +800,7 @@ impl Redecryptor {
     ///
     /// This creates a task that listens to various streams and attempts to
     /// redecrypt UTDs that can be found inside the [`EventCache`].
-    pub(super) fn new(
+    pub(in crate::event_cache) fn new(
         client: &Client,
         cache: Weak<EventCacheInner>,
         receiver: UnboundedReceiver<DecryptionRetryRequest>,

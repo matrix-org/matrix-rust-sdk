@@ -64,26 +64,23 @@ use tokio::{
 };
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::processors::redecryptor;
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
-    event_cache::room::RoomEventCacheStateLock,
+    event_cache::caches::room::RoomEventCacheStateLock,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
 mod caches;
-mod deduplicator;
-mod pagination;
-mod persistence;
-#[cfg(feature = "e2e-encryption")]
-mod redecryptor;
-mod room;
+mod common;
+mod processors;
 
-pub use caches::TimelineVectorDiffs;
-pub use pagination::{RoomPagination, RoomPaginationStatus};
+pub use caches::{RoomEventCache, RoomEventCacheSubscriber, TimelineVectorDiffs};
+pub use common::pagination::{RoomPagination, RoomPaginationStatus};
 #[cfg(feature = "e2e-encryption")]
-pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber};
+pub use processors::redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -1196,7 +1193,7 @@ pub struct RoomEventCacheGenericUpdate {
 /// An update being triggered when events change in the persisted event cache
 /// for any room.
 #[derive(Clone, Debug)]
-struct RoomEventCacheLinkedChunkUpdate {
+pub(in crate::event_cache) struct RoomEventCacheLinkedChunkUpdate {
     /// The linked chunk affected by the update.
     linked_chunk_id: OwnedLinkedChunkId,
 

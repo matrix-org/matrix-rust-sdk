@@ -18,15 +18,12 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreLockGuard,
+    event_cache::{Event, store::EventCacheStoreLockGuard},
     linked_chunk::{LinkedChunkId, Position},
 };
 use ruma::OwnedEventId;
 
-use super::{
-    EventCacheError,
-    room::events::{Event, EventLinkedChunk},
-};
+use crate::event_cache::{Result, common::event_linked_chunk::EventLinkedChunk};
 
 /// Find duplicates in the given collection of new events, and return relevant
 /// information about the duplicates found in the new events, including the
@@ -36,7 +33,7 @@ pub async fn filter_duplicate_events(
     linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
-) -> Result<DeduplicationOutcome, EventCacheError> {
+) -> Result<DeduplicationOutcome> {
     // Remove all events with no ID, or that are duplicated among the new events,
     // i.e. `new_events` contains duplicated events in itself (e.g. `[$e0, $e1,
     // $e0]`, here `$e0` is duplicated).
@@ -93,7 +90,7 @@ pub async fn filter_duplicate_events(
     })
 }
 
-pub(super) struct DeduplicationOutcome {
+pub(in crate::event_cache) struct DeduplicationOutcome {
     /// All events passed to the deduplicator.
     ///
     /// All events in this collection have a valid event ID.

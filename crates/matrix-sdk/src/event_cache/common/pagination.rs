@@ -21,12 +21,12 @@ use matrix_sdk_base::timeout::timeout;
 use ruma::api::Direction;
 use tracing::{debug, instrument, trace};
 
-use super::{
-    BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
-    room::{LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
-};
 use crate::{
-    event_cache::{EventCacheError, RoomEventCacheGenericUpdate, TimelineVectorDiffs},
+    event_cache::{
+        BackPaginationOutcome, EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate,
+        RoomEventCacheUpdate, TimelineVectorDiffs,
+        caches::room::{LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
+    },
     room::MessagesOptions,
 };
 
@@ -73,7 +73,7 @@ impl Drop for ResetStatusOnDrop {
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct RoomPagination {
-    pub(super) inner: Arc<RoomEventCacheInner>,
+    pub(in crate::event_cache) inner: Arc<RoomEventCacheInner>,
 }
 
 impl RoomPagination {

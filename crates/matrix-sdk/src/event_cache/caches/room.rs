@@ -24,7 +24,6 @@ use std::{
     },
 };
 
-use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -46,26 +45,22 @@ use tokio::sync::{
 };
 use tracing::{instrument, trace, warn};
 
-use super::{
-    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
-};
+use super::EventsOrigin;
 use crate::{
     client::WeakClient,
-    event_cache::{EventCacheError, caches::TimelineVectorDiffs},
+    event_cache::{
+        AutoShrinkChannelPayload, EventCacheError, Result, RoomEventCacheGenericUpdate,
+        RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus, caches::TimelineVectorDiffs,
+    },
     room::{IncludeRelations, RelationsOptions, WeakRoom},
 };
-
-pub(super) mod events;
-mod pinned_events;
-mod threads;
 
 /// A subset of an event cache, for a room.
 ///
 /// Cloning is shallow, and thus is cheap to do.
 #[derive(Clone)]
 pub struct RoomEventCache {
-    pub(super) inner: Arc<RoomEventCacheInner>,
+    pub(in crate::event_cache) inner: Arc<RoomEventCacheInner>,
 }
 
 impl fmt::Debug for RoomEventCache {
@@ -161,7 +156,7 @@ impl DerefMut for RoomEventCacheSubscriber {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    pub(super) fn new(
+    pub(in crate::event_cache) fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<RoomPaginationStatus>,
@@ -484,9 +479,9 @@ impl RoomEventCache {
 }
 
 /// The (non-cloneable) details of the `RoomEventCache`.
-pub(super) struct RoomEventCacheInner {
+pub(in crate::event_cache) struct RoomEventCacheInner {
     /// The room id for this room.
-    pub(super) room_id: OwnedRoomId,
+    pub(in crate::event_cache) room_id: OwnedRoomId,
 
     pub weak_room: WeakRoom,
 
@@ -512,7 +507,7 @@ pub(super) struct RoomEventCacheInner {
     /// Whilst `EventCacheInner` handles the generic updates from the sync, or
     /// the storage, it doesn't handle the update from pagination. Having a
     /// clone here allows to access it from [`RoomPagination`].
-    pub(super) generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+    pub(in crate::event_cache) generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
 impl RoomEventCacheInner {
@@ -581,7 +576,10 @@ impl RoomEventCacheInner {
     }
 
     #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(in crate::event_cache) async fn handle_joined_room_update(
+        &self,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(
             updates.timeline,
             updates.ephemeral.clone(),
@@ -594,7 +592,10 @@ impl RoomEventCacheInner {
     }
 
     #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+    pub(in crate::event_cache) async fn handle_left_room_update(
+        &self,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
@@ -658,7 +659,7 @@ impl RoomEventCacheInner {
 /// Internal type to represent the output of
 /// [`RoomEventCacheState::load_more_events_backwards`].
 #[derive(Debug)]
-pub(super) enum LoadMoreEventsBackwardsOutcome {
+pub(in crate::event_cache) enum LoadMoreEventsBackwardsOutcome {
     /// A gap has been inserted.
     Gap {
         /// The previous batch token to be used as the "end" parameter in the
@@ -712,25 +713,28 @@ mod private {
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
-        super::{
-            BackPaginationOutcome, EventCacheError, RoomEventCacheLinkedChunkUpdate,
-            RoomPaginationStatus,
-            caches::lock,
-            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            persistence::send_updates_to_store,
-            room::{pinned_events::PinnedEventCache, threads::ThreadEventCache},
-        },
         EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
-        events::EventLinkedChunk,
-        sort_positions_descending,
     };
     use crate::{
         Room,
-        event_cache::{TimelineVectorDiffs, room::PostProcessingOrigin},
+        event_cache::{
+            BackPaginationOutcome, EventCacheError, Result, RoomEventCacheLinkedChunkUpdate,
+            RoomPaginationStatus, TimelineVectorDiffs,
+            caches::{
+                pinned_events::PinnedEventCache, room::PostProcessingOrigin,
+                thread::ThreadEventCache,
+            },
+            common::{
+                deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+                event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+                lock,
+                persistence::send_updates_to_store,
+            },
+        },
     };
 
-    pub(in super::super) struct RoomEventCacheState {
+    pub struct RoomEventCacheState {
         /// Whether thread support has been enabled for the event cache.
         enabled_thread_support: bool,
 
@@ -817,7 +821,7 @@ mod private {
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
-        ) -> Result<Self, EventCacheError> {
+        ) -> Result<Self> {
             let store_guard = match store.lock().await? {
                 // Lock is clean: all good!
                 EventCacheStoreLockState::Clean(guard) => guard,
@@ -911,7 +915,7 @@ mod private {
 
     impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
         /// Force to shrink the room, whenever there is subscribers or not.
-        async fn reload(&mut self) -> Result<(), EventCacheError> {
+        async fn reload(&mut self) -> Result<()> {
             self.shrink_to_last_chunk().await?;
 
             let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
@@ -948,7 +952,7 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
+        ) -> Result<Option<(EventLocation, Event)>> {
             find_event(event_id, &self.state.room_id, &self.state.room_linked_chunk, &self.store)
                 .await
         }
@@ -970,7 +974,7 @@ mod private {
             &self,
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
-        ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
+        ) -> Result<Option<(Event, Vec<Event>)>> {
             find_event_with_relations(
                 event_id,
                 &self.state.room_id,
@@ -998,7 +1002,7 @@ mod private {
             &self,
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
-        ) -> Result<Vec<Event>, EventCacheError> {
+        ) -> Result<Vec<Event>> {
             find_event_relations(
                 event_id,
                 &self.state.room_id,
@@ -1042,7 +1046,7 @@ mod private {
         pub async fn subscribe_to_pinned_events(
             &self,
             room: Room,
-        ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
+        ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
             let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
                 PinnedEventCache::new(
                     room,
@@ -1081,7 +1085,7 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
+        ) -> Result<Option<(EventLocation, Event)>> {
             find_event(event_id, &self.state.room_id, &self.state.room_linked_chunk, &self.store)
                 .await
         }
@@ -1103,7 +1107,7 @@ mod private {
             &self,
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
-        ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
+        ) -> Result<Option<(Event, Vec<Event>)>> {
             find_event_with_relations(
                 event_id,
                 &self.state.room_id,
@@ -1117,7 +1121,7 @@ mod private {
         /// Load more events backwards if the last chunk is **not** a gap.
         pub async fn load_more_events_backwards(
             &mut self,
-        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+        ) -> Result<LoadMoreEventsBackwardsOutcome> {
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
             if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.prev_token)
@@ -1231,7 +1235,7 @@ mod private {
         /// pending diff updates with the result of this function.
         ///
         /// Otherwise, returns `None`.
-        pub async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+        pub async fn shrink_to_last_chunk(&mut self) -> Result<()> {
             // Attempt to load the last chunk.
             let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
             let (last_chunk, chunk_identifier_generator) =
@@ -1282,7 +1286,7 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn auto_shrink_if_no_subscribers(
             &mut self,
-        ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
+        ) -> Result<Option<Vec<VectorDiff<Event>>>> {
             let subscriber_count = self.state.subscriber_count.load(Ordering::SeqCst);
 
             trace!(subscriber_count, "received request to auto-shrink");
@@ -1308,7 +1312,7 @@ mod private {
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             // In-store events.
             if !in_store_events.is_empty() {
                 let mut positions = in_store_events
@@ -1343,7 +1347,7 @@ mod private {
             self.propagate_changes().await
         }
 
-        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+        async fn propagate_changes(&mut self) -> Result<()> {
             let updates = self.state.room_linked_chunk.store_updates().take();
             self.send_updates_to_store(updates).await
         }
@@ -1357,15 +1361,12 @@ mod private {
         async fn apply_store_only_updates(
             &mut self,
             updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             self.state.room_linked_chunk.order_tracker.map_updates(&updates);
             self.send_updates_to_store(updates).await
         }
 
-        async fn send_updates_to_store(
-            &mut self,
-            updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
+        async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
             let linked_chunk_id = OwnedLinkedChunkId::Room(self.state.room_id.clone());
             send_updates_to_store(
                 &self.store,
@@ -1381,7 +1382,7 @@ mod private {
         /// Return a single diff update that is a clear of all events; as a
         /// result, the caller may override any pending diff updates
         /// with the result of this function.
-        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
             self.reset_internal().await?;
 
             let diff_updates = self.state.room_linked_chunk.updates_as_vector_diffs();
@@ -1393,7 +1394,7 @@ mod private {
             Ok(diff_updates)
         }
 
-        async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
+        async fn reset_internal(&mut self) -> Result<()> {
             self.state.room_linked_chunk.reset();
 
             // No need to update the thread summaries: the room events are
@@ -1430,7 +1431,7 @@ mod private {
         pub async fn handle_sync(
             &mut self,
             mut timeline: Timeline,
-        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
+        ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
             let mut prev_batch = timeline.prev_batch.take();
 
             let DeduplicationOutcome {
@@ -1553,8 +1554,7 @@ mod private {
             events: Vec<Event>,
             mut new_token: Option<String>,
             prev_token: Option<String>,
-        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
-        {
+        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>> {
             // Check that the previous token still exists; otherwise it's a sign that the
             // room's timeline has been cleared.
             let prev_gap_id = if let Some(token) = prev_token {
@@ -1672,11 +1672,11 @@ mod private {
         /// linked chunk.
         ///
         /// Flushes updates to disk first.
-        pub(in super::super) async fn post_process_new_events(
+        pub(in crate::event_cache) async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
             post_processing_origin: PostProcessingOrigin,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
@@ -1770,7 +1770,7 @@ mod private {
             &mut self,
             new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
             post_processing_origin: PostProcessingOrigin,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             for (thread_root, new_events) in new_events_by_thread {
                 let thread_cache = self.get_or_reload_thread(thread_root.clone());
 
@@ -1806,7 +1806,7 @@ mod private {
             thread_root: OwnedEventId,
             latest_event_id: Option<OwnedEventId>,
             _post_processing_origin: PostProcessingOrigin,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             // Add a thread summary to the (room) event which has the thread root, if we
             // knew about it.
 
@@ -1869,11 +1869,11 @@ mod private {
         /// observers that a single item has been replaced. Otherwise,
         /// such a notification is not emitted, because observers are
         /// unlikely to observe the store updates directly.
-        pub(crate) async fn replace_event_at(
+        pub(in crate::event_cache) async fn replace_event_at(
             &mut self,
             location: EventLocation,
             event: Event,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             match location {
                 EventLocation::Memory(position) => {
                     self.state
@@ -1900,7 +1900,7 @@ mod private {
             &mut self,
             event: &Event,
             post_processing_origin: PostProcessingOrigin,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<()> {
             let raw_event = event.raw();
 
             // Do not deserialise the entire event if we aren't certain it's a
@@ -1997,10 +1997,7 @@ mod private {
         }
 
         /// Save events into the database, without notifying observers.
-        pub async fn save_events(
-            &mut self,
-            events: impl IntoIterator<Item = Event>,
-        ) -> Result<(), EventCacheError> {
+        pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
             let store = self.store.clone();
             let room_id = self.state.room_id.clone();
             let events = events.into_iter().collect::<Vec<_>>();
@@ -2010,7 +2007,7 @@ mod private {
                 for event in events {
                     store.save_event(&room_id, event).await?;
                 }
-                super::Result::Ok(())
+                Result::Ok(())
             })
             .await
             .expect("joining failed")?;
@@ -2032,7 +2029,7 @@ mod private {
     async fn load_linked_chunk_metadata(
         store_guard: &EventCacheStoreLockGuard,
         linked_chunk_id: LinkedChunkId<'_>,
-    ) -> Result<Option<Vec<ChunkMetadata>>, EventCacheError> {
+    ) -> Result<Option<Vec<ChunkMetadata>>> {
         let mut all_chunks = store_guard
             .load_all_chunks_metadata(linked_chunk_id)
             .await
@@ -2156,7 +2153,7 @@ mod private {
         room_id: &RoomId,
         room_linked_chunk: &EventLinkedChunk,
         store: &EventCacheStoreLockGuard,
-    ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
+    ) -> Result<Option<(EventLocation, Event)>> {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
         for (position, event) in room_linked_chunk.revents() {
@@ -2177,7 +2174,7 @@ mod private {
         filters: Option<Vec<RelationType>>,
         room_linked_chunk: &EventLinkedChunk,
         store: &EventCacheStoreLockGuard,
-    ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
+    ) -> Result<Option<(Event, Vec<Event>)>> {
         // First, hit storage to get the target event and its related events.
         let found = store.find_event(room_id, event_id).await?;
 
@@ -2201,7 +2198,7 @@ mod private {
         filters: Option<Vec<RelationType>>,
         room_linked_chunk: &EventLinkedChunk,
         store: &EventCacheStoreLockGuard,
-    ) -> Result<Vec<Event>, EventCacheError> {
+    ) -> Result<Vec<Event>> {
         // Initialize the stack with all the related events, to find the
         // transitive closure of all the related events.
         let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
@@ -2268,7 +2265,7 @@ mod private {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum PostProcessingOrigin {
+pub(in crate::event_cache) enum PostProcessingOrigin {
     Sync,
     Backpagination,
     #[cfg(feature = "e2e-encryption")]
@@ -2276,7 +2273,7 @@ pub(super) enum PostProcessingOrigin {
 }
 
 /// An enum representing where an event has been found.
-pub(super) enum EventLocation {
+pub(in crate::event_cache) enum EventLocation {
     /// Event lives in memory (and likely in the store!).
     Memory(Position),
 
@@ -2284,7 +2281,7 @@ pub(super) enum EventLocation {
     Store,
 }
 
-pub(super) use private::RoomEventCacheStateLock;
+pub(in crate::event_cache) use private::RoomEventCacheStateLock;
 
 #[cfg(test)]
 mod tests {
@@ -2586,14 +2583,13 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{
-            RoomEventCache, RoomEventCacheUpdate, caches::lock::Reload as _,
-            room::LoadMoreEventsBackwardsOutcome,
-        },
+        super::{RoomEventCache, room::LoadMoreEventsBackwardsOutcome},
         RoomEventCacheGenericUpdate,
     };
     use crate::{
-        assert_let_timeout, event_cache::TimelineVectorDiffs, test_utils::client::MockClientBuilder,
+        assert_let_timeout,
+        event_cache::{RoomEventCacheUpdate, TimelineVectorDiffs, common::lock::Reload as _},
+        test_utils::client::MockClientBuilder,
     };
 
     #[async_test]

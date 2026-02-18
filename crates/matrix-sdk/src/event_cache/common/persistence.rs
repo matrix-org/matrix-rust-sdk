@@ -26,7 +26,7 @@ use crate::event_cache::{Result, RoomEventCacheLinkedChunkUpdate};
 
 /// Propagate linked chunk updates to the store and to the linked chunk update
 /// observers.
-pub(super) async fn send_updates_to_store(
+pub(in crate::event_cache) async fn send_updates_to_store(
     store: &EventCacheStoreLockGuard,
     linked_chunk_id: OwnedLinkedChunkId,
     linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
