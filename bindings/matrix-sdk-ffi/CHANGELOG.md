@@ -77,6 +77,16 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
+- Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Cancelled` for when the grant is cancelled
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::OtherDeviceAlreadySignedIn` for when the other device is already signed in
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
 ### Refactor
 
@@ -95,6 +105,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `SpaceService`'s `joined_spaces` method has been renamed
   `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
   ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
+- [**breaking**] `HumanQrGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 
 ## [0.16.0] - 2025-12-04
 
