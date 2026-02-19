@@ -3876,19 +3876,26 @@ async fn test_sending_event_still_saves_sync_gap() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Sanity check: there's no event in the room at start.
+    assert!(events.is_empty());
+
     // Send a message in the room.
     let content = RoomMessageEventContent::text_plain("hello world");
     server.mock_room_send().ok(event_id!("$msg_now")).mock_once().mount().await;
 
     let send_queue = room.send_queue();
-    let mut stream = send_queue.subscribe().await.unwrap().1;
 
-    // Wait for the send queue to send the message.
+    // Wait for the send queue to send the message, and save it in the cache.
     send_queue.send(content.into()).await.unwrap();
-    assert_let_timeout!(Ok(RoomSendQueueUpdate::NewLocalEvent(..)) = stream.recv());
-
-    // Let the send queue save the event in the cache.
-    sleep(Duration::from_millis(500)).await;
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(up)) = stream.recv());
+    assert_eq!(up.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap. This can happen under real-world
@@ -3907,6 +3914,14 @@ async fn test_sending_event_still_saves_sync_gap() {
         )
         .await;
 
+    // After syncing, since a gap was saved, the cache should unload the chunk and
+    // reload the latest one (that includes the remote-echo).
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
+    assert_eq!(update.diffs.len(), 2);
+    assert_let!(VectorDiff::Clear = &update.diffs[0]);
+    assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
+    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+
     // When paginating with this previous batch token, we should get new events from
     // this room.
     server
@@ -3917,13 +3932,6 @@ async fn test_sending_event_still_saves_sync_gap() {
         .mock_once()
         .mount()
         .await;
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
-
-    // Sanity check: there's the sent event, and only that one.
-    assert_eq!(events.len(), 1);
 
     // Run a pagination; it should return the past message.
     let outcome = room_event_cache.pagination().run_backwards_once(42).await.unwrap();
