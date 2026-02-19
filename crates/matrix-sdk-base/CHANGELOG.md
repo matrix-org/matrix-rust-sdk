@@ -36,6 +36,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now instead of the previous `holder` value
+  and so does `StoreConfig` and `BaseClient::clone_with_in_memory_state_store. Passing a 
+  `CrossProcessLockConfig::MultiProcess` will keep the same behaviour we had where the client uses the cross process 
+  lock and using `CrossProcessLockConfig::SingleProcess` will disable the cross process lock.
+  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 - [**breaking**] The `StateStore::upsert_thread_subscription` method has been removed in favor of a
   bulk method `StateStore::upsert_thread_subscriptions`.
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
