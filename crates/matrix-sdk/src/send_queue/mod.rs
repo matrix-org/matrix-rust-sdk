@@ -153,11 +153,9 @@ use matrix_sdk_base::{
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
+    task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_common::{
-    executor::{JoinHandle, spawn},
-    locks::Mutex as SyncMutex,
-};
+use matrix_sdk_common::locks::Mutex as SyncMutex;
 use mime::Mime;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
@@ -476,17 +474,20 @@ impl RoomSendQueue {
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
         let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
-        let task = spawn(Self::sending_task(
-            weak_room.clone(),
-            queue.clone(),
-            notifier.clone(),
-            global_update_sender.clone(),
-            update_sender.clone(),
-            locally_enabled.clone(),
-            global_error_sender,
-            is_dropping,
-            report_media_upload_progress,
-        ));
+        let task = client.task_monitor().spawn_background_task(
+            "send_queue",
+            Self::sending_task(
+                weak_room.clone(),
+                queue.clone(),
+                notifier.clone(),
+                global_update_sender.clone(),
+                update_sender.clone(),
+                locally_enabled.clone(),
+                global_error_sender,
+                is_dropping,
+                report_media_upload_progress,
+            ),
+        );
 
         Self {
             inner: Arc::new(RoomSendQueueInner {
@@ -1164,7 +1165,7 @@ struct RoomSendQueueInner {
 
     /// Handle to the actual sending task. Unused, but kept alive along this
     /// data structure.
-    _task: JoinHandle<()>,
+    _task: BackgroundTaskHandle,
 }
 
 /// Information about a request being sent right this moment.
