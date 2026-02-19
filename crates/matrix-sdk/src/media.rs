@@ -17,7 +17,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-use std::{backtrace::Backtrace, time::Duration};
+use std::time::Duration;
 #[cfg(not(target_family = "wasm"))]
 use std::{fmt, fs::File, path::Path};
 
@@ -39,7 +39,6 @@ use ruma::{
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_family = "wasm"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
-use tracing::warn;
 
 use crate::{
     Client, Error, Result, TransmissionProgress, attachment::Thumbnail,
@@ -420,17 +419,13 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        let backtrace = Backtrace::capture();
         // Ignore request parameters for local medias, notably those pending in the send
         // queue.
-        // Read from the cache.
-        // Use the authenticated endpoints when the server supports it.
-        warn!("Getting media {:?} from {:?}", request.source, backtrace);
-
         if let Some(uri) = Self::as_local_uri(&request.source) {
             return self.get_local_media_content(uri).await;
         }
 
+        // Read from the cache.
         if use_cache
             && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
@@ -444,6 +439,8 @@ impl Media {
             // Downloading a file should have no timeout as we don't know the network connectivity
             // available for the user or the file size
             .timeout(Some(Duration::MAX));
+
+        // Use the authenticated endpoints when the server supports it.
         let supported_versions = self.client.supported_versions().await?;
 
         let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
