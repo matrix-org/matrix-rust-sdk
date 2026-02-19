@@ -35,9 +35,8 @@ use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
     Client, Error as SDKError, Room, deserialized_responses::SyncOrStrippedState,
-    executor::AbortOnDrop,
+    task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId, RoomId,
     events::{
@@ -143,7 +142,7 @@ pub struct SpaceService {
 
     space_state: Arc<AsyncMutex<SpaceState>>,
 
-    _room_update_handle: AsyncMutex<AbortOnDrop<()>>,
+    _room_update_handle: AsyncMutex<BackgroundTaskHandle>,
 }
 
 impl SpaceService {
@@ -155,37 +154,41 @@ impl SpaceService {
             space_filters: ObservableVector::new(),
         }));
 
-        let room_update_handle = spawn({
-            let client = client.clone();
-            let space_state = Arc::clone(&space_state);
-            let all_room_updates_receiver = client.subscribe_to_all_room_updates();
+        let room_update_handle = client
+            .task_monitor()
+            .spawn_background_task("space_service", {
+                let client = client.clone();
+                let space_state = Arc::clone(&space_state);
+                let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-            async move {
-                pin_mut!(all_room_updates_receiver);
+                async move {
+                    pin_mut!(all_room_updates_receiver);
 
-                loop {
-                    match all_room_updates_receiver.recv().await {
-                        Ok(updates) => {
-                            if updates.is_empty() {
-                                continue;
+                    loop {
+                        match all_room_updates_receiver.recv().await {
+                            Ok(updates) => {
+                                if updates.is_empty() {
+                                    continue;
+                                }
+
+                                let (spaces, filters, graph) =
+                                    Self::build_space_state(&client).await;
+                                Self::update_space_state_if_needed(
+                                    Vector::from(spaces),
+                                    Vector::from(filters),
+                                    graph,
+                                    &space_state,
+                                )
+                                .await;
                             }
-
-                            let (spaces, filters, graph) = Self::build_space_state(&client).await;
-                            Self::update_space_state_if_needed(
-                                Vector::from(spaces),
-                                Vector::from(filters),
-                                graph,
-                                &space_state,
-                            )
-                            .await;
-                        }
-                        Err(err) => {
-                            error!("error when listening to room updates: {err}");
+                            Err(err) => {
+                                error!("error when listening to room updates: {err}");
+                            }
                         }
                     }
                 }
-            }
-        });
+            })
+            .abort_on_drop();
 
         // Make sure to also update the currently joined spaces for the initial values.
         let (spaces, filters, graph) = Self::build_space_state(&client).await;
@@ -197,11 +200,7 @@ impl SpaceService {
         )
         .await;
 
-        Self {
-            client,
-            space_state,
-            _room_update_handle: AsyncMutex::new(AbortOnDrop::new(room_update_handle)),
-        }
+        Self { client, space_state, _room_update_handle: AsyncMutex::new(room_update_handle) }
     }
 
     /// Subscribes to updates on the joined spaces list. If space rooms are

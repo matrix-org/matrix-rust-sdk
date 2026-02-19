@@ -24,11 +24,7 @@ use std::{
 };
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use matrix_sdk::{
-    Client,
-    executor::{JoinHandle, spawn},
-    sleep::sleep,
-};
+use matrix_sdk::{Client, sleep::sleep, task_monitor::BackgroundTaskHandle};
 use matrix_sdk_base::{
     SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm,
     crypto::types::events::UtdCause,
@@ -92,7 +88,7 @@ struct PendingUtdReport {
     marked_utd_at: Instant,
 
     /// The task that will report this UTD to the parent hook.
-    report_task: JoinHandle<()>,
+    report_task: BackgroundTaskHandle,
 
     /// The UnableToDecryptInfo structure for this UTD event.
     utd_info: UnableToDecryptInfo,
@@ -296,7 +292,7 @@ impl UtdHookManager {
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
-        let handle = spawn(async move {
+        let handle = self.client.task_monitor().spawn_background_task("utd_hook", async move {
             // Wait for the given delay.
             sleep(max_delay).await;
 
