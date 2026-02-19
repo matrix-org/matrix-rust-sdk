@@ -1161,7 +1161,7 @@ async fn publish_call_membership_via_widget(
     let application =
         Application::Call(CallApplicationContent::new(call_id.clone(), CallScope::Room));
     let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
-    let focus_alias = format!("livekit-{}", room.room_id());
+    let focus_alias = format!("{}", room.room_id());
     let foci_preferred =
         vec![Focus::Livekit(LivekitFocus::new(focus_alias, service_url.to_owned()))];
     let content = CallMemberEventContent::new(
