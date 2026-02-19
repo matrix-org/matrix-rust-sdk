@@ -80,6 +80,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- Replaced `ClientBuilder::cross_process_store_locks_holder_name` with `ClientBuilder::cross_process_lock_config`, 
+  which accepts a `CrossProcessLockConfig` value to specify whether the resulting `Client` will be used in a single 
+  process or multiple processes. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
   account also for v12 rooms, where creators and users with PL 150 matter.
   ([#6036](https://github.com/matrix-org/matrix-rust-sdk/pull/6036))
