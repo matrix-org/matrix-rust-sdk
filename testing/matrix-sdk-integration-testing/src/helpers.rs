@@ -22,10 +22,8 @@ use matrix_sdk::{
     sync::SyncResponse,
     timeout::ElapsedError,
 };
-use matrix_sdk_base::{
-    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
-    store::CrossProcessStoreConfig,
-};
+use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{TempDir, tempdir};
@@ -49,7 +47,7 @@ pub struct TestClientBuilder {
     enable_share_history_on_invite: bool,
     threading_support: ThreadingSupport,
     http_proxy: Option<String>,
-    cross_process_mode: CrossProcessStoreConfig,
+    cross_process_lock_config: CrossProcessLockConfig,
 }
 
 impl TestClientBuilder {
@@ -69,7 +67,7 @@ impl TestClientBuilder {
             enable_share_history_on_invite: false,
             threading_support: ThreadingSupport::Disabled,
             http_proxy: None,
-            cross_process_mode: CrossProcessStoreConfig::SingleProcess,
+            cross_process_lock_config: CrossProcessLockConfig::SingleProcess,
         }
     }
 
@@ -117,8 +115,11 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn cross_process_mode(mut self, cross_process_mode: CrossProcessStoreConfig) -> Self {
-        self.cross_process_mode = cross_process_mode;
+    pub fn cross_process_lock_config(
+        mut self,
+        cross_process_lock_config: CrossProcessLockConfig,
+    ) -> Self {
+        self.cross_process_lock_config = cross_process_lock_config;
         self
     }
 
@@ -135,7 +136,7 @@ impl TestClientBuilder {
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
             .with_threading_support(self.threading_support)
             .request_config(RequestConfig::short_retry())
-            .cross_process_store_config(self.cross_process_mode.clone());
+            .cross_process_store_config(self.cross_process_lock_config.clone());
 
         if let Some(decryption_settings) = &self.decryption_settings {
             client_builder = client_builder.with_decryption_settings(decryption_settings.clone())

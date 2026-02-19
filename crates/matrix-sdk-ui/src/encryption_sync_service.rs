@@ -32,7 +32,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
-use matrix_sdk_base::store::CrossProcessStoreConfig;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{Span, debug, instrument, trace};
@@ -93,7 +93,7 @@ impl EncryptionSyncService {
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
-        if let CrossProcessStoreConfig::MultiProcess { holder_name } =
+        if let CrossProcessLockConfig::MultiProcess { holder_name } =
             client.cross_process_store_config()
         {
             // Gently try to enable the cross-process lock on behalf of the user.
@@ -132,7 +132,7 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let lock_guard = if let CrossProcessStoreConfig::MultiProcess { .. } =
+        let lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
             self.client.cross_process_store_config()
         {
             let mut lock_guard =
@@ -264,7 +264,7 @@ impl EncryptionSyncService {
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
-        let guard = if let CrossProcessStoreConfig::MultiProcess { .. } =
+        let guard = if let CrossProcessLockConfig::MultiProcess { .. } =
             self.client.cross_process_store_config()
         {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?

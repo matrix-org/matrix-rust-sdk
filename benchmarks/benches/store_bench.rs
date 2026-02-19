@@ -4,11 +4,9 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use matrix_sdk::{
     Client, RoomInfo, RoomState, SessionTokens, StateChanges,
     authentication::matrix::MatrixSession, config::StoreConfig,
+    cross_process_lock::CrossProcessLockConfig,
 };
-use matrix_sdk_base::{
-    SessionMeta, StateStore as _,
-    store::{CrossProcessStoreConfig, MemoryStore},
-};
+use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{RoomId, device_id, user_id};
 use tokio::runtime::Builder;
@@ -57,7 +55,7 @@ pub fn restore_session(c: &mut Criterion) {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
                 .store_config(
-                    StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process(
                         "cross-process-store-locks-holder-name",
                     ))
                     .state_store(store.clone()),
@@ -89,7 +87,7 @@ pub fn restore_session(c: &mut Criterion) {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
                         .store_config(
-                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
                                 "cross-process-store-locks-holder-name",
                             ))
                             .state_store(store.clone()),

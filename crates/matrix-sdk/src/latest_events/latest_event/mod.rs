@@ -309,8 +309,9 @@ mod tests_latest_event {
     use matrix_sdk_base::{
         RoomInfoNotableUpdateReasons, RoomState,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        store::{CrossProcessStoreConfig, SerializableEventContent, StoreConfig},
+        store::{SerializableEventContent, StoreConfig},
     };
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
@@ -589,7 +590,7 @@ mod tests_latest_event {
         let server = MatrixMockServer::new().await;
 
         let store_config =
-            StoreConfig::new(CrossProcessStoreConfig::multi_process("cross-process-lock-holder"));
+            StoreConfig::new(CrossProcessLockConfig::multi_process("cross-process-lock-holder"));
 
         // Load the client for the first time, and run some operations.
         {

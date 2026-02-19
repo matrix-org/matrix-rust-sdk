@@ -59,8 +59,9 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskFailureReason,
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
-use matrix_sdk_base::store::CrossProcessStoreConfig;
-use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
+};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -390,14 +391,14 @@ impl Client {
             }
 
             match store_mode {
-                CrossProcessStoreConfig::MultiProcess { holder_name } => {
+                CrossProcessLockConfig::MultiProcess { holder_name } => {
                     client
                         .inner
                         .oauth()
                         .enable_cross_process_refresh_lock(holder_name.clone())
                         .await?;
                 }
-                CrossProcessStoreConfig::SingleProcess => {
+                CrossProcessLockConfig::SingleProcess => {
                     client.inner.oauth();
                 }
             }

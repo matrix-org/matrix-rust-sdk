@@ -47,7 +47,7 @@ use matrix_sdk::{
         },
     },
 };
-use matrix_sdk_base::store::CrossProcessStoreConfig;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{TestError, TestResult};
 use matrix_sdk_ui::{
     Timeline,
@@ -681,7 +681,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // Now we create a notification client.
     let notification_client = bob
-        .notification_client(CrossProcessStoreConfig::multi_process("BOB_NOTIFICATION_CLIENT"))
+        .notification_client(CrossProcessLockConfig::multi_process("BOB_NOTIFICATION_CLIENT"))
         .await
         .expect("We should be able to build a notification client");
 

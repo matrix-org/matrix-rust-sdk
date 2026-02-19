@@ -20,6 +20,7 @@ use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
+    cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
@@ -30,10 +31,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, ThreadingSupport,
 };
-use matrix_sdk_base::{
-    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
-    store::CrossProcessStoreConfig as SdkCrossProcessStoreConfig,
-};
+use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
@@ -132,7 +130,7 @@ pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     disable_automatic_token_refresh: bool,
-    cross_process_store_config: CrossProcessStoreConfig,
+    cross_process_lock_config: CrossProcessLockConfig,
     enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     encryption_settings: EncryptionSettings,
@@ -177,7 +175,7 @@ impl ClientBuilder {
             #[cfg(not(target_family = "wasm"))]
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            cross_process_store_config: CrossProcessStoreConfig::SingleProcess,
+            cross_process_lock_config: CrossProcessLockConfig::SingleProcess,
             enable_oidc_refresh_lock: false,
             session_delegate: None,
             #[cfg(not(target_family = "wasm"))]
@@ -200,12 +198,12 @@ impl ClientBuilder {
         })
     }
 
-    pub fn cross_process_store_config(
+    pub fn cross_process_lock_config(
         self: Arc<Self>,
-        cross_process_store_config: CrossProcessStoreConfig,
+        cross_process_store_config: CrossProcessLockConfig,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.cross_process_store_config = cross_process_store_config;
+        builder.cross_process_lock_config = cross_process_store_config;
         Arc::new(builder)
     }
 
@@ -370,7 +368,7 @@ impl ClientBuilder {
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
-            .cross_process_store_config(builder.cross_process_store_config.into());
+            .cross_process_store_config(builder.cross_process_lock_config.into());
 
         let store_path = if let Some(store) = &builder.store {
             match store.build()? {
@@ -639,8 +637,8 @@ pub enum SlidingSyncVersionBuilder {
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
-/// The cross-process mode for `Store`s.
-pub enum CrossProcessStoreConfig {
+/// The cross-process lock config to use.
+pub enum CrossProcessLockConfig {
     /// The stores will be used in multiple processes, the holder name for the
     /// cross-process lock is the `holder_name` String.
     MultiProcess { holder_name: String },
@@ -649,13 +647,13 @@ pub enum CrossProcessStoreConfig {
     SingleProcess,
 }
 
-impl From<CrossProcessStoreConfig> for SdkCrossProcessStoreConfig {
-    fn from(store_mode: CrossProcessStoreConfig) -> Self {
+impl From<CrossProcessLockConfig> for SdkCrossProcessLockConfig {
+    fn from(store_mode: CrossProcessLockConfig) -> Self {
         match store_mode {
-            CrossProcessStoreConfig::MultiProcess { holder_name } => {
-                SdkCrossProcessStoreConfig::MultiProcess { holder_name }
+            CrossProcessLockConfig::MultiProcess { holder_name } => {
+                SdkCrossProcessLockConfig::MultiProcess { holder_name }
             }
-            CrossProcessStoreConfig::SingleProcess => SdkCrossProcessStoreConfig::SingleProcess,
+            CrossProcessLockConfig::SingleProcess => SdkCrossProcessLockConfig::SingleProcess,
         }
     }
 }

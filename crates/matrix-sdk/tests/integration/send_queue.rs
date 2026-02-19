@@ -18,7 +18,7 @@ use matrix_sdk::{
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_base::store::CrossProcessStoreConfig;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{
     ALICE, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
     event_factory::EventFactory,
@@ -1695,7 +1695,7 @@ async fn test_reloading_rooms_with_unsent_events() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreConfig::SingleProcess).state_store(store.clone()),
+                StoreConfig::new(CrossProcessLockConfig::SingleProcess).state_store(store.clone()),
             )
         })
         .build()
@@ -1748,7 +1748,7 @@ async fn test_reloading_rooms_with_unsent_events() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreConfig::SingleProcess).state_store(store),
+                StoreConfig::new(CrossProcessLockConfig::SingleProcess).state_store(store),
             )
         })
         .build()
