@@ -22,6 +22,9 @@ state-store = ["dep:matrix-sdk-base"]
 experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
+experimental-push-secrets = [
+    "matrix-sdk-crypto?/experimental-push-secrets"
+]
 
 [dependencies]
 as_variant.workspace = true
