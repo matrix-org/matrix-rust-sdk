@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
+  ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
   support MSC4388. The fields of the QrcodeData struct are not anymore publicly
   accessible. The `mode_data()` method has been renamed to `intent_data()` and
