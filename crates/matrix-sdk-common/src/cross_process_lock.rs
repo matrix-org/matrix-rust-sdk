@@ -457,6 +457,8 @@ where
         // lock in `try_lock_once` should sequentialize it all.
 
         loop {
+            // If the cross-process lock config is not `MultiProcess`, this behaves as a
+            // no-op and we just return
             let lock_result = self.try_lock_once().await?;
 
             if lock_result.is_ok() {

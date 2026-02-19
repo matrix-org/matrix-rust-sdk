@@ -82,12 +82,9 @@ impl EventCacheStoreLock {
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
-        let lock_state =
-            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
-                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
-            });
-
-        Ok(lock_state)
+        Ok(self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+            EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
+        }))
     }
 }
 
