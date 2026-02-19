@@ -1670,7 +1670,7 @@ impl Encryption {
     /// caches.
     ///
     /// The provided `lock_value` must be a unique identifier for this process.
-    /// Use [`Client::cross_process_store_config`] to get the global value, if
+    /// Use [`Client::cross_process_lock_config`] to get the global value, if
     /// multi-process is enabled.
     pub async fn enable_cross_process_store_lock(&self, lock_value: String) -> Result<(), Error> {
         // If the lock has already been created, don't recreate it from scratch.

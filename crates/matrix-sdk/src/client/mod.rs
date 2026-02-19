@@ -307,7 +307,7 @@ pub(crate) struct ClientInner {
     /// deduplicate multiple calls to a method.
     pub(crate) locks: ClientLocks,
 
-    /// The cross-process lock mode.
+    /// The cross-process lock configuration.
     ///
     /// The SDK provides cross-process store locks (see
     /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when
@@ -315,7 +315,7 @@ pub(crate) struct ClientInner {
     ///
     /// If multiple `Client`s are running in different processes, this
     /// value MUST be different for each `Client`.
-    cross_process_store_config: CrossProcessLockConfig,
+    cross_process_lock_config: CrossProcessLockConfig,
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
@@ -419,7 +419,7 @@ impl ClientInner {
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
-        cross_process_store_config: CrossProcessLockConfig,
+        cross_process_lock_config: CrossProcessLockConfig,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
@@ -438,7 +438,7 @@ impl ClientInner {
             base_client,
             caches,
             locks: Default::default(),
-            cross_process_store_config,
+            cross_process_lock_config,
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -535,15 +535,15 @@ impl Client {
         &self.inner.auth_ctx
     }
 
-    /// The cross-process store mode.
+    /// The cross-process store lock configuration used by this [`Client`].
     ///
     /// The SDK provides cross-process store locks (see
     /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when this
     /// value is [`CrossProcessLockConfig::MultiProcess`]. Its holder name is
     /// the value used for all cross-process store locks used by this
     /// `Client`.
-    pub fn cross_process_store_config(&self) -> &CrossProcessLockConfig {
-        &self.inner.cross_process_store_config
+    pub fn cross_process_lock_config(&self) -> &CrossProcessLockConfig {
+        &self.inner.cross_process_lock_config
     }
 
     /// Change the homeserver URL used by this client.
@@ -3089,12 +3089,12 @@ impl Client {
     /// Create a new specialized `Client` that can process notifications.
     ///
     /// See [`CrossProcessLock::new`] to learn more about
-    /// `cross_process_store_config`.
+    /// `cross_process_lock_config`.
     ///
     /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
-        cross_process_store_config: CrossProcessLockConfig,
+        cross_process_lock_config: CrossProcessLockConfig,
     ) -> Result<Client> {
         let client = Client {
             inner: ClientInner::new(
@@ -3105,7 +3105,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(cross_process_store_config.clone(), false)
+                    .clone_with_in_memory_state_store(cross_process_lock_config.clone(), false)
                     .await?,
                 self.inner.caches.supported_versions.read().await.clone(),
                 self.inner.caches.well_known.read().await.clone(),
@@ -3117,7 +3117,7 @@ impl Client {
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
-                cross_process_store_config,
+                cross_process_lock_config,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),

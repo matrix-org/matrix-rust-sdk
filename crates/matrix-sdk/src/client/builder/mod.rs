@@ -1083,7 +1083,7 @@ pub(crate) mod tests {
 
             assert_let!(
                 CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_store_config()
+                    client.cross_process_lock_config()
             );
             assert_eq!(holder_name, "main");
         }
@@ -1099,7 +1099,7 @@ pub(crate) mod tests {
 
             assert_let!(
                 CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_store_config()
+                    client.cross_process_lock_config()
             );
             assert_eq!(holder_name, "foo");
         }
