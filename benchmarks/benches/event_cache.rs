@@ -3,14 +3,12 @@ use std::{pin::Pin, sync::Arc};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
     RoomInfo, RoomState, SqliteEventCacheStore, StateStore,
+    cross_process_lock::CrossProcessLockConfig,
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
     test_utils::client::MockClientBuilder,
 };
-use matrix_sdk_base::{
-    event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore},
-    store::CrossProcessStoreConfig,
-};
+use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
 use matrix_sdk_test::{ALICE, event_factory::EventFactory};
 use ruma::{
     EventId, RoomId, event_id,
@@ -105,7 +103,7 @@ fn handle_room_updates(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
                                 "cross-process-store-locks-holder-name",
                             ))
                             .state_store(state_store.clone())
@@ -273,7 +271,7 @@ fn find_event_relations(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
                                 "cross-process-store-locks-holder-name",
                             ))
                             .state_store(state_store.clone())

@@ -19,13 +19,11 @@ use matrix_sdk::{
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     },
 };
-use matrix_sdk_base::{
-    event_cache::{
-        Gap,
-        store::{EventCacheStore, MemoryStore},
-    },
-    store::CrossProcessStoreConfig,
+use matrix_sdk_base::event_cache::{
+    Gap,
+    store::{EventCacheStore, MemoryStore},
 };
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     EventId, event_id,
@@ -1377,7 +1375,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     // clients.
     let state_memory_store = matrix_sdk_base::store::MemoryStore::new();
     let event_cache_store = Arc::new(MemoryStore::new());
-    let store_config = StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
+    let store_config = StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
         .state_store(state_memory_store)
         .event_cache_store(event_cache_store);
     let client = server
@@ -2404,7 +2402,7 @@ async fn test_clear_all_rooms() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
                     .event_cache_store(event_cache_store.clone()),
             )
         })
@@ -2484,7 +2482,7 @@ async fn test_sync_while_back_paginate() {
     ];
 
     let state_memory_store = matrix_sdk_base::store::MemoryStore::new();
-    let store_config = StoreConfig::new(CrossProcessStoreConfig::multi_process("le_store"))
+    let store_config = StoreConfig::new(CrossProcessLockConfig::multi_process("le_store"))
         .event_cache_store(Arc::new(MemoryStore::new()))
         .state_store(state_memory_store);
 
@@ -2611,7 +2609,7 @@ async fn test_relations_ordering() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreConfig::multi_process("hodlor"))
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
                     .event_cache_store(event_cache_store.clone()),
             )
         })

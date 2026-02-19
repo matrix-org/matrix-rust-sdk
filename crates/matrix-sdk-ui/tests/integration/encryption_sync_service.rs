@@ -13,7 +13,8 @@ use matrix_sdk::{
         client::mock_matrix_session, logged_in_client_with_server, test_client_builder_with_server,
     },
 };
-use matrix_sdk_base::{crypto::store::types::Changes, store::CrossProcessStoreConfig};
+use matrix_sdk_base::crypto::store::types::Changes;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService};
 use serde::Deserialize;
@@ -364,7 +365,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     info!("Creating the notification client");
     let notification_client = client
-        .notification_client(CrossProcessStoreConfig::multi_process("tests"))
+        .notification_client(CrossProcessLockConfig::multi_process("tests"))
         .await
         .expect("We should be able to build a notification client");
 

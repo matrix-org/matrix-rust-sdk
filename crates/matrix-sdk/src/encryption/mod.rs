@@ -112,6 +112,7 @@ pub use matrix_sdk_base::crypto::{
     },
     vodozemac,
 };
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::config::RequestConfig;
@@ -1687,9 +1688,10 @@ impl Encryption {
         let olm_machine = self.client.base_client().olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let lock = olm_machine
-            .store()
-            .create_store_lock("cross_process_lock".to_owned(), Some(lock_value));
+        let lock = olm_machine.store().create_store_lock(
+            "cross_process_lock".to_owned(),
+            CrossProcessLockConfig::multi_process(lock_value.to_owned()),
+        );
 
         // Gently try to initialize the crypto store generation counter.
         //

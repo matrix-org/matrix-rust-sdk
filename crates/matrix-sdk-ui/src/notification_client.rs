@@ -22,9 +22,8 @@ use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
-use matrix_sdk_base::{
-    RoomState, StoreError, deserialized_responses::TimelineEvent, store::CrossProcessStoreConfig,
-};
+use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
@@ -121,11 +120,9 @@ impl NotificationClient {
         // Only create the lock id if cross process lock is needed (multiple processes)
         let cross_process_store_config = match process_setup {
             NotificationProcessSetup::MultipleProcesses => {
-                CrossProcessStoreConfig::multi_process(Self::LOCK_ID)
+                CrossProcessLockConfig::multi_process(Self::LOCK_ID)
             }
-            NotificationProcessSetup::SingleProcess { .. } => {
-                CrossProcessStoreConfig::SingleProcess
-            }
+            NotificationProcessSetup::SingleProcess { .. } => CrossProcessLockConfig::SingleProcess,
         };
         let client = parent_client.notification_client(cross_process_store_config).await?;
 

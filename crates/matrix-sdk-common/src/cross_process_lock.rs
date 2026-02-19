@@ -182,9 +182,8 @@ where
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
 
-    /// A specific value to identify the lock's holder. When this value is
-    /// `None`, the cross process lock will act as a no-op implementation.
-    lock_holder: Option<String>,
+    /// The cross-process lock configuration.
+    config: CrossProcessLockConfig,
 
     /// Backoff time, in milliseconds.
     backoff: Arc<Mutex<WaitingTime>>,
@@ -239,14 +238,14 @@ where
     /// # Parameters
     ///
     /// - `lock_key`: key in the key-value store to store the lock's state.
-    /// - `lock_holder`: identify the lock's holder with this given value. When
-    ///   this value is `None`, the cross process lock will act as a no-op
-    ///   implementation.
-    pub fn new(locker: L, lock_key: String, lock_holder: Option<String>) -> Self {
+    /// - `config`: the cross-process lock configuration to use, if it's
+    ///   [`CrossProcessLockConfig::SingleProcess`], no actual lock will be
+    ///   taken.
+    pub fn new(locker: L, lock_key: String, config: CrossProcessLockConfig) -> Self {
         Self {
             locker,
             lock_key,
-            lock_holder,
+            config,
             backoff: Arc::new(Mutex::new(WaitingTime::Some(INITIAL_BACKOFF_MS))),
             num_holders: Arc::new(0.into()),
             locking_attempt: Arc::new(Mutex::new(())),
@@ -277,12 +276,12 @@ where
     ///
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
-    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
     pub async fn try_lock_once(
         &self,
     ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
-        // If there is no holder, this behaves as a no-op
-        let Some(lock_holder) = &self.lock_holder else {
+        // If it's not `MultiProcess`, this behaves as a no-op
+        let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
             let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
             return Ok(Ok(CrossProcessLockState::Clean(guard)));
         };
@@ -309,7 +308,7 @@ where
         }
 
         if let Some(new_generation) =
-            self.locker.try_lock(LEASE_DURATION_MS, &self.lock_key, lock_holder).await?
+            self.locker.try_lock(LEASE_DURATION_MS, &self.lock_key, holder_name).await?
         {
             match self.generation.swap(new_generation, Ordering::SeqCst) {
                 // If there was no lock generation, it means this is the first time the lock is
@@ -365,70 +364,63 @@ where
 
         // Restart a new one.
         *renew_task = Some(spawn(async move {
-            if let Some(lock_holder) = this.lock_holder {
-                loop {
-                    {
-                        // First, check if there are still users of this lock.
+            let CrossProcessLockConfig::MultiProcess { holder_name } = this.config else { return };
+            loop {
+                {
+                    // First, check if there are still users of this lock.
+                    //
+                    // This is not racy, because:
+                    // - the `locking_attempt` mutex makes sure we don't have unexpected
+                    // interactions with the non-atomic sequence above in `try_lock_once`
+                    // (check > 0, then add 1).
+                    // - other entities holding onto the `num_holders` atomic will only
+                    // decrease it over time.
+
+                    let _guard = this.locking_attempt.lock().await;
+
+                    // If there are no more users, we can quit.
+                    if this.num_holders.load(Ordering::SeqCst) == 0 {
+                        trace!("exiting the lease extension loop");
+
+                        // Cancel the lease with another 0ms lease.
+                        // If we don't get the lock, that's (weird but) fine.
+                        let fut = this.locker.try_lock(0, &this.lock_key, &holder_name);
+                        let _ = fut.await;
+
+                        // Exit the loop.
+                        break;
+                    }
+                }
+
+                sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
+
+                match this.locker.try_lock(LEASE_DURATION_MS, &this.lock_key, &holder_name).await {
+                    Ok(Some(_generation)) => {
+                        // It's impossible that the generation can be
+                        // different
+                        // from the previous generation.
                         //
-                        // This is not racy, because:
-                        // - the `locking_attempt` mutex makes sure we don't have unexpected
-                        // interactions with the non-atomic sequence above in `try_lock_once`
-                        // (check > 0, then add 1).
-                        // - other entities holding onto the `num_holders` atomic will only
-                        // decrease it over time.
-
-                        let _guard = this.locking_attempt.lock().await;
-
-                        // If there are no more users, we can quit.
-                        if this.num_holders.load(Ordering::SeqCst) == 0 {
-                            trace!("exiting the lease extension loop");
-
-                            // Cancel the lease with another 0ms lease.
-                            // If we don't get the lock, that's (weird but) fine.
-                            let fut = this.locker.try_lock(0, &this.lock_key, &lock_holder);
-                            let _ = fut.await;
-
-                            // Exit the loop.
-                            break;
-                        }
+                        // As long as the task runs, the lock is renewed, so
+                        // the generation
+                        // remains the same. If the lock is not
+                        // taken, it's because the lease has expired, which
+                        // is represented by the
+                        // `Ok(None)` value, and the task
+                        // must stop.
                     }
 
-                    sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
+                    Ok(None) => {
+                        error!("Failed to renew the lock lease: the lock could not be obtained");
 
-                    match this
-                        .locker
-                        .try_lock(LEASE_DURATION_MS, &this.lock_key, &lock_holder)
-                        .await
-                    {
-                        Ok(Some(_generation)) => {
-                            // It's impossible that the generation can be
-                            // different
-                            // from the previous generation.
-                            //
-                            // As long as the task runs, the lock is renewed, so
-                            // the generation
-                            // remains the same. If the lock is not
-                            // taken, it's because the lease has expired, which
-                            // is represented by the
-                            // `Ok(None)` value, and the task
-                            // must stop.
-                        }
+                        // Exit the loop.
+                        break;
+                    }
 
-                        Ok(None) => {
-                            error!(
-                                "Failed to renew the lock lease: the lock could not be obtained"
-                            );
+                    Err(err) => {
+                        error!("Error when extending the lock lease: {err:#}");
 
-                            // Exit the loop.
-                            break;
-                        }
-
-                        Err(err) => {
-                            error!("Error when extending the lock lease: {err:#}");
-
-                            // Exit the loop.
-                            break;
-                        }
+                        // Exit the loop.
+                        break;
                     }
                 }
             }
@@ -453,7 +445,7 @@ where
     /// reached a second time, the lock will stop attempting to get the lock
     /// and will return a timeout error upon locking. If not provided,
     /// will wait for [`MAX_BACKOFF_MS`].
-    #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
@@ -468,7 +460,7 @@ where
             let lock_result = self.try_lock_once().await?;
 
             if lock_result.is_ok() {
-                if self.lock_holder.is_some() {
+                if matches!(self.config, CrossProcessLockConfig::MultiProcess { .. }) {
                     // Reset backoff before returning, for the next attempt to lock.
                     *self.backoff.lock().await = WaitingTime::Some(INITIAL_BACKOFF_MS);
                 }
@@ -503,7 +495,7 @@ where
     /// Returns the value in the database that represents the holder's
     /// identifier.
     pub fn lock_holder(&self) -> Option<&str> {
-        self.lock_holder.as_deref()
+        self.config.holder_name()
     }
 }
 
@@ -610,6 +602,37 @@ pub enum CrossProcessLockError {
     TryLock(#[from] Box<dyn Error>),
 }
 
+/// The cross-process lock config to use for the various stores.
+#[derive(Clone, Debug)]
+pub enum CrossProcessLockConfig {
+    /// The stores will be used in multiple processes, the holder name for the
+    /// cross-process lock is the associated `String`.
+    MultiProcess {
+        /// The name of the holder of the cross-process lock.
+        holder_name: String,
+    },
+    /// The stores will be used in a single process, there is no need for a
+    /// cross-process lock.
+    SingleProcess,
+}
+
+impl CrossProcessLockConfig {
+    /// Helper for quickly creating a [`CrossProcessLockConfig::MultiProcess`]
+    /// variant.
+    pub fn multi_process(holder_name: impl Into<String>) -> Self {
+        Self::MultiProcess { holder_name: holder_name.into() }
+    }
+
+    /// The holder name for the cross-process lock. This is only relevant for
+    /// [`CrossProcessLockConfig::MultiProcess`] variants.
+    pub fn holder_name(&self) -> Option<&str> {
+        match self {
+            Self::MultiProcess { holder_name } => Some(holder_name),
+            Self::SingleProcess => None,
+        }
+    }
+}
+
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
@@ -624,8 +647,8 @@ mod tests {
     use tokio::{spawn, task::yield_now};
 
     use super::{
-        CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockState,
-        CrossProcessLockUnobtained, TryLock,
+        CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError,
+        CrossProcessLockGeneration, CrossProcessLockState, CrossProcessLockUnobtained, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
 
@@ -678,7 +701,11 @@ mod tests {
     #[async_test]
     async fn test_simple_lock_unlock() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessLock::new(store, "key".to_owned(), Some("first".to_owned()));
+        let lock = CrossProcessLock::new(
+            store,
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
 
         // The lock plain works when used with a single holder.
         let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
@@ -707,7 +734,11 @@ mod tests {
     #[async_test]
     async fn test_self_recovery() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), Some("first".to_owned()));
+        let lock = CrossProcessLock::new(
+            store.clone(),
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
 
         // When a lock is obtained…
         let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
@@ -719,7 +750,11 @@ mod tests {
         drop(lock);
 
         // And when rematerializing the lock with the same key/value…
-        let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), Some("first".to_owned()));
+        let lock = CrossProcessLock::new(
+            store.clone(),
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
 
         // We still got it.
         let guard =
@@ -734,7 +769,11 @@ mod tests {
     #[async_test]
     async fn test_multiple_holders_same_process() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessLock::new(store, "key".to_owned(), Some("first".to_owned()));
+        let lock = CrossProcessLock::new(
+            store,
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
 
         // Taking the lock twice…
         let guard1 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
@@ -760,9 +799,16 @@ mod tests {
     #[async_test]
     async fn test_multiple_processes() -> TestResult {
         let store = TestStore::default();
-        let lock1 =
-            CrossProcessLock::new(store.clone(), "key".to_owned(), Some("first".to_owned()));
-        let lock2 = CrossProcessLock::new(store, "key".to_owned(), Some("second".to_owned()));
+        let lock1 = CrossProcessLock::new(
+            store.clone(),
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
+        let lock2 = CrossProcessLock::new(
+            store,
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("second"),
+        );
 
         // `lock1` acquires the lock.
         let guard1 = lock1.try_lock_once().await?.expect("lock must be obtained successfully");
@@ -805,9 +851,16 @@ mod tests {
     #[async_test]
     async fn test_multiple_processes_up_to_dirty() -> TestResult {
         let store = TestStore::default();
-        let lock1 =
-            CrossProcessLock::new(store.clone(), "key".to_owned(), Some("first".to_owned()));
-        let lock2 = CrossProcessLock::new(store, "key".to_owned(), Some("second".to_owned()));
+        let lock1 = CrossProcessLock::new(
+            store.clone(),
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("first"),
+        );
+        let lock2 = CrossProcessLock::new(
+            store,
+            "key".to_owned(),
+            CrossProcessLockConfig::multi_process("second"),
+        );
 
         // Obtain `lock1` once.
         {

@@ -181,6 +181,7 @@ use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use oauth2::{
     AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope,
     StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
@@ -349,8 +350,10 @@ impl OAuth {
         let olm_machine =
             olm_machine_lock.as_ref().expect("there has to be an olm machine, hopefully?");
         let store = olm_machine.store();
-        let lock = store
-            .create_store_lock("oidc_session_refresh_lock".to_owned(), Some(lock_value.clone()));
+        let lock = store.create_store_lock(
+            "oidc_session_refresh_lock".to_owned(),
+            CrossProcessLockConfig::multi_process(lock_value.to_owned()),
+        );
 
         let manager = CrossProcessRefreshManager::new(store.clone(), lock);
 

@@ -32,8 +32,8 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    CrossProcessLockState, TryLock,
+    CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError, CrossProcessLockGeneration,
+    CrossProcessLockGuard, CrossProcessLockState, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -45,7 +45,6 @@ pub use self::{
     media_service::{IgnoreMediaRetentionPolicy, MediaService},
     memory_store::MemoryMediaStore,
 };
-use crate::store::CrossProcessStoreConfig;
 
 /// Media store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -114,23 +113,18 @@ impl fmt::Debug for MediaStoreLock {
 impl MediaStoreLock {
     /// Create a new lock around the [`MediaStore`].
     ///
-    /// The `cross_process_store_config` argument controls whether we need to
+    /// The `cross_process_lock_config` argument controls whether we need to
     /// hold the cross process lock or not.
-    pub fn new<S>(store: S, cross_process_store_config: CrossProcessStoreConfig) -> Self
+    pub fn new<S>(store: S, cross_process_lock_config: CrossProcessLockConfig) -> Self
     where
         S: IntoMediaStore,
     {
         let store = store.into_media_store();
 
-        let holder = match cross_process_store_config {
-            CrossProcessStoreConfig::MultiProcess { holder_name } => Some(holder_name),
-            CrossProcessStoreConfig::SingleProcess => None,
-        };
-
         let cross_process_lock = Arc::new(CrossProcessLock::new(
             LockableMediaStore(store.clone()),
             "default".to_owned(),
-            holder,
+            cross_process_lock_config,
         ));
         Self { cross_process_lock, store }
     }

@@ -7,7 +7,8 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     timeout::timeout,
 };
-use matrix_sdk_base::{event_cache::store::MemoryStore, store::CrossProcessStoreConfig};
+use matrix_sdk_base::event_cache::store::MemoryStore;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{EventId, event_id, owned_event_id, room_id, user_id};
 use serde_json::json;
@@ -161,7 +162,7 @@ async fn test_pinned_events_are_reloaded_from_storage() {
             .client_builder()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new(CrossProcessStoreConfig::multi_process("test_store"))
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("test_store"))
                         .event_cache_store(event_cache_store.clone())
                         .state_store(state_store.clone()),
                 )
@@ -219,7 +220,7 @@ async fn test_pinned_events_are_reloaded_from_storage() {
         .client_builder()
         .on_builder(|builder| {
             builder.store_config(
-                StoreConfig::new(CrossProcessStoreConfig::multi_process("test_store"))
+                StoreConfig::new(CrossProcessLockConfig::multi_process("test_store"))
                     .event_cache_store(event_cache_store)
                     .state_store(state_store),
             )

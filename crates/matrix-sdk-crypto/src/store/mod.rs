@@ -100,7 +100,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    cross_process_lock::{CrossProcessLock, CrossProcessLockGeneration},
+    cross_process_lock::{CrossProcessLock, CrossProcessLockConfig, CrossProcessLockGeneration},
     deserialized_responses::WithheldCode,
     timeout::timeout,
 };
@@ -1346,9 +1346,9 @@ impl Store {
     pub fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: Option<String>,
+        config: CrossProcessLockConfig,
     ) -> CrossProcessLock<LockableCryptoStore> {
-        self.inner.store.create_store_lock(lock_key, lock_value)
+        self.inner.store.create_store_lock(lock_key, config)
     }
 
     /// Receive notifications of gossipped secrets being received and stored in

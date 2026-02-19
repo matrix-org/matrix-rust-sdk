@@ -28,8 +28,8 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    MappedCrossProcessLockState, TryLock,
+    CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError, CrossProcessLockGeneration,
+    CrossProcessLockGuard, MappedCrossProcessLockState, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
@@ -41,7 +41,6 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
-use crate::store::CrossProcessStoreConfig;
 
 /// The high-level public type to represent an `EventCacheStore` lock.
 #[derive(Clone)]
@@ -65,23 +64,18 @@ impl fmt::Debug for EventCacheStoreLock {
 impl EventCacheStoreLock {
     /// Create a new lock around the [`EventCacheStore`].
     ///
-    /// The `cross_process_store_config` argument controls whether we need to
+    /// The `cross_process_lock_config` argument controls whether we need to
     /// hold the cross process lock or not.
-    pub fn new<S>(store: S, cross_process_store_config: CrossProcessStoreConfig) -> Self
+    pub fn new<S>(store: S, cross_process_lock_config: CrossProcessLockConfig) -> Self
     where
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
 
-        let holder = match cross_process_store_config {
-            CrossProcessStoreConfig::MultiProcess { holder_name } => Some(holder_name),
-            CrossProcessStoreConfig::SingleProcess => None,
-        };
-
         let cross_process_lock = Arc::new(CrossProcessLock::new(
             LockableEventCacheStore(store.clone()),
             "default".to_owned(),
-            holder,
+            cross_process_lock_config,
         ));
         Self { cross_process_lock, store }
     }

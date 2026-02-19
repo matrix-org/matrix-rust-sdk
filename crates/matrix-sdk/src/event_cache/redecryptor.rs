@@ -1094,8 +1094,9 @@ mod tests {
         },
         locks::Mutex,
         sleep::sleep,
-        store::{CrossProcessStoreConfig, StoreConfig},
+        store::StoreConfig,
     };
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, OwnedEventId, RoomId, RoomVersionId, device_id, event_id,
@@ -1310,7 +1311,7 @@ mod tests {
             let store = DelayingStore::new();
 
             (
-                StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                StoreConfig::new(CrossProcessLockConfig::multi_process(
                     "delayed_store_event_cache_test",
                 ))
                 .event_cache_store(store.clone()),
@@ -1318,7 +1319,7 @@ mod tests {
             )
         } else {
             (
-                StoreConfig::new(CrossProcessStoreConfig::multi_process(
+                StoreConfig::new(CrossProcessLockConfig::multi_process(
                     "normal_store_event_cache_test",
                 )),
                 None,
