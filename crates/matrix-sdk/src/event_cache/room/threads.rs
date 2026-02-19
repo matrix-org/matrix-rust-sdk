@@ -175,7 +175,8 @@ impl ThreadEventCache {
             trace!(%prev_token, "thread chunk has at least a gap");
             return LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
-                // No `prev_token` for threads, let's assume it's been waited.
+                // Since there is `Some(prev_token)` already, we assume we've
+                // waited for it already.
                 waited_for_initial_prev_token: true,
             };
         }
