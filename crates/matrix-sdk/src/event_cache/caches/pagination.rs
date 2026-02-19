@@ -26,7 +26,7 @@ use super::super::{EventCacheError, Result};
 /// Type to run paginations.
 #[derive(Clone, Debug)]
 pub(in super::super) struct Pagination<C> {
-    pub(in super::super) cache: C,
+    pub cache: C,
 }
 
 impl<C> Pagination<C> {
@@ -177,7 +177,7 @@ where
                         // Retry!
                         //
                         // Note: the next call to `load_more_events_backwards` should not return
-                        // `WaitForInitialPrevToken` because we've just mark we've waited for the
+                        // `WaitForInitialPrevToken` because we've just marked we've waited for the
                         // initial `prev_token`, so this is not an infinite loop.
                         //
                         // Note 2: not a recursive call, because recursive and async have a bad time
@@ -270,7 +270,7 @@ pub(in super::super) trait PaginatedCache {
 pub enum PaginationStatus {
     /// No pagination is happening right now.
     Idle {
-        /// Have we hit the star of the timeline, i.e. paginating wouldn't
+        /// Have we hit the start of the timeline, i.e. paginating wouldn't
         /// have any effect?
         hit_timeline_start: bool,
     },
@@ -316,7 +316,8 @@ pub struct BackPaginationOutcome {
     pub events: Vec<Event>,
 }
 
-/// TODO
+/// Internal type to represent the output of
+/// [`PaginatedCache::load_more_events_backwards`].
 #[derive(Debug)]
 pub(in super::super) enum LoadMoreEventsBackwardsOutcome {
     /// A gap has been inserted.
