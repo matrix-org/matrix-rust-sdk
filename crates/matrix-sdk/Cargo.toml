@@ -62,7 +62,7 @@ experimental-encrypted-state-events = [
 
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+rustls-tls = ["reqwest/rustls"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]
@@ -118,6 +118,7 @@ matrix-sdk-test = { workspace = true, optional = true }
 mime.workspace = true
 mime2ext = "0.1.54"
 oauth2.workspace = true
+oauth2-reqwest.workspace = true
 once_cell.workspace = true
 percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
