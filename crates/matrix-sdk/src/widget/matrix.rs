@@ -329,6 +329,11 @@ impl MatrixDriver {
                     return;
                 };
 
+                warn!(
+                    room_id = ?room.room_id(),
+                    "Forwarding call encryption keys from sync state as widget to-device event"
+                );
+
                 let _ = tx_for_state.send(to_device_like_event);
             },
         );
@@ -358,6 +363,11 @@ impl MatrixDriver {
             ?sender,
             "Received call encryption keys in room state sync event for widget"
         );
+        warn!(
+            ?room_id,
+            ?sender,
+            "Received call encryption keys in room state sync event for widget"
+        );
 
         #[derive(Deserialize, Serialize)]
         struct StateToToDeviceEventHelper<'a> {
@@ -373,6 +383,11 @@ impl MatrixDriver {
             .map(Raw::from_json)
             .map(|converted| {
                 info!(
+                    ?room_id,
+                    ?sender,
+                    "Converted state sync call keys event to widget to-device payload"
+                );
+                warn!(
                     ?room_id,
                     ?sender,
                     "Converted state sync call keys event to widget to-device payload"
