@@ -94,7 +94,7 @@ impl EncryptionSyncService {
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
         if let CrossProcessLockConfig::MultiProcess { holder_name } =
-            client.cross_process_store_config()
+            client.cross_process_lock_config()
         {
             // Gently try to enable the cross-process lock on behalf of the user.
             match client.encryption().enable_cross_process_store_lock(holder_name.clone()).await {
@@ -133,7 +133,7 @@ impl EncryptionSyncService {
         pin_mut!(sync);
 
         let lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
-            self.client.cross_process_store_config()
+            self.client.cross_process_lock_config()
         {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
@@ -265,7 +265,7 @@ impl EncryptionSyncService {
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
         let guard = if let CrossProcessLockConfig::MultiProcess { .. } =
-            self.client.cross_process_store_config()
+            self.client.cross_process_lock_config()
         {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
         } else {

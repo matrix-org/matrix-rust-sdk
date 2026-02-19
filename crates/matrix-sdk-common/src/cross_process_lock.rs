@@ -397,12 +397,10 @@ where
                 match this.locker.try_lock(LEASE_DURATION_MS, &this.lock_key, &holder_name).await {
                     Ok(Some(_generation)) => {
                         // It's impossible that the generation can be
-                        // different
-                        // from the previous generation.
+                        // different from the previous generation.
                         //
                         // As long as the task runs, the lock is renewed, so
-                        // the generation
-                        // remains the same. If the lock is not
+                        // the generation remains the same. If the lock is not
                         // taken, it's because the lease has expired, which
                         // is represented by the
                         // `Ok(None)` value, and the task

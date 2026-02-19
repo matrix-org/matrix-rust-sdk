@@ -373,7 +373,7 @@ impl Client {
             }
         });
 
-        let store_mode = sdk_client.cross_process_store_config();
+        let store_mode = sdk_client.cross_process_lock_config();
 
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
