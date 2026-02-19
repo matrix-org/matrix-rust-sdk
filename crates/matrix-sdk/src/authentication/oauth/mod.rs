@@ -181,6 +181,7 @@ use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use oauth2::{
     AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope,
