@@ -12,21 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use eyeball_im::VectorDiff;
-use matrix_sdk_base::event_cache::Event;
-
-use crate::event_cache::EventsOrigin;
-
-pub(super) mod lock;
 pub mod pagination;
-pub mod room;
-pub mod thread;
-
-/// A diff update for an event cache timeline represented as a vector.
-#[derive(Clone, Debug)]
-pub struct TimelineVectorDiffs {
-    /// New vector diff for the thread timeline.
-    pub diffs: Vec<VectorDiff<Event>>,
-    /// The origin that triggered this update.
-    pub origin: EventsOrigin,
-}

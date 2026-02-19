@@ -111,9 +111,12 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
         .mount()
         .await;
 
-    let hit_start =
-        room_event_cache.paginate_thread_backwards(thread_root_id.to_owned(), 42).await.unwrap();
-    assert!(hit_start);
+    let outcome = room_event_cache
+        .thread_pagination(thread_root_id.to_owned())
+        .run_backwards_once(42)
+        .await
+        .unwrap();
+    assert!(outcome.reached_start);
 
     assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
     assert_eq!(diffs.len(), 1);
@@ -441,7 +444,11 @@ async fn test_deduplication() {
         .mount()
         .await;
 
-    room_event_cache.paginate_thread_backwards(thread_root.to_owned(), 42).await.unwrap();
+    room_event_cache
+        .thread_pagination(thread_root.to_owned())
+        .run_backwards_once(42)
+        .await
+        .unwrap();
 
     // The events were already known, so the stream is still empty.
     assert!(thread_stream.is_empty());
@@ -690,9 +697,12 @@ async fn test_auto_subscribe_on_thread_paginate() {
         .mount()
         .await;
 
-    let hit_start =
-        room_event_cache.paginate_thread_backwards(thread_root_id.to_owned(), 42).await.unwrap();
-    assert!(hit_start);
+    let outcome = room_event_cache
+        .thread_pagination(thread_root_id.to_owned())
+        .run_backwards_once(42)
+        .await
+        .unwrap();
+    assert!(outcome.reached_start);
 
     // Let the event cache process the update.
     assert_let_timeout!(Ok(TimelineVectorDiffs { .. }) = thread_stream.recv());
@@ -776,9 +786,12 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
         .mount()
         .await;
 
-    let hit_start =
-        room_event_cache.paginate_thread_backwards(thread_root_id.to_owned(), 42).await.unwrap();
-    assert!(hit_start);
+    let outcome = room_event_cache
+        .thread_pagination(thread_root_id.to_owned())
+        .run_backwards_once(42)
+        .await
+        .unwrap();
+    assert!(outcome.reached_start);
 
     // Let the event cache process the update.
     assert_let_timeout!(Ok(TimelineVectorDiffs { .. }) = thread_stream.recv());

@@ -21,7 +21,7 @@ use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
-    event_cache::RoomPaginationStatus,
+    event_cache::PaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
 };
 use matrix_sdk_common::{
@@ -821,7 +821,7 @@ pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
-    fn on_update(&self, status: RoomPaginationStatus);
+    fn on_update(&self, status: PaginationStatus);
 }
 
 #[derive(Clone, uniffi::Enum)]
