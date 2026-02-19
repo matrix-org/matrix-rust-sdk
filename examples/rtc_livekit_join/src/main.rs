@@ -573,18 +573,10 @@ async fn main() -> anyhow::Result<()> {
     let _ = &widget;
 
     #[cfg(feature = "e2ee-per-participant")]
-    let to_device_key_provider = KeyProvider::new(KeyProviderOptions::default());
-    #[cfg(feature = "e2ee-per-participant")]
     let _to_device_probe_guard = register_any_to_device_probe_handler(&client);
     #[cfg(feature = "e2ee-per-participant")]
     let _room_message_probe_guard =
         register_room_message_key_probe_handler(&client, room.room_id().to_owned());
-    #[cfg(feature = "e2ee-per-participant")]
-    let _e2ee_to_device_guard = register_e2ee_to_device_handler(
-        &client,
-        room.room_id().to_owned(),
-        to_device_key_provider.clone(),
-    );
 
     let sync_client = client.clone();
     let sync_handle = tokio::spawn(async move { sync_client.sync(SyncSettings::new()).await });
@@ -630,6 +622,14 @@ async fn main() -> anyhow::Result<()> {
     let token_provider = EnvLiveKitTokenProvider { token: livekit_token.clone() };
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
+    #[cfg(feature = "e2ee-per-participant")]
+    let _e2ee_to_device_guard = e2ee_context.as_ref().map(|context| {
+        register_e2ee_to_device_handler(
+            &client,
+            room.room_id().to_owned(),
+            context.key_provider.clone(),
+        )
+    });
     #[cfg(feature = "e2ee-per-participant")]
     if let Some(context) = e2ee_context.as_ref() {
         spawn_periodic_e2ee_key_resend(room.clone(), context.clone());
@@ -1042,6 +1042,11 @@ async fn start_element_call_widget(
             let Some(request_id) = value.get("requestId").and_then(|v| v.as_str()) else {
                 continue;
             };
+            let api = value.get("api").and_then(|v| v.as_str());
+            let is_request = value.get("response").is_none();
+            if api != Some("toWidget") || !is_request {
+                continue;
+            }
             if action == "capabilities" {
                 info!(request_id, "widget requested capabilities");
                 let response = serde_json::json!({
@@ -1087,34 +1092,6 @@ async fn start_element_call_widget(
                     );
                 } else {
                     info!(request_id, event_type, "widget send_to_device received");
-                }
-            }
-            if action == "send_event" {
-                info!(request_id, "widget send_event received");
-                let response = serde_json::json!({
-                    "api": "toWidget",
-                    "widgetId": outbound_widget_id,
-                    "requestId": request_id,
-                    "action": "send_event",
-                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "response": {},
-                });
-                if !outbound_handle.send(response.to_string()).await {
-                    break;
-                }
-            }
-            if action == "update_state" {
-                info!(request_id, "widget update_state received");
-                let response = serde_json::json!({
-                    "api": "toWidget",
-                    "widgetId": outbound_widget_id,
-                    "requestId": request_id,
-                    "action": "update_state",
-                    "data": value.get("data").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "response": {},
-                });
-                if !outbound_handle.send(response.to_string()).await {
-                    break;
                 }
             }
         }
@@ -1195,37 +1172,17 @@ async fn publish_call_membership_via_widget(
         None,
         None,
     );
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
     let request_id = Uuid::new_v4().to_string();
-    let event_id = format!("$local-call-member-{now_ms}");
-
-    let state_event = serde_json::json!({
-        "type": "org.matrix.msc3401.call.member",
-        "sender": own_user_id.to_string(),
-        "content": content,
-        "state_key": state_key.as_ref(),
-        "origin_server_ts": now_ms,
-        "unsigned": {
-            "prev_content": {},
-            "prev_sender": own_user_id.to_string(),
-            "membership": "join",
-            "age": 0,
-        },
-        "event_id": event_id,
-        "room_id": room.room_id().to_string(),
-    });
-
-
     let send_event_message = serde_json::json!({
-        "api": "toWidget",
+        "api": "fromWidget",
         "widgetId": widget.widget_id,
         "requestId": request_id,
         "action": "send_event",
-        "data": state_event.clone(),
-        "response": {},
+        "data": {
+            "type": "org.matrix.msc3401.call.member",
+            "state_key": state_key.as_ref(),
+            "content": content,
+        },
     });
 
     let send_event_message_json = send_event_message.to_string();
@@ -1236,29 +1193,6 @@ async fn publish_call_membership_via_widget(
 
     if !widget.handle.send(send_event_message.to_string()).await {
         return Err(anyhow!("widget driver handle closed before sending membership send_event"));
-    }
-
-    let update_state_message = serde_json::json!({
-        "api": "toWidget",
-        "widgetId": widget.widget_id,
-        "requestId": Uuid::new_v4().to_string(),
-        "action": "update_state",
-        "data": {
-            "state": [state_event],
-        },
-        "response": {},
-    });
-
-    let update_state_message_json = update_state_message.to_string();
-    info!(
-        request_body = update_state_message_json.as_str(),
-        "Publishing MatrixRTC membership update_state via widget api"
-    );
-
-
-
-    if !widget.handle.send(update_state_message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending membership update_state"));
     }
 
     info!(state_key = state_key.as_ref(), "published MatrixRTC membership via widget api");
@@ -1580,13 +1514,13 @@ async fn send_per_participant_keys(
     let member_id = format!("{own_user_id}:{claimed}");
 
     let content_raw = Raw::new(&serde_json::json!({
-        "keys": { "index": key_index, "key": key_b64 },
+        "keys": [{ "index": key_index, "key": key_b64 }],
         "device_id": claimed,
         "member": { "claimed_device_id": claimed, "id": member_id },
         "room_id": room.room_id().to_string(),
         "session": {
             "application": "m.call",
-            "call_id": "",
+            "call_id": room.room_id().to_string(),
             "scope": "m.room"
         },
         "sent_ts": sent_ts,
@@ -1642,8 +1576,9 @@ fn register_room_message_key_probe_handler(
     info!(%room_id, "registering room message-like probe for encryption keys");
 
     let room_id_for_handler = room_id.clone();
-    let handle =
-        client.add_room_event_handler(&room_id_for_handler, move |raw: Raw<AnySyncMessageLikeEvent>| {
+    let handle = client.add_room_event_handler(
+        &room_id_for_handler,
+        move |raw: Raw<AnySyncMessageLikeEvent>| {
             let room_id = room_id.clone();
             async move {
                 let event_type = raw
@@ -1656,7 +1591,8 @@ fn register_room_message_key_probe_handler(
                     info!(%room_id, "probe observed room message-like encryption key event");
                 }
             }
-        });
+        },
+    );
 
     client.event_handler_drop_guard(handle)
 }
