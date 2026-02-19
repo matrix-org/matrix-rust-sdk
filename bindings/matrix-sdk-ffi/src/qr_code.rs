@@ -339,13 +339,11 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             }
 
             QRCodeLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
+                SecureChannelError::MessageDecode(_)
                 | SecureChannelError::RendezvousChannel(_)
                 | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => {
                     HumanQrLoginError::ConnectionInsecure
