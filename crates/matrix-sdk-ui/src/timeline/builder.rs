@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::{Room, executor::spawn};
+use matrix_sdk::Room;
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{events::AnySyncTimelineEvent, room_version_rules::RoomVersionRules};
 use tracing::{Instrument, Span, info_span};
@@ -189,33 +189,45 @@ impl TimelineBuilder {
             let (_initial_events, pinned_events_recv) =
                 room_event_cache.subscribe_to_pinned_events().await?;
 
-            Some(spawn(pinned_events_task(
-                room_event_cache.clone(),
-                controller.clone(),
-                pinned_events_recv,
-            )))
+            Some(
+                room.client()
+                    .task_monitor()
+                    .spawn_background_task(
+                        "timeline::pinned_event_cache_updates",
+                        pinned_events_task(
+                            room_event_cache.clone(),
+                            controller.clone(),
+                            pinned_events_recv,
+                        ),
+                    )
+                    .abort_on_drop(),
+            )
         } else {
             None
         };
 
-        let room_update_join_handle = spawn({
-            let span = info_span!(
-                parent: Span::none(),
-                "live_update_handler",
-                room_id = ?room.room_id(),
-                focus = focus.debug_string(),
-                prefix = internal_id_prefix
-            );
-            span.follows_from(Span::current());
+        let room_update_join_handle = room
+            .client()
+            .task_monitor()
+            .spawn_background_task("timeline::room_event_cache_updates", {
+                let span = info_span!(
+                    parent: Span::none(),
+                    "live_update_handler",
+                    room_id = ?room.room_id(),
+                    focus = focus.debug_string(),
+                    prefix = internal_id_prefix
+                );
+                span.follows_from(Span::current());
 
-            room_event_cache_updates_task(
-                room_event_cache.clone(),
-                controller.clone(),
-                event_subscriber,
-                focus.clone(),
-            )
-            .instrument(span)
-        });
+                room_event_cache_updates_task(
+                    room_event_cache.clone(),
+                    controller.clone(),
+                    event_subscriber,
+                    focus.clone(),
+                )
+                .instrument(span)
+            })
+            .abort_on_drop();
 
         let thread_update_join_handle =
             if let TimelineFocus::Thread { root_event_id: root } = &focus {
@@ -234,15 +246,19 @@ impl TimelineBuilder {
                     let (_events, receiver) =
                         room_event_cache.subscribe_to_thread(root.clone()).await?;
 
-                    spawn(
-                        thread_updates_task(
-                            receiver,
-                            room_event_cache.clone(),
-                            controller.clone(),
-                            root.clone(),
+                    room.client()
+                        .task_monitor()
+                        .spawn_background_task(
+                            "timeline::thread_event_cache_updates",
+                            thread_updates_task(
+                                receiver,
+                                room_event_cache.clone(),
+                                controller.clone(),
+                                root.clone(),
+                            )
+                            .instrument(span),
                         )
-                        .instrument(span),
-                    )
+                        .abort_on_drop()
                 })
             } else {
                 None
@@ -252,7 +268,7 @@ impl TimelineBuilder {
             let timeline_controller = controller.clone();
             let (local_echoes, send_queue_stream) = room.send_queue().subscribe().await?;
 
-            spawn({
+            room.client().task_monitor().spawn_background_task("timeline::local_echo_listener", {
                 // Handles existing local echoes first.
                 for echo in local_echoes {
                     timeline_controller.handle_local_echo(echo).await;
@@ -278,10 +294,10 @@ impl TimelineBuilder {
             event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {
                 _crypto_drop_handles: crypto_drop_handles,
-                room_update_join_handle,
-                thread_update_join_handle,
-                pinned_events_join_handle,
-                local_echo_listener_handle,
+                _room_update_join_handle: room_update_join_handle,
+                _thread_update_join_handle: thread_update_join_handle,
+                _pinned_events_join_handle: pinned_events_join_handle,
+                _local_echo_listener_handle: local_echo_listener_handle,
                 _event_cache_drop_handle: event_cache_drop,
             }),
         };
