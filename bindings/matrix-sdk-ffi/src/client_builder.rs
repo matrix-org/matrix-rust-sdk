@@ -200,10 +200,10 @@ impl ClientBuilder {
 
     pub fn cross_process_lock_config(
         self: Arc<Self>,
-        cross_process_store_config: CrossProcessLockConfig,
+        cross_process_lock_config: CrossProcessLockConfig,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.cross_process_lock_config = cross_process_store_config;
+        builder.cross_process_lock_config = cross_process_lock_config;
         Arc::new(builder)
     }
 
@@ -639,17 +639,19 @@ pub enum SlidingSyncVersionBuilder {
 #[derive(Clone, Debug, uniffi::Enum)]
 /// The cross-process lock config to use.
 pub enum CrossProcessLockConfig {
-    /// The stores will be used in multiple processes, the holder name for the
-    /// cross-process lock is the `holder_name` String.
-    MultiProcess { holder_name: String },
-    /// The stores will be used in a single process, there is no need for a
+    /// The client will run using multiple processes.
+    MultiProcess {
+        /// The holder name to use for the lock.
+        holder_name: String,
+    },
+    /// The client will run in a single process, there is no need for a
     /// cross-process lock.
     SingleProcess,
 }
 
 impl From<CrossProcessLockConfig> for SdkCrossProcessLockConfig {
-    fn from(store_mode: CrossProcessLockConfig) -> Self {
-        match store_mode {
+    fn from(lock_config: CrossProcessLockConfig) -> Self {
+        match lock_config {
             CrossProcessLockConfig::MultiProcess { holder_name } => {
                 SdkCrossProcessLockConfig::MultiProcess { holder_name }
             }
