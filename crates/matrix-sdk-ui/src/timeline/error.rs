@@ -113,6 +113,14 @@ pub enum PaginationError {
     #[error("Error when paginating.")]
     Paginator(#[source] PaginatorError),
 
+    /// An error occurred in the event cache.
+    #[error("Error in event cache.")]
+    EventCache(#[source] EventCacheError),
+
+    /// The focused event doesn't have an attached cache.
+    #[error("Missing cache for focused event")]
+    MissingCache,
+
     #[error("Pagination type not supported in this focus mode")]
     NotSupported,
 }

@@ -1271,9 +1271,6 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_not_in_tim
 /// variant even if the focused UTD event isn't part of the main timeline and
 /// thus wasn't put into the event cache by the main timeline backpaginating.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-// FIXME: This test is ignored because R2D2 can't decrypt this event as
-// it's never put into the event cache.
-#[ignore]
 async fn test_permalink_timelines_redecrypt() -> TestResult {
     const RECOVERY_PASSPHRASE: &str = "I am error";
 

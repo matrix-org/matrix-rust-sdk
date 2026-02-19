@@ -16,10 +16,11 @@
 
 use std::time::Duration;
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    assert_let_timeout,
     config::{SyncSettings, SyncToken},
     test_utils::{
         logged_in_client_with_server,
@@ -30,10 +31,7 @@ use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     mocks::mock_encryption_state,
 };
-use matrix_sdk_ui::timeline::{
-    TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus, TimelineItemKind,
-    VirtualTimelineItem,
-};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
@@ -136,27 +134,20 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 4);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[0]);
-    assert_eq!(
-        message.as_event().unwrap().content().as_message().unwrap().body(),
-        "And even though I tried, it all fell apart"
-    );
-
-    assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[1]);
+    assert_let!(VectorDiff::Insert { index: 1, value: message } = &timeline_updates[0]);
     assert_eq!(
         message.as_event().unwrap().content().as_message().unwrap().body(),
         "I kept everything inside"
     );
 
-    // Date divider post processing.
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[2]);
-    assert!(item.is_date_divider());
-
-    assert_let!(VectorDiff::Remove { index } = &timeline_updates[3]);
-    assert_eq!(*index, 3);
+    assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[1]);
+    assert_eq!(
+        message.as_event().unwrap().content().as_message().unwrap().body(),
+        "And even though I tried, it all fell apart"
+    );
 
     // Now trigger a forward pagination.
     mock_messages(
@@ -176,7 +167,7 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
@@ -508,16 +499,10 @@ async fn test_focused_timeline_handles_threaded_event() {
     assert!(!start_of_timeline);
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-    // The new item loaded is added at the start
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[0]);
+    assert_eq!(timeline_updates.len(), 1);
+    // The new item loaded is inserted at the start, just after the date divider.
+    assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Prev");
-    // So is the new date divider
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[1]);
-    assert_matches!(item.kind(), TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
-    // The previous date divider is removed
-    assert_let!(VectorDiff::Remove { index } = &timeline_updates[2]);
-    assert_eq!(*index, 2);
 
     // We paginate back until the start of the timeline, which will trigger an
     // /event request for the initial item.
@@ -548,16 +533,11 @@ async fn test_focused_timeline_handles_threaded_event() {
     assert!(start_of_timeline);
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-    // Same as before, the previous event is added at the front
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[0]);
+    assert_eq!(timeline_updates.len(), 1);
+    // Same as before, the previous event is inserted at the front, after the date
+    // divider.
+    assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Root");
-    // Then the new date divider
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[1]);
-    assert_matches!(item.kind(), TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
-    // And the old date divider is removed
-    assert_let!(VectorDiff::Remove { index } = &timeline_updates[2]);
-    assert_eq!(*index, 2);
 
     // Then we paginate forwards
     server
@@ -628,13 +608,11 @@ async fn test_focused_timeline_handles_thread_root_event_when_forcing_threaded_m
     let thread_root = event_id!("$root:example.org");
     let thread_root_event = f.text_msg("Hey").event_id(thread_root).into_event();
 
-    // Mock the initial /event and /relations requests to fetch the focussed event
-    // and its common relations.
-    server.mock_room_event().match_event_id().ok(thread_root_event).mock_once().mount().await;
+    // Mock the initial /context request to fetch the focussed event.
     server
-        .mock_room_relations()
-        .match_target_event(thread_root.to_owned())
-        .ok(RoomRelationsResponseTemplate::default())
+        .mock_room_event_context()
+        .match_event_id()
+        .ok(RoomContextResponseTemplate::new(thread_root_event).end("next_token_1"))
         .mock_once()
         .mount()
         .await;
@@ -671,6 +649,7 @@ async fn test_focused_timeline_handles_thread_root_event_when_forcing_threaded_m
     let prev_event_id = event_id!("$prev:example.org");
     server
         .mock_room_relations()
+        .match_from("next_token_1")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Next1")
@@ -742,13 +721,11 @@ async fn test_focused_timeline_handles_other_thread_event_when_forcing_threaded_
         .event_id(threaded_event_id)
         .into_event();
 
-    // Mock the initial /event and /relations requests to fetch the focussed event
-    // and its common relations.
-    server.mock_room_event().match_event_id().ok(threaded_event).mock_once().mount().await;
+    // Mock the initial /context request to fetch the focussed event.
     server
-        .mock_room_relations()
-        .match_target_event(threaded_event_id.to_owned())
-        .ok(RoomRelationsResponseTemplate::default())
+        .mock_room_event_context()
+        .match_event_id()
+        .ok(RoomContextResponseTemplate::new(threaded_event).start("prev_token").end("next_token"))
         .mock_once()
         .mount()
         .await;
@@ -780,6 +757,7 @@ async fn test_focused_timeline_handles_other_thread_event_when_forcing_threaded_
     // an /event request for the thread root.
     server
         .mock_room_relations()
+        .match_from("prev_token")
         .ok(RoomRelationsResponseTemplate::default())
         .mock_once()
         .mount()
@@ -790,22 +768,17 @@ async fn test_focused_timeline_handles_other_thread_event_when_forcing_threaded_
         timeline.paginate_backwards(10).await.expect("Could not paginate backwards");
     assert!(end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
     // The new item loaded is added at the start.
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[0]);
+    assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Hey");
-    // So is the new date divider.
-    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[1]);
-    assert_matches!(item.kind(), TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
-    // The previous date divider is removed
-    assert_let!(VectorDiff::Remove { index } = &timeline_updates[2]);
-    assert_eq!(*index, 2);
 
     // We paginate forwards once and hit the end of the thread.
     let next_event_id = event_id!("$prev:example.org");
     server
         .mock_room_relations()
+        .match_from("next_token")
         .ok(RoomRelationsResponseTemplate {
             chunk: vec![
                 f.text_msg("Next")
@@ -826,7 +799,7 @@ async fn test_focused_timeline_handles_other_thread_event_when_forcing_threaded_
         timeline.paginate_forwards(10).await.expect("Could not paginate forwards");
     assert!(end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next");

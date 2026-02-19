@@ -66,7 +66,10 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider>
     previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub focus: &'a TimelineFocusKind<P>,
+    pub focus: &'a TimelineFocusKind,
+
+    /// Phantom data for type parameter.
+    _phantom: std::marker::PhantomData<P>,
 }
 
 impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
@@ -74,7 +77,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     pub(super) fn new(
         items: &'a mut ObservableItems,
         meta: &'a mut TimelineMetadata,
-        focus: &'a TimelineFocusKind<P>,
+        focus: &'a TimelineFocusKind,
     ) -> Self {
         let previous_meta = meta;
         let meta = previous_meta.clone();
@@ -86,6 +89,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             previous_meta,
             meta,
             focus,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -485,14 +489,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 true
             }
 
-            TimelineFocusKind::Event { paginator } => {
-                // If the timeline's filtering out in-thread events, don't add items for
-                // threaded events.
-                let hide_threaded_events =
-                    paginator.get().is_some_and(|paginator| paginator.hide_threaded_events());
-                if thread_root.is_some() && hide_threaded_events {
-                    return false;
-                }
+            TimelineFocusKind::Event { .. } => {
+                // For event-focused timelines, thread filtering is now handled in the
+                // event cache layer. We accept all events from pagination.
 
                 // Retrieve the origin of the event.
                 let origin = match position {

@@ -68,6 +68,7 @@ use crate::{
     Client,
     client::{ClientInner, WeakClient},
     event_cache::room::RoomEventCacheStateLock,
+    paginators::PaginatorError,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
@@ -83,7 +84,7 @@ pub use caches::TimelineVectorDiffs;
 pub use pagination::{RoomPagination, RoomPaginationStatus};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber};
+pub use room::{RoomEventCache, RoomEventCacheSubscriber, event_focused::EventFocusThreadMode};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -105,6 +106,10 @@ pub enum EventCacheError {
     /// An error has been observed while back-paginating.
     #[error(transparent)]
     BackpaginationError(Box<crate::Error>),
+
+    /// An error has been observed while initiating an event-focused timeline.
+    #[error(transparent)]
+    InitialPaginationError(#[from] PaginatorError),
 
     /// Back-pagination was already happening in a given room, where we tried to
     /// back-paginate again.

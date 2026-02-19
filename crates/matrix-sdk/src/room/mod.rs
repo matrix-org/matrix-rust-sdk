@@ -615,6 +615,11 @@ impl Room {
         )
         .await;
 
+        // Save the loaded events into the event cache, if it's set up.
+        if let Ok((cache, _handles)) = self.event_cache().await {
+            cache.save_events(chunk.clone()).await;
+        }
+
         Ok(Messages {
             start: http_response.start,
             end: http_response.end,

@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
+
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
@@ -26,7 +31,11 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
     Position,
 };
+use ruma::EventId;
 use tracing::trace;
+
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor::ResolvedUtd;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -393,6 +402,103 @@ impl EventLinkedChunk {
         );
 
         reached_start
+    }
+
+    /// Finish a network forward-pagination for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
+    ///
+    /// This is similar to [`Self::finish_back_pagination`] but for forward
+    /// pagination where new events are appended at the end.
+    ///
+    /// ## Arguments
+    ///
+    /// - `next_gap_id`: the identifier of the next gap (at the back), if any.
+    /// - `new_gap`: the new gap to insert at the back, if any. If missing,
+    ///   we've likely reached the end of the timeline.
+    /// - `events`: new events to insert, in topological order (oldest to
+    ///   newest).
+    ///
+    /// ## Returns
+    ///
+    /// Returns a boolean indicating whether we've hit the end of the timeline.
+    pub fn finish_forward_pagination(
+        &mut self,
+        next_gap_id: Option<ChunkIdentifier>,
+        new_gap: Option<Gap>,
+        events: &[Event],
+    ) -> bool {
+        // First, replace the gap (if any) or append events.
+        if let Some(gap_id) = next_gap_id {
+            // There is a gap at the back, replace it with the new events.
+            trace!("replacing next gap with forward-paginated events");
+
+            self.replace_gap_at(gap_id, events.to_vec())
+                .expect("gap_identifier is a valid chunk id we read previously");
+        } else if !events.is_empty() {
+            // No prior gap, just push the events at the back.
+            trace!("pushing events received from forward-pagination");
+            self.chunks.push_items_back(events.to_vec());
+        }
+
+        // Insert the new gap at the back if needed.
+        let reached_end = new_gap.is_none();
+        if let Some(new_gap) = new_gap {
+            self.chunks.push_gap_back(new_gap);
+        }
+
+        trace!(?reached_end, "finished handling network forward-pagination");
+
+        reached_end
+    }
+
+    /// Find an event in the event linked chunk by its event ID, and return its
+    /// location.
+    pub fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
+        for (position, event) in self.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Some((position, event.clone()));
+            }
+        }
+        None
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them.
+    ///
+    /// Returns true if at least one event has been replaced, false otherwise.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn replace_utds(&mut self, events: &[ResolvedUtd]) -> bool {
+        let event_set =
+            self.events().filter_map(|(_pos, ev)| ev.event_id()).collect::<BTreeSet<_>>();
+
+        let mut replaced_some = false;
+
+        for (event_id, decrypted, actions) in events {
+            // As a performance optimization, do a lookup in the current pinned events
+            // check, before looking for the event in the linked chunk.
+
+            if !event_set.contains(event_id) {
+                continue;
+            }
+
+            // The event should be in the linked chunk.
+            let Some((position, mut target_event)) = self.find_event(event_id) else {
+                continue;
+            };
+
+            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+            if let Some(actions) = actions {
+                target_event.set_push_actions(actions.clone());
+            }
+
+            self.replace_event_at(position, target_event.clone())
+                .expect("position should be valid");
+
+            replaced_some = true;
+        }
+
+        replaced_some
     }
 }
 

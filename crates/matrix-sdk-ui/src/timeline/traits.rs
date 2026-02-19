@@ -17,8 +17,7 @@ use std::future::Future;
 use eyeball::Subscriber;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    BoxFuture, Result, Room, SendOutsideWasm,
-    config::RequestConfig,
+    Result, Room, SendOutsideWasm,
     deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, thread::PaginableThread},
 };
@@ -29,7 +28,6 @@ use ruma::{
         AnyMessageLikeEventContent,
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::RelationType,
     },
     room_version_rules::RoomVersionRules,
 };
@@ -138,19 +136,6 @@ pub(super) trait RoomDataProvider:
         &'a self,
         event_id: &'a EventId,
     ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm + 'a;
-
-    /// Load a single room event using the cache or network and any events
-    /// related to it, if they are cached.
-    ///
-    /// You can control which types of related events are retrieved using
-    /// `related_event_filters`. A `None` value will retrieve any type of
-    /// related event.
-    fn load_event_with_relations<'a>(
-        &'a self,
-        event_id: &'a EventId,
-        request_config: Option<RequestConfig>,
-        related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>>;
 }
 
 impl RoomDataProvider for Room {
@@ -258,18 +243,5 @@ impl RoomDataProvider for Room {
 
     async fn load_event<'a>(&'a self, event_id: &'a EventId) -> Result<TimelineEvent> {
         self.load_or_fetch_event(event_id, None).await
-    }
-
-    fn load_event_with_relations<'a>(
-        &'a self,
-        event_id: &'a EventId,
-        request_config: Option<RequestConfig>,
-        related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
-        Box::pin(self.load_or_fetch_event_with_relations(
-            event_id,
-            related_event_filters,
-            request_config,
-        ))
     }
 }

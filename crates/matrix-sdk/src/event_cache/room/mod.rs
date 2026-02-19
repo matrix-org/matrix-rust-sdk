@@ -52,10 +52,15 @@ use super::{
 };
 use crate::{
     client::WeakClient,
-    event_cache::{EventCacheError, caches::TimelineVectorDiffs},
+    event_cache::{
+        EventCacheError,
+        caches::TimelineVectorDiffs,
+        room::event_focused::{EventFocusThreadMode, EventFocusedCache},
+    },
     room::{IncludeRelations, RelationsOptions, WeakRoom},
 };
 
+pub(super) mod event_focused;
 pub(super) mod events;
 mod pinned_events;
 mod threads;
@@ -250,6 +255,77 @@ impl RoomEventCache {
         let state = self.inner.state.read().await?;
 
         state.subscribe_to_pinned_events(room).await
+    }
+
+    /// Create or get an event-focused timeline cache for this room.
+    ///
+    /// This creates a timeline centered around a specific event (e.g., for
+    /// permalinks), in a given mode, supporting both forward and backward
+    /// pagination.
+    ///
+    /// If the focused event is part of a thread, the timeline will
+    /// automatically use thread-specific pagination.
+    ///
+    /// If the thread mode is defined to [`EventFocusThreadMode::ForceThread`],
+    /// the timeline will be focused on the thread root of the thread the
+    /// target event belongs to, or it will consider that the target event
+    /// itself is the thread root.
+    #[instrument(skip(self), fields(room_id = %self.inner.room_id, event_id = %event_id, thread_mode = ?thread_mode))]
+    pub async fn get_or_create_event_focused_cache(
+        &self,
+        event_id: OwnedEventId,
+        num_context_events: u16,
+        thread_mode: EventFocusThreadMode,
+    ) -> Result<EventFocusedCache> {
+        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+        let guard = self.inner.state.read().await?;
+
+        // Check if we already have a cache for this event.
+        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
+            trace!("the cache was already created, returning it");
+            return Ok(cache);
+        }
+
+        // Create a new cache.
+        let linked_chunk_update_sender = guard.state.linked_chunk_update_sender.clone();
+
+        // Make sure to drop the guard before calling `start_from` below, as it may need
+        // to lock the room event cache's state again, when memoizing events
+        // received from the network response.
+        drop(guard);
+
+        let room_id = room.room_id().to_owned();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&room.client()), room_id.clone());
+
+        trace!("creating a fresh event-focused cache");
+        let cache = EventFocusedCache::new(weak_room, event_id.clone(), linked_chunk_update_sender);
+
+        // Initialize the cache from the server.
+        cache.start_from(room, num_context_events, thread_mode).await?;
+
+        // Insert the cache in the map.
+        self.inner.state.write().await?.insert_event_focused_cache(
+            event_id,
+            thread_mode,
+            cache.clone(),
+        );
+
+        Ok(cache)
+    }
+
+    /// Get an event-focused cache for this event and thread mode, if it exists.
+    ///
+    /// Otherwise, returns `None`.
+    ///
+    /// Use [`Self::get_or_create_event_focused_cache`] for ensuring such a
+    /// cache exists.
+    #[instrument(skip(self), fields(room_id = %self.inner.room_id))]
+    pub async fn get_event_focused_cache(
+        &self,
+        event_id: OwnedEventId,
+        thread_mode: EventFocusThreadMode,
+    ) -> Result<Option<EventFocusedCache>> {
+        Ok(self.inner.state.read().await?.get_event_focused_cache(event_id, thread_mode))
     }
 
     /// Paginate backwards in a thread, given its root event ID.
@@ -673,6 +749,15 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
     Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
 }
 
+/// Key for the event-focused caches.
+#[derive(Hash, PartialEq, Eq)]
+pub(super) struct EventFocusedCacheKey {
+    /// The event ID that the cache is focused on.
+    focused: OwnedEventId,
+    /// The thread mode for this cache.
+    thread_mode: EventFocusThreadMode,
+}
+
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
@@ -718,7 +803,10 @@ mod private {
             caches::lock,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
-            room::{pinned_events::PinnedEventCache, threads::ThreadEventCache},
+            room::{
+                event_focused::EventFocusedCache, pinned_events::PinnedEventCache,
+                threads::ThreadEventCache,
+            },
         },
         EventLocation, EventsOrigin, LoadMoreEventsBackwardsOutcome, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
@@ -727,7 +815,11 @@ mod private {
     };
     use crate::{
         Room,
-        event_cache::{TimelineVectorDiffs, room::PostProcessingOrigin},
+        event_cache::{
+            EventFocusThreadMode,
+            caches::TimelineVectorDiffs,
+            room::{EventFocusedCacheKey, PostProcessingOrigin},
+        },
     };
 
     pub(in super::super) struct RoomEventCacheState {
@@ -752,6 +844,13 @@ mod private {
         /// Keyed by the thread root event ID.
         threads: HashMap<OwnedEventId, ThreadEventCache>,
 
+        /// Event-focused caches for this room.
+        ///
+        /// Keyed by the focused event ID and thread mode. Each entry represents
+        /// a timeline centered around a specific event (e.g. from a
+        /// permalink).
+        event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
+
         /// Cache for pinned events in this room, initialized on-demand.
         pinned_event_cache: OnceLock<PinnedEventCache>,
 
@@ -771,7 +870,7 @@ mod private {
 
         /// A clone of
         /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        pub(super) linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 
         /// The rules for the version of this room.
         room_version_rules: RoomVersionRules,
@@ -896,6 +995,9 @@ mod private {
                 // subscribers) or when we get new information about those (from
                 // sync).
                 threads: HashMap::new(),
+                // Event-focused caches are created on-demand when the user navigates to a
+                // permalink.
+                event_focused_caches: HashMap::new(),
                 pagination_status,
                 update_sender,
                 generic_update_sender,
@@ -1058,6 +1160,19 @@ mod private {
 
             pinned_event_cache.subscribe().await
         }
+
+        /// Get an event-focused cache for this event and thread mode, if it
+        /// exists.
+        ///
+        /// Otherwise, returns `None`.
+        pub fn get_event_focused_cache(
+            &self,
+            event_id: OwnedEventId,
+            thread_mode: EventFocusThreadMode,
+        ) -> Option<EventFocusedCache> {
+            let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+            self.state.event_focused_caches.get(&key).cloned()
+        }
     }
 
     impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
@@ -1072,6 +1187,12 @@ mod private {
         #[cfg(any(feature = "e2e-encryption", test))]
         pub fn pinned_event_cache(&self) -> Option<&PinnedEventCache> {
             self.state.pinned_event_cache.get()
+        }
+
+        /// Get a reference to all the live [`event_focused_caches`].
+        #[cfg(feature = "e2e-encryption")]
+        pub fn event_focused_caches(&self) -> impl Iterator<Item = &EventFocusedCache> {
+            self.state.event_focused_caches.values()
         }
 
         /// Get the `waited_for_initial_prev_token` value.
@@ -2029,6 +2150,17 @@ mod private {
         pub fn is_dirty(&self) -> bool {
             EventCacheStoreLockGuard::is_dirty(&self.store)
         }
+
+        /// Insert an initialized event-focused cache for the given event id.
+        pub fn insert_event_focused_cache(
+            &mut self,
+            event_id: OwnedEventId,
+            thread_mode: EventFocusThreadMode,
+            cache: EventFocusedCache,
+        ) {
+            let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+            self.state.event_focused_caches.insert(key, cache);
+        }
     }
 
     /// Load a linked chunk's full metadata, making sure the chunks are
@@ -2166,12 +2298,9 @@ mod private {
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
-        for (position, event) in room_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Ok(Some((EventLocation::Memory(position), event.clone())));
-            }
+        if let Some((position, event)) = room_linked_chunk.find_event(event_id) {
+            return Ok(Some((EventLocation::Memory(position), event)));
         }
-
         Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
     }
 
