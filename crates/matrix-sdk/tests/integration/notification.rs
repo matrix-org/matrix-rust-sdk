@@ -13,7 +13,7 @@ use matrix_sdk_test::{
 use ruma::{
     Int, OwnedRoomId, event_id,
     events::{AnyStrippedStateEvent, StateEventType},
-    room_id,
+    owned_user_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -45,8 +45,8 @@ async fn test_notifications_joined() {
     let mut sync_builder = SyncResponseBuilder::new();
     let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
     let mut users = BTreeMap::new();
-    users.insert(user_id!("@example:localhost").to_owned(), Int::new(100).unwrap());
-    users.insert(user_id!("@bob:localhost").to_owned(), Int::new(0).unwrap());
+    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
         f.power_levels(&mut users).into_raw_sync_state(),
         sync_state_event!({
@@ -125,8 +125,8 @@ async fn test_notifications_invite() {
     let mut sync_builder = SyncResponseBuilder::new();
     let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
     let mut users = BTreeMap::new();
-    users.insert(user_id!("@example:localhost").to_owned(), Int::new(100).unwrap());
-    users.insert(user_id!("@bob:localhost").to_owned(), Int::new(0).unwrap());
+    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
     let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
         power_levels_event,

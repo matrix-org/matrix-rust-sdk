@@ -7,7 +7,7 @@ use ruma::{
     api::client::media::get_content_thumbnail::v3::Method,
     assign,
     events::room::{ImageInfo, MediaSource, message::ImageMessageEventContent},
-    mxc_uri, owned_mxc_uri, uint,
+    owned_mxc_uri, uint,
 };
 
 #[async_test]
@@ -27,7 +27,7 @@ async fn test_get_media_content_no_auth() {
     let media = client.media();
 
     let request = MediaRequestParameters {
-        source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
+        source: MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
         format: MediaFormat::File,
     };
 
@@ -102,7 +102,7 @@ async fn test_get_media_file_no_auth() {
 
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
-        mxc_uri!("mxc://example.org/image").to_owned(),
+        owned_mxc_uri!("mxc://example.org/image"),
     )
     .info(Box::new(assign!(ImageInfo::new(), {
         height: Some(uint!(398)),
@@ -171,7 +171,7 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
     // Build event content.
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
-        mxc_uri!("mxc://example.org/image").to_owned(),
+        owned_mxc_uri!("mxc://example.org/image"),
     )
     .info(Box::new(assign!(ImageInfo::new(), {
         height: Some(uint!(398)),
@@ -243,7 +243,7 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
     // Build event content.
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
-        mxc_uri!("mxc://example.org/image").to_owned(),
+        owned_mxc_uri!("mxc://example.org/image"),
     )
     .info(Box::new(assign!(ImageInfo::new(), {
         height: Some(uint!(398)),

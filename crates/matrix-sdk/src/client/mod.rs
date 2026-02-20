@@ -1900,12 +1900,12 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// use matrix_sdk::ruma::{api::client::profile, user_id};
+    /// use matrix_sdk::ruma::{api::client::profile, owned_user_id};
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
-    /// let user_id = user_id!("@example:localhost").to_owned();
+    /// let user_id = owned_user_id!("@example:localhost");
     /// let request = profile::get_profile::v3::Request::new(user_id);
     ///
     /// // Start the request using Client::send()
@@ -2517,7 +2517,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::{api::client::uiaa, device_id},
+    /// #    ruma::{api::client::uiaa, owned_device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use serde_json::json;
@@ -2526,7 +2526,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let devices = &[device_id!("DEVICEID").to_owned()];
+    /// let devices = &[owned_device_id!("DEVICEID")];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {

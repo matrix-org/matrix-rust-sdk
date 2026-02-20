@@ -1375,9 +1375,9 @@ impl Store {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     ///
@@ -1411,9 +1411,9 @@ impl Store {
     /// #    store::types::StoredRoomKeyBundleData,
     /// #    types::room_history::RoomKeyBundle
     /// # };
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();
