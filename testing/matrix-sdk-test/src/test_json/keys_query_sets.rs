@@ -8,6 +8,7 @@ use ruma::{
     api::client::keys::get_keys::v3::Response as KeyQueryResponse,
     device_id,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
+    owned_device_id,
     serde::Raw,
     user_id,
 };
@@ -840,7 +841,7 @@ impl VerificationViolationTestData {
                  "device_display_name": "Element - dbg Android"
              }
         });
-        (device_id!("AHIVRZICJK").to_owned(), serde_json::from_value(json).unwrap())
+        (owned_device_id!("AHIVRZICJK"), serde_json::from_value(json).unwrap())
     }
 
     /// Device ID of the device returned by [`Self::own_signed_device_keys`].
@@ -876,7 +877,7 @@ impl VerificationViolationTestData {
                 "device_display_name": "develop.element.io: Chrome on macOS"
             }
         });
-        (device_id!("LCNRWQAVWK").to_owned(), serde_json::from_value(json).unwrap())
+        (owned_device_id!("LCNRWQAVWK"), serde_json::from_value(json).unwrap())
     }
 
     /// `/keys/query` response for Bob, signed by Alice's identity.

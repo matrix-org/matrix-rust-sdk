@@ -958,7 +958,7 @@ mod tests {
         // When I send sliding sync response containing a room with an avatar
         let room = {
             let mut room = http::response::Room::new();
-            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+            room.avatar = JsOption::from_option(Some(owned_mxc_uri!("mxc://e.uk/med1")));
 
             room
         };
@@ -987,7 +987,7 @@ mod tests {
         // When I send sliding sync response containing a room with an avatar
         let room = {
             let mut room = http::response::Room::new();
-            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+            room.avatar = JsOption::from_option(Some(owned_mxc_uri!("mxc://e.uk/med1")));
 
             room
         };
@@ -1333,8 +1333,8 @@ mod tests {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
-        let gordon = user_id!("@gordon:e.uk").to_owned();
-        let alice = user_id!("@alice:e.uk").to_owned();
+        let gordon = owned_user_id!("@gordon:e.uk");
+        let alice = owned_user_id!("@alice:e.uk");
 
         // When I send sliding sync response containing a room (with identifiable data
         // in `heroes`)
