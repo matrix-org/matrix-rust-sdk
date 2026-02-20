@@ -14,6 +14,7 @@
 
 use std::{
     collections::BTreeMap,
+    ops::Deref,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -385,8 +386,13 @@ impl NotificationClient {
         // information.
 
         let raw_notifications = Arc::new(Mutex::new(BTreeMap::new()));
-
         let handler_raw_notification = raw_notifications.clone();
+
+        let raw_invites = Arc::new(Mutex::new(BTreeMap::new()));
+        let handler_raw_invites = raw_invites.clone();
+
+        let user_id = self.client.user_id().unwrap().to_owned();
+        let room_ids = requests.iter().map(|req| req.room_id.clone()).collect::<Vec<_>>();
 
         let requests = Arc::new(requests.iter().map(|req| (*req).clone()).collect::<Vec<_>>());
 
@@ -421,15 +427,15 @@ impl NotificationClient {
             }
         });
 
-        // We'll only use this event if the room is in the invited state.
-        let raw_invites = Arc::new(Mutex::new(BTreeMap::new()));
-
-        let user_id = self.client.user_id().unwrap().to_owned();
-        let handler_raw_invites = raw_invites.clone();
         let handler_raw_notifications = raw_notifications.clone();
         let stripped_member_handler = self.client.add_event_handler({
             let requests = requests.clone();
-            move |raw: Raw<StrippedRoomMemberEvent>| async move {
+            let room_ids: Vec<_> = room_ids.clone();
+            move |raw: Raw<StrippedRoomMemberEvent>, room: Room| async move {
+                if !room_ids.contains(&room.room_id().to_owned()) {
+                    return;
+                }
+
                 let deserialized = match raw.deserialize() {
                     Ok(d) => d,
                     Err(err) => {
@@ -521,9 +527,8 @@ impl NotificationClient {
             .build()
             .await?;
 
-        let room_ids = requests.iter().map(|req| req.room_id.as_ref()).collect::<Vec<_>>();
         sync.subscribe_to_rooms(
-            &room_ids,
+            &room_ids.iter().map(|id| id.deref()).collect::<Vec<&RoomId>>(),
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: uint!(16)
@@ -531,7 +536,8 @@ impl NotificationClient {
             true,
         );
 
-        let mut remaining_attempts = 3;
+        let max_attempts = 3;
+        let mut remaining_attempts = max_attempts;
 
         let stream = sync.sync();
         pin_mut!(stream);
@@ -545,14 +551,30 @@ impl NotificationClient {
                 break;
             }
 
-            if raw_notifications.lock().unwrap().len() + raw_invites.lock().unwrap().len()
-                == expected_event_count
-            {
+            let event_count = raw_notifications.lock().unwrap().len();
+            let invite_count = raw_invites.lock().unwrap().len();
+
+            trace!(
+                "Attempt #{}: Found {} notification(s), {} invite event(s), expected {} total",
+                1 + max_attempts - remaining_attempts,
+                event_count,
+                invite_count,
+                expected_event_count
+            );
+
+            // Sometimes we get the notifications *and* unexpected invite events, so total
+            // can be > expected This also means we can get so many invites that
+            // we incorrectly assume we've fetched all the events
+            if event_count + invite_count == expected_event_count {
                 // We got the events.
                 break;
             }
 
             remaining_attempts -= 1;
+            warn!(
+                "There are some missing notifications, remaining attempts: {}",
+                remaining_attempts
+            );
             if remaining_attempts == 0 {
                 // We're out of luck.
                 break;
@@ -1036,12 +1058,20 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        api::client::sync::sync_events::v5, assign, event_id,
+        events::room::member::MembershipState, owned_event_id, owned_room_id, room_id, user_id,
+    };
 
-    use crate::notification_client::{NotificationItem, RawNotificationEvent};
+    use crate::notification_client::{
+        NotificationClient, NotificationItem, NotificationItemsRequest, NotificationProcessSetup,
+        RawNotificationEvent,
+    };
 
     #[async_test]
     async fn test_notification_item_returns_thread_id() {
@@ -1066,5 +1096,58 @@ mod tests {
 
         assert_let!(Some(thread_id) = notification_item.thread_id);
         assert_eq!(thread_id, thread_root_event_id);
+    }
+
+    #[async_test]
+    async fn test_try_sliding_sync_ignores_invites_for_non_subscribed_rooms() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let user_id = client.user_id().unwrap();
+        let room_id = room_id!("!a:b.c");
+        let invite = EventFactory::new()
+            .room(room_id)
+            .member(user_id)
+            .membership(MembershipState::Invite)
+            .no_event_id()
+            .into_raw_sync_state();
+        let mut room = v5::response::Room::new();
+        room.invite_state = Some(vec![invite.cast_unchecked()]);
+        let rooms = BTreeMap::from_iter([(room_id.to_owned(), room)]);
+        server
+            .mock_sliding_sync()
+            .ok(assign!(v5::Response::new("1".to_owned()), {
+                rooms: rooms,
+            }))
+            .mount()
+            .await;
+
+        let notification_client =
+            NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+                .await
+                .expect("Could not create a notification client");
+
+        // Check we don't receive the invite for a different room, even if it was
+        // included in the sync response
+        let result = notification_client
+            .try_sliding_sync(&[NotificationItemsRequest {
+                room_id: owned_room_id!("!other:b.c"),
+                event_ids: vec![owned_event_id!("$a:b.c")],
+            }])
+            .await
+            .expect("Could not run sliding sync");
+
+        assert!(result.is_empty());
+
+        // Now try fetching the invite for the previously ignored room
+        let result = notification_client
+            .try_sliding_sync(&[NotificationItemsRequest {
+                room_id: room_id.to_owned(),
+                event_ids: vec![owned_event_id!("$a:b.c")],
+            }])
+            .await
+            .expect("Could not run sliding sync");
+
+        assert!(!result.is_empty());
     }
 }
