@@ -2214,18 +2214,18 @@ impl StateStore for SqliteStateStore {
             .await
             .with_transaction(move |txn| {
                 let mut txn = txn.prepare_cached(
-                    "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp) 
+                    "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
                     VALUES (?, ?, ?, ?)
-                    ON CONFLICT (room_id, event_id) DO UPDATE 
-                    SET 
-                        status = 
+                    ON CONFLICT (room_id, event_id) DO UPDATE
+                    SET
+                        status =
                             CASE
                                 WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.status
                                 WHEN EXCLUDED.bump_stamp IS NULL THEN EXCLUDED.status
                                 WHEN thread_subscriptions.bump_stamp < EXCLUDED.bump_stamp THEN EXCLUDED.status
                                 ELSE thread_subscriptions.status
-                            END, 
-                        bump_stamp = 
+                            END,
+                        bump_stamp =
                             CASE
                                 WHEN thread_subscriptions.bump_stamp IS NULL THEN EXCLUDED.bump_stamp
                                 WHEN EXCLUDED.bump_stamp IS NULL THEN thread_subscriptions.bump_stamp
@@ -2309,15 +2309,17 @@ struct ReceiptData {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
-    use once_cell::sync::Lazy;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_store() -> Result<impl StateStore, StoreError> {
@@ -2336,18 +2338,20 @@ mod tests {
 mod encrypted_tests {
     use std::{
         path::PathBuf,
-        sync::atomic::{AtomicU32, Ordering::SeqCst},
+        sync::{
+            LazyLock,
+            atomic::{AtomicU32, Ordering::SeqCst},
+        },
     };
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
-    use once_cell::sync::Lazy;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
     use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_state_store_workspace() -> PathBuf {
@@ -2418,7 +2422,7 @@ mod migration_tests {
     use std::{
         path::{Path, PathBuf},
         sync::{
-            Arc,
+            Arc, LazyLock,
             atomic::{AtomicU32, Ordering::SeqCst},
         },
     };
@@ -2434,7 +2438,6 @@ mod migration_tests {
         sync::UnreadNotificationsCount,
     };
     use matrix_sdk_test::async_test;
-    use once_cell::sync::Lazy;
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, RoomId, TransactionId, UserId,
         events::{
@@ -2457,7 +2460,7 @@ mod migration_tests {
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     };
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
     const SECRET: &str = "secret";
 
