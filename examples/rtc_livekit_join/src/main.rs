@@ -652,6 +652,17 @@ async fn main() -> anyhow::Result<()> {
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
+
+    #[cfg(feature = "experimental-widgets")]
+    let shutdown_membership_state_key = if widget.is_some() {
+        let own_user_id =
+            client.user_id().context("missing user id for widget shutdown event")?.to_owned();
+        let own_device_id =
+            client.device_id().context("missing device id for widget shutdown event")?.to_owned();
+        Some(CallMemberStateKey::new(own_user_id, Some(own_device_id.to_string()), true))
+    } else {
+        None
+    };
     info!(
         room_id = ?room.room_id(),
         service_url = %service_url,
@@ -675,8 +686,8 @@ async fn main() -> anyhow::Result<()> {
 
             #[cfg(feature = "experimental-widgets")]
             if let Some(widget) = widget.as_ref() {
-                if let Err(err) = send_hangup_via_widget(widget).await {
-                    info!(?err, "failed to send hangup via widget api during shutdown");
+                if let Err(err) = send_hangup_via_widget(widget, shutdown_membership_state_key.as_ref()).await {
+                    info!(?err, "failed to send shutdown membership send_event via widget api during shutdown");
                 }
             }
         }
@@ -1238,7 +1249,10 @@ async fn publish_call_membership_via_widget(
 }
 
 #[cfg(feature = "experimental-widgets")]
-async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()> {
+async fn send_hangup_via_widget(
+    widget: &ElementCallWidget,
+    state_key: Option<&CallMemberStateKey>,
+) -> anyhow::Result<()> {
     const SHUTDOWN_WIDGET_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
     if !*widget.capabilities_ready.borrow() {
@@ -1253,45 +1267,65 @@ async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()
         pending.insert(request_id.clone(), response_tx);
     }
 
-    let hangup_message = serde_json::json!({
+    let state_key = state_key.map(|state_key| state_key.as_ref()).unwrap_or_default();
+    let shutdown_message = serde_json::json!({
         "api": "fromWidget",
         "widgetId": widget.widget_id,
         "requestId": request_id.clone(),
-        "action": "hangup",
-        "data": {},
+        "action": "send_event",
+        "data": {
+            "type": "org.matrix.msc3401.call.member",
+            "state_key": state_key,
+            "content": {},
+        },
     });
-    info!(request_body = hangup_message.to_string().as_str(), "sending hangup via widget api");
+    info!(
+        request_body = shutdown_message.to_string().as_str(),
+        "sending shutdown membership send_event via widget api"
+    );
 
     match tokio::time::timeout(
         SHUTDOWN_WIDGET_WAIT_TIMEOUT,
-        widget.handle.send(hangup_message.to_string()),
+        widget.handle.send(shutdown_message.to_string()),
     )
     .await
     {
-        Ok(true) => info!("hangup sent via widget api"),
+        Ok(true) => info!("shutdown membership send_event sent via widget api"),
         Ok(false) => {
             if let Ok(mut pending) = widget.pending_widget_responses.lock() {
                 pending.remove(&request_id);
             }
-            return Err(anyhow!("widget driver handle closed before sending hangup"));
+            return Err(anyhow!(
+                "widget driver handle closed before sending shutdown membership send_event"
+            ));
         }
         Err(_) => {
             if let Ok(mut pending) = widget.pending_widget_responses.lock() {
                 pending.remove(&request_id);
             }
-            info!("timeout while sending hangup via widget api; continuing shutdown");
+            info!(
+                "timeout while sending shutdown membership send_event via widget api; continuing shutdown"
+            );
             return Ok(());
         }
     }
 
     match tokio::time::timeout(SHUTDOWN_WIDGET_WAIT_TIMEOUT, response_rx).await {
-        Ok(Ok(_response)) => info!(request_id, "received widget response for hangup"),
-        Ok(Err(_)) => info!(request_id, "hangup response channel closed; continuing shutdown"),
+        Ok(Ok(_response)) => {
+            info!(request_id, "received widget response for shutdown membership send_event")
+        }
+        Ok(Err(_)) => info!(
+            request_id,
+            "shutdown membership send_event response channel closed; continuing shutdown"
+        ),
         Err(_) => {
             if let Ok(mut pending) = widget.pending_widget_responses.lock() {
                 pending.remove(&request_id);
             }
-            info!(request_id, "timeout waiting for widget hangup response; continuing shutdown");
+            info!(
+                request_id,
+                "timeout waiting for widget shutdown membership send_event response; continuing shutdown"
+            );
         }
     }
 
