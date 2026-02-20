@@ -22,7 +22,7 @@ use std::{
     time::Duration,
 };
 
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -545,4 +545,16 @@ impl From<&StoredRoomKeyBundleData> for RoomKeyBundleInfo {
 
         Self { sender: sender_user.clone(), room_id: bundle_data.room_id.clone(), sender_key }
     }
+}
+
+/// A struct remembering details of a room that we recently joined following an
+/// invite (and so should accept a room key bundle if we receive one).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomPendingKeyBundleDetails {
+    /// A timestamp remembering when we observed the user accepting an invite
+    /// using this client.
+    pub invite_accepted_at: MilliSecondsSinceUnixEpoch,
+
+    /// The user ID of the person that invited us.
+    pub inviter: OwnedUserId,
 }

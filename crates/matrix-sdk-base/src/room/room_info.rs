@@ -21,6 +21,8 @@ use as_variant::as_variant;
 use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_crypto::store::types::RoomPendingKeyBundleDetails;
 use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId,
@@ -75,19 +77,6 @@ use crate::{
 
 /// The default value of the maximum power level.
 const DEFAULT_MAX_POWER_LEVEL: i64 = 100;
-
-/// A struct remembering details of an invite and if the invite has been
-/// accepted on this particular client.
-#[cfg(feature = "e2e-encryption")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InviteAcceptanceDetails {
-    /// A timestamp remembering when we observed the user accepting an invite
-    /// using this client.
-    pub invite_accepted_at: ruma::MilliSecondsSinceUnixEpoch,
-
-    /// The user ID of the person that invited us.
-    pub inviter: OwnedUserId,
-}
 
 impl Room {
     /// Subscribe to the inner `RoomInfo`.
@@ -654,7 +643,7 @@ pub struct RoomInfo {
     /// specific client.
     #[cfg(feature = "e2e-encryption")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) invite_acceptance_details: Option<InviteAcceptanceDetails>,
+    pub(crate) invite_acceptance_details: Option<RoomPendingKeyBundleDetails>,
 }
 
 impl RoomInfo {
@@ -949,7 +938,7 @@ impl RoomInfo {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn set_invite_acceptance_details(&mut self, details: InviteAcceptanceDetails) {
+    pub(crate) fn set_invite_acceptance_details(&mut self, details: RoomPendingKeyBundleDetails) {
         self.invite_acceptance_details = Some(details);
     }
 
@@ -960,7 +949,7 @@ impl RoomInfo {
     /// - `Some` if the invite has been accepted by this specific client.
     /// - `None` if the invite has not been accepted
     #[cfg(feature = "e2e-encryption")]
-    pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
+    pub fn invite_acceptance_details(&self) -> Option<RoomPendingKeyBundleDetails> {
         self.invite_acceptance_details.clone()
     }
 

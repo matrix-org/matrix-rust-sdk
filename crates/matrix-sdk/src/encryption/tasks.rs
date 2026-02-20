@@ -21,7 +21,8 @@ use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
 };
 use matrix_sdk_base::{
-    InviteAcceptanceDetails, RoomState, crypto::store::types::RoomKeyBundleInfo,
+    RoomState,
+    crypto::store::types::{RoomKeyBundleInfo, RoomPendingKeyBundleDetails},
 };
 use matrix_sdk_common::failures_cache::FailuresCache;
 #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -490,7 +491,7 @@ impl BundleReceiverTask {
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Some(InviteAcceptanceDetails { invite_accepted_at, inviter }) =
+        let Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter }) =
             room.invite_acceptance_details()
         else {
             return false;

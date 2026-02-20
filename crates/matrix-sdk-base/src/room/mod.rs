@@ -37,9 +37,9 @@ pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
-pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 #[cfg(feature = "e2e-encryption")]
-pub use room_info::InviteAcceptanceDetails;
+use matrix_sdk_crypto::store::types::RoomPendingKeyBundleDetails;
+pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomRecencyStamp,
@@ -492,7 +492,7 @@ impl Room {
     /// - `None` if we didn't join this room using an invite or the invite
     ///   wasn't accepted by this client.
     #[cfg(feature = "e2e-encryption")]
-    pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
+    pub fn invite_acceptance_details(&self) -> Option<RoomPendingKeyBundleDetails> {
         self.info.read().invite_acceptance_details.clone()
     }
 

@@ -28,7 +28,8 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    TrustRequirement, store::DynCryptoStore, types::requests::ToDeviceRequest,
+    TrustRequirement, store::DynCryptoStore, store::types::RoomPendingKeyBundleDetails,
+    types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
@@ -52,7 +53,7 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{Level, debug, enabled, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::{InviteAcceptanceDetails, RoomMemberships};
+use crate::RoomMemberships;
 use crate::{
     RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
@@ -426,7 +427,7 @@ impl BaseClient {
     /// * `inviter` - When joining this room in response to an invitation, the
     ///   inviter should be recorded before sending the join request to the
     ///   server. Providing the inviter here ensures that the
-    ///   [`InviteAcceptanceDetails`] are stored for this room.
+    ///   [`RoomPendingKeyBundleDetails`] are stored for this room.
     ///
     /// # Examples
     ///
@@ -480,7 +481,7 @@ impl BaseClient {
                 if previous_state == RoomState::Invited
                     && let Some(inviter) = inviter
                 {
-                    let details = InviteAcceptanceDetails {
+                    let details = RoomPendingKeyBundleDetails {
                         invite_accepted_at: ruma::MilliSecondsSinceUnixEpoch::now(),
                         inviter,
                     };
