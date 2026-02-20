@@ -3116,7 +3116,6 @@ dependencies = [
  "mime",
  "mime2ext",
  "oauth2",
- "once_cell",
  "percent-encoding",
  "pin-project-lite",
  "proptest",
