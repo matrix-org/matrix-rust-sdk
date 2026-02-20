@@ -37,7 +37,7 @@ use ruma::{
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id,
+    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -1423,7 +1423,7 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
     // members
     let next = assert_recv_with_timeout!(receiver, 100);
     assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
-    assert_eq!(user_ids, BTreeSet::from_iter(vec![user_id!("@alice:b.c").to_owned()]));
+    assert_eq!(user_ids, BTreeSet::from_iter(vec![owned_user_id!("@alice:b.c")]));
 }
 
 #[async_test]

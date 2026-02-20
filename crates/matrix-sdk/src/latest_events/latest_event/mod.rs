@@ -316,7 +316,7 @@ mod tests_latest_event {
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id, user_id,
+        owned_event_id, owned_room_id, room_id, user_id,
     };
     use stream_assert::{assert_next_matches, assert_pending};
 
@@ -472,7 +472,7 @@ mod tests_latest_event {
 
     #[async_test]
     async fn test_local_has_priority_over_remote() {
-        let room_id = room_id!("!r0").to_owned();
+        let room_id = owned_room_id!("!r0");
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id).room(&room_id);
 
@@ -561,7 +561,7 @@ mod tests_latest_event {
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id,
-                event_id: event_id!("$ev1").to_owned(),
+                event_id: owned_event_id!("$ev1"),
             };
 
             latest_event.update_with_send_queue(&update, &room_event_cache, user_id, None).await;
@@ -583,7 +583,7 @@ mod tests_latest_event {
 
     #[async_test]
     async fn test_store_latest_event_value() {
-        let room_id = room_id!("!r0").to_owned();
+        let room_id = owned_room_id!("!r0");
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id).room(&room_id);
 

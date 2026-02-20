@@ -896,10 +896,11 @@ impl MatrixMockServer {
     /// use std::collections::BTreeMap;
     /// use matrix_sdk::{
     ///     ruma::{
+    ///         events::{AnyToDeviceEventContent, dummy::ToDeviceDummyEventContent},
     ///         serde::Raw,
     ///         api::client::to_device::send_event_to_device::v3::Request as ToDeviceRequest,
     ///         to_device::DeviceIdOrAllDevices,
-    ///         user_id,owned_device_id
+    ///         owned_user_id, owned_device_id
     ///     },
     ///     test_utils::mocks::MatrixMockServer,
     /// };
@@ -913,12 +914,13 @@ impl MatrixMockServer {
     /// let request = ToDeviceRequest::new_raw(
     ///     "m.custom.event".into(),
     ///     "txn_id".into(),
-    /// BTreeMap::from([
-    /// (user_id!("@alice:localhost").to_owned(), BTreeMap::from([(
-    ///     DeviceIdOrAllDevices::AllDevices,
-    ///     Raw::new(&ruma::events::AnyToDeviceEventContent::Dummy(ruma::events::dummy::ToDeviceDummyEventContent {})).unwrap(),
-    /// )])),
-    /// ])
+    ///     BTreeMap::from([(
+    ///         owned_user_id!("@alice:localhost"),
+    ///         BTreeMap::from([(
+    ///             DeviceIdOrAllDevices::AllDevices,
+    ///             Raw::new(&AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent {})).unwrap(),
+    ///         )])
+    ///     )]),
     /// );
     ///
     /// client

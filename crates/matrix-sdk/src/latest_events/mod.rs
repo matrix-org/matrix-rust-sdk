@@ -680,7 +680,7 @@ mod tests {
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
             room::member::{MembershipState, SyncRoomMemberEvent},
         },
-        owned_room_id, room_id, user_id,
+        owned_event_id, owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
     use tokio::{task::yield_now, time::timeout};
@@ -946,7 +946,7 @@ mod tests {
                     room_id: room_id.clone(),
                     update: RoomSendQueueUpdate::SentEvent {
                         transaction_id: OwnedTransactionId::from("txnid0"),
-                        event_id: event_id!("$ev0").to_owned(),
+                        event_id: owned_event_id!("$ev0"),
                     },
                 })
                 .unwrap();
@@ -979,7 +979,7 @@ mod tests {
                     room_id: room_id.clone(),
                     update: RoomSendQueueUpdate::SentEvent {
                         transaction_id: OwnedTransactionId::from("txnid1"),
-                        event_id: event_id!("$ev1").to_owned(),
+                        event_id: owned_event_id!("$ev1"),
                     },
                 })
                 .unwrap();

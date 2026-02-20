@@ -788,7 +788,7 @@ mod filter_tests {
             room::{member::MembershipState, message::RoomMessageEventContent},
             rtc::notification::NotificationType,
         },
-        owned_user_id, user_id,
+        owned_event_id, owned_user_id, user_id,
     };
 
     use super::{ControlFlow, FilterContinue, filter_timeline_event};
@@ -868,7 +868,7 @@ mod filter_tests {
         // `current_value_event_id` is `Some(_)`, but the redaction event doesn't target
         // this event ID.
         {
-            let current_value_event_id = Some(event_id!("$ev1").to_owned());
+            let current_value_event_id = Some(owned_event_id!("$ev1"));
 
             assert_matches!(
                 filter_timeline_event(&event, current_value_event_id.as_ref(), user_id, None),
@@ -1279,7 +1279,7 @@ mod filter_tests {
                             "body".to_owned(),
                             vec![],
                             OwnedDeviceId::from("device_id"),
-                            user_id!("@user:server.name").to_owned(),
+                            owned_user_id!("@user:server.name"),
                         ),
                     )))
                     .into_event()
@@ -1611,7 +1611,7 @@ mod builder_tests {
             SyncMessageLikeEvent, reaction::ReactionEventContent, relation::Annotation,
             room::message::RoomMessageEventContent,
         },
-        room_id,
+        owned_event_id, owned_room_id, room_id,
         serde::Raw,
         user_id,
     };
@@ -2492,7 +2492,7 @@ mod builder_tests {
     }
 
     async fn local_prelude() -> (Client, OwnedRoomId, RoomSendQueue, RoomEventCache) {
-        let room_id = room_id!("!r0").to_owned();
+        let room_id = owned_room_id!("!r0");
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
@@ -2862,7 +2862,7 @@ mod builder_tests {
         let previous_value = {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
-                event_id: event_id!("$ev0").to_owned(),
+                event_id: owned_event_id!("$ev0"),
             };
 
             // The `LatestEventValue` hasn't changed, it still matches the latest local
@@ -3023,7 +3023,7 @@ mod builder_tests {
         {
             let new_content = SerializableEventContent::new(&AnyMessageLikeEventContent::Reaction(
                 ReactionEventContent::new(Annotation::new(
-                    event_id!("$ev0").to_owned(),
+                    owned_event_id!("$ev0"),
                     "+1".to_owned(),
                 )),
             ))
@@ -3192,7 +3192,7 @@ mod builder_tests {
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
-                event_id: event_id!("$ev0").to_owned(),
+                event_id: owned_event_id!("$ev0"),
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
@@ -3270,7 +3270,7 @@ mod builder_tests {
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
-                event_id: event_id!("$ev0").to_owned(),
+                event_id: owned_event_id!("$ev0"),
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local

@@ -152,10 +152,10 @@ async fn test_sticker() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_sticker());
 
-    assert_eq!(item.content().thread_root(), Some(event_id!("$thread_root").to_owned()));
+    assert_eq!(item.content().thread_root(), Some(owned_event_id!("$thread_root")));
 
     assert_let!(Some(details) = item.content().in_reply_to());
-    assert_eq!(details.event_id, event_id!("$in_reply_to").to_owned())
+    assert_eq!(details.event_id, owned_event_id!("$in_reply_to"))
 }
 
 #[async_test]

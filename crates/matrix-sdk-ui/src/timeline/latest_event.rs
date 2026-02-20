@@ -251,7 +251,7 @@ mod tests {
     use ruma::{
         MilliSecondsSinceUnixEpoch, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id, uint, user_id,
+        owned_event_id, room_id, uint, user_id,
     };
 
     use super::{
@@ -362,7 +362,7 @@ mod tests {
         let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
 
         let base_value = BaseLatestEventValue::LocalHasBeenSent {
-            event_id: event_id!("$ev0").to_owned(),
+            event_id: owned_event_id!("$ev0"),
             value: LocalLatestEventValue {
                 timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
                 content: SerializableEventContent::new(&AnyMessageLikeEventContent::RoomMessage(

@@ -41,7 +41,7 @@ use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_
 use ruma::{
     EventId, RoomId, TransactionId,
     api::client::room::create_room::v3::Request as CreateRoomRequest,
-    assign, device_id, event_id,
+    assign, event_id,
     events::room::message::{RoomMessageEvent, RoomMessageEventContent},
     owned_device_id, owned_user_id, room_id, user_id,
 };
@@ -1418,7 +1418,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         curve25519: Curve25519PublicKey::from(&Curve25519SecretKey::new()),
     };
     let outbound_group_session = OutboundGroupSession::new(
-        device_id!("KIUVQQSDTM").to_owned(),
+        owned_device_id!("KIUVQQSDTM"),
         Arc::new(sender_identity_keys),
         room_id,
         matrix_sdk_base::crypto::EncryptionSettings::default(),

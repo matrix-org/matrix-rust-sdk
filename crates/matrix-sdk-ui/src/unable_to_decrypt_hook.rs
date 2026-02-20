@@ -407,7 +407,7 @@ impl Drop for UtdHookManager {
 mod tests {
     use matrix_sdk::test_utils::{logged_in_client, no_retry_test_client};
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, server_name, user_id};
+    use ruma::{event_id, owned_server_name, server_name, user_id};
 
     use super::*;
 
@@ -461,10 +461,10 @@ mod tests {
             assert!(utd_local_age <= 1000);
 
             assert_eq!(utds[0].sender_homeserver, server_name!("localhost"));
-            assert_eq!(utds[0].own_homeserver, Some(server_name!("localhost").to_owned()));
+            assert_eq!(utds[0].own_homeserver, Some(owned_server_name!("localhost")));
 
             assert_eq!(utds[1].sender_homeserver, server_name!("example.com"));
-            assert_eq!(utds[1].own_homeserver, Some(server_name!("localhost").to_owned()));
+            assert_eq!(utds[1].own_homeserver, Some(owned_server_name!("localhost")));
         }
     }
 

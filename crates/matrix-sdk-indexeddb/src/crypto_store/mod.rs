@@ -2112,7 +2112,7 @@ mod wasm_unit_tests {
         types::{DeviceKeys, Signatures},
     };
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id};
+    use ruma::{owned_device_id, owned_user_id};
     use wasm_bindgen::JsValue;
 
     use crate::crypto_store::unit_tests::sender_data_test_session;
@@ -2148,8 +2148,8 @@ mod wasm_unit_tests {
         let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
 
         let sender_data = SenderData::device_info(DeviceKeys::new(
-            user_id!("@test:user").to_owned(),
-            device_id!("ABC").to_owned(),
+            owned_user_id!("@test:user"),
+            owned_device_id!("ABC"),
             vec![],
             BTreeMap::new(),
             Signatures::new(),

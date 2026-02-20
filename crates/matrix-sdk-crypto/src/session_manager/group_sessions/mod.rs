@@ -1100,7 +1100,7 @@ mod tests {
         events::room::{
             EncryptedFileInit, JsonWebKey, JsonWebKeyInit, history_visibility::HistoryVisibility,
         },
-        owned_room_id, room_id,
+        owned_device_id, owned_room_id, room_id,
         serde::Base64,
         to_device::DeviceIdOrAllDevices,
         user_id,
@@ -1584,7 +1584,7 @@ mod tests {
         // One should be blacklisted
         let has_blacklist =
             requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
-                let device_key = DeviceIdOrAllDevices::from(device_id!("MWVTUXDNNM").to_owned());
+                let device_key = DeviceIdOrAllDevices::from(owned_device_id!("MWVTUXDNNM"));
                 let content = &r.messages[user_id][&device_key];
                 let withheld: RoomKeyWithheldContent =
                     content.deserialize_as_unchecked::<RoomKeyWithheldContent>().unwrap();

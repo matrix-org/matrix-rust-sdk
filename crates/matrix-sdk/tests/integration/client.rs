@@ -41,7 +41,7 @@ use ruma::{
         },
         uiaa,
     },
-    assign, device_id,
+    assign,
     directory::Filter,
     event_id,
     events::{
@@ -53,7 +53,7 @@ use ruma::{
         },
         tag::{TagInfo, TagName, Tags},
     },
-    owned_event_id, owned_room_id,
+    owned_device_id, owned_event_id, owned_room_id, owned_user_id,
     room::JoinRule,
     room_id,
     serde::Raw,
@@ -135,7 +135,7 @@ async fn test_delete_devices() {
         .mount(&server)
         .await;
 
-    let devices = &[device_id!("DEVICEID").to_owned()];
+    let devices = &[owned_device_id!("DEVICEID")];
 
     if let Err(e) = client.delete_devices(devices, None).await
         && let Some(info) = e.as_uiaa_response()
@@ -1489,11 +1489,8 @@ async fn test_room_sync_state_after() {
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
                     {
                         let mut users = BTreeMap::new();
-                        users.insert(
-                            user_id!("@example:localhost").to_owned(),
-                            Int::new(100).unwrap(),
-                        );
-                        users.insert(user_id!("@bob:localhost").to_owned(), Int::new(0).unwrap());
+                        users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+                        users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
                         f.power_levels(&mut users).into()
                     },
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),

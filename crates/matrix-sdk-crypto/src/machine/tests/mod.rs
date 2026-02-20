@@ -46,7 +46,7 @@ use ruma::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
     },
-    room_id,
+    owned_room_id, room_id,
     serde::Raw,
     uint, user_id,
 };
@@ -1664,7 +1664,7 @@ async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
     let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, None).await.unwrap();
 
     let exported_key = ExportedRoomKey::from_backed_up_room_key(
-        room_id!("!room:id").to_owned(),
+        owned_room_id!("!room:id"),
         "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0".into(),
         backed_up_room_key,
     );
@@ -1673,7 +1673,7 @@ async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
 
     let (_, request) = alice.backup_machine().backup().await.unwrap().unwrap();
 
-    let key_backup_data = request.rooms[&room_id!("!room:id").to_owned()]
+    let key_backup_data = request.rooms[&owned_room_id!("!room:id")]
         .sessions
         .get("/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0")
         .unwrap()
