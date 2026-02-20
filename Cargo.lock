@@ -3477,7 +3477,6 @@ dependencies = [
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
  "num_cpus",
- "once_cell",
  "rmp-serde",
  "ruma",
  "rusqlite",

@@ -676,7 +676,10 @@ impl MediaStoreInner for SqliteMediaStore {
 mod tests {
     use std::{
         path::PathBuf,
-        sync::atomic::{AtomicU32, Ordering::SeqCst},
+        sync::{
+            LazyLock,
+            atomic::{AtomicU32, Ordering::SeqCst},
+        },
         time::Duration,
     };
 
@@ -689,14 +692,13 @@ mod tests {
         media_store_integration_tests_time,
     };
     use matrix_sdk_test::async_test;
-    use once_cell::sync::Lazy;
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
     use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_media_store_workspace() -> PathBuf {
@@ -806,18 +808,20 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
 
     use matrix_sdk_base::{
         media::store::MediaStoreError, media_store_inner_integration_tests,
         media_store_integration_tests, media_store_integration_tests_time,
     };
-    use once_cell::sync::Lazy;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_media_store() -> Result<SqliteMediaStore, MediaStoreError> {
