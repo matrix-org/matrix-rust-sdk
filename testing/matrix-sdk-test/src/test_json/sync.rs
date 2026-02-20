@@ -1,12 +1,13 @@
 //! Complete sync responses.
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use ruma::{RoomId, room_id};
 use serde_json::{Value as JsonValue, json};
 
 use crate::DEFAULT_TEST_ROOM_ID;
 
-pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
@@ -267,7 +268,7 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
+pub static DEFAULT_SYNC_SUMMARY: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
@@ -525,7 +526,7 @@ pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static INVITE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static INVITE_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",
@@ -584,7 +585,7 @@ pub static INVITE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static LEAVE_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
@@ -867,7 +868,7 @@ pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+pub static LEAVE_SYNC_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "account_data": {
             "events": []
@@ -934,7 +935,7 @@ pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static JOIN_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static JOIN_SPACE_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
@@ -1197,20 +1198,20 @@ pub static JOIN_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// In the [`MIXED_SYNC`], the room id of the joined room.
-pub static MIXED_JOINED_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+pub static MIXED_JOINED_ROOM_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
 /// In the [`MIXED_SYNC`], the room id of the left room.
-pub static MIXED_LEFT_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgD:localhost"));
+pub static MIXED_LEFT_ROOM_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!SVkFJHzfwvuaIEawgD:localhost"));
 /// In the [`MIXED_SYNC`], the room id of the invited room.
-pub static MIXED_INVITED_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgE:localhost"));
+pub static MIXED_INVITED_ROOM_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!SVkFJHzfwvuaIEawgE:localhost"));
 /// In the [`MIXED_SYNC`], the room id of the knocked room.
-pub static MIXED_KNOCKED_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgF:localhost"));
+pub static MIXED_KNOCKED_ROOM_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!SVkFJHzfwvuaIEawgF:localhost"));
 
 /// A sync that contains updates to joined/invited/knocked/left rooms.
-pub static MIXED_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static MIXED_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "account_data": {
             "events": []
@@ -1398,7 +1399,7 @@ pub static MIXED_SYNC: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static SYNC_ADMIN_AND_MOD: Lazy<JsonValue> = Lazy::new(|| {
+pub static SYNC_ADMIN_AND_MOD: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
@@ -1587,7 +1588,7 @@ pub static SYNC_ADMIN_AND_MOD: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static CUSTOM_ROOM_POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
+pub static CUSTOM_ROOM_POWER_LEVELS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
