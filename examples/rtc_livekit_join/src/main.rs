@@ -1,12 +1,17 @@
 #![recursion_limit = "256"]
 
+#[cfg(feature = "experimental-widgets")]
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use std::{env, fs};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{
-    engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
     Engine as _,
+    engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
 };
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
@@ -15,10 +20,10 @@ use matrix_sdk::encryption::secret_storage::SecretStore;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk::ruma::CanonicalJsonValue;
 use matrix_sdk::{
+    Client, RoomMemberships, RoomState,
     config::SyncSettings,
     event_handler::EventHandlerDropGuard,
     ruma::{OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
-    Client, RoomMemberships, RoomState,
 };
 #[cfg(feature = "experimental-widgets")]
 use matrix_sdk::{
@@ -36,16 +41,16 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_crypto::types::room_history::RoomKeyBundle;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
-use matrix_sdk_rtc::{livekit_service_url, LiveKitConnector, LiveKitResult};
+use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
-    key_provider::{KeyProvider, KeyProviderOptions},
     E2eeOptions, EncryptionType,
+    key_provider::{KeyProvider, KeyProviderOptions},
 };
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
-#[cfg(feature = "e2ee-per-participant")]
-use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, Room, RoomOptions,
 };
@@ -63,7 +68,7 @@ use serde_json::Value as JsonValue;
 #[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(feature = "experimental-widgets")]
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -89,6 +94,7 @@ struct ElementCallWidget {
     handle: matrix_sdk::widget::WidgetDriverHandle,
     widget_id: String,
     capabilities_ready: watch::Receiver<bool>,
+    pending_widget_responses: Arc<Mutex<HashMap<String, oneshot::Sender<JsonValue>>>>,
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -242,8 +248,8 @@ fn configure_v4l2_device(
 )> {
     use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
     use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
-    use v4l::video::Capture;
     use v4l::Device;
+    use v4l::video::Capture;
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
     let mut format = device.format().context("read V4L2 format")?;
@@ -365,8 +371,8 @@ fn set_format_with_fallback(
     device: &mut v4l::Device,
     mut format: v4l::format::Format,
 ) -> anyhow::Result<v4l::format::Format> {
-    use v4l::video::Capture;
     use v4l::FourCC;
+    use v4l::video::Capture;
 
     let nv12 = FourCC::new(b"NV12");
     let yuyv = FourCC::new(b"YUYV");
@@ -646,22 +652,50 @@ async fn main() -> anyhow::Result<()> {
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
+
+    #[cfg(feature = "experimental-widgets")]
+    let shutdown_membership_state_key = if widget.is_some() {
+        let own_user_id =
+            client.user_id().context("missing user id for widget shutdown event")?.to_owned();
+        let own_device_id =
+            client.device_id().context("missing device id for widget shutdown event")?.to_owned();
+        Some(CallMemberStateKey::new(own_user_id, Some(own_device_id.to_string()), true))
+    } else {
+        None
+    };
     info!(
         room_id = ?room.room_id(),
         service_url = %service_url,
         token_len = livekit_token.len(),
         "starting LiveKit driver"
     );
-    run_livekit_driver(
-        room,
-        connector,
-        service_url,
-        v4l2_config,
-        #[cfg(feature = "e2ee-per-participant")]
-        e2ee_context,
-    )
-    .await
-    .context("run LiveKit room driver")?;
+    tokio::select! {
+        run_result = run_livekit_driver(
+            room,
+            connector,
+            service_url,
+            v4l2_config,
+            #[cfg(feature = "e2ee-per-participant")]
+            e2ee_context,
+        ) => {
+            run_result.context("run LiveKit room driver")?;
+        }
+        ctrlc_result = tokio::signal::ctrl_c() => {
+            ctrlc_result.context("wait for ctrl+c")?;
+            info!("received ctrl+c; shutting down rtc client");
+
+            #[cfg(feature = "experimental-widgets")]
+            if let Some(widget) = widget.as_ref() {
+                if let Err(err) = send_hangup_via_widget(widget, shutdown_membership_state_key.as_ref()).await {
+                    info!(?err, "failed to send shutdown membership send_event via widget api during shutdown");
+                }
+            }
+
+            sync_handle.abort();
+            info!("ctrl+c shutdown flow finished; exiting process");
+            std::process::exit(0);
+        }
+    }
 
     sync_handle.abort();
 
@@ -1020,6 +1054,8 @@ async fn start_element_call_widget(
     let capabilities_provider = StaticCapabilitiesProvider { capabilities };
     let widget_capabilities = capabilities_provider.capabilities.clone();
     let (capabilities_ready_tx, capabilities_ready_rx) = watch::channel(false);
+    let pending_widget_responses: Arc<Mutex<HashMap<String, oneshot::Sender<JsonValue>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     tokio::spawn(async move {
         if driver.run(room, capabilities_provider).await.is_err() {
             info!("element call widget driver stopped");
@@ -1028,23 +1064,34 @@ async fn start_element_call_widget(
 
     let outbound_handle = handle.clone();
     let outbound_widget_id = widget_id.clone();
+    let pending_widget_responses_for_task = pending_widget_responses.clone();
     tokio::spawn(async move {
         let capabilities_ready_tx = capabilities_ready_tx;
+        let pending_widget_responses = pending_widget_responses_for_task;
         while let Some(message) = outbound_handle.recv().await {
             info!("widget -> rust-sdk message forwarded to stdout");
             println!("{message}");
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
                 continue;
             };
-            let Some(action) = value.get("action").and_then(|v| v.as_str()) else {
-                continue;
-            };
             let Some(request_id) = value.get("requestId").and_then(|v| v.as_str()) else {
                 continue;
             };
+            if value.get("response").is_some() {
+                if let Some(tx) = pending_widget_responses
+                    .lock()
+                    .ok()
+                    .and_then(|mut pending| pending.remove(request_id))
+                {
+                    let _ = tx.send(value);
+                }
+                continue;
+            }
+            let Some(action) = value.get("action").and_then(|v| v.as_str()) else {
+                continue;
+            };
             let api = value.get("api").and_then(|v| v.as_str());
-            let is_request = value.get("response").is_none();
-            if api != Some("toWidget") || !is_request {
+            if api != Some("toWidget") {
                 continue;
             }
             if action == "capabilities" {
@@ -1052,7 +1099,7 @@ async fn start_element_call_widget(
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
-                    "requestId": request_id,
+                    "requestId": request_id.clone(),
                     "action": "capabilities",
                     "data": {},
                     "response": {
@@ -1068,7 +1115,7 @@ async fn start_element_call_widget(
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
-                    "requestId": request_id,
+                    "requestId": request_id.clone(),
                     "action": "notify_capabilities",
                     "data": {},
                     "response": {},
@@ -1123,7 +1170,12 @@ async fn start_element_call_widget(
     });
     let _ = handle.send(content_loaded.to_string()).await;
 
-    Ok(Some(ElementCallWidget { handle, widget_id, capabilities_ready: capabilities_ready_rx }))
+    Ok(Some(ElementCallWidget {
+        handle,
+        widget_id,
+        capabilities_ready: capabilities_ready_rx,
+        pending_widget_responses,
+    }))
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -1177,7 +1229,7 @@ async fn publish_call_membership_via_widget(
     let send_event_message = serde_json::json!({
         "api": "fromWidget",
         "widgetId": widget.widget_id,
-        "requestId": request_id,
+        "requestId": request_id.clone(),
         "action": "send_event",
         "data": {
             "type": "org.matrix.msc3401.call.member",
@@ -1197,6 +1249,90 @@ async fn publish_call_membership_via_widget(
     }
 
     info!(state_key = state_key.as_ref(), "published MatrixRTC membership via widget api");
+    Ok(())
+}
+
+#[cfg(feature = "experimental-widgets")]
+async fn send_hangup_via_widget(
+    widget: &ElementCallWidget,
+    state_key: Option<&CallMemberStateKey>,
+) -> anyhow::Result<()> {
+    const SHUTDOWN_WIDGET_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+    if !*widget.capabilities_ready.borrow() {
+        let mut capabilities_ready = widget.capabilities_ready.clone();
+        let _ =
+            tokio::time::timeout(SHUTDOWN_WIDGET_WAIT_TIMEOUT, capabilities_ready.changed()).await;
+    }
+
+    let request_id = Uuid::new_v4().to_string();
+    let (response_tx, response_rx) = oneshot::channel();
+    if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+        pending.insert(request_id.clone(), response_tx);
+    }
+
+    let state_key = state_key.map(|state_key| state_key.as_ref()).unwrap_or_default();
+    let shutdown_message = serde_json::json!({
+        "api": "fromWidget",
+        "widgetId": widget.widget_id,
+        "requestId": request_id.clone(),
+        "action": "send_event",
+        "data": {
+            "type": "org.matrix.msc3401.call.member",
+            "state_key": state_key,
+            "content": {},
+        },
+    });
+    info!(
+        request_body = shutdown_message.to_string().as_str(),
+        "sending shutdown membership send_event via widget api"
+    );
+
+    match tokio::time::timeout(
+        SHUTDOWN_WIDGET_WAIT_TIMEOUT,
+        widget.handle.send(shutdown_message.to_string()),
+    )
+    .await
+    {
+        Ok(true) => info!("shutdown membership send_event sent via widget api"),
+        Ok(false) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(anyhow!(
+                "widget driver handle closed before sending shutdown membership send_event"
+            ));
+        }
+        Err(_) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            info!(
+                "timeout while sending shutdown membership send_event via widget api; continuing shutdown"
+            );
+            return Ok(());
+        }
+    }
+
+    match tokio::time::timeout(SHUTDOWN_WIDGET_WAIT_TIMEOUT, response_rx).await {
+        Ok(Ok(_response)) => {
+            info!(request_id, "received widget response for shutdown membership send_event")
+        }
+        Ok(Err(_)) => info!(
+            request_id,
+            "shutdown membership send_event response channel closed; continuing shutdown"
+        ),
+        Err(_) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            info!(
+                request_id,
+                "timeout waiting for widget shutdown membership send_event response; continuing shutdown"
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -1292,7 +1428,7 @@ async fn build_per_participant_e2ee(
     room: &matrix_sdk::Room,
 ) -> anyhow::Result<Option<PerParticipantE2eeContext>> {
     use matrix_sdk_rtc_livekit::matrix_keys::{
-        room_olm_machine, OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider,
+        OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
     };
 
     info!(room_id = %room.room_id(), "starting per-participant E2EE context build");
@@ -1394,8 +1530,8 @@ fn derive_per_participant_key() -> anyhow::Result<Vec<u8>> {
     //
     // In Element Call (matrix-js-sdk), the sender key seed is 16 bytes.
     // Keeping this at 16 bytes is important for interoperability with the LiveKit E2EE ratchet.
-    use rand::rngs::OsRng;
     use rand::RngCore;
+    use rand::rngs::OsRng;
 
     let mut key = [0u8; 16];
     OsRng.fill_bytes(&mut key);
@@ -1450,8 +1586,8 @@ async fn send_per_participant_keys(
     key: &[u8],
     target_device_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     if key.is_empty() {
         info!(key_index, "per-participant E2EE key payload is empty; skipping send");
