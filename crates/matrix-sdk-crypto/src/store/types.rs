@@ -90,6 +90,10 @@ pub struct Changes {
     /// The set of rooms for which we have requested all room keys from the
     /// backup in advance of constructing a room key bundle.
     pub room_key_backups_fully_downloaded: HashSet<OwnedRoomId>,
+
+    /// Updates to the list of rooms where we have recently accepted invites
+    /// (and should now accept a key bundle, if one arrives soon).
+    pub rooms_pending_key_bundle: HashMap<OwnedRoomId, Option<RoomPendingKeyBundleDetails>>,
 }
 
 /// Information about an [MSC4268] room key bundle.

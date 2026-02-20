@@ -31,7 +31,8 @@ use matrix_sdk_crypto::{
         CryptoStore,
         types::{
             BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-            RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData,
+            RoomKeyWithheldEntry, RoomPendingKeyBundleDetails, RoomSettings,
+            StoredRoomKeyBundleData,
         },
     },
 };
@@ -340,6 +341,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 15 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/015_rooms_pending_key_bundle.sql"
+            ))?;
+            txn.set_db_version(15)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -396,6 +407,12 @@ trait SqliteConnectionExt {
     ) -> rusqlite::Result<()>;
 
     fn set_has_downloaded_all_room_keys(&self, room_id: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_room_pending_key_bundle(
+        &self,
+        room_id: &[u8],
+        details: Option<&[u8]>,
+    ) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -537,6 +554,24 @@ impl SqliteConnectionExt for rusqlite::Connection {
             ON CONFLICT (room_id, sender_user_id) DO UPDATE SET bundle_data = ?3",
             (room_id, sender_user_id, data),
         )?;
+        Ok(())
+    }
+
+    fn set_room_pending_key_bundle(
+        &self,
+        room_id: &[u8],
+        data: Option<&[u8]>,
+    ) -> rusqlite::Result<()> {
+        if let Some(data) = data {
+            self.execute(
+                "INSERT INTO rooms_pending_key_bundle (room_id, data)
+                 VALUES (?1, ?2)
+                 ON CONFLICT (room_id) DO UPDATE SET data = ?2",
+                (room_id, data),
+            )?;
+        } else {
+            self.execute("DELETE FROM rooms_pending_key_bundle WHERE room_id = ?1", (room_id,))?;
+        }
         Ok(())
     }
 
@@ -857,6 +892,17 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .optional()?)
     }
 
+    async fn get_room_pending_key_bundle(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT data FROM rooms_pending_key_bundle WHERE room_id = ?",
+                (room_id,),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?)
+    }
+
     async fn has_downloaded_all_room_keys(&self, room_id: Key) -> Result<bool> {
         Ok(self
             .query_row(
@@ -1080,6 +1126,12 @@ impl CryptoStore for SqliteCryptoStore {
                 for room in changes.room_key_backups_fully_downloaded {
                     let room_id = this.encode_key("room_key_backups_fully_downloaded", &room);
                     txn.set_has_downloaded_all_room_keys(&room_id)?;
+                }
+
+                for (room, details) in changes.rooms_pending_key_bundle {
+                    let room_id = this.encode_key("rooms_pending_key_bundle", &room);
+                    let value = details.as_ref().map(|d| this.serialize_value(d)).transpose()?;
+                    txn.set_room_pending_key_bundle(&room_id, value.as_deref())?;
                 }
 
                 Ok::<_, Error>(())
@@ -1514,6 +1566,19 @@ impl CryptoStore for SqliteCryptoStore {
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
         let room_id = self.encode_key("room_key_backups_fully_downloaded", room_id);
         self.read().await?.has_downloaded_all_room_keys(room_id).await
+    }
+
+    async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        let room_id = self.encode_key("rooms_pending_key_bundle", room_id.as_bytes());
+        let Some(value) = self.read().await?.get_room_pending_key_bundle(room_id).await? else {
+            return Ok(None);
+        };
+
+        let details = self.deserialize_value(&value)?;
+        Ok(Some(details))
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
