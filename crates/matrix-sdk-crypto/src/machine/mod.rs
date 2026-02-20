@@ -2024,6 +2024,9 @@ impl OlmMachine {
 
     /// Push a secret to all of our other verified devices.
     ///
+    /// This function assumes that we already have Olm sessions with the other
+    /// devices.  This can be done by calling [`get_missing_sessions()`].
+    ///
     /// * `secret_name` - The name of the secret to push
     #[cfg(feature = "experimental-push-secrets")]
     pub async fn push_secret_to_verified_devices(
