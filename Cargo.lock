@@ -3581,7 +3581,6 @@ dependencies = [
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
  "mime",
- "once_cell",
  "pin-project-lite",
  "proptest",
  "ruma",
