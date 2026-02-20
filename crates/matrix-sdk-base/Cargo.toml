@@ -80,7 +80,6 @@ matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
-once_cell.workspace = true
 regex.workspace = true
 ruma = { workspace = true, features = [
     "unstable-msc2867",
