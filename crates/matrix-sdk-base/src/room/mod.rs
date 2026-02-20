@@ -38,10 +38,12 @@ pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
+#[cfg(feature = "e2e-encryption")]
+pub use room_info::InviteAcceptanceDetails;
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
-    BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomRecencyStamp, apply_redaction,
+    BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomRecencyStamp,
+    apply_redaction,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
@@ -489,6 +491,7 @@ impl Room {
     /// - `Some` if an invite has been accepted by this specific client.
     /// - `None` if we didn't join this room using an invite or the invite
     ///   wasn't accepted by this client.
+    #[cfg(feature = "e2e-encryption")]
     pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
         self.info.read().invite_acceptance_details.clone()
     }

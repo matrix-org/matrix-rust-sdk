@@ -35,7 +35,7 @@ use ruma::DeviceId;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -52,9 +52,9 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{Level, debug, enabled, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::RoomMemberships;
+use crate::{InviteAcceptanceDetails, RoomMemberships};
 use crate::{
-    InviteAcceptanceDetails, RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
@@ -459,30 +459,38 @@ impl BaseClient {
             let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
-            let previous_state = room.state();
 
             room_info.mark_as_joined();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
 
-            // If our previous state was an invite and we're now in the joined state, this
-            // means that the user has explicitly accepted an invite. Let's
-            // remember some details about the invite.
-            //
-            // This is somewhat of a workaround for our lack of cryptographic membership.
-            // Later on we will decide if historic room keys should be accepted
-            // based on this info. If a user has accepted an invite and we receive a room
-            // key bundle shortly after, we might accept it. If we don't do
-            // this, the homeserver could trick us into accepting any historic room key
-            // bundle.
-            if previous_state == RoomState::Invited
-                && let Some(inviter) = inviter
+            #[cfg(feature = "e2e-encryption")]
             {
-                let details = InviteAcceptanceDetails {
-                    invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
-                    inviter,
-                };
-                room_info.set_invite_acceptance_details(details);
+                // If our previous state was an invite and we're now in the joined state, this
+                // means that the user has explicitly accepted an invite. Let's
+                // remember some details about the invite.
+                //
+                // This is somewhat of a workaround for our lack of cryptographic membership.
+                // Later on we will decide if historic room keys should be accepted
+                // based on this info. If a user has accepted an invite and we receive a room
+                // key bundle shortly after, we might accept it. If we don't do
+                // this, the homeserver could trick us into accepting any historic room key
+                // bundle.
+                let previous_state = room.state();
+                if previous_state == RoomState::Invited
+                    && let Some(inviter) = inviter
+                {
+                    let details = InviteAcceptanceDetails {
+                        invite_accepted_at: ruma::MilliSecondsSinceUnixEpoch::now(),
+                        inviter,
+                    };
+                    room_info.set_invite_acceptance_details(details);
+                }
+            }
+            #[cfg(not(feature = "e2e-encryption"))]
+            {
+                // suppress unused argument warning
+                let _ = inviter;
             }
 
             let mut changes = StateChanges::default();
@@ -1148,7 +1156,9 @@ impl From<&v5::Request> for RequestedRequiredStates {
 mod tests {
     use std::collections::HashMap;
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
+    #[cfg(feature = "e2e-encryption")]
+    use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
@@ -1709,6 +1719,7 @@ mod tests {
         assert!(client.is_user_ignored(ignored_user_id).await);
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_invite_details_are_set() {
         let user_id = user_id!("@alice:localhost");

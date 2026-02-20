@@ -56,11 +56,13 @@ pub use client::{BaseClient, ThreadingSupport};
 pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
+#[cfg(feature = "e2e-encryption")]
+pub use room::InviteAcceptanceDetails;
 pub use room::{
-    EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
-    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp,
-    RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
+    EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
+    RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
+    RoomMembersUpdate, RoomMemberships, RoomRecencyStamp, RoomState, RoomStateFilter,
+    SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
