@@ -1,10 +1,11 @@
 //! Responses to client API calls.
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use serde_json::{Value as JsonValue, json};
 
 /// `GET /_matrix/client/v3/devices`
-pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
+pub static DEVICES: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "devices": [
             {
@@ -26,7 +27,7 @@ pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /_matrix/client/v3/device/{deviceId}`
-pub static DEVICE: Lazy<JsonValue> = Lazy::new(|| {
+pub static DEVICE: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_id": "QBUAZIFURK",
         "display_name": "android",
@@ -36,7 +37,7 @@ pub static DEVICE: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /_matrix/client/v3/directory/room/{roomAlias}`
-pub static GET_ALIAS: Lazy<JsonValue> = Lazy::new(|| {
+pub static GET_ALIAS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "room_id": "!lUbmUPdxdXxEQurqOs:example.net",
         "servers": [
@@ -48,7 +49,7 @@ pub static GET_ALIAS: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `POST /_matrix/client/v3/keys/query`
-pub static KEYS_QUERY: Lazy<JsonValue> = Lazy::new(|| {
+pub static KEYS_QUERY: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "device_keys": {
         "@alice:example.org": {
@@ -81,7 +82,7 @@ pub static KEYS_QUERY: Lazy<JsonValue> = Lazy::new(|| {
 /// `POST /_matrix/client/v3/keys/query`
 /// For a set of 2 devices own by a user named web2.
 /// First device is unsigned, second one is signed
-pub static KEYS_QUERY_TWO_DEVICES_ONE_SIGNED: Lazy<JsonValue> = Lazy::new(|| {
+pub static KEYS_QUERY_TWO_DEVICES_ONE_SIGNED: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
     "device_keys":{
        "@web2:localhost:8482":{
@@ -164,7 +165,7 @@ pub static KEYS_QUERY_TWO_DEVICES_ONE_SIGNED: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// ``
-pub static KEYS_UPLOAD: Lazy<JsonValue> = Lazy::new(|| {
+pub static KEYS_UPLOAD: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "one_time_key_counts": {
         "curve25519": 10,
@@ -174,7 +175,7 @@ pub static KEYS_UPLOAD: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Successful call to `POST /_matrix/client/v3/login` without auto-discovery.
-pub static LOGIN: Lazy<JsonValue> = Lazy::new(|| {
+pub static LOGIN: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "access_token": "abc123",
         "device_id": "GHTYAJCE",
@@ -184,7 +185,7 @@ pub static LOGIN: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Successful call to `POST /_matrix/client/v3/login` with auto-discovery.
-pub static LOGIN_WITH_DISCOVERY: Lazy<JsonValue> = Lazy::new(|| {
+pub static LOGIN_WITH_DISCOVERY: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "access_token": "abc123",
         "device_id": "GHTYAJCE",
@@ -202,7 +203,7 @@ pub static LOGIN_WITH_DISCOVERY: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Successful call to `POST /_matrix/client/v3/login` with a refresh token.
-pub static LOGIN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+pub static LOGIN_WITH_REFRESH_TOKEN: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "access_token": "abc123",
         "device_id": "GHTYAJCE",
@@ -214,7 +215,7 @@ pub static LOGIN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Failed call to `POST /_matrix/client/v3/login`
-pub static LOGIN_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
+pub static LOGIN_RESPONSE_ERR: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "errcode": "M_FORBIDDEN",
       "error": "Invalid password"
@@ -222,7 +223,7 @@ pub static LOGIN_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /_matrix/client/v3/login`
-pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
+pub static LOGIN_TYPES: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "flows": [
             {
@@ -240,7 +241,7 @@ pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
 
 /// Failed call to an endpoint when the resource that was asked could not be
 /// found.
-pub static NOT_FOUND: Lazy<JsonValue> = Lazy::new(|| {
+pub static NOT_FOUND: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "errcode": "M_NOT_FOUND",
       "error": "No resource was found for this request.",
@@ -250,7 +251,7 @@ pub static NOT_FOUND: Lazy<JsonValue> = Lazy::new(|| {
 
 /// `GET /_matrix/client/v3/publicRooms`
 /// `POST /_matrix/client/v3/publicRooms`
-pub static PUBLIC_ROOMS: Lazy<JsonValue> = Lazy::new(|| {
+pub static PUBLIC_ROOMS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
             {
@@ -274,7 +275,7 @@ pub static PUBLIC_ROOMS: Lazy<JsonValue> = Lazy::new(|| {
 
 /// `GET /_matrix/client/v3/publicRooms`
 /// `POST /_matrix/client/v3/publicRooms``
-pub static PUBLIC_ROOMS_FINAL_PAGE: Lazy<JsonValue> = Lazy::new(|| {
+pub static PUBLIC_ROOMS_FINAL_PAGE: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
             {
@@ -295,7 +296,7 @@ pub static PUBLIC_ROOMS_FINAL_PAGE: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `POST /_matrix/client/v3/refresh` without new refresh token.
-pub static REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+pub static REFRESH_TOKEN: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "access_token": "5678",
       "expire_in_ms": 432000000,
@@ -303,7 +304,7 @@ pub static REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `POST /_matrix/client/v3/refresh` with a new refresh token.
-pub static REFRESH_TOKEN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+pub static REFRESH_TOKEN_WITH_REFRESH_TOKEN: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "access_token": "9012",
       "expire_in_ms": 432000000,
@@ -312,7 +313,7 @@ pub static REFRESH_TOKEN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Failed call to `POST /_matrix/client/v3/register`
-pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
+pub static REGISTRATION_RESPONSE_ERR: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "errcode": "M_FORBIDDEN",
         "error": "Invalid password",
@@ -335,7 +336,7 @@ pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// Failed called to any endpoint with an expired access token.
-pub static UNKNOWN_TOKEN_SOFT_LOGOUT: Lazy<JsonValue> = Lazy::new(|| {
+pub static UNKNOWN_TOKEN_SOFT_LOGOUT: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
       "errcode": "M_UNKNOWN_TOKEN",
       "error": "Invalid access token passed.",
@@ -344,7 +345,7 @@ pub static UNKNOWN_TOKEN_SOFT_LOGOUT: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /_matrix/client/versions`
-pub static VERSIONS: Lazy<JsonValue> = Lazy::new(|| {
+pub static VERSIONS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "versions": [
             "r0.0.1",
@@ -365,7 +366,7 @@ pub static VERSIONS: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /.well-known/matrix/client`
-pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
+pub static WELL_KNOWN: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "m.homeserver": {
             "base_url": "HOMESERVER_URL"
@@ -380,7 +381,7 @@ pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
 });
 
 /// `GET /_matrix/client/v3/account/whoami`
-pub static WHOAMI: Lazy<JsonValue> = Lazy::new(|| {
+pub static WHOAMI: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "user_id": "@joe:example.org"
     })
