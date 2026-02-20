@@ -3324,7 +3324,6 @@ dependencies = [
  "matrix-sdk-ui",
  "mime",
  "oauth2",
- "once_cell",
  "paranoid-android",
  "ruma",
  "sentry",
