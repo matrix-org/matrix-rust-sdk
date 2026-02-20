@@ -1215,9 +1215,12 @@ async fn publish_call_membership_via_widget(
 
 #[cfg(feature = "experimental-widgets")]
 async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()> {
+    const SHUTDOWN_WIDGET_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
     if !*widget.capabilities_ready.borrow() {
         let mut capabilities_ready = widget.capabilities_ready.clone();
-        let _ = capabilities_ready.changed().await;
+        let _ =
+            tokio::time::timeout(SHUTDOWN_WIDGET_WAIT_TIMEOUT, capabilities_ready.changed()).await;
     }
 
     let request_id = Uuid::new_v4().to_string();
@@ -1230,11 +1233,17 @@ async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()
     });
     info!(request_body = hangup_message.to_string().as_str(), "sending hangup via widget api");
 
-    if !widget.handle.send(hangup_message.to_string()).await {
-        return Err(anyhow!("widget driver handle closed before sending hangup"));
+    match tokio::time::timeout(
+        SHUTDOWN_WIDGET_WAIT_TIMEOUT,
+        widget.handle.send(hangup_message.to_string()),
+    )
+    .await
+    {
+        Ok(true) => info!("hangup sent via widget api"),
+        Ok(false) => return Err(anyhow!("widget driver handle closed before sending hangup")),
+        Err(_) => info!("timeout while sending hangup via widget api; continuing shutdown"),
     }
 
-    info!("hangup sent via widget api");
     Ok(())
 }
 
