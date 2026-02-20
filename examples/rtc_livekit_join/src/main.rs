@@ -1,5 +1,10 @@
 #![recursion_limit = "256"]
 
+#[cfg(feature = "experimental-widgets")]
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use std::{env, fs};
 
 use anyhow::{Context, anyhow};
@@ -63,7 +68,7 @@ use serde_json::Value as JsonValue;
 #[cfg(feature = "experimental-widgets")]
 use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(feature = "experimental-widgets")]
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use tracing::info;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use tracing::warn;
@@ -89,6 +94,7 @@ struct ElementCallWidget {
     handle: matrix_sdk::widget::WidgetDriverHandle,
     widget_id: String,
     capabilities_ready: watch::Receiver<bool>,
+    pending_widget_responses: Arc<Mutex<HashMap<String, oneshot::Sender<JsonValue>>>>,
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -1033,6 +1039,8 @@ async fn start_element_call_widget(
     let capabilities_provider = StaticCapabilitiesProvider { capabilities };
     let widget_capabilities = capabilities_provider.capabilities.clone();
     let (capabilities_ready_tx, capabilities_ready_rx) = watch::channel(false);
+    let pending_widget_responses: Arc<Mutex<HashMap<String, oneshot::Sender<JsonValue>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     tokio::spawn(async move {
         if driver.run(room, capabilities_provider).await.is_err() {
             info!("element call widget driver stopped");
@@ -1041,23 +1049,34 @@ async fn start_element_call_widget(
 
     let outbound_handle = handle.clone();
     let outbound_widget_id = widget_id.clone();
+    let pending_widget_responses_for_task = pending_widget_responses.clone();
     tokio::spawn(async move {
         let capabilities_ready_tx = capabilities_ready_tx;
+        let pending_widget_responses = pending_widget_responses_for_task;
         while let Some(message) = outbound_handle.recv().await {
             info!("widget -> rust-sdk message forwarded to stdout");
             println!("{message}");
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
                 continue;
             };
-            let Some(action) = value.get("action").and_then(|v| v.as_str()) else {
-                continue;
-            };
             let Some(request_id) = value.get("requestId").and_then(|v| v.as_str()) else {
                 continue;
             };
+            if value.get("response").is_some() {
+                if let Some(tx) = pending_widget_responses
+                    .lock()
+                    .ok()
+                    .and_then(|mut pending| pending.remove(request_id))
+                {
+                    let _ = tx.send(value);
+                }
+                continue;
+            }
+            let Some(action) = value.get("action").and_then(|v| v.as_str()) else {
+                continue;
+            };
             let api = value.get("api").and_then(|v| v.as_str());
-            let is_request = value.get("response").is_none();
-            if api != Some("toWidget") || !is_request {
+            if api != Some("toWidget") {
                 continue;
             }
             if action == "capabilities" {
@@ -1065,7 +1084,7 @@ async fn start_element_call_widget(
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
-                    "requestId": request_id,
+                    "requestId": request_id.clone(),
                     "action": "capabilities",
                     "data": {},
                     "response": {
@@ -1081,7 +1100,7 @@ async fn start_element_call_widget(
                 let response = serde_json::json!({
                     "api": "toWidget",
                     "widgetId": outbound_widget_id,
-                    "requestId": request_id,
+                    "requestId": request_id.clone(),
                     "action": "notify_capabilities",
                     "data": {},
                     "response": {},
@@ -1136,7 +1155,12 @@ async fn start_element_call_widget(
     });
     let _ = handle.send(content_loaded.to_string()).await;
 
-    Ok(Some(ElementCallWidget { handle, widget_id, capabilities_ready: capabilities_ready_rx }))
+    Ok(Some(ElementCallWidget {
+        handle,
+        widget_id,
+        capabilities_ready: capabilities_ready_rx,
+        pending_widget_responses,
+    }))
 }
 
 #[cfg(not(feature = "experimental-widgets"))]
@@ -1190,7 +1214,7 @@ async fn publish_call_membership_via_widget(
     let send_event_message = serde_json::json!({
         "api": "fromWidget",
         "widgetId": widget.widget_id,
-        "requestId": request_id,
+        "requestId": request_id.clone(),
         "action": "send_event",
         "data": {
             "type": "org.matrix.msc3401.call.member",
@@ -1224,10 +1248,15 @@ async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()
     }
 
     let request_id = Uuid::new_v4().to_string();
+    let (response_tx, response_rx) = oneshot::channel();
+    if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+        pending.insert(request_id.clone(), response_tx);
+    }
+
     let hangup_message = serde_json::json!({
         "api": "fromWidget",
         "widgetId": widget.widget_id,
-        "requestId": request_id,
+        "requestId": request_id.clone(),
         "action": "hangup",
         "data": {},
     });
@@ -1240,8 +1269,30 @@ async fn send_hangup_via_widget(widget: &ElementCallWidget) -> anyhow::Result<()
     .await
     {
         Ok(true) => info!("hangup sent via widget api"),
-        Ok(false) => return Err(anyhow!("widget driver handle closed before sending hangup")),
-        Err(_) => info!("timeout while sending hangup via widget api; continuing shutdown"),
+        Ok(false) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(anyhow!("widget driver handle closed before sending hangup"));
+        }
+        Err(_) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            info!("timeout while sending hangup via widget api; continuing shutdown");
+            return Ok(());
+        }
+    }
+
+    match tokio::time::timeout(SHUTDOWN_WIDGET_WAIT_TIMEOUT, response_rx).await {
+        Ok(Ok(_response)) => info!(request_id, "received widget response for hangup"),
+        Ok(Err(_)) => info!(request_id, "hangup response channel closed; continuing shutdown"),
+        Err(_) => {
+            if let Ok(mut pending) = widget.pending_widget_responses.lock() {
+                pending.remove(&request_id);
+            }
+            info!(request_id, "timeout waiting for widget hangup response; continuing shutdown");
+        }
     }
 
     Ok(())
