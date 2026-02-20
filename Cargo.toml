@@ -61,7 +61,6 @@ itertools = { version = "0.14.0", default-features = false, features = ["use_std
 js-sys = { version = "0.3.82", default-features = false, features = ["std"] }
 mime = { version = "0.3.17", default-features = false }
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
-once_cell = { version = "1.21.3", default-features = false }
 pbkdf2 = { version = "0.12.2", default-features = false }
 pin-project-lite = { version = "0.2.16", default-features = false }
 proc-macro2 = { version = "1.0.106", default-features = false }

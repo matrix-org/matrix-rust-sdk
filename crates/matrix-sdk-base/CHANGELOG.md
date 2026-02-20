@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `once_cell` is no longer reexported from this crate. The types that were stabilized
+  in the Rust standard library can be used instead in most cases.
 - [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now instead of the previous `holder` value
   and so does `StoreConfig` and `BaseClient::clone_with_in_memory_state_store. Passing a 
   `CrossProcessLockConfig::MultiProcess` will keep the same behaviour we had where the client uses the cross process 

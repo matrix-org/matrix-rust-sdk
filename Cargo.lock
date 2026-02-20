@@ -3172,7 +3172,6 @@ dependencies = [
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
- "once_cell",
  "proptest",
  "regex",
  "ruma",
