@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Not, sync::Arc, time::Duration};
+use std::{
+    ops::Not,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -35,7 +39,6 @@ use matrix_sdk_test::{
     mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{AnyOtherFullStateEventContent, RoomExt, TimelineItemContent};
-use once_cell::sync::Lazy;
 use ruma::{
     EventId,
     events::{FullStateEventContent, room::message::MessageType},
@@ -691,7 +694,7 @@ async fn test_timeline_reset_while_paginating() {
     server.verify().await;
 }
 
-pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
+pub static ROOM_MESSAGES_BATCH_1: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
           {
@@ -741,7 +744,7 @@ pub static ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
+pub static ROOM_MESSAGES_BATCH_2: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
           {

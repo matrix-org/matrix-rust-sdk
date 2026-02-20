@@ -1648,7 +1648,10 @@ fn insert_chunk(
 mod tests {
     use std::{
         path::PathBuf,
-        sync::atomic::{AtomicU32, Ordering::SeqCst},
+        sync::{
+            LazyLock,
+            atomic::{AtomicU32, Ordering::SeqCst},
+        },
     };
 
     use assert_matches::assert_matches;
@@ -1661,7 +1664,6 @@ mod tests {
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
-    use once_cell::sync::Lazy;
     use ruma::event_id;
     use tempfile::{TempDir, tempdir};
 
@@ -1672,7 +1674,7 @@ mod tests {
         utils::{EncryptableStore as _, SqliteAsyncConnExt},
     };
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_event_cache_store_workspace() -> PathBuf {
@@ -1908,14 +1910,16 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
 
     use matrix_sdk_base::{
         event_cache::store::{EventCacheStore, EventCacheStoreError},
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use once_cell::sync::Lazy;
     use ruma::{
         event_id,
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
@@ -1925,7 +1929,7 @@ mod encrypted_tests {
 
     use super::SqliteEventCacheStore;
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {

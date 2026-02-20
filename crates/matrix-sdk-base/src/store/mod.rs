@@ -27,13 +27,12 @@ use std::{
     ops::Deref,
     result::Result as StdResult,
     str::{FromStr, Utf8Error},
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{Arc, OnceLock, RwLock as StdRwLock},
 };
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
-use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -178,7 +177,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 #[derive(Clone)]
 pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
-    session_meta: Arc<OnceCell<SessionMeta>>,
+    session_meta: Arc<OnceLock<SessionMeta>>,
     room_load_settings: Arc<RwLock<RoomLoadSettings>>,
 
     /// A sender that is used to communicate changes to room information. Each

@@ -4,7 +4,8 @@
 //! truth. When running `cargo publish` no external folders are allowed so all
 //! the test data needs to be contained within this crate.
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use serde_json::{Value as JsonValue, json};
 
 use crate::DEFAULT_TEST_ROOM_ID;
@@ -28,17 +29,17 @@ pub use sync::{
 };
 
 /// An empty response.
-pub static EMPTY: Lazy<JsonValue> = Lazy::new(|| json!({}));
+pub static EMPTY: LazyLock<JsonValue> = LazyLock::new(|| json!({}));
 
 /// A response with only an event ID.
-pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
+pub static EVENT_ID: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "event_id": "$h29iv0s8:example.com"
     })
 });
 
 /// A response with only a room ID.
-pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
+pub static ROOM_ID: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "room_id": *DEFAULT_TEST_ROOM_ID
     })

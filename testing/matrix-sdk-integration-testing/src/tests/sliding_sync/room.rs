@@ -3,7 +3,7 @@
 
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
 
@@ -49,7 +49,6 @@ use matrix_sdk_ui::{
     RoomListService, room_list_service::filters::new_filter_all, sync_service::SyncService,
     timeline::RoomExt,
 };
-use once_cell::sync::Lazy;
 use rand::Rng as _;
 use serde_json::Value;
 use stream_assert::assert_pending;

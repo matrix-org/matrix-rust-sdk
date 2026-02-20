@@ -3,7 +3,7 @@ use std::{
     ops::Deref,
     option_env,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
 
@@ -24,14 +24,13 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{TempDir, tempdir};
 use tokio::{sync::Mutex, time::sleep};
 
 /// This global maintains temp directories alive for the whole lifetime of the
 /// process.
-static TMP_DIRS: Lazy<Mutex<Vec<TempDir>>> = Lazy::new(Mutex::default);
+static TMP_DIRS: LazyLock<Mutex<Vec<TempDir>>> = LazyLock::new(Mutex::default);
 
 enum SqlitePath {
     Random,

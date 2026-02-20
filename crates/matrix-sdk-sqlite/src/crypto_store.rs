@@ -1597,7 +1597,7 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, sync::LazyLock};
 
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_crypto::{
@@ -1605,7 +1605,6 @@ mod tests {
         store::CryptoStore,
     };
     use matrix_sdk_test::async_test;
-    use once_cell::sync::Lazy;
     use ruma::{device_id, room_id, user_id};
     use similar_asserts::assert_eq;
     use tempfile::{TempDir, tempdir};
@@ -1614,7 +1613,7 @@ mod tests {
     use super::SqliteCryptoStore;
     use crate::SqliteStoreConfig;
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
 
     struct TestDb {
         // Needs to be kept alive because the Drop implementation for TempDir deletes the
@@ -2018,14 +2017,15 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    use std::sync::LazyLock;
+
     use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
-    use once_cell::sync::Lazy;
     use tempfile::{TempDir, tempdir};
     use tokio::fs;
 
     use super::SqliteCryptoStore;
 
-    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
 
     async fn get_store(
         name: &str,

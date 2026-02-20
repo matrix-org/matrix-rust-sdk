@@ -416,14 +416,13 @@ impl PaginableRoom for Room {
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
 
     use assert_matches2::assert_let;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use once_cell::sync::Lazy;
     use ruma::{EventId, RoomId, UInt, UserId, api::Direction, event_id, room_id, uint, user_id};
     use tokio::{
         spawn,
@@ -475,8 +474,8 @@ mod tests {
         }
     }
 
-    static ROOM_ID: Lazy<&RoomId> = Lazy::new(|| room_id!("!dune:herbert.org"));
-    static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
+    static ROOM_ID: LazyLock<&RoomId> = LazyLock::new(|| room_id!("!dune:herbert.org"));
+    static USER_ID: LazyLock<&UserId> = LazyLock::new(|| user_id!("@paul:atreid.es"));
 
     impl PaginableRoom for TestRoom {
         async fn event_with_context(

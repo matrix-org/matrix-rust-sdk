@@ -56,7 +56,6 @@ pub use client::{BaseClient, ThreadingSupport};
 pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
-pub use once_cell;
 pub use room::{
     EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,

@@ -65,7 +65,6 @@ matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = { version = "0.3.17", default-features = false }
-once_cell.workspace = true
 ruma = { workspace = true, features = [
     "html",
     "unstable-msc3488",
