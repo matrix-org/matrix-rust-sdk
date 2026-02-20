@@ -24,12 +24,12 @@ pub fn restore_session(c: &mut Criterion) {
     let mut changes = StateChanges::default();
 
     for i in 0..NUM_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap().to_owned();
+        let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap();
         changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
     }
 
     for i in 0..NUM_STRIPPED_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap().to_owned();
+        let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap();
         changes.add_room(RoomInfo::new(&room_id, RoomState::Invited));
     }
 

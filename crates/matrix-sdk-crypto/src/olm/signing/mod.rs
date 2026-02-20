@@ -513,7 +513,7 @@ impl PrivateCrossSigningIdentity {
         let mut user_signed_keys = SignedKeys::new();
         user_signed_keys.add_device_keys(device_keys.device_id.clone(), device_keys.to_raw());
 
-        let signed_keys = [((*self.user_id).to_owned(), user_signed_keys)].into();
+        let signed_keys = [(self.user_id.clone(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 

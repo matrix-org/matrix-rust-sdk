@@ -4159,7 +4159,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(invited_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(invited_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4181,7 +4181,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(left_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(left_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4203,7 +4203,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(knocked_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(knocked_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4225,7 +4225,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(joined_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(joined_room.room_id(), preview.room_id);
     }
 
     #[async_test]
