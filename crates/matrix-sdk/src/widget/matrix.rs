@@ -47,13 +47,15 @@ use tokio::sync::{
     broadcast::{Receiver, error::RecvError},
     mpsc::{UnboundedReceiver, unbounded_channel},
 };
-use tracing::{error, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use super::{StateKeySelector, machine::SendEventResponse};
 use crate::{
     Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
     sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
 };
+
+const CALL_ENCRYPTION_KEYS_EVENT_TYPE: &str = "io.element.call.encryption_keys";
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
@@ -229,7 +231,7 @@ impl MatrixDriver {
         // The receiver will get a combination of state and message like events.
         // These always come from the timeline (rather than the state section of the
         // sync).
-        EventReceiver { rx, _drop_guard: drop_guard }
+        EventReceiver { rx, _drop_guards: vec![drop_guard] }
     }
 
     /// Starts forwarding new updates to room state.
@@ -243,6 +245,8 @@ impl MatrixDriver {
         let (tx, rx) = unbounded_channel();
 
         let room_id = self.room.room_id().to_owned();
+        let room_id_for_to_device = room_id.clone();
+        let tx_for_to_device = tx.clone();
         let to_device_handle = self.room.client().add_event_handler(
 
             async move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>, client: Client| {
@@ -255,8 +259,8 @@ impl MatrixDriver {
 
                 // Encryption can be enabled after the widget has been instantiated,
                 // we want to keep track of the latest status
-                let Some(room) = client.get_room(&room_id) else {
-                    warn!("Room {room_id} not found in client.");
+                let Some(room) = client.get_room(&room_id_for_to_device) else {
+                    warn!("Room {room_id_for_to_device} not found in client.");
                     return;
                 };
 
@@ -272,9 +276,9 @@ impl MatrixDriver {
                     // Some widget traffic (like call encryption keys) can be carried in
                     // clear even when the room is encrypted. Only drop clear to-device
                     // messages that are not explicitly allowed.
-                    if event_type.as_deref() != Some("io.element.call.encryption_keys") {
+                    if event_type.as_deref() != Some(CALL_ENCRYPTION_KEYS_EVENT_TYPE) {
                         warn!(
-                            ?room_id,
+                            ?room_id_for_to_device,
                             "Received to-device event in clear for a widget in an e2e room, dropping."
                         );
                         return;
@@ -301,18 +305,102 @@ impl MatrixDriver {
                             serde_json::value::to_raw_value(&clean_event_helper)
                         })
                         .map_err(|err| {
-                            warn!(?room_id, "Unable to process to-device message for widget: {err}")
+                            warn!(?room_id_for_to_device, "Unable to process to-device message for widget: {err}")
                         })
-                        .map(|box_value| tx.send(Raw::from_json(box_value)));
+                        .map(|box_value| tx_for_to_device.send(Raw::from_json(box_value)));
                 } else {
                     // Forward to the widget.
-                    let _ = tx.send(raw);
+                    let _ = tx_for_to_device.send(raw);
                 }
             },
         );
 
-        let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
-        EventReceiver { rx, _drop_guard: drop_guard }
+        let room_id_for_state = room_id.clone();
+        let tx_for_state = tx.clone();
+        let state_handle = self.room.client().add_event_handler(
+            async move |raw: Raw<AnySyncStateEvent>, room: Room| {
+                if room.room_id() != room_id_for_state {
+                    return;
+                }
+
+                let Some(to_device_like_event) =
+                    Self::state_event_to_widget_to_device_message(&raw, room.room_id())
+                else {
+                    return;
+                };
+
+                warn!(
+                    room_id = ?room.room_id(),
+                    "Forwarding call encryption keys from sync state as widget to-device event"
+                );
+
+                let _ = tx_for_state.send(to_device_like_event);
+            },
+        );
+
+        let drop_guards = vec![
+            self.room.client().event_handler_drop_guard(to_device_handle),
+            self.room.client().event_handler_drop_guard(state_handle),
+        ];
+        EventReceiver { rx, _drop_guards: drop_guards }
+    }
+
+    fn state_event_to_widget_to_device_message(
+        raw_event: &Raw<AnySyncStateEvent>,
+        room_id: &RoomId,
+    ) -> Option<Raw<AnyToDeviceEvent>> {
+        let Ok(Some(event_type)) = raw_event.get_field::<String>("type") else {
+            return None;
+        };
+
+        if event_type != CALL_ENCRYPTION_KEYS_EVENT_TYPE {
+            return None;
+        }
+
+        let sender = raw_event.get_field::<String>("sender").ok().flatten();
+        info!(
+            ?room_id,
+            ?sender,
+            "Received call encryption keys in room state sync event for widget"
+        );
+        warn!(
+            ?room_id,
+            ?sender,
+            "Received call encryption keys in room state sync event for widget"
+        );
+
+        #[derive(Deserialize, Serialize)]
+        struct StateToToDeviceEventHelper<'a> {
+            #[serde(rename = "type")]
+            event_type: String,
+            #[serde(borrow)]
+            content: &'a RawJsonValue,
+            sender: String,
+        }
+
+        serde_json::from_str::<StateToToDeviceEventHelper<'_>>(raw_event.json().get())
+            .and_then(|event| serde_json::value::to_raw_value(&event))
+            .map(Raw::from_json)
+            .map(|converted| {
+                info!(
+                    ?room_id,
+                    ?sender,
+                    "Converted state sync call keys event to widget to-device payload"
+                );
+                warn!(
+                    ?room_id,
+                    ?sender,
+                    "Converted state sync call keys event to widget to-device payload"
+                );
+                converted
+            })
+            .map_err(|err| {
+                warn!(
+                    ?room_id,
+                    "Unable to convert state event into widget to-device message: {err}"
+                )
+            })
+            .ok()
     }
 
     fn should_filter_message_to_widget(raw_message: &Raw<AnyToDeviceEvent>) -> bool {
@@ -376,12 +464,9 @@ impl MatrixDriver {
         let client = self.room.client();
         let event_type_string = event_type.to_string();
 
-        if event_type_string == "io.element.call.encryption_keys" {
-            let Some(content) = messages
-                .values()
-                .flat_map(|devices| devices.values())
-                .next()
-                .cloned()
+        if event_type_string == CALL_ENCRYPTION_KEYS_EVENT_TYPE {
+            let Some(content) =
+                messages.values().flat_map(|devices| devices.values()).next().cloned()
             else {
                 warn!(
                     room_id = %self.room.room_id(),
@@ -561,7 +646,7 @@ impl MatrixDriver {
 /// along with the drop guard for the room event handler.
 pub(crate) struct EventReceiver<E> {
     rx: UnboundedReceiver<E>,
-    _drop_guard: EventHandlerDropGuard,
+    _drop_guards: Vec<EventHandlerDropGuard>,
 }
 
 impl<T> EventReceiver<T> {
@@ -619,7 +704,7 @@ mod tests {
     use ruma::{events::AnyTimelineEvent, room_id, serde::Raw};
     use serde_json::{Value, json};
 
-    use super::attach_room_id;
+    use super::{CALL_ENCRYPTION_KEYS_EVENT_TYPE, MatrixDriver, attach_room_id};
 
     #[test]
     fn test_add_room_id_to_raw() {
@@ -672,5 +757,53 @@ mod tests {
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();
         assert_eq!(attached.room_id(), room_id);
+    }
+
+    #[test]
+    fn test_state_event_to_widget_to_device_message_conversion() {
+        let raw = Raw::new(&json!({
+            "type": CALL_ENCRYPTION_KEYS_EVENT_TYPE,
+            "state_key": "@alice:example.org",
+            "sender": "@alice:example.org",
+            "content": {
+                "device_id": "DEVICEID",
+                "call_id": "abc"
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        let converted = MatrixDriver::state_event_to_widget_to_device_message(
+            &raw,
+            room_id!("!my_id:example.org"),
+        )
+        .expect("call encryption keys state event should be forwarded");
+
+        let json = converted.deserialize_as::<Value>().unwrap();
+        assert_eq!(json.get("type").unwrap(), CALL_ENCRYPTION_KEYS_EVENT_TYPE);
+        assert_eq!(json.get("sender").unwrap(), "@alice:example.org");
+        assert!(json.get("state_key").is_none());
+    }
+
+    #[test]
+    fn test_non_call_encryption_keys_state_event_not_converted() {
+        let raw = Raw::new(&json!({
+            "type": "m.room.topic",
+            "state_key": "",
+            "sender": "@alice:example.org",
+            "content": {
+                "topic": "hello"
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        assert!(
+            MatrixDriver::state_event_to_widget_to_device_message(
+                &raw,
+                room_id!("!my_id:example.org")
+            )
+            .is_none()
+        );
     }
 }

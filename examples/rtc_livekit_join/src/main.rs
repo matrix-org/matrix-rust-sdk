@@ -1156,14 +1156,15 @@ async fn publish_call_membership_via_widget(
         .context("missing device id for widget membership publisher")?
         .to_owned();
     let state_key =
-        CallMemberStateKey::new(own_user_id.clone(), Some(own_device_id.to_string()), false);
-    let call_id = room.room_id().to_string();
+        CallMemberStateKey::new(own_user_id.clone(), Some(own_device_id.to_string()), true);
+    let call_id = "".to_string();
     let application =
         Application::Call(CallApplicationContent::new(call_id.clone(), CallScope::Room));
     let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
     let focus_alias = format!("{}", room.room_id());
+    let service_url = "https://demo.call.bundesmessenger.info";
     let foci_preferred =
-        vec![Focus::Livekit(LivekitFocus::new(focus_alias, service_url.to_owned()))];
+        vec![Focus::Livekit(LivekitFocus::new(focus_alias, service_url.to_string()))];
     let content = CallMemberEventContent::new(
         application,
         own_device_id,
@@ -1514,13 +1515,13 @@ async fn send_per_participant_keys(
     let member_id = format!("{own_user_id}:{claimed}");
 
     let content_raw = Raw::new(&serde_json::json!({
-        "keys": [{ "index": key_index, "key": key_b64 }],
+        "keys": { "index": key_index, "key": key_b64 },
         "device_id": claimed,
         "member": { "claimed_device_id": claimed, "id": member_id },
         "room_id": room.room_id().to_string(),
         "session": {
             "application": "m.call",
-            "call_id": room.room_id().to_string(),
+            "call_id": "",
             "scope": "m.room"
         },
         "sent_ts": sent_ts,
