@@ -690,6 +690,10 @@ async fn main() -> anyhow::Result<()> {
                     info!(?err, "failed to send shutdown membership send_event via widget api during shutdown");
                 }
             }
+
+            sync_handle.abort();
+            info!("ctrl+c shutdown flow finished; exiting process");
+            std::process::exit(0);
         }
     }
 
