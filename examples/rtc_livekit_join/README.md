@@ -52,6 +52,26 @@ ROOM_ID=!roomid:example.org \
 LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 LIVEKIT_TOKEN=your-token \
 V4L2_DEVICE=/dev/video0 \
+V4L2_VIDEO_SOURCE=camera \
+V4L2_WIDTH=1280 \
+V4L2_HEIGHT=720 \
+RUST_LOG=info \
+cargo run -p example-rtc-livekit-join --features v4l2
+```
+
+
+To publish generated solid red test frames instead of a real camera stream, set
+`V4L2_VIDEO_SOURCE=test_red` (or `test-red` / `red`). In this mode, `V4L2_DEVICE`
+is optional and defaults to 640x480 when width/height are omitted:
+
+```bash
+HOMESERVER_URL=https://matrix.example.org \
+MATRIX_USERNAME=@alice:example.org \
+MATRIX_PASSWORD=secret \
+ROOM_ID=!roomid:example.org \
+LIVEKIT_SERVICE_URL=wss://livekit.example.org \
+LIVEKIT_TOKEN=your-token \
+V4L2_VIDEO_SOURCE=test_red \
 V4L2_WIDTH=1280 \
 V4L2_HEIGHT=720 \
 RUST_LOG=info \
@@ -75,8 +95,11 @@ Notes:
   v4l2-ctl -d /dev/video0 --set-fmt-video=width=1280,height=720,pixelformat=NV12
   ```
 
-- `V4L2_WIDTH` and `V4L2_HEIGHT` are optional; when omitted, the current device
-  format is used.
+- `V4L2_VIDEO_SOURCE` selects the published source: `camera`/`webcam` (default)
+  or `test_red`/`test-red`/`red` for generated red frames.
+- `V4L2_WIDTH` and `V4L2_HEIGHT` are optional; for camera mode, the current
+  device format is used when omitted. For generated red frames, they default to
+  640x480.
 
 ## Build notes (Linux)
 
