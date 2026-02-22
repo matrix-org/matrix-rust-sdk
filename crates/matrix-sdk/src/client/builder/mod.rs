@@ -808,7 +808,7 @@ impl fmt::Debug for BuilderStoreConfig {
 #[derive(Debug, Error)]
 pub enum ClientBuildError {
     /// No homeserver or user ID was configured
-    #[error("no homeserver or user ID was configured")]
+    #[error("No homeserver or user ID was configured")]
     MissingHomeserver,
 
     /// The supplied server name was invalid.
