@@ -7,11 +7,11 @@ use std::{
 };
 use std::{env, fs};
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 #[cfg(feature = "e2ee-per-participant")]
 use base64::{
-    Engine as _,
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
+    Engine as _,
 };
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
@@ -20,10 +20,10 @@ use matrix_sdk::encryption::secret_storage::SecretStore;
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk::ruma::CanonicalJsonValue;
 use matrix_sdk::{
-    Client, RoomMemberships, RoomState,
     config::SyncSettings,
     event_handler::EventHandlerDropGuard,
     ruma::{OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName},
+    Client, RoomMemberships, RoomState,
 };
 #[cfg(feature = "experimental-widgets")]
 use matrix_sdk::{
@@ -41,16 +41,16 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_crypto::types::room_history::RoomKeyBundle;
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 use matrix_sdk_rtc::LiveKitError;
-use matrix_sdk_rtc::{LiveKitConnector, LiveKitResult, livekit_service_url};
-#[cfg(feature = "e2ee-per-participant")]
-use matrix_sdk_rtc_livekit::livekit::RoomEvent;
+use matrix_sdk_rtc::{livekit_service_url, LiveKitConnector, LiveKitResult};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
-    E2eeOptions, EncryptionType,
     key_provider::{KeyProvider, KeyProviderOptions},
+    E2eeOptions, EncryptionType,
 };
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::id::ParticipantIdentity;
+#[cfg(feature = "e2ee-per-participant")]
+use matrix_sdk_rtc_livekit::livekit::RoomEvent;
 use matrix_sdk_rtc_livekit::{
     LiveKitRoomOptionsProvider, LiveKitSdkConnector, LiveKitTokenProvider, Room, RoomOptions,
 };
@@ -154,6 +154,15 @@ struct V4l2Config {
     device: String,
     width: Option<u32>,
     height: Option<u32>,
+    source: V4l2VideoSource,
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+#[derive(Copy, Clone, Debug, Default)]
+enum V4l2VideoSource {
+    #[default]
+    Camera,
+    TestRedFrames,
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -192,8 +201,8 @@ impl V4l2CameraPublisher {
         use matrix_sdk_rtc_livekit::livekit::track::{LocalTrack, TrackSource};
         use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::RtcVideoSource;
 
-        let (resolution, pixel_format, rtc_source, mut device) =
-            configure_v4l2_device(&config).context("configure V4L2 device")?;
+        let (resolution, rtc_source, capture_mode) =
+            configure_v4l2_capture_mode(&config).context("configure V4L2 capture")?;
 
         let track = matrix_sdk_rtc_livekit::livekit::track::LocalVideoTrack::create_video_track(
             "v4l2_camera",
@@ -217,8 +226,13 @@ impl V4l2CameraPublisher {
             .context("publish V4L2 camera track")?;
 
         let (stop_tx, stop_rx) = std::sync::mpsc::channel();
-        let task = tokio::task::spawn_blocking(move || {
-            run_v4l2_capture_loop(&mut device, resolution, pixel_format, rtc_source, stop_rx)
+        let task = tokio::task::spawn_blocking(move || match capture_mode {
+            V4l2CaptureMode::Camera { mut device, pixel_format } => {
+                run_v4l2_capture_loop(&mut device, resolution, pixel_format, rtc_source, stop_rx)
+            }
+            V4l2CaptureMode::TestRedFrames => {
+                run_generated_red_capture_loop(resolution, rtc_source, stop_rx)
+            }
         });
 
         Ok(Self { room, track, stop_tx, task })
@@ -238,18 +252,38 @@ impl V4l2CameraPublisher {
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
-fn configure_v4l2_device(
+enum V4l2CaptureMode {
+    Camera { device: v4l::Device, pixel_format: V4l2PixelFormat },
+    TestRedFrames,
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn configure_v4l2_capture_mode(
     config: &V4l2Config,
 ) -> anyhow::Result<(
     matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
-    V4l2PixelFormat,
     matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
-    v4l::Device,
+    V4l2CaptureMode,
 )> {
     use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution;
     use matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource;
-    use v4l::Device;
+
+    if matches!(config.source, V4l2VideoSource::TestRedFrames) {
+        let resolution = VideoResolution {
+            width: config.width.unwrap_or(640),
+            height: config.height.unwrap_or(480),
+        };
+        let rtc_source = NativeVideoSource::new(resolution.clone());
+        info!(
+            width = resolution.width,
+            height = resolution.height,
+            "configured generated red test video source"
+        );
+        return Ok((resolution, rtc_source, V4l2CaptureMode::TestRedFrames));
+    }
+
     use v4l::video::Capture;
+    use v4l::Device;
 
     let mut device = Device::with_path(&config.device).context("open V4L2 device")?;
     let mut format = device.format().context("read V4L2 format")?;
@@ -281,7 +315,7 @@ fn configure_v4l2_device(
         "configured V4L2 device format"
     );
     let rtc_source = NativeVideoSource::new(resolution.clone());
-    Ok((resolution, pixel_format, rtc_source, device))
+    Ok((resolution, rtc_source, V4l2CaptureMode::Camera { device, pixel_format }))
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
@@ -367,12 +401,67 @@ fn run_v4l2_capture_loop(
 }
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn run_generated_red_capture_loop(
+    resolution: matrix_sdk_rtc_livekit::livekit::webrtc::prelude::VideoResolution,
+    rtc_source: matrix_sdk_rtc_livekit::livekit::webrtc::video_source::native::NativeVideoSource,
+    stop_rx: std::sync::mpsc::Receiver<()>,
+) -> anyhow::Result<()> {
+    use matrix_sdk_rtc_livekit::livekit::webrtc::prelude::{I420Buffer, VideoFrame, VideoRotation};
+
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        buffer: I420Buffer::new(resolution.width, resolution.height),
+        timestamp_us: 0,
+    };
+    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+    let (dst_y, dst_u, dst_v) = frame.buffer.data_mut();
+
+    fill_plane(dst_y, stride_y as usize, resolution.width as usize, resolution.height as usize, 76);
+    fill_plane(
+        dst_u,
+        stride_u as usize,
+        (resolution.width / 2) as usize,
+        (resolution.height / 2) as usize,
+        84,
+    );
+    fill_plane(
+        dst_v,
+        stride_v as usize,
+        (resolution.width / 2) as usize,
+        (resolution.height / 2) as usize,
+        255,
+    );
+
+    let frame_duration = std::time::Duration::from_millis(33);
+    let start = std::time::Instant::now();
+    loop {
+        if stop_rx.try_recv().is_ok() {
+            break;
+        }
+
+        frame.timestamp_us = start.elapsed().as_micros() as i64;
+        rtc_source.capture_frame(&frame);
+        std::thread::sleep(frame_duration);
+    }
+
+    Ok(())
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
+fn fill_plane(dst: &mut [u8], stride: usize, width: usize, height: usize, value: u8) {
+    for y in 0..height {
+        let row = &mut dst[y * stride..y * stride + width];
+        row.fill(value);
+    }
+}
+
+#[cfg(all(feature = "v4l2", target_os = "linux"))]
 fn set_format_with_fallback(
     device: &mut v4l::Device,
     mut format: v4l::format::Format,
 ) -> anyhow::Result<v4l::format::Format> {
-    use v4l::FourCC;
     use v4l::video::Capture;
+    use v4l::FourCC;
 
     let nv12 = FourCC::new(b"NV12");
     let yuyv = FourCC::new(b"YUYV");
@@ -442,9 +531,27 @@ fn yuyv_to_i420(
 
 #[cfg(all(feature = "v4l2", target_os = "linux"))]
 fn v4l2_config_from_env() -> anyhow::Result<Option<V4l2Config>> {
-    let device = match optional_env("V4L2_DEVICE") {
-        Some(device) => device,
-        None => return Ok(None),
+    let source = match optional_env("V4L2_VIDEO_SOURCE")
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("camera") | Some("webcam") | None => V4l2VideoSource::Camera,
+        Some("test_red") | Some("test-red") | Some("red") => V4l2VideoSource::TestRedFrames,
+        Some(other) => {
+            return Err(anyhow!(
+                "invalid V4L2_VIDEO_SOURCE '{other}'; expected camera|webcam|test_red|test-red|red"
+            ));
+        }
+    };
+
+    let device = if matches!(source, V4l2VideoSource::Camera) {
+        match optional_env("V4L2_DEVICE") {
+            Some(device) => device,
+            None => return Ok(None),
+        }
+    } else {
+        optional_env("V4L2_DEVICE").unwrap_or_else(|| "generated-test-source".to_owned())
     };
 
     let width = optional_env("V4L2_WIDTH")
@@ -458,7 +565,7 @@ fn v4l2_config_from_env() -> anyhow::Result<Option<V4l2Config>> {
         .transpose()
         .context("parse V4L2_HEIGHT")?;
 
-    Ok(Some(V4l2Config { device, width, height }))
+    Ok(Some(V4l2Config { device, width, height, source }))
 }
 
 #[cfg(not(all(feature = "v4l2", target_os = "linux")))]
@@ -1428,7 +1535,7 @@ async fn build_per_participant_e2ee(
     room: &matrix_sdk::Room,
 ) -> anyhow::Result<Option<PerParticipantE2eeContext>> {
     use matrix_sdk_rtc_livekit::matrix_keys::{
-        OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider, room_olm_machine,
+        room_olm_machine, OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider,
     };
 
     info!(room_id = %room.room_id(), "starting per-participant E2EE context build");
@@ -1530,8 +1637,8 @@ fn derive_per_participant_key() -> anyhow::Result<Vec<u8>> {
     //
     // In Element Call (matrix-js-sdk), the sender key seed is 16 bytes.
     // Keeping this at 16 bytes is important for interoperability with the LiveKit E2EE ratchet.
-    use rand::RngCore;
     use rand::rngs::OsRng;
+    use rand::RngCore;
 
     let mut key = [0u8; 16];
     OsRng.fill_bytes(&mut key);
@@ -1586,8 +1693,8 @@ async fn send_per_participant_keys(
     key: &[u8],
     target_device_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    use base64::Engine as _;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
 
     if key.is_empty() {
         info!(key_index, "per-participant E2EE key payload is empty; skipping send");
