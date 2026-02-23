@@ -3966,7 +3966,6 @@ dependencies = [
  "getrandom 0.2.15",
  "http",
  "rand 0.8.5",
- "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -3977,9 +3976,9 @@ dependencies = [
 
 [[package]]
 name = "oauth2-reqwest"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5816f968971645805831cfc55f4476c89f22a0982d719a9bd9d81e04810c2c1"
+checksum = "234fb5c965bbce983ee5de636a7a51d6a3223da8067ea02f9ab2d2d78ac08be2"
 dependencies = [
  "oauth2",
  "reqwest 0.13.1",

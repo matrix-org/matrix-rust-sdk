@@ -23,7 +23,7 @@ use oauth2_reqwest::ReqwestClient;
 /// An HTTP client for making OAuth 2.0 requests.
 #[derive(Debug, Clone)]
 pub(super) struct OAuthHttpClient {
-    pub(super) inner: reqwest::Client,
+    pub(super) inner: ReqwestClient,
     /// Rewrite HTTPS requests to use HTTP instead.
     ///
     /// This is a workaround to bypass some checks that require an HTTPS URL,
@@ -55,7 +55,7 @@ impl<'c> AsyncHttpClient<'c> for OAuthHttpClient {
                 request
             };
 
-            let response = ReqwestClient::from(&self.inner).call(request).await?;
+            let response = self.inner.call(request).await?;
 
             Ok(response)
         })
