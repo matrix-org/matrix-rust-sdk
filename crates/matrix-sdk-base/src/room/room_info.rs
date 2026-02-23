@@ -21,8 +21,6 @@ use as_variant::as_variant;
 use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::store::types::RoomPendingKeyBundleDetails;
 use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId,
@@ -635,15 +633,6 @@ pub struct RoomInfo {
     /// stamp nicely acts as a default fallback.
     #[serde(default)]
     pub(crate) recency_stamp: Option<RoomRecencyStamp>,
-
-    /// A timestamp remembering when we observed the user accepting an invite on
-    /// this current device.
-    ///
-    /// This is useful to remember if the user accepted this join on this
-    /// specific client.
-    #[cfg(feature = "e2e-encryption")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) invite_acceptance_details: Option<RoomPendingKeyBundleDetails>,
 }
 
 impl RoomInfo {
@@ -666,8 +655,6 @@ impl RoomInfo {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
-            #[cfg(feature = "e2e-encryption")]
-            invite_acceptance_details: None,
         }
     }
 
@@ -926,22 +913,6 @@ impl RoomInfo {
     /// Updates the invited member count.
     pub(crate) fn update_invited_member_count(&mut self, count: u64) {
         self.summary.invited_member_count = count;
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn set_invite_acceptance_details(&mut self, details: RoomPendingKeyBundleDetails) {
-        self.invite_acceptance_details = Some(details);
-    }
-
-    /// Returns the timestamp when an invite to this room has been accepted by
-    /// this specific client.
-    ///
-    /// # Returns
-    /// - `Some` if the invite has been accepted by this specific client.
-    /// - `None` if the invite has not been accepted
-    #[cfg(feature = "e2e-encryption")]
-    pub fn invite_acceptance_details(&self) -> Option<RoomPendingKeyBundleDetails> {
-        self.invite_acceptance_details.clone()
     }
 
     /// Updates the room heroes.
@@ -1419,8 +1390,6 @@ mod tests {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: Some(42.into()),
-            #[cfg(feature = "e2e-encryption")]
-            invite_acceptance_details: None,
         };
 
         let info_json = json!({

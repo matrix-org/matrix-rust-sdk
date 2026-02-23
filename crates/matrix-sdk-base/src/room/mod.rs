@@ -37,8 +37,6 @@ pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::store::types::RoomPendingKeyBundleDetails;
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
@@ -482,18 +480,6 @@ impl Room {
     /// Please read `RoomInfo::recency_stamp` to learn more.
     pub fn recency_stamp(&self) -> Option<RoomRecencyStamp> {
         self.info.read().recency_stamp
-    }
-
-    /// Returns the details about an invite to this room if the invite has been
-    /// accepted by this specific client.
-    ///
-    /// # Returns
-    /// - `Some` if an invite has been accepted by this specific client.
-    /// - `None` if we didn't join this room using an invite or the invite
-    ///   wasn't accepted by this client.
-    #[cfg(feature = "e2e-encryption")]
-    pub fn invite_acceptance_details(&self) -> Option<RoomPendingKeyBundleDetails> {
-        self.info.read().invite_acceptance_details.clone()
     }
 
     /// Get a `Stream` of loaded pinned events for this room.

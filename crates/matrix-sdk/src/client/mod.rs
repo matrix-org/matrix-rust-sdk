@@ -28,7 +28,9 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
+use matrix_sdk_base::crypto::{
+    DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
+};
 use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
@@ -3339,6 +3341,18 @@ impl Client {
         &self,
     ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
         self.inner.duplicate_key_upload_error_sender.subscribe()
+    }
+
+    /// Check the record of whether we are waiting for an [MSC4268] key bundle
+    /// for the given room.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        Ok(self.base_client().get_pending_key_bundle_details_for_room(room_id).await?)
     }
 }
 

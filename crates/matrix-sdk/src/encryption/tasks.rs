@@ -491,9 +491,10 @@ impl BundleReceiverTask {
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter }) =
-            room.invite_acceptance_details()
+        let Ok(Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter })) =
+            room.client.base_client().get_pending_key_bundle_details_for_room(room.room_id()).await
         else {
+            debug!("Not accepting key bundle as there are no recorded invite acceptance details");
             return false;
         };
 
@@ -625,7 +626,12 @@ mod test {
             client.get_room(joined_room_id).expect("We should have access to our joined room now");
 
         assert!(
-            room.invite_acceptance_details().is_none(),
+            client
+                .base_client()
+                .get_pending_key_bundle_details_for_room(room.room_id())
+                .await
+                .unwrap()
+                .is_none(),
             "We shouldn't have any invite acceptance details if we didn't join the room on this Client"
         );
 
@@ -655,8 +661,11 @@ mod test {
             .await
             .expect("We should be able to join the invited room");
 
-        let details = room
-            .invite_acceptance_details()
+        let details = client
+            .base_client()
+            .get_pending_key_bundle_details_for_room(room.room_id())
+            .await
+            .unwrap()
             .expect("We should have stored the invite acceptance details");
         assert_eq!(details.inviter, bob_user_id, "We should have recorded that Bob has invited us");
 
