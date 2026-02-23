@@ -1129,10 +1129,11 @@ mod tests {
 
         // Check we don't receive the invite for a different room, even if it was
         // included in the sync response
+        let event_id = owned_event_id!("$a:b.c");
         let result = notification_client
             .try_sliding_sync(&[NotificationItemsRequest {
                 room_id: owned_room_id!("!other:b.c"),
-                event_ids: vec![owned_event_id!("$a:b.c")],
+                event_ids: vec![event_id.clone()],
             }])
             .await
             .expect("Could not run sliding sync");
@@ -1143,11 +1144,22 @@ mod tests {
         let result = notification_client
             .try_sliding_sync(&[NotificationItemsRequest {
                 room_id: room_id.to_owned(),
-                event_ids: vec![owned_event_id!("$a:b.c")],
+                event_ids: vec![event_id.clone()],
             }])
             .await
             .expect("Could not run sliding sync");
 
+        // Check we did receive an event
         assert!(!result.is_empty());
+
+        // Try to assert it's the same event (since we don't have an event id)
+        // We can check its room, sender and membership state
+        let (in_room_id, event) = &result[&event_id];
+        assert_eq!(room_id, in_room_id);
+        assert_let!(Some(RawNotificationEvent::Invite(raw_invite)) = event);
+
+        let invite = raw_invite.deserialize().expect("Could not deserialize invite event");
+        assert_eq!(invite.state_key, user_id.to_string());
+        assert_eq!(invite.content.membership, MembershipState::Invite);
     }
 }
