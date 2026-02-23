@@ -74,6 +74,7 @@ impl CryptoChannel {
     pub(super) fn establish_inbound_channel(
         self,
         message: &str,
+        #[allow(unused_variables)] aad: &[u8],
     ) -> Result<CryptoChannelCreationResult, Error> {
         match self {
             CryptoChannel::Ecies(ecies) => {
@@ -87,7 +88,7 @@ impl CryptoChannel {
                 let message =
                     hpke::InitialMessage::decode(message).map_err(MessageDecodeError::from)?;
                 Ok(CryptoChannelCreationResult::Hpke(
-                    hpke.establish_channel(&message, &[]).map_err(DecryptionError::from)?,
+                    hpke.establish_channel(&message, aad).map_err(DecryptionError::from)?,
                 ))
             }
         }
