@@ -569,10 +569,7 @@ impl NotificationClient {
             }
 
             remaining_attempts -= 1;
-            warn!(
-                "There are some missing notifications, remaining attempts: {}",
-                remaining_attempts
-            );
+            warn!("There are some missing notifications, remaining attempts: {remaining_attempts}");
             if remaining_attempts == 0 {
                 // We're out of luck.
                 break;
