@@ -399,6 +399,14 @@ impl BaseClient {
             room_info.mark_as_knocked();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
+
+            // We are no longer joined to the room, so the invite acceptance details are no
+            // longer relevant.
+            #[cfg(feature = "e2e-encryption")]
+            {
+                room_info.invite_acceptance_details = None;
+            }
+
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.state_store.save_changes(&changes).await?; // Update the store
@@ -518,6 +526,14 @@ impl BaseClient {
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
+
+            // We are no longer joined to the room, so the invite acceptance details are no
+            // longer relevant.
+            #[cfg(feature = "e2e-encryption")]
+            {
+                room_info.invite_acceptance_details = None;
+            }
+
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.state_store.save_changes(&changes).await?; // Update the store

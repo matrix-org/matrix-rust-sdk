@@ -187,6 +187,13 @@ pub async fn update_left_room(
     )
     .await?;
 
+    // Since we are no longer joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    {
+        room_info.invite_acceptance_details = None;
+    }
+
     // Save the new `RoomInfo`.
     context.state_changes.add_room(room_info);
 
@@ -225,6 +232,13 @@ pub async fn update_invited_room(
     )
     .await?;
 
+    // Since we are no longer joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    {
+        room_info.invite_acceptance_details = None;
+    }
+
     context.state_changes.add_room(room_info);
 
     Ok(invited_room)
@@ -257,6 +271,13 @@ pub async fn update_knocked_room(
         notification,
     )
     .await?;
+
+    // Since we are not joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    {
+        room_info.invite_acceptance_details = None;
+    }
 
     context.state_changes.add_room(room_info);
 

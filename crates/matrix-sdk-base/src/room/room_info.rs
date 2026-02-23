@@ -698,15 +698,6 @@ impl RoomInfo {
 
     /// Set the membership RoomState of this Room
     pub fn set_state(&mut self, room_state: RoomState) {
-        #[cfg(feature = "e2e-encryption")]
-        {
-            if self.state() != RoomState::Joined && self.invite_acceptance_details.is_some() {
-                tracing::error!(room_id = %self.room_id, "The RoomInfo contains invite acceptance details but the room is not in the joined state");
-            }
-            // Changing our state removes the invite details since we can't know that they
-            // are relevant anymore.
-            self.invite_acceptance_details = None;
-        }
         self.room_state = room_state;
     }
 
