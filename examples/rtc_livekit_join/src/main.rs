@@ -141,7 +141,7 @@ impl LiveKitRoomOptionsProvider for E2eeRoomOptionsProvider {
         if let Some(context) = &self.e2ee {
             options.encryption = Some(E2eeOptions {
                 encryption_type: EncryptionType::Gcm,
-                key_provider: std::sync::Arc::clone(&context.key_provider),
+                key_provider: KeyProvider::clone(context.key_provider.as_ref()),
             });
         }
         options
