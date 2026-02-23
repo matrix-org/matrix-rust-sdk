@@ -377,6 +377,7 @@ impl NotificationClient {
         &self,
         requests: &[NotificationItemsRequest],
     ) -> Result<BTreeMap<OwnedEventId, (OwnedRoomId, Option<RawNotificationEvent>)>, Error> {
+        const MAX_SLIDING_SYNC_ATTEMPTS: u64 = 3;
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
         let _guard = self.notification_sync_mutex.lock().await;
@@ -536,8 +537,7 @@ impl NotificationClient {
             true,
         );
 
-        let max_attempts = 3;
-        let mut remaining_attempts = max_attempts;
+        let mut remaining_attempts = MAX_SLIDING_SYNC_ATTEMPTS;
 
         let stream = sync.sync();
         pin_mut!(stream);
@@ -554,12 +554,12 @@ impl NotificationClient {
             let event_count = raw_notifications.lock().unwrap().len();
             let invite_count = raw_invites.lock().unwrap().len();
 
+            let current_attempt = 1 + MAX_SLIDING_SYNC_ATTEMPTS - remaining_attempts;
             trace!(
-                "Attempt #{}: Found {} notification(s), {} invite event(s), expected {} total",
-                1 + max_attempts - remaining_attempts,
-                event_count,
-                invite_count,
-                expected_event_count
+                "Attempt #{current_attempt}: \
+                Found {event_count} notification(s), \
+                {invite_count} invite event(s), \
+                expected {expected_event_count} total",
             );
 
             // Sometimes we get the notifications *and* unexpected invite events, so total
