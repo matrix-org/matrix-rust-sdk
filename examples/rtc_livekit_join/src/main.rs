@@ -141,7 +141,7 @@ impl LiveKitRoomOptionsProvider for E2eeRoomOptionsProvider {
         if let Some(context) = &self.e2ee {
             options.encryption = Some(E2eeOptions {
                 encryption_type: EncryptionType::Gcm,
-                key_provider: context.key_provider.as_ref().clone(),
+                key_provider: std::sync::Arc::clone(&context.key_provider),
             });
         }
         options
@@ -740,7 +740,7 @@ async fn main() -> anyhow::Result<()> {
         register_e2ee_to_device_handler(
             &client,
             room.room_id().to_owned(),
-            context.key_provider.clone(),
+            std::sync::Arc::clone(&context.key_provider),
         )
     });
     #[cfg(feature = "e2ee-per-participant")]
@@ -1851,7 +1851,7 @@ fn register_e2ee_to_device_handler(
 
     let seen_first_event = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let handle = client.add_event_handler(move |raw: Raw<AnyToDeviceEvent>| {
-        let key_provider = key_provider.clone();
+        let key_provider = std::sync::Arc::clone(&key_provider);
         let room_id = room_id.clone();
         let seen_first_event = seen_first_event.clone();
         async move {
