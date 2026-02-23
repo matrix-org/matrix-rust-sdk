@@ -79,7 +79,7 @@ impl SecureChannel {
                 (crypto_channel, qr_code_data)
             }
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousInfo::Msc4388 { rendezvous_id } => {
+            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
                 let crypto_channel = CryptoChannel::new_hpke();
 
                 let qr_code_data = QrCodeData::new_msc4388(
@@ -117,7 +117,7 @@ impl SecureChannel {
                 );
             }
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousInfo::Msc4388 { rendezvous_id } => {
+            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
                 channel.qr_code_data = QrCodeData::new_msc4388(
                     channel.crypto_channel.public_key(),
                     // TODO: Avoid the double conversion here?
@@ -139,8 +139,9 @@ impl SecureChannel {
     pub(super) async fn connect(mut self) -> Result<AlmostEstablishedSecureChannel, Error> {
         trace!("Trying to connect the secure channel.");
 
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
         let message = self.channel.receive().await?;
-        let result = self.crypto_channel.establish_inbound_channel(&message)?;
+        let result = self.crypto_channel.establish_inbound_channel(&message, &aad)?;
 
         let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
@@ -161,8 +162,10 @@ impl SecureChannel {
                 }
                 #[cfg(feature = "unstable-msc4388")]
                 CryptoChannelCreationResult::Hpke(RecipientCreationResult { channel, .. }) => {
+                    let aad = self.channel.additional_authenticated_data().unwrap_or_default();
                     let BidirectionalCreationResult { channel, message } =
-                        channel.establish_bidirectional_channel(LOGIN_OK_MESSAGE.as_bytes(), &[]);
+                        channel.establish_bidirectional_channel(LOGIN_OK_MESSAGE.as_bytes(), &aad);
+
                     self.channel.send(message.encode()).await?;
 
                     let crypto_channel = EstablishedCryptoChannel::Hpke(channel);
@@ -227,42 +230,6 @@ impl EstablishedSecureChannel {
 
             let client = HttpClient::new(client, RequestConfig::short_retry());
 
-            // Let's establish an outbound ECIES channel, the other side won't
-            // know that it's talking to us, the device that scanned the QR
-            // code, until it receives and successfully decrypts the initial
-            // message. We're here encrypting the `LOGIN_INITIATE_MESSAGE`.
-            let (crypto_channel, encoded_message) = match qr_code_data.intent_data() {
-                QrCodeIntentData::Msc4108 { .. } => {
-                    let ecies = Ecies::new();
-
-                    let OutboundCreationResult { ecies, message } = ecies
-                        .establish_outbound_channel(
-                            qr_code_data.public_key(),
-                            LOGIN_INITIATE_MESSAGE.as_bytes(),
-                        )
-                        .map_err(DecryptionError::from)?;
-                    (ChannelType::Ecies(ecies), message.encode())
-                }
-                QrCodeIntentData::Msc4388 { .. } => {
-                    #[cfg(feature = "unstable-msc4388")]
-                    {
-                        let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
-                            .establish_channel(
-                                qr_code_data.public_key(),
-                                LOGIN_INITIATE_MESSAGE.as_bytes(),
-                                // TODO: Do we want to include some additional authenticated data
-                                // here?
-                                &[],
-                            )
-                            .map_err(DecryptionError::from)?;
-                        (ChannelType::Hpke(channel), message.encode())
-                    }
-
-                    #[cfg(not(feature = "unstable-msc4388"))]
-                    return Err(Error::UnsupportedQrCodeType);
-                }
-            };
-
             // The other side has crated a rendezvous channel, we're going to
             // connect to it and send this initial encrypted message through it.
             // The initial message on the rendezvous channel will have an empty
@@ -285,6 +252,42 @@ impl EstablishedSecureChannel {
                             )
                             .await?;
                         channel
+                    }
+
+                    #[cfg(not(feature = "unstable-msc4388"))]
+                    return Err(Error::UnsupportedQrCodeType);
+                }
+            };
+
+            // Let's establish an outbound ECIES channel, the other side won't
+            // know that it's talking to us, the device that scanned the QR
+            // code, until it receives and successfully decrypts the initial
+            // message. We're here encrypting the `LOGIN_INITIATE_MESSAGE`.
+            let (crypto_channel, encoded_message) = match qr_code_data.intent_data() {
+                QrCodeIntentData::Msc4108 { .. } => {
+                    let ecies = Ecies::new();
+
+                    let OutboundCreationResult { ecies, message } = ecies
+                        .establish_outbound_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                        )
+                        .map_err(DecryptionError::from)?;
+                    (ChannelType::Ecies(ecies), message.encode())
+                }
+                QrCodeIntentData::Msc4388 { .. } => {
+                    #[cfg(feature = "unstable-msc4388")]
+                    {
+                        let aad = channel.additional_authenticated_data().unwrap_or_default();
+
+                        let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
+                            .establish_channel(
+                                qr_code_data.public_key(),
+                                LOGIN_INITIATE_MESSAGE.as_bytes(),
+                                &aad,
+                            )
+                            .map_err(DecryptionError::from)?;
+                        (ChannelType::Hpke(channel), message.encode())
                     }
 
                     #[cfg(not(feature = "unstable-msc4388"))]
@@ -316,13 +319,14 @@ impl EstablishedSecureChannel {
                 }
                 #[cfg(feature = "unstable-msc4388")]
                 ChannelType::Hpke(crypto_channel) => {
+                    let aad = channel.additional_authenticated_data().unwrap_or_default();
                     let response = channel.receive().await?;
                     let response =
                         InitialResponse::decode(&response).map_err(MessageDecodeError::from)?;
 
                     let BidirectionalCreationResult { channel: crypto_channel, message } =
                         crypto_channel
-                            .establish_bidirectional_channel(&response, &[])
+                            .establish_bidirectional_channel(&response, &aad)
                             .map_err(DecryptionError::from)?;
                     let response = String::from_utf8(message)
                         .map_err(|e| MessageDecodeError::from(e.utf8_error()))?;
@@ -384,13 +388,19 @@ impl EstablishedSecureChannel {
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.crypto_channel.seal(message, &[]);
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
+
+        let message = self.crypto_channel.seal(message, &aad);
         self.channel.send(message).await
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
+
         let message = self.channel.receive().await?;
-        self.crypto_channel.open(&message, &[])
+        let decrypted = self.crypto_channel.open(&message, &aad)?;
+
+        Ok(decrypted)
     }
 }
 

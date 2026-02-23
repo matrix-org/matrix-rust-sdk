@@ -162,4 +162,36 @@ impl RendezvousChannel {
             RendezvousChannel::Msc4388(channel) => Ok(channel.receive().await?),
         }
     }
+
+    /// Get additional authenticated data which should be used by the crypto
+    /// channel to bind individual messages to this specific rendezvous
+    /// channel run.
+    ///
+    /// This is only used in MSC4388, as such only the HPKE crypto channel will
+    /// use this.
+    pub(super) fn additional_authenticated_data(&self) -> Option<Vec<u8>> {
+        match self {
+            RendezvousChannel::Msc4108(_) => None,
+            #[cfg(feature = "unstable-msc4388")]
+            RendezvousChannel::Msc4388(channel) => {
+                let msc_4388::Channel { base_url, rendezvous_id, sequence_token, .. } = channel;
+
+                let base_url_len: u8 = base_url.len();
+                let rendezvous_id_len: u8 = rendezvous_id.len();
+                let sequence_token_len: u8 = sequence_token.len();
+
+                Some(
+                    [
+                        &base_url_len.to_be_bytes(),
+                        base_url.as_str().as_bytes(),
+                        &rendezvous_id_len.to_be_bytes(),
+                        rendezvous_id.as_bytes(),
+                        &sequence_token_len.to_be_bytes(),
+                        sequence_token.as_bytes(),
+                    ]
+                    .concat(),
+                )
+            }
+        }
+    }
 }
