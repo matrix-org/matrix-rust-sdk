@@ -123,7 +123,7 @@ impl LiveKitRoomOptionsProvider for DefaultRoomOptionsProvider {
 #[cfg(feature = "e2ee-per-participant")]
 #[derive(Clone)]
 struct PerParticipantE2eeContext {
-    key_provider: KeyProvider,
+    key_provider: std::sync::Arc<KeyProvider>,
     key_index: i32,
     local_key: Vec<u8>,
 }
@@ -141,7 +141,7 @@ impl LiveKitRoomOptionsProvider for E2eeRoomOptionsProvider {
         if let Some(context) = &self.e2ee {
             options.encryption = Some(E2eeOptions {
                 encryption_type: EncryptionType::Gcm,
-                key_provider: context.key_provider.clone(),
+                key_provider: context.key_provider.as_ref().clone(),
             });
         }
         options
@@ -1604,7 +1604,7 @@ async fn build_per_participant_e2ee(
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
     info!("proceeding with per-participant E2EE setup (sender key is freshly generated)");
-    let key_provider = KeyProvider::new(KeyProviderOptions::default());
+    let key_provider = std::sync::Arc::new(KeyProvider::new(KeyProviderOptions::default()));
     let local_key = derive_per_participant_key()?;
     info!(
         room_id = %room.room_id(),
@@ -1845,7 +1845,7 @@ fn register_room_message_key_probe_handler(
 fn register_e2ee_to_device_handler(
     client: &Client,
     room_id: OwnedRoomId,
-    key_provider: KeyProvider,
+    key_provider: std::sync::Arc<KeyProvider>,
 ) -> EventHandlerDropGuard {
     info!(%room_id, "registering per-participant E2EE to-device handler");
 
