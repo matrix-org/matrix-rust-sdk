@@ -16,7 +16,7 @@
 //! [`RelationalLinkedChunk`].
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     hash::Hash,
 };
 
@@ -413,18 +413,33 @@ where
                 items.values().map(move |(item, pos)| (linked_chunk_id, (item, *pos)))
             })
     }
+}
 
+impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
+where
+    Item: IndexableItem<ItemId = ItemId> + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
+{
     /// Save a single item "out-of-band" in the relational linked chunk.
     pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
         let id = item.id();
-        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id);
 
-        let map = self.items.entry(linked_chunk_id).or_default();
-        if let Some(prev_value) = map.get_mut(&id) {
-            // If the item already exists, we keep the position.
-            prev_value.0 = item;
-        } else {
-            map.insert(id, (item, None));
+        let mut linked_chunk_ids = self
+            .items
+            .keys()
+            .filter(|linked_chunk_id| linked_chunk_id.room_id() == room_id)
+            .cloned()
+            .collect::<HashSet<_>>();
+        linked_chunk_ids.insert(OwnedLinkedChunkId::Room(room_id));
+
+        for linked_chunk_id in linked_chunk_ids {
+            let map = self.items.entry(linked_chunk_id).or_default();
+            if let Some(prev_value) = map.get_mut(&id) {
+                // If the item already exists, we keep the position.
+                prev_value.0 = item.clone();
+            } else {
+                map.insert(id.clone(), (item.clone(), None));
+            }
         }
     }
 }
