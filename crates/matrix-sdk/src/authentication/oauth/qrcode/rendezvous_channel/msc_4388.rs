@@ -52,9 +52,11 @@ struct RendezvousMessage {
 
 pub(crate) struct Channel {
     client: HttpClient,
-    base_url: Url,
-    rendezvous_id: String,
-    sequence_token: String,
+    pub(super) base_url: Url,
+    /// The ID of the rendezvous session we're using to exchange messages
+    /// through the channel.
+    pub(super) rendezvous_id: String,
+    pub(super) sequence_token: String,
 }
 
 fn response_to_error(status: StatusCode, data: String) -> HttpError {
