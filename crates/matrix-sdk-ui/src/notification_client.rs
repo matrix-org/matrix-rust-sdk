@@ -562,9 +562,10 @@ impl NotificationClient {
                 expected {expected_event_count} total",
             );
 
-            // Sometimes we get the notifications *and* unexpected invite events, so total
-            // can be > expected This also means we can get so many invites that
-            // we incorrectly assume we've fetched all the events
+            // We can stop looking once we've received the expected number of events from
+            // the sync. Since we can receive only events or invites for rooms but not both,
+            // and we're not taking into account invites from not subscribed rooms, this
+            // check should be accurate.
             if event_count + invite_count == expected_event_count {
                 // We got the events.
                 break;
