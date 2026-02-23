@@ -2,7 +2,7 @@ use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_common::cross_process_lock::CrossProcessLock;
+use matrix_sdk_common::cross_process_lock::{CrossProcessLock, CrossProcessLockConfig};
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
@@ -394,9 +394,9 @@ impl CryptoStoreWrapper {
     pub(crate) fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: String,
+        config: CrossProcessLockConfig,
     ) -> CrossProcessLock<LockableCryptoStore> {
-        CrossProcessLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
+        CrossProcessLock::new(LockableCryptoStore(self.store.clone()), lock_key, config)
     }
 }
 

@@ -3,6 +3,7 @@ use std::{pin::Pin, sync::Arc};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
     RoomInfo, RoomState, SqliteEventCacheStore, StateStore,
+    cross_process_lock::CrossProcessLockConfig,
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
     test_utils::client::MockClientBuilder,
@@ -102,9 +103,11 @@ fn handle_room_updates(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(state_store.clone())
-                                .event_cache_store(event_cache_store.clone()),
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
+                            ))
+                            .state_store(state_store.clone())
+                            .event_cache_store(event_cache_store.clone()),
                         )
                     })
                     .build()
@@ -268,9 +271,11 @@ fn find_event_relations(c: &mut Criterion) {
                 let client = MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(state_store.clone())
-                                .event_cache_store(event_cache_store),
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
+                            ))
+                            .state_store(state_store.clone())
+                            .event_cache_store(event_cache_store),
                         )
                     })
                     .build()

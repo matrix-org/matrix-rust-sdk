@@ -16,10 +16,9 @@
 use std::borrow::ToOwned;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
-use once_cell::sync::OnceCell;
 use tracing::{callsite::DefaultCallsite, debug, error, field::FieldSet, Callsite};
 use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 
@@ -68,7 +67,7 @@ fn get_or_init_metadata(
     meta_kind: MetadataKind,
 ) -> &'static DefaultCallsite {
     mutex.lock().unwrap().entry(id).or_insert_with_key(|id| {
-        let callsite = Box::leak(Box::new(LateInitCallsite(OnceCell::new())));
+        let callsite = Box::leak(Box::new(LateInitCallsite(OnceLock::new())));
         let metadata = Box::leak(Box::new(tracing::Metadata::new(
             Box::leak(
                 id.name
@@ -87,7 +86,7 @@ fn get_or_init_metadata(
             FieldSet::new(field_names, identify_callsite!(callsite)),
             meta_kind,
         )));
-        callsite.0.try_insert(DefaultCallsite::new(metadata)).expect("callsite was not set before")
+        callsite.0.get_or_init(|| DefaultCallsite::new(metadata))
     })
 }
 
@@ -268,7 +267,7 @@ struct MetadataId {
     name: Option<String>,
 }
 
-struct LateInitCallsite(OnceCell<DefaultCallsite>);
+struct LateInitCallsite(OnceLock<DefaultCallsite>);
 
 impl Callsite for LateInitCallsite {
     fn set_interest(&self, interest: tracing_core::Interest) {

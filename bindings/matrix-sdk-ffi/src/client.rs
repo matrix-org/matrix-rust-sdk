@@ -59,7 +59,9 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskFailureReason,
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
-use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
+};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -371,8 +373,7 @@ impl Client {
             }
         });
 
-        let cross_process_store_locks_holder_name =
-            sdk_client.cross_process_store_locks_holder_name().to_owned();
+        let store_mode = sdk_client.cross_process_lock_config();
 
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
@@ -389,11 +390,18 @@ impl Client {
                 ))?;
             }
 
-            client
-                .inner
-                .oauth()
-                .enable_cross_process_refresh_lock(cross_process_store_locks_holder_name)
-                .await?;
+            match store_mode {
+                CrossProcessLockConfig::MultiProcess { holder_name } => {
+                    client
+                        .inner
+                        .oauth()
+                        .enable_cross_process_refresh_lock(holder_name.clone())
+                        .await?;
+                }
+                CrossProcessLockConfig::SingleProcess => {
+                    client.inner.oauth();
+                }
+            }
         }
 
         if let Some(session_delegate) = session_delegate {

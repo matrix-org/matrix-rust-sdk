@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use assert_matches2::assert_matches;
 use matrix_sdk::{
     config::{SyncSettings, SyncToken},
@@ -6,9 +8,15 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, stripped_state_event, sync_state_event, test_json,
+    event_factory::EventFactory, stripped_state_event, sync_state_event,
 };
-use ruma::{OwnedRoomId, event_id, events::StateEventType, room_id, serde::Raw, user_id};
+use ruma::{
+    Int, OwnedRoomId, event_id,
+    events::{AnyStrippedStateEvent, StateEventType},
+    owned_user_id, room_id,
+    serde::Raw,
+    user_id,
+};
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -35,8 +43,12 @@ async fn test_notifications_joined() {
 
     // Set up the room state, no notifications.
     let mut sync_builder = SyncResponseBuilder::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+    let mut users = BTreeMap::new();
+    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
-        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast_unchecked(),
+        f.power_levels(&mut users).into_raw_sync_state(),
         sync_state_event!({
             "content": {
                 "avatar_url": null,
@@ -111,8 +123,13 @@ async fn test_notifications_invite() {
         .await;
 
     let mut sync_builder = SyncResponseBuilder::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+    let mut users = BTreeMap::new();
+    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
+    let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
     let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
-        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast_unchecked(),
+        power_levels_event,
         stripped_state_event!({
             "content": {
                 "membership": "join"

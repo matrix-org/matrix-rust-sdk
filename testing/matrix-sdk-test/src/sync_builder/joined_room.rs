@@ -9,7 +9,7 @@ use ruma::{
 };
 use serde_json::{Value as JsonValue, from_value as from_json_value};
 
-use super::{RoomAccountDataTestEvent, StateMutExt};
+use super::StateMutExt;
 use crate::{DEFAULT_TEST_ROOM_ID, event_factory::EventBuilder};
 
 #[derive(Debug, Clone)]
@@ -108,7 +108,7 @@ impl JoinedRoomBuilder {
     }
 
     /// Add room account data.
-    pub fn add_account_data(mut self, event: RoomAccountDataTestEvent) -> Self {
+    pub fn add_account_data(mut self, event: impl Into<Raw<AnyRoomAccountDataEvent>>) -> Self {
         self.inner.account_data.events.push(event.into());
         self
     }

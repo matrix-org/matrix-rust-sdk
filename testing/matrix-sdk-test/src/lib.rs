@@ -1,8 +1,7 @@
-use std::fmt;
+use std::{fmt, sync::LazyLock};
 
 use http::Response;
 pub use matrix_sdk_test_macros::async_test;
-use once_cell::sync::Lazy;
 use ruma::{
     RoomId, UserId,
     api::{IncomingResponse, OutgoingResponse},
@@ -79,16 +78,16 @@ pub mod test_json;
 
 pub use self::sync_builder::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    RoomAccountDataTestEvent, SyncResponseBuilder, bulk_room_members,
+    SyncResponseBuilder, bulk_room_members,
 };
 
-pub static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
-pub static BOB: Lazy<&UserId> = Lazy::new(|| user_id!("@bob:other.server"));
-pub static CAROL: Lazy<&UserId> = Lazy::new(|| user_id!("@carol:other.server"));
+pub static ALICE: LazyLock<&UserId> = LazyLock::new(|| user_id!("@alice:server.name"));
+pub static BOB: LazyLock<&UserId> = LazyLock::new(|| user_id!("@bob:other.server"));
+pub static CAROL: LazyLock<&UserId> = LazyLock::new(|| user_id!("@carol:other.server"));
 
 /// The default room ID for tests.
-pub static DEFAULT_TEST_ROOM_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
+pub static DEFAULT_TEST_ROOM_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
 
 /// Build a typed Ruma [`IncomingResponse`] object from a json body.
 pub fn ruma_response_from_json<ResponseType: IncomingResponse>(

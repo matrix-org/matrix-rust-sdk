@@ -664,7 +664,7 @@ impl MatrixAuth {
     /// use matrix_sdk::{
     ///     Client, SessionMeta, SessionTokens,
     ///     authentication::matrix::MatrixSession,
-    ///     ruma::{device_id, user_id},
+    ///     ruma::{owned_device_id, owned_user_id},
     /// };
     /// # use url::Url;
     /// # async {
@@ -674,8 +674,8 @@ impl MatrixAuth {
     ///
     /// let session = MatrixSession {
     ///     meta: SessionMeta {
-    ///         user_id: user_id!("@example:localhost").to_owned(),
-    ///         device_id: device_id!("MYDEVICEID").to_owned(),
+    ///         user_id: owned_user_id!("@example:localhost"),
+    ///         device_id: owned_device_id!("MYDEVICEID"),
     ///     },
     ///     tokens: SessionTokens {
     ///         access_token: "My-Token".to_owned(),
@@ -817,12 +817,12 @@ impl MatrixAuth {
 /// use matrix_sdk::{
 ///     SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
 /// };
-/// use ruma::{device_id, user_id};
+/// use ruma::{owned_device_id, owned_user_id};
 ///
 /// let session = MatrixSession {
 ///     meta: SessionMeta {
-///         user_id: user_id!("@example:localhost").to_owned(),
-///         device_id: device_id!("MYDEVICEID").to_owned(),
+///         user_id: owned_user_id!("@example:localhost"),
+///         device_id: owned_device_id!("MYDEVICEID"),
 ///     },
 ///     tokens: SessionTokens {
 ///         access_token: "My-Token".to_owned(),
@@ -830,7 +830,7 @@ impl MatrixAuth {
 ///     },
 /// };
 ///
-/// assert_eq!(session.meta.device_id.as_str(), "MYDEVICEID");
+/// assert_eq!(session.meta.device_id, "MYDEVICEID");
 /// ```
 #[derive(Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct MatrixSession {

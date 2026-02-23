@@ -16,8 +16,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
@@ -38,7 +37,7 @@ use ruma::{
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id,
+    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -514,12 +513,9 @@ async fn test_mark_as_unread() {
     room.set_unread_flag(false).await.unwrap();
 
     // Now we mark the room as unread.
+    let f = EventFactory::new();
     server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
-        )
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_account_data(f.marked_unread(true)))
         .await;
     assert!(room.is_marked_unread());
 
@@ -590,11 +586,9 @@ async fn test_send_single_receipt_with_unread_flag() {
     server.mock_send_receipt(ReceiptType::Read).ok().expect(2).mount().await;
 
     // Initial sync with our test room, marked unread.
+    let f = EventFactory::new();
     let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
-        )
+        .sync_room(&client, JoinedRoomBuilder::default().add_account_data(f.marked_unread(true)))
         .await;
     assert!(room.is_marked_unread());
 
@@ -646,11 +640,9 @@ async fn test_send_multiple_receipts_with_unread_flag() {
         .await;
 
     // Initial sync with our test room, marked unread.
+    let f = EventFactory::new();
     let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
-        )
+        .sync_room(&client, JoinedRoomBuilder::default().add_account_data(f.marked_unread(true)))
         .await;
     assert!(room.is_marked_unread());
 
@@ -1431,7 +1423,7 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
     // members
     let next = assert_recv_with_timeout!(receiver, 100);
     assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
-    assert_eq!(user_ids, BTreeSet::from_iter(vec![user_id!("@alice:b.c").to_owned()]));
+    assert_eq!(user_ids, BTreeSet::from_iter(vec![owned_user_id!("@alice:b.c")]));
 }
 
 #[async_test]

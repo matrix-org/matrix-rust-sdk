@@ -21,7 +21,7 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
-use ruma::OwnedEventId;
+use ruma::{OwnedEventId, OwnedUserId, UserId};
 
 use super::{
     EventCacheError,
@@ -32,6 +32,7 @@ use super::{
 /// information about the duplicates found in the new events, including the
 /// events that are not loaded in memory.
 pub async fn filter_duplicate_events(
+    own_user_id: &UserId,
     store_guard: &EventCacheStoreLockGuard,
     linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
@@ -79,11 +80,21 @@ pub async fn filter_duplicate_events(
         (in_memory, in_store)
     };
 
-    let at_least_one_event = !new_events.is_empty();
+    // See comment of `DeduplicationOutcome::non_empty_all_duplicates` for the
+    // rationale behind the following booleans.
+    let at_least_one_event_not_sent_by_me = new_events.iter().any(|ev| {
+        ev.raw()
+            .get_field::<OwnedUserId>("sender")
+            .ok()
+            .flatten()
+            .is_some_and(|sender| sender != own_user_id)
+    });
+
     let all_duplicates = (in_memory_duplicated_event_ids.len()
         + in_store_duplicated_event_ids.len())
         == new_events.len();
-    let non_empty_all_duplicates = at_least_one_event && all_duplicates;
+
+    let non_empty_all_duplicates = at_least_one_event_not_sent_by_me && all_duplicates;
 
     Ok(DeduplicationOutcome {
         all_events: new_events,
@@ -116,28 +127,32 @@ pub(super) struct DeduplicationOutcome {
     /// (position is descending).
     pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
 
-    /// Whether there's at least one new event, and all new events are
-    /// duplicate.
+    /// Whether there's at least one new event sent by some other user, and all
+    /// new events are duplicate.
     ///
-    /// This boolean is useful to know whether we need to store a
-    /// previous-batch token (gap) we received from a server-side
-    /// request (sync or back-pagination), or if we should
-    /// *not* store it.
+    /// This boolean is useful to know whether we need to store a previous-batch
+    /// token (gap) we received from a server-side request (sync or
+    /// back-pagination), or if we should *not* store it.
     ///
-    /// Since there can be empty back-paginations with a previous-batch
-    /// token (that is, they don't contain any events), we need to
-    /// make sure that there is *at least* one new event that has
-    /// been added. Otherwise, we might conclude something wrong
-    /// because a subsequent back-pagination might
-    /// return non-duplicated events.
+    /// Since there can be empty back-paginations with a previous-batch token
+    /// (that is, they don't contain any events), we need to make sure that
+    /// there is *at least* one new event that has been added. Otherwise, we
+    /// might conclude something wrong because a subsequent back-pagination
+    /// might return non-duplicated events.
     ///
-    /// If we had already seen all the duplicated events that we're trying
-    /// to add, then it would be wasteful to store a previous-batch
-    /// token, or even touch the linked chunk: we would repeat
-    /// back-paginations for events that we have already seen, and
-    /// possibly misplace them. And we should not be missing
-    /// events either: the already-known events would have their own
-    /// previous-batch token (it might already be consumed).
+    /// Because the send queue inserts sent events in the event cache, we also
+    /// need to make sure that we're *not* considering the user's own
+    /// events. Indeed, there could be a sync response only containing the
+    /// user's own events, that are considered duplicates because the send queue
+    /// inserted them prior to receiving the response. In this case, if the sync
+    /// is gappy, then the previouos-batch token would be incorrectly dropped.
+    ///
+    /// If we had already seen all the duplicated events that we're trying to
+    /// add, then it would be wasteful to store a previous-batch token, or
+    /// even touch the linked chunk: we would repeat back-paginations for
+    /// events that we have already seen, and possibly misplace them. And we
+    /// should not be missing events either: the already-known events would have
+    /// their own previous-batch token (it might already be consumed).
     pub non_empty_all_duplicates: bool,
 }
 
@@ -150,6 +165,7 @@ mod tests {
         deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
         linked_chunk::ChunkIdentifier,
     };
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{EventId, owned_event_id, serde::Raw, user_id};
 
@@ -173,6 +189,7 @@ mod tests {
         };
         use ruma::room_id;
 
+        let user_id = user_id!("@user:example.com");
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
         let event_id_2 = owned_event_id!("$ev2");
@@ -222,7 +239,10 @@ mod tests {
             .await
             .unwrap();
 
-        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessLockConfig::multi_process("hodor"),
+        );
         let event_cache_store = event_cache_store.lock().await.unwrap();
         let event_cache_store_guard = event_cache_store.as_clean().unwrap();
 
@@ -235,6 +255,7 @@ mod tests {
             linked_chunk.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
 
             let outcome = filter_duplicate_events(
+                user_id,
                 event_cache_store_guard,
                 LinkedChunkId::Room(room_id),
                 &linked_chunk,
@@ -250,6 +271,7 @@ mod tests {
         linked_chunk.push_events([event_2.clone(), event_3.clone()]);
 
         let outcome = filter_duplicate_events(
+            user_id,
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
@@ -307,6 +329,7 @@ mod tests {
         use matrix_sdk_test::{ALICE, BOB};
         use ruma::{event_id, room_id};
 
+        let user_id = user_id!("@user:example.com");
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -353,7 +376,10 @@ mod tests {
             .unwrap();
 
         // Wrap the store into its lock.
-        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessLockConfig::multi_process("hodor"),
+        );
         let event_cache_store = event_cache_store.lock().await.unwrap();
         let event_cache_store_guard = event_cache_store.as_clean().unwrap();
 
@@ -365,6 +391,7 @@ mod tests {
             in_store_duplicated_event_ids,
             non_empty_all_duplicates,
         } = filter_duplicate_events(
+            user_id,
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,

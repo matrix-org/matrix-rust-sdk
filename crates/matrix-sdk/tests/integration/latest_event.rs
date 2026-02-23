@@ -5,12 +5,12 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory};
-use ruma::{event_id, room_id, user_id};
+use ruma::{event_id, owned_room_id, user_id};
 use tokio::task::yield_now;
 
 #[async_test]
 async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
-    let room_id = room_id!("!r0").to_owned();
+    let room_id = owned_room_id!("!r0");
     let alice = user_id!("@alice:local");
     let bob = user_id!("@bob:local");
     let event_alice = event_id!("$ev0");

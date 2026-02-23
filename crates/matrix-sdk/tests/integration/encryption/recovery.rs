@@ -32,7 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
-use ruma::{UserId, api::client::uiaa, device_id, user_id};
+use ruma::{UserId, api::client::uiaa, owned_device_id, user_id};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::spawn;
@@ -45,7 +45,7 @@ use crate::{encryption::mock_secret_store_with_backup_key, logged_in_client_with
 
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
     let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
         tokens: mock_session_tokens(),
     };
 
@@ -170,7 +170,7 @@ async fn test_recovery_status_secret_storage_set_up() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
         tokens: mock_session_tokens(),
     };
 
@@ -191,7 +191,7 @@ async fn test_recovery_status_secret_storage_not_set_up() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
         tokens: mock_session_tokens(),
     };
 
@@ -719,7 +719,7 @@ async fn test_recover_and_reset() {
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
 
     let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
         tokens: mock_session_tokens(),
     };
 

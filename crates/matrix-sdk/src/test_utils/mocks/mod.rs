@@ -28,7 +28,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, test_json,
+    SyncResponseBuilder, event_factory::EventFactory, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
@@ -896,10 +896,11 @@ impl MatrixMockServer {
     /// use std::collections::BTreeMap;
     /// use matrix_sdk::{
     ///     ruma::{
+    ///         events::{AnyToDeviceEventContent, dummy::ToDeviceDummyEventContent},
     ///         serde::Raw,
     ///         api::client::to_device::send_event_to_device::v3::Request as ToDeviceRequest,
     ///         to_device::DeviceIdOrAllDevices,
-    ///         user_id,owned_device_id
+    ///         owned_user_id, owned_device_id
     ///     },
     ///     test_utils::mocks::MatrixMockServer,
     /// };
@@ -913,12 +914,13 @@ impl MatrixMockServer {
     /// let request = ToDeviceRequest::new_raw(
     ///     "m.custom.event".into(),
     ///     "txn_id".into(),
-    /// BTreeMap::from([
-    /// (user_id!("@alice:localhost").to_owned(), BTreeMap::from([(
-    ///     DeviceIdOrAllDevices::AllDevices,
-    ///     Raw::new(&ruma::events::AnyToDeviceEventContent::Dummy(ruma::events::dummy::ToDeviceDummyEventContent {})).unwrap(),
-    /// )])),
-    /// ])
+    ///     BTreeMap::from([(
+    ///         owned_user_id!("@alice:localhost"),
+    ///         BTreeMap::from([(
+    ///             DeviceIdOrAllDevices::AllDevices,
+    ///             Raw::new(&AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent {})).unwrap(),
+    ///         )])
+    ///     )]),
     /// );
     ///
     /// client
@@ -2801,7 +2803,8 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// ```
     pub fn encrypted(self) -> MatrixMock<'a> {
         self.respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+            ResponseTemplate::new(200)
+                .set_body_json(EventFactory::new().room_encryption().into_content()),
         )
     }
 
@@ -2831,7 +2834,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub fn state_encrypted(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(
-            &*test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
+            EventFactory::new().room_encryption_with_state_encryption().into_content(),
         ))
     }
 

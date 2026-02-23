@@ -27,13 +27,12 @@ use std::{
     ops::Deref,
     result::Result as StdResult,
     str::{FromStr, Utf8Error},
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{Arc, OnceLock, RwLock as StdRwLock},
 };
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
-use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -41,7 +40,7 @@ pub mod integration_tests;
 mod observable_map;
 mod traits;
 
-use matrix_sdk_common::locks::Mutex as SyncMutex;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, locks::Mutex as SyncMutex};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
@@ -178,7 +177,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 #[derive(Clone)]
 pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
-    session_meta: Arc<OnceCell<SessionMeta>>,
+    session_meta: Arc<OnceLock<SessionMeta>>,
     room_load_settings: Arc<RwLock<RoomLoadSettings>>,
 
     /// A sender that is used to communicate changes to room information. Each
@@ -781,10 +780,12 @@ impl StateChanges {
 /// # Examples
 ///
 /// ```
+/// # use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 /// # use matrix_sdk_base::store::StoreConfig;
 /// #
-/// let store_config =
-///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
+/// let store_config = StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+///     holder_name: "cross-process-store-locks-holder-name".to_owned(),
+/// });
 /// ```
 #[derive(Clone)]
 pub struct StoreConfig {
@@ -793,7 +794,7 @@ pub struct StoreConfig {
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
     pub(crate) media_store: media_store::MediaStoreLock,
-    cross_process_store_locks_holder_name: String,
+    cross_process_lock_config: CrossProcessLockConfig,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -806,23 +807,23 @@ impl fmt::Debug for StoreConfig {
 impl StoreConfig {
     /// Create a new default `StoreConfig`.
     ///
-    /// To learn more about `cross_process_store_locks_holder_name`, please read
+    /// To learn more about `cross_process_lock_config`, please read
     /// [`CrossProcessLock::new`](matrix_sdk_common::cross_process_lock::CrossProcessLock::new).
     #[must_use]
-    pub fn new(cross_process_store_locks_holder_name: String) -> Self {
+    pub fn new(cross_process_lock_config: CrossProcessLockConfig) -> Self {
         Self {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
             event_cache_store: event_cache_store::EventCacheStoreLock::new(
                 event_cache_store::MemoryStore::new(),
-                cross_process_store_locks_holder_name.clone(),
+                cross_process_lock_config.clone(),
             ),
             media_store: media_store::MediaStoreLock::new(
                 media_store::MemoryMediaStore::new(),
-                cross_process_store_locks_holder_name.clone(),
+                cross_process_lock_config.clone(),
             ),
-            cross_process_store_locks_holder_name,
+            cross_process_lock_config,
         }
     }
 
@@ -848,7 +849,7 @@ impl StoreConfig {
     {
         self.event_cache_store = event_cache_store::EventCacheStoreLock::new(
             event_cache_store,
-            self.cross_process_store_locks_holder_name.clone(),
+            self.cross_process_lock_config.clone(),
         );
         self
     }
@@ -858,10 +859,8 @@ impl StoreConfig {
     where
         S: media_store::IntoMediaStore,
     {
-        self.media_store = media_store::MediaStoreLock::new(
-            media_store,
-            self.cross_process_store_locks_holder_name.clone(),
-        );
+        self.media_store =
+            media_store::MediaStoreLock::new(media_store, self.cross_process_lock_config.clone());
         self
     }
 }

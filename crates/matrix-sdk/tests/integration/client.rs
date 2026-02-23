@@ -15,13 +15,13 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_base::{RoomState, sync::RoomUpdates};
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
-        self, TAG,
+        self,
         sync::{
             MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
             MIXED_SYNC,
@@ -29,7 +29,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, OwnedUserId, RoomId, RoomVersionId,
+    EventId, Int, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -41,18 +41,19 @@ use ruma::{
         },
         uiaa,
     },
-    assign, device_id,
+    assign,
     directory::Filter,
     event_id,
     events::{
-        AnyInitialStateEvent,
+        AnyInitialStateEvent, AnyRoomAccountDataEvent,
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
         },
+        tag::{TagInfo, TagName, Tags},
     },
-    owned_event_id, owned_room_id,
+    owned_device_id, owned_event_id, owned_room_id, owned_user_id,
     room::JoinRule,
     room_id,
     serde::Raw,
@@ -134,7 +135,7 @@ async fn test_delete_devices() {
         .mount(&server)
         .await;
 
-    let devices = &[device_id!("DEVICEID").to_owned()];
+    let devices = &[owned_device_id!("DEVICEID")];
 
     if let Err(e) = client.delete_devices(devices, None).await
         && let Some(info) = e.as_uiaa_response()
@@ -1365,7 +1366,10 @@ async fn test_restore_room() {
 
     let mut changes = StateChanges::default();
 
-    let raw_tag_event = Raw::new(&*TAG).unwrap().cast_unchecked();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+    let mut tags = Tags::new();
+    tags.insert(TagName::Favorite, TagInfo::default());
+    let raw_tag_event: Raw<AnyRoomAccountDataEvent> = f.tag(tags).into();
     let tag_event = raw_tag_event.deserialize().unwrap();
     changes.add_room_account_data(room_id, tag_event, raw_tag_event);
 
@@ -1413,8 +1417,7 @@ async fn test_restore_room() {
     store.save_changes(&changes).await.unwrap();
 
     // Build a client with that store.
-    let store_config =
-        StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store);
+    let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess).state_store(store);
     let client = Client::builder()
         .homeserver_url("http://localhost:1234")
         .request_config(RequestConfig::new().disable_retry())
@@ -1484,7 +1487,12 @@ async fn test_room_sync_state_after() {
                 .use_state_after()
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
-                    Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
+                    {
+                        let mut users = BTreeMap::new();
+                        users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+                        users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
+                        f.power_levels(&mut users).into()
+                    },
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     f.room_join_rules(JoinRule::Public).into(),
                     f.member(user_id!("@invited:localhost"))
@@ -1494,7 +1502,7 @@ async fn test_room_sync_state_after() {
                 ])
                 .add_timeline_bulk([
                     f.member(user_id!("@invited:localhost")).into_raw_timeline().cast(),
-                    Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
+                    f.room_name("room name").into_raw_timeline().cast(),
                 ]),
         )
         .await;

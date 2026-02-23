@@ -39,7 +39,7 @@ macro_rules! cryptostore_integration_tests {
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id, events::secret::request::SecretName, room_id, serde::Raw,
+                device_id, events::secret::request::SecretName, room_id, serde::Raw, owned_room_id,
                 to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
@@ -1005,7 +1005,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
-                    room_id: room_id!("!test:localhost").to_owned(),
+                    room_id: owned_room_id!("!test:localhost"),
                     sender_key: Some(sender_key),
                     session_id: "test_session_id".to_owned(),
                 }
@@ -1066,7 +1066,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
-                    room_id: room_id!("!test:localhost").to_owned(),
+                    room_id: owned_room_id!("!test:localhost"),
                     sender_key: Some(account.identity_keys().curve25519),
                     session_id: "test_session_id".to_owned(),
                 }
@@ -1376,7 +1376,7 @@ macro_rules! cryptostore_integration_tests {
                         sender_key: Curve25519PublicKey::from_bytes([0u8; 32]),
                         sender_data: SenderData::unknown(),
                         bundle_data: RoomKeyBundleContent {
-                            room_id: room_id!("!room:example.org").to_owned(),
+                            room_id: owned_room_id!("!room:example.org"),
                             file,
                         },
                     }

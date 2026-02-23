@@ -4887,7 +4887,7 @@ mod tests {
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory, test_json,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
         RoomVersionId, event_id,
@@ -4943,7 +4943,7 @@ mod tests {
                 .and(header("authorization", "Bearer 1234"))
                 .respond_with(
                     ResponseTemplate::new(200)
-                        .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+                        .set_body_json(EventFactory::new().room_encryption().into_content()),
                 )
                 .mount(&server)
                 .await;

@@ -701,7 +701,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
-        EventId, OwnedEventId, OwnedRoomId, RoomId,
+        EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -736,6 +736,9 @@ mod private {
 
         /// The room this state relates to.
         room_id: OwnedRoomId,
+
+        /// The user's own user id.
+        own_user_id: OwnedUserId,
 
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
@@ -809,6 +812,7 @@ mod private {
         /// [`RoomPagination`]: super::RoomPagination
         #[allow(clippy::too_many_arguments)]
         pub async fn new(
+            own_user_id: OwnedUserId,
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
             enabled_thread_support: bool,
@@ -879,6 +883,7 @@ mod private {
             };
 
             Ok(Self::new_inner(RoomEventCacheState {
+                own_user_id,
                 enabled_thread_support,
                 room_id,
                 store,
@@ -1439,6 +1444,7 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
+                &self.state.own_user_id,
                 &self.store,
                 LinkedChunkId::Room(&self.state.room_id),
                 &self.state.room_linked_chunk,
@@ -1583,6 +1589,7 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
+                &self.state.own_user_id,
                 &self.store,
                 LinkedChunkId::Room(&self.state.room_id),
                 &self.state.room_linked_chunk,
@@ -2577,6 +2584,7 @@ mod timed_tests {
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, OwnedUserId, event_id,
@@ -2606,7 +2614,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("hodlor".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2684,7 +2692,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("hodlor".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2827,7 +2835,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("hodlor".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -2985,7 +2993,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("hodlor".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3112,7 +3120,7 @@ mod timed_tests {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("holder".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("holder"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3801,7 +3809,7 @@ mod timed_tests {
         let client_p0 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("process #0".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #0"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -3812,7 +3820,8 @@ mod timed_tests {
         let client_p1 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("process #1".to_owned()).event_cache_store(event_cache_store),
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #1"))
+                        .event_cache_store(event_cache_store),
                 )
             })
             .build()
@@ -4301,7 +4310,7 @@ mod timed_tests {
         let client_p0 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("process #0".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #0"))
                         .event_cache_store(event_cache_store.clone()),
                 )
             })
@@ -4312,7 +4321,8 @@ mod timed_tests {
         let client_p1 = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("process #1".to_owned()).event_cache_store(event_cache_store),
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #1"))
+                        .event_cache_store(event_cache_store),
                 )
             })
             .build()

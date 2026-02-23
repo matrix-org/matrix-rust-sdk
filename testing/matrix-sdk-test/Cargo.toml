@@ -27,7 +27,6 @@ http.workspace = true
 insta.workspace = true
 matrix-sdk-common = { version = "0.16.0", path = "../../crates/matrix-sdk-common" }
 matrix-sdk-test-macros = { version = "0.16.0", path = "../matrix-sdk-test-macros" }
-once_cell.workspace = true
 # Enable the unstable feature for polls support.
 # "client-api-s" enables need the "server" feature of ruma-client-api, which is needed to serialize Response objects to JSON.
 ruma = { workspace = true, features = ["client-api-s", "rand", "unstable-msc3381", "unstable-msc4274"] }

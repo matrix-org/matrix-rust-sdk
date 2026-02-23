@@ -100,7 +100,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    cross_process_lock::{CrossProcessLock, CrossProcessLockGeneration},
+    cross_process_lock::{CrossProcessLock, CrossProcessLockConfig, CrossProcessLockGeneration},
     deserialized_responses::WithheldCode,
     timeout::timeout,
 };
@@ -1346,9 +1346,9 @@ impl Store {
     pub fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: String,
+        config: CrossProcessLockConfig,
     ) -> CrossProcessLock<LockableCryptoStore> {
-        self.inner.store.create_store_lock(lock_key, lock_value)
+        self.inner.store.create_store_lock(lock_key, config)
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
@@ -1375,9 +1375,9 @@ impl Store {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     ///
@@ -1411,9 +1411,9 @@ impl Store {
     /// #    store::types::StoredRoomKeyBundleData,
     /// #    types::room_history::RoomKeyBundle
     /// # };
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();

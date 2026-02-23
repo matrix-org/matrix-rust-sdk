@@ -29,19 +29,21 @@ use ruma::{
     OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
     RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyStateEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
+        AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
         EphemeralRoomEventContent, EventContentFromType, False, GlobalAccountDataEventContent,
         Mentions, MessageLikeEvent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent, StateEvent,
-        StateEventContent, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
-        SyncMessageLikeEvent, SyncStateEvent,
+        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
+        RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         macros::EventContent,
+        marked_unread::MarkedUnreadEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -51,6 +53,7 @@ use ruma::{
                 UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
             },
         },
+        presence::{PresenceEvent, PresenceEventContent},
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
@@ -86,9 +89,12 @@ use ruma::{
             notification::{NotificationType, RtcNotificationEventContent},
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+        space_order::SpaceOrderEventContent,
         sticker::StickerEventContent,
+        tag::{TagEventContent, Tags},
         typing::TypingEventContent,
     },
+    presence::PresenceState,
     push::Ruleset,
     room::RoomType,
     room_version_rules::AuthorizationRules,
@@ -180,6 +186,8 @@ enum EventFormat {
     Ephemeral,
     /// A global account data.
     GlobalAccountData,
+    /// A room account data.
+    RoomAccountData,
 }
 
 impl EventFormat {
@@ -405,6 +413,14 @@ where
     pub fn into_event(self) -> TimelineEvent {
         TimelineEvent::from_plaintext(self.into_raw_sync())
     }
+
+    /// Returns just the event content as a JSON value.
+    ///
+    /// This is useful when you need only the content portion of an event,
+    /// for example when mocking HTTP responses that return event content.
+    pub fn into_content(self) -> serde_json::Value {
+        json!(self.content)
+    }
 }
 
 impl EventBuilder<RoomEncryptedEventContent> {
@@ -604,6 +620,24 @@ where
         Raw::<AnyGlobalAccountDataEvent>::from(val)
             .deserialize()
             .expect("expected global account data")
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for Raw<AnyRoomAccountDataEvent>
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.format(EventFormat::RoomAccountData).into_raw()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for AnyRoomAccountDataEvent
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::<AnyRoomAccountDataEvent>::from(val).deserialize().expect("expected room account data")
     }
 }
 
@@ -1457,6 +1491,97 @@ impl EventFactory {
         C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
     {
         self.event(content).format(EventFormat::GlobalAccountData)
+    }
+
+    /// Create a new room account data event of the given `C` content type.
+    pub fn room_account_data<C>(&self, content: C) -> EventBuilder<C>
+    where
+        C: RoomAccountDataEventContent + StaticEventContent<IsPrefix = False>,
+    {
+        self.event(content).format(EventFormat::RoomAccountData)
+    }
+
+    /// Create a new `m.fully_read` room account data event.
+    pub fn fully_read(&self, event_id: &EventId) -> EventBuilder<FullyReadEventContent> {
+        self.room_account_data(FullyReadEventContent::new(event_id.to_owned()))
+    }
+
+    /// Create a new `m.marked_unread` room account data event.
+    pub fn marked_unread(&self, unread: bool) -> EventBuilder<MarkedUnreadEventContent> {
+        self.room_account_data(MarkedUnreadEventContent::new(unread))
+    }
+
+    /// Create a new `m.tag` room account data event with the given tags.
+    pub fn tag(&self, tags: Tags) -> EventBuilder<TagEventContent> {
+        self.room_account_data(tags.into())
+    }
+
+    /// Create a new `m.space_order` room account data event with the given
+    /// order.
+    pub fn space_order(&self, order: &str) -> EventBuilder<SpaceOrderEventContent> {
+        let order = ruma::SpaceChildOrder::parse(order).expect("order should be valid");
+        self.room_account_data(SpaceOrderEventContent::new(order))
+    }
+
+    /// Create a new `m.presence` event.
+    ///
+    /// This is a special event type that has its own structure different from
+    /// regular Matrix events.
+    pub fn presence(&self, state: PresenceState) -> PresenceBuilder {
+        PresenceBuilder { sender: self.sender.clone(), content: PresenceEventContent::new(state) }
+    }
+}
+
+/// Builder for presence events.
+#[derive(Debug)]
+pub struct PresenceBuilder {
+    sender: Option<OwnedUserId>,
+    content: PresenceEventContent,
+}
+
+impl PresenceBuilder {
+    /// Set the sender of the presence event.
+    pub fn sender(mut self, sender: &UserId) -> Self {
+        self.sender = Some(sender.to_owned());
+        self
+    }
+
+    /// Set the avatar URL.
+    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
+        self.content.avatar_url = Some(url.to_owned());
+        self
+    }
+
+    /// Set whether the user is currently active.
+    pub fn currently_active(mut self, active: bool) -> Self {
+        self.content.currently_active = Some(active);
+        self
+    }
+
+    /// Set the last active time in milliseconds.
+    pub fn last_active_ago(mut self, ms: u64) -> Self {
+        self.content.last_active_ago = Some(UInt::try_from(ms).unwrap());
+        self
+    }
+
+    /// Set the status message.
+    pub fn status_msg(mut self, msg: impl Into<String>) -> Self {
+        self.content.status_msg = Some(msg.into());
+        self
+    }
+
+    /// Set the display name.
+    pub fn display_name(mut self, name: impl Into<String>) -> Self {
+        self.content.displayname = Some(name.into());
+        self
+    }
+}
+
+impl From<PresenceBuilder> for Raw<PresenceEvent> {
+    fn from(builder: PresenceBuilder) -> Self {
+        let sender = builder.sender.expect("sender must be set for presence events");
+        let event = PresenceEvent { content: builder.content, sender };
+        Raw::new(&event).unwrap().cast_unchecked()
     }
 }
 

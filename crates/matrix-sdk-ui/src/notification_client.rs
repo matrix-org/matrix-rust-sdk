@@ -14,6 +14,7 @@
 
 use std::{
     collections::BTreeMap,
+    ops::Deref,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -23,6 +24,7 @@ use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
 use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
@@ -49,7 +51,7 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     DEFAULT_SANITIZER_MODE,
-    encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
+    encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService},
     sync_service::SyncService,
 };
 
@@ -116,7 +118,14 @@ impl NotificationClient {
         parent_client: Client,
         process_setup: NotificationProcessSetup,
     ) -> Result<Self, Error> {
-        let client = parent_client.notification_client(Self::LOCK_ID.to_owned()).await?;
+        // Only create the lock id if cross process lock is needed (multiple processes)
+        let cross_process_store_config = match process_setup {
+            NotificationProcessSetup::MultipleProcesses => {
+                CrossProcessLockConfig::multi_process(Self::LOCK_ID)
+            }
+            NotificationProcessSetup::SingleProcess { .. } => CrossProcessLockConfig::SingleProcess,
+        };
+        let client = parent_client.notification_client(cross_process_store_config).await?;
 
         Ok(NotificationClient {
             client,
@@ -231,11 +240,6 @@ impl NotificationClient {
         //
         // Keep timeouts small for both, since we might be short on time.
 
-        let with_locking = WithLocking::from(matches!(
-            self.process_setup,
-            NotificationProcessSetup::MultipleProcesses
-        ));
-
         let push_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
@@ -305,7 +309,6 @@ impl NotificationClient {
         let encryption_sync = EncryptionSyncService::new(
             self.client.clone(),
             Some((Duration::from_secs(3), Duration::from_secs(4))),
-            with_locking,
         )
         .await;
 
@@ -374,6 +377,7 @@ impl NotificationClient {
         &self,
         requests: &[NotificationItemsRequest],
     ) -> Result<BTreeMap<OwnedEventId, (OwnedRoomId, Option<RawNotificationEvent>)>, Error> {
+        const MAX_SLIDING_SYNC_ATTEMPTS: u64 = 3;
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
         let _guard = self.notification_sync_mutex.lock().await;
@@ -383,8 +387,13 @@ impl NotificationClient {
         // information.
 
         let raw_notifications = Arc::new(Mutex::new(BTreeMap::new()));
-
         let handler_raw_notification = raw_notifications.clone();
+
+        let raw_invites = Arc::new(Mutex::new(BTreeMap::new()));
+        let handler_raw_invites = raw_invites.clone();
+
+        let user_id = self.client.user_id().unwrap().to_owned();
+        let room_ids = requests.iter().map(|req| req.room_id.clone()).collect::<Vec<_>>();
 
         let requests = Arc::new(requests.iter().map(|req| (*req).clone()).collect::<Vec<_>>());
 
@@ -419,15 +428,15 @@ impl NotificationClient {
             }
         });
 
-        // We'll only use this event if the room is in the invited state.
-        let raw_invites = Arc::new(Mutex::new(BTreeMap::new()));
-
-        let user_id = self.client.user_id().unwrap().to_owned();
-        let handler_raw_invites = raw_invites.clone();
         let handler_raw_notifications = raw_notifications.clone();
         let stripped_member_handler = self.client.add_event_handler({
             let requests = requests.clone();
-            move |raw: Raw<StrippedRoomMemberEvent>| async move {
+            let room_ids: Vec<_> = room_ids.clone();
+            move |raw: Raw<StrippedRoomMemberEvent>, room: Room| async move {
+                if !room_ids.contains(&room.room_id().to_owned()) {
+                    return;
+                }
+
                 let deserialized = match raw.deserialize() {
                     Ok(d) => d,
                     Err(err) => {
@@ -519,9 +528,8 @@ impl NotificationClient {
             .build()
             .await?;
 
-        let room_ids = requests.iter().map(|req| req.room_id.as_ref()).collect::<Vec<_>>();
         sync.subscribe_to_rooms(
-            &room_ids,
+            &room_ids.iter().map(|id| id.deref()).collect::<Vec<&RoomId>>(),
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: uint!(16)
@@ -529,7 +537,7 @@ impl NotificationClient {
             true,
         );
 
-        let mut remaining_attempts = 3;
+        let mut remaining_attempts = MAX_SLIDING_SYNC_ATTEMPTS;
 
         let stream = sync.sync();
         pin_mut!(stream);
@@ -543,14 +551,28 @@ impl NotificationClient {
                 break;
             }
 
-            if raw_notifications.lock().unwrap().len() + raw_invites.lock().unwrap().len()
-                == expected_event_count
-            {
+            let event_count = raw_notifications.lock().unwrap().len();
+            let invite_count = raw_invites.lock().unwrap().len();
+
+            let current_attempt = 1 + MAX_SLIDING_SYNC_ATTEMPTS - remaining_attempts;
+            trace!(
+                "Attempt #{current_attempt}: \
+                Found {event_count} notification(s), \
+                {invite_count} invite event(s), \
+                expected {expected_event_count} total",
+            );
+
+            // We can stop looking once we've received the expected number of events from
+            // the sync. Since we can receive only events or invites for rooms but not both,
+            // and we're not taking into account invites from not subscribed rooms, this
+            // check should be accurate.
+            if event_count + invite_count == expected_event_count {
                 // We got the events.
                 break;
             }
 
             remaining_attempts -= 1;
+            warn!("There are some missing notifications, remaining attempts: {remaining_attempts}");
             if remaining_attempts == 0 {
                 // We're out of luck.
                 break;
@@ -1034,12 +1056,20 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        api::client::sync::sync_events::v5, assign, event_id,
+        events::room::member::MembershipState, owned_event_id, owned_room_id, room_id, user_id,
+    };
 
-    use crate::notification_client::{NotificationItem, RawNotificationEvent};
+    use crate::notification_client::{
+        NotificationClient, NotificationItem, NotificationItemsRequest, NotificationProcessSetup,
+        RawNotificationEvent,
+    };
 
     #[async_test]
     async fn test_notification_item_returns_thread_id() {
@@ -1064,5 +1094,70 @@ mod tests {
 
         assert_let!(Some(thread_id) = notification_item.thread_id);
         assert_eq!(thread_id, thread_root_event_id);
+    }
+
+    #[async_test]
+    async fn test_try_sliding_sync_ignores_invites_for_non_subscribed_rooms() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let user_id = client.user_id().unwrap();
+        let room_id = room_id!("!a:b.c");
+        let invite = EventFactory::new()
+            .room(room_id)
+            .member(user_id)
+            .membership(MembershipState::Invite)
+            .no_event_id()
+            .into_raw_sync_state();
+        let mut room = v5::response::Room::new();
+        room.invite_state = Some(vec![invite.cast_unchecked()]);
+        let rooms = BTreeMap::from_iter([(room_id.to_owned(), room)]);
+        server
+            .mock_sliding_sync()
+            .ok(assign!(v5::Response::new("1".to_owned()), {
+                rooms: rooms,
+            }))
+            .mount()
+            .await;
+
+        let notification_client =
+            NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+                .await
+                .expect("Could not create a notification client");
+
+        // Check we don't receive the invite for a different room, even if it was
+        // included in the sync response
+        let event_id = owned_event_id!("$a:b.c");
+        let result = notification_client
+            .try_sliding_sync(&[NotificationItemsRequest {
+                room_id: owned_room_id!("!other:b.c"),
+                event_ids: vec![event_id.clone()],
+            }])
+            .await
+            .expect("Could not run sliding sync");
+
+        assert!(result.is_empty());
+
+        // Now try fetching the invite for the previously ignored room
+        let result = notification_client
+            .try_sliding_sync(&[NotificationItemsRequest {
+                room_id: room_id.to_owned(),
+                event_ids: vec![event_id.clone()],
+            }])
+            .await
+            .expect("Could not run sliding sync");
+
+        // Check we did receive an event
+        assert!(!result.is_empty());
+
+        // Try to assert it's the same event (since we don't have an event id)
+        // We can check its room, sender and membership state
+        let (in_room_id, event) = &result[&event_id];
+        assert_eq!(room_id, in_room_id);
+        assert_let!(Some(RawNotificationEvent::Invite(raw_invite)) = event);
+
+        let invite = raw_invite.deserialize().expect("Could not deserialize invite event");
+        assert_eq!(invite.state_key, user_id.to_string());
+        assert_eq!(invite.content.membership, MembershipState::Invite);
     }
 }

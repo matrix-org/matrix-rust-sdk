@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future, pin::pin, sync::Arc, time::Duration};
+use std::{
+    future,
+    pin::pin,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -31,7 +36,6 @@ use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use once_cell::sync::Lazy;
 use ruma::{
     OwnedRoomId,
     api::client::to_device::send_event_to_device::v3::Messages,
@@ -64,7 +68,7 @@ macro_rules! json_string {
 type HandledDeviceEventMutex = Arc<Mutex<(Option<Raw<AnyToDeviceEvent>>, Option<EncryptionInfo>)>>;
 
 const WIDGET_ID: &str = "test-widget";
-static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
+static ROOM_ID: LazyLock<OwnedRoomId> = LazyLock::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
 struct DummyCapabilitiesProvider;
 
@@ -226,7 +230,7 @@ async fn test_negotiate_capabilities_immediately() {
     assert_matches!(driver_handle.recv().now_or_never(), None);
 }
 
-static HELLO_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+static HELLO_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "content": {
             "body": "hello",
@@ -240,7 +244,7 @@ static HELLO_EVENT: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-static TOMBSTONE_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+static TOMBSTONE_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "content": {
             "body": "This room has been replaced",

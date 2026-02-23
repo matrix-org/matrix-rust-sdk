@@ -117,7 +117,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{DeviceKeyAlgorithm, KeyId, user_id};
+    use ruma::{DeviceKeyAlgorithm, KeyId, owned_user_id};
     use serde_json::{Value, json};
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
@@ -163,7 +163,7 @@ mod tests {
         let info = RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(MegolmV1AuthData {
             public_key: Curve25519PublicKey::from_bytes([2u8; 32]),
             signatures: Signatures(BTreeMap::from([(
-                user_id!("@alice:localhost").to_owned(),
+                owned_user_id!("@alice:localhost"),
                 BTreeMap::from([(
                     KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
                     Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),

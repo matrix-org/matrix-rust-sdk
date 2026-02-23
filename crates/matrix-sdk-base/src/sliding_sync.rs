@@ -358,6 +358,7 @@ mod tests {
         assert!(sync_resp.rooms.invited.contains_key(room_id));
     }
 
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use ruma::events::AnyStrippedStateEvent;
 
     fn invite_state_for(
@@ -957,7 +958,7 @@ mod tests {
         // When I send sliding sync response containing a room with an avatar
         let room = {
             let mut room = http::response::Room::new();
-            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+            room.avatar = JsOption::from_option(Some(owned_mxc_uri!("mxc://e.uk/med1")));
 
             room
         };
@@ -986,7 +987,7 @@ mod tests {
         // When I send sliding sync response containing a room with an avatar
         let room = {
             let mut room = http::response::Room::new();
-            room.avatar = JsOption::from_option(Some(mxc_uri!("mxc://e.uk/med1").to_owned()));
+            room.avatar = JsOption::from_option(Some(owned_mxc_uri!("mxc://e.uk/med1")));
 
             room
         };
@@ -1274,7 +1275,7 @@ mod tests {
 
         {
             let client = {
-                let store = StoreConfig::new("cross-process-foo".to_owned());
+                let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 state_store = store.state_store.clone();
 
                 let client = BaseClient::new(store, ThreadingSupport::Disabled);
@@ -1306,7 +1307,7 @@ mod tests {
 
         {
             let client = {
-                let mut store = StoreConfig::new("cross-process-foo".to_owned());
+                let mut store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 store.state_store = state_store;
                 let client = BaseClient::new(store, ThreadingSupport::Disabled);
                 client
@@ -1332,8 +1333,8 @@ mod tests {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
-        let gordon = user_id!("@gordon:e.uk").to_owned();
-        let alice = user_id!("@alice:e.uk").to_owned();
+        let gordon = owned_user_id!("@gordon:e.uk");
+        let alice = owned_user_id!("@alice:e.uk");
 
         // When I send sliding sync response containing a room (with identifiable data
         // in `heroes`)

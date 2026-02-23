@@ -19,7 +19,7 @@ use wiremock::{
     matchers::{header, method, path_regex},
 };
 
-use crate::test_json;
+use crate::{event_factory::EventFactory, test_json};
 
 /// Mount a Mock on the given server to handle the `GET
 /// /rooms/.../state/m.room.encryption` endpoint with an option whether it
@@ -33,7 +33,7 @@ pub async fn mock_encryption_state(server: &MockServer, is_encrypted: bool) {
         builder
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+                    .set_body_json(EventFactory::new().room_encryption().into_content()),
             )
             .mount(server)
             .await;

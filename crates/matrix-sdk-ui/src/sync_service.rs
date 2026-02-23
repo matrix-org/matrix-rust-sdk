@@ -46,7 +46,7 @@ use tokio::sync::{
 use tracing::{Instrument, Level, Span, error, info, instrument, trace, warn};
 
 use crate::{
-    encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService, WithLocking},
+    encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService},
     room_list_service::{self, RoomListService},
 };
 
@@ -764,9 +764,6 @@ pub struct SyncServiceBuilder {
     /// SDK client.
     client: Client,
 
-    /// Is the cross-process lock for the crypto store enabled?
-    with_cross_process_lock: bool,
-
     /// Is the offline mode for the [`SyncService`] enabled?
     ///
     /// The offline mode is described in the [`State::Offline`] enum variant.
@@ -787,28 +784,7 @@ pub struct SyncServiceBuilder {
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self {
-            client,
-            with_cross_process_lock: false,
-            with_offline_mode: false,
-            with_share_pos: true,
-            parent_span: Span::none(),
-        }
-    }
-
-    /// Enables the cross-process lock, if the sync service is being built in a
-    /// multi-process setup.
-    ///
-    /// It's a prerequisite if another process can *also* process encryption
-    /// events. This is only applicable to very specific use cases, like an
-    /// external process attempting to decrypt notifications. In general,
-    /// `with_cross_process_lock` should not be called.
-    ///
-    /// Be sure to have configured
-    /// [`Client::cross_process_store_locks_holder_name`] accordingly.
-    pub fn with_cross_process_lock(mut self) -> Self {
-        self.with_cross_process_lock = true;
-        self
+        Self { client, with_offline_mode: false, with_share_pos: true, parent_span: Span::none() }
     }
 
     /// Enable the "offline" mode for the [`SyncService`].
@@ -841,22 +817,13 @@ impl SyncServiceBuilder {
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self {
-            client,
-            with_cross_process_lock,
-            with_offline_mode,
-            with_share_pos,
-            parent_span,
-        } = self;
+        let Self { client, with_offline_mode, with_share_pos, parent_span } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
         let room_list = RoomListService::new_with_share_pos(client.clone(), with_share_pos).await?;
 
-        let encryption_sync = Arc::new(
-            EncryptionSyncService::new(client, None, WithLocking::from(with_cross_process_lock))
-                .await?,
-        );
+        let encryption_sync = Arc::new(EncryptionSyncService::new(client, None).await?);
 
         let room_list_service = Arc::new(room_list);
         let state = SharedObservable::new(State::Idle);

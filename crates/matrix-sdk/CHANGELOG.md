@@ -66,6 +66,13 @@ All notable changes to this project will be documented in this file.
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 
+### Refactor
+
+- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with 
+  `ClientBuilder::cross_process_store_config` to allow specifying the configuration for the cross-process lock and 
+  whether it should act as a no-op (client used in a single process) or we should keep the previous behavior (client 
+  used in multiple processes). ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

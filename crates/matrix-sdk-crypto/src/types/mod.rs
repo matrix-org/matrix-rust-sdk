@@ -559,7 +559,7 @@ pub trait RoomKeyExport {
 #[cfg(test)]
 mod test {
     use insta::{assert_debug_snapshot, assert_json_snapshot, with_settings};
-    use ruma::{device_id, user_id};
+    use ruma::{device_id, owned_user_id};
     use serde_json::json;
     use similar_asserts::assert_eq;
 
@@ -602,7 +602,7 @@ mod test {
     fn snapshot_signatures() {
         let signatures = Signatures(BTreeMap::from([
             (
-                user_id!("@alice:localhost").to_owned(),
+                owned_user_id!("@alice:localhost"),
                 BTreeMap::from([
                     (
                         DeviceKeyId::from_parts(
@@ -621,7 +621,7 @@ mod test {
                 ]),
             ),
             (
-                user_id!("@bob:localhost").to_owned(),
+                owned_user_id!("@bob:localhost"),
                 BTreeMap::from([(
                     DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
                     Err(InvalidSignature { source: "SOME+B64+SOME+B64+SOME+B64+==".to_owned() }),

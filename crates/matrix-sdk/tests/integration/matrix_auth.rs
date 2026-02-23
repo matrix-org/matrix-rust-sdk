@@ -22,8 +22,9 @@ use ruma::{
             uiaa::{self, AuthData, UserIdentifier},
         },
     },
-    assign, device_id,
+    assign,
     encryption::CrossSigningKey,
+    owned_device_id, owned_user_id,
     serde::Raw,
     user_id,
 };
@@ -333,8 +334,8 @@ fn test_serialize_session() {
     // Without refresh token.
     let mut session = MatrixSession {
         meta: SessionMeta {
-            user_id: user_id!("@user:localhost").to_owned(),
-            device_id: device_id!("EFGHIJ").to_owned(),
+            user_id: owned_user_id!("@user:localhost"),
+            device_id: owned_device_id!("EFGHIJ"),
         },
         tokens: SessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
     };

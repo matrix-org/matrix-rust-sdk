@@ -16,6 +16,7 @@
 
 #![allow(dead_code)]
 
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{UserId, owned_user_id};
 
 use crate::{
@@ -28,7 +29,9 @@ use crate::{
 /// one otherwise.
 pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClient {
     let client = BaseClient::new(
-        StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+        StoreConfig::new(CrossProcessLockConfig::multi_process(
+            "cross-process-store-locks-holder-name",
+        )),
         ThreadingSupport::Disabled,
     );
     let user_id =

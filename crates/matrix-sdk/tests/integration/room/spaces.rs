@@ -1,10 +1,9 @@
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, room::ParentSpace};
 use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test, test_json};
-use once_cell::sync::Lazy;
 use ruma::{RoomId, room_id};
 use serde_json::{Value as JsonValue, json};
 use wiremock::{
@@ -14,10 +13,10 @@ use wiremock::{
 
 use crate::{MockServer, logged_in_client_with_server, mock_sync};
 
-pub static DEFAULT_TEST_SPACE_ID: Lazy<&RoomId> =
-    Lazy::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
+pub static DEFAULT_TEST_SPACE_ID: LazyLock<&RoomId> =
+    LazyLock::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
 
-pub static PARENT_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+pub static PARENT_SPACE_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",

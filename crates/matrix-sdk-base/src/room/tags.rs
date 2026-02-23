@@ -70,6 +70,7 @@ bitflags! {
 mod tests {
     use std::ops::Not;
 
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::async_test;
     use ruma::{
         events::tag::{TagInfo, TagName, Tags},
@@ -92,7 +93,7 @@ mod tests {
     async fn test_is_favourite() {
         // Given a room,
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
 
@@ -188,7 +189,7 @@ mod tests {
     async fn test_is_low_priority() {
         // Given a room,
         let client = BaseClient::new(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
         );
 
