@@ -203,10 +203,10 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let related_events = inner
+        let related_events: Vec<_> = inner
             .events
             .items(room_id)
-            .filter_map(|(_, (event, pos))| {
+            .filter_map(|(linked_chunk_id, (event, pos))| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
                 let rel_type = RelationType::from(rel_type.as_str());
@@ -218,14 +218,35 @@ impl EventCacheStore for MemoryStore {
 
                 // Must not be filtered out.
                 if let Some(filters) = &filters {
-                    filters.contains(&rel_type).then_some((event.clone(), pos))
+                    filters.contains(&rel_type).then_some((linked_chunk_id, (event.clone(), pos)))
                 } else {
-                    Some((event.clone(), pos))
+                    Some((linked_chunk_id, (event.clone(), pos)))
                 }
             })
             .collect();
 
-        Ok(related_events)
+        // Remove any duplicate events which may exist in both a room and thread
+        // linked chunk. Additionally, remove any position information from non-room
+        // linked chunks.
+        let mut deduplicated = HashMap::new();
+        for (linked_chunk_id, (event, position)) in related_events {
+            let event_id = event
+                .event_id()
+                .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })?;
+            match linked_chunk_id.as_ref() {
+                LinkedChunkId::Room(_) => {
+                    // Prioritize events that come from a room linked chunk
+                    deduplicated.insert(event_id, (event, position));
+                }
+                _ => {
+                    // Remove position information from events that come
+                    // from any other type of linked chunk
+                    deduplicated.entry(event_id).or_insert_with(|| (event, None));
+                }
+            }
+        }
+
+        Ok(deduplicated.into_values().collect())
     }
 
     async fn get_room_events(
