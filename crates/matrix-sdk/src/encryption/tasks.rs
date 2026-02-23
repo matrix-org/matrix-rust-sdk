@@ -471,7 +471,7 @@ impl BundleReceiverTask {
 
     #[instrument(skip(room), fields(room_id = %room.room_id()))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
-        if Self::should_accept_bundle(room, bundle_info) {
+        if Self::should_accept_bundle(room, bundle_info).await {
             info!("Accepting a late key bundle.");
 
             if let Err(e) =
@@ -484,7 +484,7 @@ impl BundleReceiverTask {
         }
     }
 
-    fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
+    async fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
         // We accept historic room key bundles up to one day after we have accepted an
         // invite.
         const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -636,7 +636,7 @@ mod test {
         };
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should not accept a bundle if we did not join the room from this Client"
         );
 
@@ -644,7 +644,7 @@ mod test {
             client.get_room(invited_rom_id).expect("We should have access to our invited room now");
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info).await,
             "We should not accept a bundle if we didn't join the room."
         );
 
@@ -661,7 +661,7 @@ mod test {
         assert_eq!(details.inviter, bob_user_id, "We should have recorded that Bob has invited us");
 
         assert!(
-            BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should accept a bundle if we just joined the room and did so from this very Client object"
         );
     }
