@@ -395,7 +395,8 @@ where
     }
 
     /// Return an iterator over all items of all linked chunks of a room, along
-    /// with their positions, if available.
+    /// with the linked chunk they are in and the position in that linked chunk,
+    /// if available.
     ///
     /// The only items which will NOT have a position are those saved with
     /// [`Self::save_item`].
@@ -404,13 +405,13 @@ where
     pub fn items<'a>(
         &'a self,
         room_id: &'a RoomId,
-    ) -> impl Iterator<Item = (&'a Item, Option<Position>)> {
+    ) -> impl Iterator<Item = (&'a OwnedLinkedChunkId, (&'a Item, Option<Position>))> {
         self.items
             .iter()
-            .filter_map(move |(linked_chunk_id, items)| {
-                (linked_chunk_id.room_id() == room_id).then_some(items)
+            .filter(move |(linked_chunk_id, _)| linked_chunk_id.room_id() == room_id)
+            .flat_map(|(linked_chunk_id, items)| {
+                items.values().map(move |(item, pos)| (linked_chunk_id, (item, *pos)))
             })
-            .flat_map(|items| items.values().map(|(item, pos)| (item, *pos)))
     }
 
     /// Save a single item "out-of-band" in the relational linked chunk.

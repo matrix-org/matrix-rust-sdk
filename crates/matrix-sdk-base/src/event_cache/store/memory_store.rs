@@ -188,10 +188,9 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event = inner
-            .events
-            .items(room_id)
-            .find_map(|(event, _pos)| (event.event_id()? == event_id).then_some(event.clone()));
+        let event = inner.events.items(room_id).find_map(|(_, (event, _pos))| {
+            (event.event_id()? == event_id).then_some(event.clone())
+        });
 
         Ok(event)
     }
@@ -207,7 +206,7 @@ impl EventCacheStore for MemoryStore {
         let related_events = inner
             .events
             .items(room_id)
-            .filter_map(|(event, pos)| {
+            .filter_map(|(_, (event, pos))| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
                 let rel_type = RelationType::from(rel_type.as_str());
@@ -240,7 +239,7 @@ impl EventCacheStore for MemoryStore {
         let event: Vec<_> = inner
             .events
             .items(room_id)
-            .map(|(event, _pos)| event.clone())
+            .map(|(_, (event, _pos))| event.clone())
             .filter(|e| {
                 event_type
                     .is_none_or(|event_type| Some(event_type) == e.kind.event_type().as_deref())
