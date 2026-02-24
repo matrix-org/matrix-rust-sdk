@@ -131,7 +131,6 @@ pub struct ClientBuilder {
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     disable_automatic_token_refresh: bool,
     cross_process_lock_config: CrossProcessLockConfig,
-    enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
@@ -176,7 +175,6 @@ impl ClientBuilder {
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             cross_process_lock_config: CrossProcessLockConfig::SingleProcess,
-            enable_oidc_refresh_lock: false,
             session_delegate: None,
             #[cfg(not(target_family = "wasm"))]
             additional_root_certificates: Default::default(),
@@ -204,12 +202,6 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.cross_process_lock_config = cross_process_lock_config;
-        Arc::new(builder)
-    }
-
-    pub fn enable_oidc_refresh_lock(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.enable_oidc_refresh_lock = true;
         Arc::new(builder)
     }
 
@@ -509,15 +501,7 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
-        Ok(Arc::new(
-            Client::new(
-                sdk_client,
-                builder.enable_oidc_refresh_lock,
-                builder.session_delegate,
-                store_path,
-            )
-            .await?,
-        ))
+        Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
     }
 }
 

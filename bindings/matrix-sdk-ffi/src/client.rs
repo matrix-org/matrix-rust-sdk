@@ -341,7 +341,6 @@ pub struct Client {
 impl Client {
     pub async fn new(
         sdk_client: MatrixClient,
-        enable_oidc_refresh_lock: bool,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
         store_path: Option<PathBuf>,
     ) -> Result<Self, ClientError> {
@@ -383,24 +382,17 @@ impl Client {
             store_path,
         };
 
-        if enable_oidc_refresh_lock {
-            if session_delegate.is_none() {
-                return Err(anyhow::anyhow!(
-                    "missing session delegates when enabling the cross-process lock"
-                ))?;
+        match store_mode {
+            CrossProcessLockConfig::MultiProcess { holder_name } => {
+                if session_delegate.is_none() {
+                    return Err(anyhow::anyhow!(
+                        "missing session delegates with multi-process lock configuration"
+                    ))?;
+                }
+                client.inner.oauth().enable_cross_process_refresh_lock(holder_name.clone()).await?;
             }
-
-            match store_mode {
-                CrossProcessLockConfig::MultiProcess { holder_name } => {
-                    client
-                        .inner
-                        .oauth()
-                        .enable_cross_process_refresh_lock(holder_name.clone())
-                        .await?;
-                }
-                CrossProcessLockConfig::SingleProcess => {
-                    client.inner.oauth();
-                }
+            CrossProcessLockConfig::SingleProcess => {
+                client.inner.oauth();
             }
         }
 

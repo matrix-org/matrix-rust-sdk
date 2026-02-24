@@ -80,9 +80,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Removed `ClientBuilder::enable_oidc_refresh_lock` in favour of using `ClientBuilder::cross_process_lock_config`
+  to configure that lock when a `MultiProcess` configuration is supplied. ([#6204](https://github.com/matrix-org/matrix-rust-sdk/pull/6204))
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174/))
-- Replaced `ClientBuilder::cross_process_store_locks_holder_name` with `ClientBuilder::cross_process_lock_config`, 
+- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with `ClientBuilder::cross_process_lock_config`, 
   which accepts a `CrossProcessLockConfig` value to specify whether the resulting `Client` will be used in a single 
   process or multiple processes. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now
