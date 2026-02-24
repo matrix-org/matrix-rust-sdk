@@ -862,7 +862,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     item,
                     event_id,
-                    txn_id.as_deref(),
+                    txn_id.as_ref(),
                 );
 
                 trace!("Adding new remote timeline item at the start");
@@ -881,7 +881,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     item,
                     event_id,
-                    txn_id.as_deref(),
+                    txn_id.as_ref(),
                 );
 
                 let all_remote_events = self.items.all_remote_events();
@@ -936,7 +936,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     item,
                     event_id,
-                    txn_id.as_deref(),
+                    txn_id.as_ref(),
                 );
 
                 // Let's find the latest remote event and insert after it

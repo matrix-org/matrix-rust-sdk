@@ -457,7 +457,7 @@ mod tests {
 
         let user_devices = store.user_devices(device.user_id());
 
-        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
         assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();

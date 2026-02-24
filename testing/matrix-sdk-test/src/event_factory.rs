@@ -93,6 +93,7 @@ use ruma::{
         tag::{TagEventContent, Tags},
         typing::TypingEventContent,
     },
+    owned_server_name,
     presence::PresenceState,
     push::Ruleset,
     room::RoomType,
@@ -346,9 +347,9 @@ where
                     .room
                     .as_ref()
                     .and_then(|room_id| room_id.server_name())
-                    .unwrap_or(server_name!("dummy.org"));
+                    .unwrap_or_else(|| owned_server_name!("dummy.org"));
 
-                EventId::new(server_name)
+                EventId::new(&server_name)
             });
 
             map.insert("event_id".to_owned(), json!(event_id));
@@ -1602,7 +1603,7 @@ impl EventBuilder<RoomMemberEventContent> {
     /// here.
     pub fn invited(mut self, invited_user: &UserId) -> Self {
         assert_ne!(
-            self.sender.as_deref().unwrap(),
+            self.sender.as_ref().unwrap(),
             invited_user,
             "invited user and sender can't be the same person"
         );
@@ -1624,7 +1625,7 @@ impl EventBuilder<RoomMemberEventContent> {
     /// here.
     pub fn kicked(mut self, kicked_user: &UserId) -> Self {
         assert_ne!(
-            self.sender.as_deref().unwrap(),
+            self.sender.as_ref().unwrap(),
             kicked_user,
             "kicked user and sender can't be the same person, otherwise it's just a Leave"
         );
@@ -1637,7 +1638,7 @@ impl EventBuilder<RoomMemberEventContent> {
     /// here.
     pub fn banned(mut self, banned_user: &UserId) -> Self {
         assert_ne!(
-            self.sender.as_deref().unwrap(),
+            self.sender.as_ref().unwrap(),
             banned_user,
             "a user can't ban itself" // hopefully
         );

@@ -14,7 +14,6 @@
 
 use std::{
     collections::BTreeMap,
-    ops::Deref,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -529,7 +528,7 @@ impl NotificationClient {
             .await?;
 
         sync.subscribe_to_rooms(
-            &room_ids.iter().map(|id| id.deref()).collect::<Vec<&RoomId>>(),
+            &room_ids.iter().collect::<Vec<&RoomId>>(),
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: uint!(16)

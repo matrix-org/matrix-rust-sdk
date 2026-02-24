@@ -296,12 +296,12 @@ async fn test_get_cached_avatar_url() {
             .await;
 
         let res_avatar_url = account.get_avatar_url().await.unwrap();
-        assert_eq!(res_avatar_url.as_deref(), Some(avatar_url));
+        assert_eq!(res_avatar_url.as_ref(), Some(avatar_url));
     }
 
     // The cache was filled.
     let res_avatar_url = account.get_cached_avatar_url().await.unwrap();
-    assert_eq!(res_avatar_url.as_deref(), Some(avatar_url));
+    assert_eq!(res_avatar_url.as_ref(), Some(avatar_url));
 
     // Fetch it again from the homeserver, a missing value should empty the cache.
     {

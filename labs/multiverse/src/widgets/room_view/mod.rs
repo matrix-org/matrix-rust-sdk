@@ -183,7 +183,7 @@ impl RoomView {
 
     fn room_id(&self) -> Option<&RoomId> {
         match &self.kind {
-            TimelineKind::Room { room } => room.as_deref(),
+            TimelineKind::Room { room } => room.as_ref(),
             TimelineKind::Thread { room, .. } => Some(room),
         }
     }
@@ -342,7 +342,7 @@ impl RoomView {
     }
 
     pub fn set_selected_room(&mut self, room_id: Option<RoomId>) {
-        if let Some(room_id) = room_id.as_deref() {
+        if let Some(room_id) = room_id.as_ref() {
             let maybe_room = self.client.get_room(room_id);
 
             if let Some(room) = maybe_room {
@@ -368,7 +368,7 @@ impl RoomView {
     fn get_selected_timeline(&self) -> Option<Arc<Timeline>> {
         match &self.kind {
             TimelineKind::Room { room } => room
-                .as_deref()
+                .as_ref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone())),
             TimelineKind::Thread { timeline, .. } => timeline.get().cloned(),
         }
@@ -377,7 +377,7 @@ impl RoomView {
     fn get_selected_timeline_items(&self) -> Option<Vector<Arc<TimelineItem>>> {
         match &self.kind {
             TimelineKind::Room { room } => room
-                .as_deref()
+                .as_ref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.items.lock().clone())),
             TimelineKind::Thread { items, .. } => Some(items.lock().clone()),
         }
@@ -450,7 +450,7 @@ impl RoomView {
         self.call_with_room(async move |room, status_handle| {
             let user_id = match UserId::parse_with_server_name(
                 user_id,
-                room.client().user_id().unwrap().server_name(),
+                &room.client().user_id().unwrap().server_name(),
             ) {
                 Ok(user_id) => user_id,
                 Err(e) => {

@@ -403,9 +403,9 @@ mod tests {
         assert!(non_empty_all_duplicates.not());
 
         assert_eq!(events.len(), 3);
-        assert_eq!(events[0].event_id().as_deref(), Some(eid1));
-        assert_eq!(events[1].event_id().as_deref(), Some(eid2));
-        assert_eq!(events[2].event_id().as_deref(), Some(eid3));
+        assert_eq!(events[0].event_id().as_ref(), Some(eid1));
+        assert_eq!(events[1].event_id().as_ref(), Some(eid2));
+        assert_eq!(events[2].event_id().as_ref(), Some(eid3));
 
         assert!(in_memory_duplicated_event_ids.is_empty());
 

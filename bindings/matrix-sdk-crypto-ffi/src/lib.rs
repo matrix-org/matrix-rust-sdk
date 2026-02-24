@@ -285,7 +285,7 @@ async fn migrate_data(
         .map(|k| BackupDecryptionKey::from_base58(k.as_str()))
         .transpose()?;
 
-    let cross_signing = PrivateCrossSigningIdentity::empty((*user_id).into());
+    let cross_signing = PrivateCrossSigningIdentity::empty(&user_id);
     cross_signing
         .import_secrets_unchecked(
             data.cross_signing.master_key.as_deref(),
@@ -307,7 +307,7 @@ async fn migrate_data(
         .filter_map(|s| parse_user_id(&s).ok().map(|u| (u, true)))
         .collect();
 
-    let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
+    let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (u, *d)).collect();
     store.save_tracked_users(tracked_users.as_slice()).await?;
 
     processed_steps += 1;

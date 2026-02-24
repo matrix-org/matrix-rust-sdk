@@ -725,7 +725,7 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
 
                     let target = CrossSigningKeyId::from_parts(
                         ruma::SigningKeyAlgorithm::Ed25519,
-                        key_id.try_into().unwrap(),
+                        &key_id.try_into().unwrap(),
                     );
 
                     if existing.keys.contains_key(&target) {

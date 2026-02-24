@@ -1273,7 +1273,7 @@ impl_state_store!({
                 .map(|f| self.deserialize_value(&f))
                 .transpose()?
             {
-                profiles.insert(user_id.as_ref(), profile);
+                profiles.insert(user_id, profile);
             }
         }
 

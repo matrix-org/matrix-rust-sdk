@@ -640,7 +640,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 // See [`ObservableItems::all_remote_events`].
                 self.add_or_update_remote_event(
                     EventMeta::new(event_id, false, false, None),
-                    sender.as_deref(),
+                    sender.as_ref(),
                     origin_server_ts,
                     position,
                     room_data_provider,
@@ -818,7 +818,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     room_data_provider,
                     settings,
                     &event,
-                    thread_root.as_deref(),
+                    thread_root.as_ref(),
                     position,
                 );
 

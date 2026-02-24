@@ -367,7 +367,7 @@ pub enum RoomEventDecryptionResult {
 /// let user_id = user_id!("@alice:localhost");
 /// let device_id = "DEVICEID".into();
 ///
-/// let machine = OlmMachine::new(user_id, device_id).await;
+/// let machine = OlmMachine::new(user_id, &device_id).await;
 /// # Ok(())
 /// # }
 /// ```
@@ -386,7 +386,7 @@ pub enum RoomEventDecryptionResult {
 ///
 /// let store = SqliteCryptoStore::open("/home/example/matrix-client/", None).await?;
 ///
-/// let machine = OlmMachine::with_store(user_id, device_id, store).await;
+/// let machine = OlmMachine::with_store(user_id, &device_id, store).await;
 /// # Ok(())
 /// # }
 /// ```
@@ -773,7 +773,6 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ```no_run
 /// # use anyhow::Result;
-/// # use std::ops::Deref;
 /// # use matrix_sdk_crypto::{
 /// #     DecryptionSettings, EncryptionSyncChanges, OlmMachine, TrustRequirement
 /// # };
@@ -846,7 +845,7 @@ pub enum RoomEventDecryptionResult {
 ///     // Mark all the users that we consider to be in a end-to-end encrypted room with us to be
 ///     // tracked. We need to know about all the devices each user has so we can later encrypt
 ///     // messages for each of their devices.
-///     client.olm_machine.update_tracked_users(users.iter().map(Deref::deref)).await?;
+///     client.olm_machine.update_tracked_users(users.iter()).await?;
 ///
 ///     // Process the rest of the sync response here.
 ///
@@ -885,7 +884,6 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ```no_run
 /// # use std::collections::{BTreeMap, HashSet};
-/// # use std::ops::Deref;
 /// # use anyhow::Result;
 /// # use ruma::UserId;
 /// # use ruma::api::client::keys::claim_keys::v3::{Response, Request};
@@ -896,11 +894,11 @@ pub enum RoomEventDecryptionResult {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
-/// # let users: HashSet<&UserId> = HashSet::new();
+/// # let users: HashSet<UserId> = HashSet::new();
 /// # let machine: OlmMachine = unimplemented!();
 /// // Mark all the users that are part of an encrypted room as tracked
 /// if let Some((request_id, request)) =
-///     machine.get_missing_sessions(users.iter().map(Deref::deref)).await?
+///     machine.get_missing_sessions(users.iter()).await?
 /// {
 ///     let response = send_request(&request).await?;
 ///     machine.mark_request_as_sent(&request_id, &response).await?;
@@ -931,7 +929,6 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ```no_run
 /// # use std::collections::{BTreeMap, HashSet};
-/// # use std::ops::Deref;
 /// # use anyhow::Result;
 /// # use ruma::UserId;
 /// # use ruma::api::client::keys::claim_keys::v3::{Response, Request};
@@ -942,14 +939,14 @@ pub enum RoomEventDecryptionResult {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
-/// # let users: HashSet<&UserId> = HashSet::new();
+/// # let users: HashSet<UserId> = HashSet::new();
 /// # let room_id = unimplemented!();
 /// # let settings = EncryptionSettings::default();
 /// # let machine: OlmMachine = unimplemented!();
 /// // Let's share a room key with our group.
 /// let requests = machine.share_room_key(
 ///     room_id,
-///     users.iter().map(Deref::deref),
+///     users.iter(),
 ///     EncryptionSettings::default(),
 /// ).await?;
 ///
@@ -996,7 +993,6 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ```no_run
 /// # use std::collections::{BTreeMap, HashSet};
-/// # use std::ops::Deref;
 /// # use anyhow::Result;
 /// # use serde_json::json;
 /// # use ruma::{UserId, RoomId, serde::Raw};
@@ -1014,7 +1010,7 @@ pub enum RoomEventDecryptionResult {
 /// # async fn acquire_per_room_lock(room_id: &RoomId) -> MutexGuard<()> {
 /// #     unimplemented!();
 /// # }
-/// # async fn get_joined_members(room_id: &RoomId) -> Vec<&UserId> {
+/// # async fn get_joined_members(room_id: &RoomId) -> Vec<UserId> {
 /// #    unimplemented!();
 /// # }
 /// # fn is_room_encrypted(room_id: &RoomId) -> bool {
@@ -1022,16 +1018,16 @@ pub enum RoomEventDecryptionResult {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
-/// # let users: HashSet<&UserId> = HashSet::new();
+/// # let users: HashSet<UserId> = HashSet::new();
 /// # let machine: OlmMachine = unimplemented!();
 /// struct Client {
 ///     session_establishment_lock: tokio::sync::Mutex<()>,
 ///     olm_machine: OlmMachine,
 /// }
 ///
-/// async fn establish_sessions(client: &Client, users: &[&UserId]) -> Result<()> {
+/// async fn establish_sessions(client: &Client, users: &[UserId]) -> Result<()> {
 ///     if let Some((request_id, request)) =
-///         client.olm_machine.get_missing_sessions(users.iter().map(Deref::deref)).await?
+///         client.olm_machine.get_missing_sessions(users.iter()).await?
 ///     {
 ///         let response = send_request(&request).await?;
 ///         client.olm_machine.mark_request_as_sent(&request_id, &response).await?;
@@ -1040,12 +1036,12 @@ pub enum RoomEventDecryptionResult {
 ///     Ok(())
 /// }
 ///
-/// async fn share_room_key(machine: &OlmMachine, room_id: &RoomId, users: &[&UserId]) -> Result<()> {
+/// async fn share_room_key(machine: &OlmMachine, room_id: &RoomId, users: &[UserId]) -> Result<()> {
 ///     let _lock = acquire_per_room_lock(room_id).await;
 ///
 ///     let requests = machine.share_room_key(
 ///             room_id,
-///             users.iter().map(Deref::deref),
+///             users.iter(),
 ///             EncryptionSettings::default(),
 ///     ).await?;
 ///

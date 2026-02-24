@@ -233,7 +233,7 @@ impl BackupMachine {
 
                     let state = self
                         .test_ed25519_device_signature(
-                            device_key_id.key_name(),
+                            &device_key_id.key_name(),
                             signatures,
                             auth_data,
                         )
@@ -478,7 +478,7 @@ impl BackupMachine {
                     .flat_map(|(room_id, sender_key_to_session_ids)| {
                         std::iter::repeat(room_id).zip(sender_key_to_session_ids.values().flatten())
                     })
-                    .map(|(room_id, session_id)| (room_id.as_ref(), session_id.as_str()))
+                    .map(|(room_id, session_id)| (room_id, session_id.as_str()))
                     .collect();
 
                 trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");

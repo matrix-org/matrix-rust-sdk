@@ -2058,7 +2058,7 @@ mod private {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
         for (position, event) in room_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
+            if event.event_id().as_ref() == Some(event_id) {
                 return Ok(Some((EventLocation::Memory(position), event.clone())));
             }
         }
@@ -3225,7 +3225,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id().as_ref(), Some(evid2));
         assert!(stream.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -3233,7 +3233,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store.
@@ -3243,7 +3243,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id().as_ref(), Some(evid1));
         });
 
         assert!(stream.is_empty());
@@ -3275,7 +3275,7 @@ mod timed_tests {
         assert_matches!(&diffs[0], VectorDiff::Clear);
         assert_matches!(&diffs[1], VectorDiff::Append { values} => {
             assert_eq!(values.len(), 1);
-            assert_eq!(values[0].event_id().as_deref(), Some(evid2));
+            assert_eq!(values[0].event_id().as_ref(), Some(evid2));
         });
 
         assert!(stream.is_empty());
@@ -3287,13 +3287,13 @@ mod timed_tests {
         // When reading the events, we do get only the last one.
         let events = room_event_cache.events().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id().as_ref(), Some(evid2));
 
         // But if we back-paginate, we don't need access to network to find out about
         // the previous event.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
     }
 
@@ -3378,7 +3378,7 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
             let (pos, ev) = events.next().unwrap();
             assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id().as_ref(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             // No other loaded events.
@@ -3426,11 +3426,11 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id().as_ref(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid4));
+            assert_eq!(ev.event_id().as_ref(), Some(evid4));
             assert_eq!(room_linked_chunk.event_order(pos), Some(3));
 
             // No other loaded events.
@@ -3515,7 +3515,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events1.len(), 1);
-        assert_eq!(events1[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events1[0].event_id().as_ref(), Some(evid2));
         assert!(stream1.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -3523,7 +3523,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store. Ignore it, for this
@@ -3534,7 +3534,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id().as_ref(), Some(evid1));
         });
 
         assert!(stream1.is_empty());
@@ -3550,8 +3550,8 @@ mod timed_tests {
         // the second subscribers sees them all.
         let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
-        assert_eq!(events2[0].event_id().as_deref(), Some(evid1));
-        assert_eq!(events2[1].event_id().as_deref(), Some(evid2));
+        assert_eq!(events2[0].event_id().as_ref(), Some(evid1));
+        assert_eq!(events2[1].event_id().as_ref(), Some(evid2));
         assert!(stream2.is_empty());
 
         // Drop the first stream, and wait a bit.
@@ -3576,7 +3576,7 @@ mod timed_tests {
         // Getting the events will only give us the latest chunk.
         let events3 = room_event_cache.events().await.unwrap();
         assert_eq!(events3.len(), 1);
-        assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events3[0].event_id().as_ref(), Some(evid2));
     }
 
     #[async_test]
@@ -3648,11 +3648,11 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
-                assert_eq!(event_id.as_deref(), Some(event_id_0));
+                assert_eq!(event_id.as_ref(), Some(event_id_0));
             }
         );
 
@@ -3661,11 +3661,11 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
-                assert_eq!(event_id.as_deref(), Some(event_id_2));
+                assert_eq!(event_id.as_ref(), Some(event_id_2));
             }
         );
 
@@ -3673,7 +3673,7 @@ mod timed_tests {
         assert!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(user_id))
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(user_id))
                         .then(|| event.event_id())
                 })
                 .await
@@ -3790,7 +3790,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id().as_ref(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -3810,7 +3810,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                         }
                     );
                 }
@@ -3830,7 +3830,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id().as_ref(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -3850,7 +3850,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                         }
                     );
                 }
@@ -3888,7 +3888,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -3908,7 +3908,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -3939,7 +3939,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -3959,7 +3959,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -3993,7 +3993,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4020,7 +4020,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4049,7 +4049,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4076,7 +4076,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4105,7 +4105,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4129,7 +4129,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4155,7 +4155,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4179,7 +4179,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4273,7 +4273,7 @@ mod timed_tests {
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
         room_event_cache
             .rfind_map_event_in_memory_by(|event| {
-                (event.event_id().as_deref() == Some(event_id)).then_some(())
+                (event.event_id().as_ref() == Some(event_id)).then_some(())
             })
             .await
             .unwrap()

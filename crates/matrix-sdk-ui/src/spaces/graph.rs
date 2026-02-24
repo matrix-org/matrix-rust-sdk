@@ -52,27 +52,19 @@ impl SpaceGraph {
     /// Returns the root nodes of the graph, which are nodes without any
     /// parents.
     pub(super) fn root_nodes(&self) -> Vec<&RoomId> {
-        self.nodes
-            .values()
-            .filter(|node| node.parents.is_empty())
-            .map(|node| node.id.as_ref())
-            .collect()
+        self.nodes.values().filter(|node| node.parents.is_empty()).map(|node| &node.id).collect()
     }
 
     /// Returns the children of a given node. If the node does not exist, it
     /// returns an empty vector.
     pub(super) fn children_of(&self, node_id: &RoomId) -> Vec<&RoomId> {
-        self.nodes
-            .get(node_id)
-            .map_or(vec![], |node| node.children.iter().map(|id| id.as_ref()).collect())
+        self.nodes.get(node_id).map_or(vec![], |node| node.children.iter().collect())
     }
 
     /// Returns the parents of a given node. If the node does not exist, it
     /// returns an empty vector.
     pub(super) fn parents_of(&self, node_id: &RoomId) -> Vec<&RoomId> {
-        self.nodes
-            .get(node_id)
-            .map_or(vec![], |node| node.parents.iter().map(|id| id.as_ref()).collect())
+        self.nodes.get(node_id).map_or(vec![], |node| node.parents.iter().collect())
     }
 
     /// Adds a node to the graph. If the node already exists, it does nothing.

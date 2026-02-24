@@ -121,7 +121,7 @@ in two additional full-sync-modes, which require additional configuration:
 ## Rooms
 
 Next to the room list, the details for rooms are the next important aspect.
-Each [list](#lists) only references the [`OwnedRoomId`] of the room at the given
+Each [list](#lists) only references the [`RoomId`] of the room at the given
 position. The details (`required_state`s and timeline items) requested by all
 lists are bundled, together with the common details (e.g. whether it is a `dm`
 or its calculated name). Use the `Room` API to get these updated data.

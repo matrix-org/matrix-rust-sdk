@@ -23,8 +23,6 @@ use matrix_sdk_base::{
     serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::EventId;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, RoomId,
     events::{
@@ -218,7 +216,7 @@ impl PinnedEventCacheState {
     #[cfg(feature = "e2e-encryption")]
     fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
         for (position, event) in self.chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
+            if event.event_id().as_ref() == Some(event_id) {
                 return Some((position, event.clone()));
             }
         }

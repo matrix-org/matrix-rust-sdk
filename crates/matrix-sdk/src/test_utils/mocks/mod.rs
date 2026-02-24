@@ -72,7 +72,7 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{Client, Room, ServerName, SlidingSyncBuilder, room::IncludeRelations};
+use crate::{Client, Room, SlidingSyncBuilder, room::IncludeRelations};
 
 /// Structure used to store the crypto keys uploaded to the server.
 /// They will be served back to clients when requested.
@@ -4449,8 +4449,8 @@ impl ThreadSubscriptionMatchers {
         if self.room_id.is_some() || self.thread_root.is_some() {
             format!(
                 "^/_matrix/client/unstable/io.element.msc4306/rooms/{}/thread/{}/subscription$",
-                self.room_id.as_deref().map(|s| s.as_str()).unwrap_or(".*"),
-                self.thread_root.as_deref().map(|s| s.as_str()).unwrap_or(".*").replace("$", "\\$")
+                self.room_id.as_ref().map(|s| s.as_str()).unwrap_or(".*"),
+                self.thread_root.as_ref().map(|s| s.as_str()).unwrap_or(".*").replace("$", "\\$")
             )
         } else {
             "^/_matrix/client/unstable/io.element.msc4306/rooms/.*/thread/.*/subscription$"

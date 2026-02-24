@@ -1594,7 +1594,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::PROFILE, room_id);
         let mut user_ids_map = user_ids
             .iter()
-            .map(|u| (self.encode_key(keys::PROFILE, u), u.as_ref()))
+            .map(|u| (self.encode_key(keys::PROFILE, u), u))
             .collect::<BTreeMap<_, _>>();
         let user_ids = user_ids_map.keys().cloned().collect();
 

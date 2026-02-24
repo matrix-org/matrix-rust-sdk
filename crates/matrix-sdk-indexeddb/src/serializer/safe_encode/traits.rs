@@ -272,19 +272,6 @@ impl SafeEncode for RoomId {
         self.as_str().as_encoded_string()
     }
 }
-
-impl SafeEncode for RoomId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl SafeEncode for UserId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
 impl SafeEncode for UserId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
@@ -292,12 +279,6 @@ impl SafeEncode for UserId {
 }
 
 impl SafeEncode for DeviceId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl SafeEncode for EventId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }

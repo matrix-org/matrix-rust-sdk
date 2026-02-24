@@ -828,17 +828,17 @@ mod tests {
         let txn_id = "abcdef";
 
         // Request generated with `make_local_file_media_request`.
-        let request = Media::make_local_file_media_request(txn_id.into());
+        let request = Media::make_local_file_media_request(&txn_id.into());
         assert_matches!(Media::as_local_uri(&request.source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 
         // Local plain source.
-        let source = MediaSource::Plain(Media::make_local_uri(txn_id.into()));
+        let source = MediaSource::Plain(Media::make_local_uri(&txn_id.into()));
         assert_matches!(Media::as_local_uri(&source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 
         // Local encrypted source.
-        let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(txn_id.into())));
+        let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(&txn_id.into())));
         assert_matches!(Media::as_local_uri(&source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 

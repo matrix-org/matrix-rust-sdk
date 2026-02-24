@@ -203,7 +203,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn handle_read_receipts(
         &mut self,
         receipt_event_content: ReceiptEventContent,
-        own_user_id: &ruma::UserId,
+        own_user_id: &UserId,
     ) {
         let mut txn = self.transaction();
         txn.handle_explicit_read_receipts(receipt_event_content, own_user_id);

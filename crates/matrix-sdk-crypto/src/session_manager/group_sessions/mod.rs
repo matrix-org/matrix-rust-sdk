@@ -1079,7 +1079,6 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         iter,
-        ops::Deref,
         sync::Arc,
     };
 
@@ -1233,7 +1232,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
 
@@ -1260,7 +1259,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
 
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
@@ -1313,7 +1312,7 @@ mod tests {
         let machine = machine().await;
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
 
         let first_room_id = room_id!("!test:localhost");
 
@@ -1344,7 +1343,7 @@ mod tests {
         // The fact that an olm was sent should be remembered even if sharing another
         // session in an other room.
         let second_room_id = room_id!("!other:localhost");
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let requests = machine
             .share_room_key(second_room_id, users, EncryptionSettings::default())
             .await
@@ -1365,7 +1364,7 @@ mod tests {
         let late_joiner = user_id!("@bob:localhost");
         let keys_claim = keys_claim_response();
 
-        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().collect();
         users.insert(late_joiner);
 
         let requests = machine
@@ -1391,7 +1390,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let outbound =
             machine.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
@@ -1490,7 +1489,7 @@ mod tests {
         assert!(recipients[user_id].is_empty());
 
         let device_id = "AFGUOBTZWM".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
@@ -1535,7 +1534,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::OnlyTrustedDevices,
             ..Default::default()
@@ -1544,10 +1543,10 @@ mod tests {
         // Trust only one
         let user_id = user_id!("@example:localhost");
         let device_id = "MWFXPINOAO".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         machine
-            .get_device(user_id, "MWVTUXDNNM".into(), None)
+            .get_device(user_id, &"MWVTUXDNNM".into(), None)
             .await
             .unwrap()
             .unwrap()
@@ -1636,7 +1635,7 @@ mod tests {
 
         let response = ToDeviceResponse::new();
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         // The device should be marked as having the `m.no_olm` code received only after
         // the request has been marked as sent.
@@ -1646,7 +1645,7 @@ mod tests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         assert!(device.was_withheld_code_sent());
     }

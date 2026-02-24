@@ -377,7 +377,7 @@ impl Timeline {
 
     /// Returns the latest [`EventId`] in the timeline.
     pub async fn latest_event_id(&self) -> Option<String> {
-        self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
+        self.inner.latest_event_id().await.as_ref().map(ToString::to_string)
     }
 
     /// Queues an event in the room's send queue so it's processed for
@@ -631,9 +631,9 @@ impl Timeline {
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
-        let event_id = <&EventId>::try_from(event_id.as_str())?;
+        let event_id = EventId::try_from(event_id)?;
         self.inner
-            .fetch_details_for_event(event_id)
+            .fetch_details_for_event(&event_id)
             .await
             .map_err(|e| ClientError::from_str(e, Some("Fetching event details".to_owned())))?;
         Ok(())

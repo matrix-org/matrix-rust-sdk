@@ -198,7 +198,7 @@ fn update_push_room_context(
     user_id: &UserId,
     room_info: &RoomInfo,
 ) {
-    let room_id = &*room_info.room_id;
+    let room_id = &room_info.room_id;
 
     push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 

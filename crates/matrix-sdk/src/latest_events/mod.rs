@@ -1481,7 +1481,7 @@ mod tests {
                     assert!(event_id.is_none());
                     // It's a stripped state event: they don't have a timestamp (`origin_server_ts`), but `now` is normally used as a fallback.
                     assert!(timestamp.get() >= now);
-                    assert_eq!(inviter.as_deref(), Some(other_user_id));
+                    assert_eq!(inviter.as_ref(), Some(other_user_id));
                 }
             );
 

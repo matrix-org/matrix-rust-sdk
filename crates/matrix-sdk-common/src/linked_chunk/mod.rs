@@ -199,13 +199,11 @@ impl Display for OwnedLinkedChunkId {
 impl OwnedLinkedChunkId {
     pub fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
-            OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
+            OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id),
             OwnedLinkedChunkId::Thread(room_id, event_id) => {
-                LinkedChunkId::Thread(room_id.as_ref(), event_id.as_ref())
+                LinkedChunkId::Thread(room_id, event_id)
             }
-            OwnedLinkedChunkId::PinnedEvents(room_id) => {
-                LinkedChunkId::PinnedEvents(room_id.as_ref())
-            }
+            OwnedLinkedChunkId::PinnedEvents(room_id) => LinkedChunkId::PinnedEvents(room_id),
         }
     }
 

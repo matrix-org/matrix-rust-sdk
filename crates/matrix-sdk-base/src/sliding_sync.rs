@@ -851,9 +851,7 @@ mod tests {
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
 
         // When B leaves
@@ -862,9 +860,7 @@ mod tests {
         // Then B is still a direct target, and is in Leave state (B is a direct target
         // because we want to return to our old DM in the UI even if the other
         // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
     }
 
@@ -880,9 +876,7 @@ mod tests {
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
 
         // (Sanity: B is a direct target, and is in Invite state)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
 
         // When B declines the invitation (i.e. leaves)
@@ -891,9 +885,7 @@ mod tests {
         // Then B is still a direct target, and is in Leave state (B is a direct target
         // because we want to return to our old DM in the UI even if the other
         // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
     }
 
@@ -911,9 +903,7 @@ mod tests {
         assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
 
         let room = client.get_room(room_id).unwrap();
@@ -937,9 +927,7 @@ mod tests {
         assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(
-            direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
-        );
+        assert!(direct_targets(&client, room_id).contains(&DirectUserIdentifier::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
 
         let room = client.get_room(room_id).unwrap();

@@ -566,7 +566,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let events_in_thread = events.into_iter().filter(|event| {
                             extract_thread_root(event.raw())
                                 .is_some_and(|event_thread_root| event_thread_root == thread_root)
-                                || event.event_id().as_deref() == Some(thread_root)
+                                || event.event_id().as_ref() == Some(thread_root)
                         });
 
                         self.replace_with_initial_remote_events(

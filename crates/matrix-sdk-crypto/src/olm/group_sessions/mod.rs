@@ -145,7 +145,7 @@ impl ExportedRoomKey {
 }
 
 impl RoomKeyExport for &ExportedRoomKey {
-    fn room_id(&self) -> &ruma::RoomId {
+    fn room_id(&self) -> &RoomId {
         &self.room_id
     }
 

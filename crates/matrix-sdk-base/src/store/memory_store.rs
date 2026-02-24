@@ -630,7 +630,7 @@ impl StateStore for MemoryStore {
 
         Ok(user_ids
             .iter()
-            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (&**user_id, p.clone())))
+            .filter_map(|user_id| room_profiles.get(user_id).map(|p| (user_id, p.clone())))
             .collect())
     }
 

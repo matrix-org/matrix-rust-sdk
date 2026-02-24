@@ -1897,11 +1897,11 @@ mod tests {
         // Verify the event is in both.
         assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+            assert_eq!(events[0].event_id().as_ref(), Some(event_id!("$thread_reply")));
         });
         assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
+            assert_eq!(events[0].event_id().as_ref(), Some(event_id!("$thread_reply")));
         });
     }
 }
@@ -2004,7 +2004,7 @@ mod encrypted_tests {
         // The event needs to be the edit event, otherwise something is wrong.
         let (found_event, _) = &results[0];
         assert_eq!(
-            found_event.event_id().as_deref(),
+            found_event.event_id().as_ref(),
             Some(edit_id),
             "The single event we found should be the edit event"
         );

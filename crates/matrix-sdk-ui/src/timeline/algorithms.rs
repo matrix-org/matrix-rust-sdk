@@ -106,7 +106,7 @@ pub(super) fn rfind_event_by_item_id<'a>(
             rfind_event_item(items, |item| match &item.kind {
                 EventTimelineItemKind::Local(local) => local.transaction_id == *txn_id,
                 EventTimelineItemKind::Remote(remote) => {
-                    remote.transaction_id.as_deref() == Some(txn_id)
+                    remote.transaction_id.as_ref() == Some(txn_id)
                 }
             })
         }

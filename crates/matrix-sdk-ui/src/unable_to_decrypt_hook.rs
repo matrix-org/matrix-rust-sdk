@@ -264,8 +264,8 @@ impl UtdHookManager {
             false
         };
 
-        let own_homeserver = own_user_id.map(|id| id.server_name().to_owned());
-        let sender_homeserver = sender_user_id.server_name().to_owned();
+        let own_homeserver = own_user_id.map(|id| id.server_name());
+        let sender_homeserver = sender_user_id.server_name();
 
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),

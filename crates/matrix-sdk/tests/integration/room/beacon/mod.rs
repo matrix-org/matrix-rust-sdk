@@ -245,7 +245,7 @@ async fn test_most_recent_event_in_stream() {
                 nth,
                 Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
             )
-            .event_id(<&EventId>::try_from(event_id.as_str()).unwrap())
+            .event_id(&EventId::try_from(event_id).unwrap())
             .server_ts(1_636_829_458)
             .sender(user_id!("@example2:localhost"))
             .age(598971)

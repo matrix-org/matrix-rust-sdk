@@ -637,7 +637,7 @@ impl InboundGroupSession {
 
         // Check that we have a room id and that the event wasn't forwarded from
         // another room.
-        if room_id.as_deref() != Some(self.room_id()) {
+        if room_id.as_ref() != Some(self.room_id()) {
             return Err(EventError::MismatchedRoom(self.room_id().to_owned(), room_id).into());
         }
 

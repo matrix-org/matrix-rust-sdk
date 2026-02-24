@@ -432,7 +432,7 @@ impl BaseClient {
     ///
     /// ```rust
     /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
-    /// # use ruma::{RoomId, UserId, RoomId};
+    /// # use ruma::{RoomId, UserId};
     /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     /// # async {
     /// # let client = BaseClient::new(StoreConfig::new(CrossProcessLockConfig::multi_process("example")), ThreadingSupport::Disabled);
@@ -973,7 +973,7 @@ impl BaseClient {
                     self.room_key_recipient_strategy.clone(),
                 );
 
-                Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
+                Ok(o.share_room_key(room_id, members.iter(), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

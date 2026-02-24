@@ -1825,7 +1825,7 @@ mod tests {
         let timeline_event = TimelineEvent::from_plaintext(raw);
         assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
             assert_eq!(num_replies, 2);
-            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
+            assert_eq!(latest_reply.as_ref(), Some(event_id!("$latest_event:example.com")));
         });
 
         assert!(timeline_event.bundled_latest_thread_event.is_some());

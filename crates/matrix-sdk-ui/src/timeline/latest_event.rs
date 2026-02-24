@@ -322,7 +322,7 @@ mod tests {
 
         assert_matches!(value, LatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile} => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
-            assert_eq!(inviter.as_deref(), Some(user_id));
+            assert_eq!(inviter.as_ref(), Some(user_id));
             assert_matches!(inviter_profile, TimelineDetails::Unavailable);
         })
     }

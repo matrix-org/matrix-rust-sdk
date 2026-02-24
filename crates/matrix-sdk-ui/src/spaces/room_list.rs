@@ -150,7 +150,7 @@ impl SpaceRoomList {
                                     if let Some((position, room)) = mutable_rooms
                                         .clone()
                                         .iter()
-                                        .find_position(|room| &room.room_id == updated_room_id)
+                                        .find_position(|room| room.room_id == updated_room_id)
                                         && let Some(updated_room) = client.get_room(updated_room_id)
                                     {
                                         mutable_rooms.set(

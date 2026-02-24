@@ -349,7 +349,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         let event =
             serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
@@ -357,7 +357,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name, None);
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         // The new format works.
         let event =
@@ -366,7 +366,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         let event =
             serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
@@ -374,6 +374,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name, None);
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
     }
 }

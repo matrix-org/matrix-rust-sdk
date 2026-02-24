@@ -488,7 +488,7 @@ pub fn is_tombstone_event_valid(
     loop {
         // We must check immediately if the `successor_room_id` is in `already_seen` in
         // case of a room is created and tombstones itself in a single sync.
-        if already_seen.contains(AsRef::<RoomId>::as_ref(&successor_room_id)) {
+        if already_seen.contains(&successor_room_id) {
             // Ahhh, there is a loop with `m.room.tombstone` events!
             error!(?room_id, ?tombstone, "`m.room.tombstone` event is invalid, it creates a loop");
             return false;

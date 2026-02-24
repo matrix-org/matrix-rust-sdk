@@ -228,18 +228,18 @@ mod tests {
         let b_one = session_member_state_event(
             event_id!("$12345"),
             b,
-            Some(InitData { device_id: "DEVICE_0".into(), minutes_ago: 1 }),
+            Some(InitData { device_id: &"DEVICE_0".into(), minutes_ago: 1 }),
         );
 
         let m_c1 = session_member_state_event(
             event_id!("$123456_0"),
             c,
-            Some(InitData { device_id: "DEVICE_0".into(), minutes_ago: 10 }),
+            Some(InitData { device_id: &"DEVICE_0".into(), minutes_ago: 10 }),
         );
         let m_c2 = session_member_state_event(
             event_id!("$123456_1"),
             c,
-            Some(InitData { device_id: "DEVICE_1".into(), minutes_ago: 20 }),
+            Some(InitData { device_id: &"DEVICE_1".into(), minutes_ago: 20 }),
         );
         // Intentionally use a non time sorted receive order1
         receive_state_events(&room, vec![m_c1, m_c2, a_empty, b_one]);

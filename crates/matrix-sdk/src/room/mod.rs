@@ -2386,7 +2386,7 @@ impl Room {
                         .state_store()
                         .get_user_ids(self.room_id(), RoomMemberships::ACTIVE)
                         .await?;
-                    self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
+                    self.client.claim_one_time_keys(members.iter()).await?;
                 };
 
                 let response = self.share_room_key().await;
@@ -2541,8 +2541,7 @@ impl Room {
         let members_with_unknown_devices =
             members.iter().filter(|member| tracked.get(*member).is_none_or(|dirty| *dirty));
 
-        let (req_id, request) =
-            olm.query_keys_for_users(members_with_unknown_devices.map(|owned| owned.borrow()));
+        let (req_id, request) = olm.query_keys_for_users(members_with_unknown_devices);
 
         if !request.device_keys.is_empty() {
             self.client.keys_query(&req_id, request.device_keys).await?;
@@ -3402,7 +3401,7 @@ impl Room {
             .into_iter()
             .filter(|member| {
                 let server = member.user_id().server_name();
-                acl.filter(|acl| !acl.is_allowed(server)).is_none() && !server.is_ip_literal()
+                acl.filter(|acl| !acl.is_allowed(&server)).is_none() && !server.is_ip_literal()
             })
             .collect();
 
@@ -3418,7 +3417,7 @@ impl Room {
         let servers = members
             .iter()
             .map(|member| member.user_id().server_name())
-            .filter(|server| max.filter(|max| max == server).is_none())
+            .filter(|server| max.as_ref().filter(|max| max == server).is_none())
             .fold(BTreeMap::<_, u32>::new(), |mut servers, server| {
                 *servers.entry(server).or_default() += 1;
                 servers
@@ -3426,12 +3425,7 @@ impl Room {
         let mut servers: Vec<_> = servers.into_iter().collect();
         servers.sort_unstable_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a));
 
-        Ok(max
-            .into_iter()
-            .chain(servers.into_iter().map(|(name, _)| name))
-            .take(3)
-            .map(ToOwned::to_owned)
-            .collect())
+        Ok(max.into_iter().chain(servers.into_iter().map(|(name, _)| name)).take(3).collect())
     }
 
     /// Get a `matrix.to` permalink to this room.
@@ -4544,7 +4538,7 @@ impl Room {
             self.load_pinned_events().await?.unwrap_or_default()
         };
         let event_id = event_id.to_owned();
-        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
+        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == event_id) {
             pinned_event_ids.remove(idx);
             let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
             self.send_state_event(content).await?;

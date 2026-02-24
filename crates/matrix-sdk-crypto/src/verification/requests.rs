@@ -657,7 +657,7 @@ impl VerificationRequest {
         let recip_devices: Vec<DeviceId> = self
             .recipient_devices
             .iter()
-            .filter(|&d| filter_device.is_none_or(|device| **d != *device))
+            .filter(|&d| filter_device.is_none_or(|device| *d != *device))
             .cloned()
             .collect();
 

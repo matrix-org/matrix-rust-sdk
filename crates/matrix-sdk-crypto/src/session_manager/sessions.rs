@@ -208,7 +208,7 @@ impl SessionManager {
         let mut missing_session_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
         let mut timed_out_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
-        let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
+        let unfailed_users = users.filter(|u| !self.failures.contains(&u.server_name()));
 
         // Get the current list of devices for each user.
         let devices_by_user = Box::pin(
@@ -342,7 +342,7 @@ impl SessionManager {
         // First check that the response is for the request we were expecting.
         let request = {
             let mut guard = self.current_key_claim_request.write();
-            let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
+            let expected_request_id = guard.as_ref().map(|e| &e.0);
 
             if Some(request_id) == expected_request_id {
                 // We have a confirmed match. Clear the expectation, but hang onto the details
@@ -387,7 +387,7 @@ impl SessionManager {
                 .filter(|(user_id, _)| {
                     // Skip over users whose homeservers were in the "failed servers" list: we don't
                     // want to mark individual devices as broken *as well as* the server.
-                    !failed_servers.contains(user_id.server_name())
+                    !failed_servers.contains(&user_id.server_name())
                 })
                 .collect();
 
@@ -453,7 +453,8 @@ impl SessionManager {
             .filter_map(|s| ServerName::parse(s).ok())
             .filter(|s| s != self.store.static_account().user_id.server_name())
             .collect();
-        let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
+        let successful_servers =
+            response.one_time_keys.keys().map(|u| u.server_name()).collect::<Vec<_>>();
 
         // Add the user/device pairs that don't have any one-time keys to the failures
         // cache.
@@ -461,7 +462,7 @@ impl SessionManager {
         // Add the failed servers to the failures cache.
         self.failures.extend(failed_servers);
         // Remove the servers we successfully contacted from the failures cache.
-        self.failures.remove(successful_servers);
+        self.failures.remove(successful_servers.iter());
 
         // Finally, create some 1-to-1 sessions.
         self.create_sessions(response).await
@@ -583,7 +584,7 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc, time::Duration};
+    use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
     use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
@@ -745,9 +746,7 @@ mod tests {
             let bob_user_id = bob.user_id().to_owned();
 
             #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-            spawn(
-                async move { manager.get_missing_sessions(iter::once(bob_user_id.deref())).await },
-            )
+            spawn(async move { manager.get_missing_sessions(iter::once(&bob_user_id)).await })
         };
 
         // the initial `/keys/query` completes, and we start another
@@ -788,7 +787,7 @@ mod tests {
                 .synced(&cache)
                 .await
                 .unwrap()
-                .update_tracked_users(iter::once(other_user_id.as_ref()))
+                .update_tracked_users(iter::once(&other_user_id))
                 .await
                 .unwrap();
         }
@@ -805,7 +804,7 @@ mod tests {
         // timeout so that we can detect the call blocking.
         let result = tokio::time::timeout(
             Duration::from_millis(10),
-            manager.get_missing_sessions(iter::once(other_user_id.as_ref())),
+            manager.get_missing_sessions(iter::once(&other_user_id)),
         )
         .await
         .expect("get_missing_sessions blocked rather than completing quickly")
@@ -882,7 +881,7 @@ mod tests {
     #[async_test]
     async fn test_failure_handling() {
         let alice = user_id!("@alice:example.org");
-        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
@@ -965,7 +964,7 @@ mod tests {
         let response = ruma_response_from_json(&response_json);
 
         let alice = user_id!("@alice:example.org");
-        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let mut alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;

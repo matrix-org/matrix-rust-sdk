@@ -135,7 +135,7 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(Some(&info.sender), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
     let bob_room = bob
@@ -780,7 +780,7 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(Some(&info.sender), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
     let bob_room = bob
@@ -966,7 +966,7 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice_b.user_id());
+    assert_eq!(Some(&info.sender), alice_b.user_id());
     assert_eq!(info.room_id, room_id);
 
     // We now check that Bob can access the event.

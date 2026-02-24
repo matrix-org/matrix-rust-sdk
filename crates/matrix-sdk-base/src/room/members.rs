@@ -276,7 +276,7 @@ impl RoomMember {
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         if let Some(p) = self.profile.as_ref() {
-            p.content.avatar_url.as_deref()
+            p.content.avatar_url.as_ref()
         } else {
             self.event.avatar_url()
         }

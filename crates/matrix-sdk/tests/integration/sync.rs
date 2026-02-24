@@ -217,7 +217,7 @@ async fn test_receive_room_avatar_event_via_sync() {
         .await;
 
     // The room info is set and the valid state event is in the store.
-    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url));
+    assert_eq!(room.avatar_url().as_ref(), Some(avatar_url));
     assert_matches!(
         room.get_state_event_static::<RoomAvatarEventContent>().await,
         Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
@@ -229,7 +229,7 @@ async fn test_receive_room_avatar_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.url.as_deref(), Some(avatar_url));
+    assert_eq!(event.as_original().unwrap().content.url.as_ref(), Some(avatar_url));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1062,7 +1062,7 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
         .await;
 
     // The room info is set and the valid state event is in the store.
-    assert_eq!(room.canonical_alias().as_deref(), Some(room_alias));
+    assert_eq!(room.canonical_alias().as_ref(), Some(room_alias));
     assert_matches!(
         room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
         Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
@@ -1074,7 +1074,7 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.alias.as_deref(), Some(room_alias));
+    assert_eq!(event.as_original().unwrap().content.alias.as_ref(), Some(room_alias));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1332,7 +1332,7 @@ async fn test_receive_room_tombstone_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(
-        room.tombstone_content().unwrap().replacement_room.as_deref(),
+        room.tombstone_content().unwrap().replacement_room.as_ref(),
         Some(tombstone_replacement)
     );
     assert_matches!(

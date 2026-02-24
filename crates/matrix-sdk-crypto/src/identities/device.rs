@@ -559,7 +559,7 @@ impl UserDevices {
 
     /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
-        self.inner.keys().map(Deref::deref)
+        self.inner.keys()
     }
 
     /// Iterator over all the devices of the user devices.

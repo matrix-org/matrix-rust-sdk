@@ -166,28 +166,28 @@ impl TryFrom<&AnyMessageLikeEvent> for FlowId {
     fn try_from(value: &AnyMessageLikeEvent) -> Result<Self, Self::Error> {
         match value {
             AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationStart(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationCancel(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationAccept(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationKey(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationMac(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             AnyMessageLikeEvent::KeyVerificationDone(MessageLikeEvent::Original(e)) => {
-                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
+                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
             }
             _ => Err(()),
         }

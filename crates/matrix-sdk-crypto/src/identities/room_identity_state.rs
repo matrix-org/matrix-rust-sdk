@@ -140,8 +140,8 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         // redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
             // Ignore invalid user IDs
-            let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
-            if let Ok(user_id) = user_id {
+            let user_id: Result<UserId, _> = event.state_key.as_str().try_into();
+            if let Ok(user_id) = &user_id {
                 // Ignore non-existent users, and changes to our own identity
                 if let Some(user_identity @ UserIdentity::Other(_)) =
                     self.room.user_identity(user_id).await

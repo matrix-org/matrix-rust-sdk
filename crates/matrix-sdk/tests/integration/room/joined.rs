@@ -1012,7 +1012,7 @@ async fn test_is_direct_invite_by_3pid() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert!(room.is_direct().await.unwrap());
-    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
+    assert!(room.direct_targets().contains(&DirectUserIdentifier::from("invited@localhost.com")));
 }
 
 #[async_test]

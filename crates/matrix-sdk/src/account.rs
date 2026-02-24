@@ -1151,7 +1151,7 @@ impl Account {
         let mut recently_visited_rooms = self.get_recently_visited_rooms().await?;
 
         // Remove all other occurrences of the new room_id
-        recently_visited_rooms.retain(|r| r != &room_id);
+        recently_visited_rooms.retain(|r| r != room_id);
 
         // And insert it as the most recent
         recently_visited_rooms.insert(0, room_id);

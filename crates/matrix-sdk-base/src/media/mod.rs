@@ -139,8 +139,8 @@ impl MediaRequestParameters {
     /// Get the [`MxcUri`] from `Self`.
     pub fn uri(&self) -> &MxcUri {
         match &self.source {
-            MediaSource::Plain(url) => url.as_ref(),
-            MediaSource::Encrypted(file) => file.url.as_ref(),
+            MediaSource::Plain(url) => url,
+            MediaSource::Encrypted(file) => &file.url,
         }
     }
 }

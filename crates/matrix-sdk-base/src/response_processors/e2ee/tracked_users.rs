@@ -30,7 +30,7 @@ pub async fn update(
         && let Some(olm) = olm_machine
         && !user_ids_to_track.is_empty()
     {
-        olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?
+        olm.update_tracked_users(user_ids_to_track.iter()).await?
     }
 
     Ok(())
@@ -56,11 +56,11 @@ pub async fn update_or_set_if_room_is_newly_encrypted(
             // to also get all the existing users and mark them for
             // tracking.
             let user_ids = state_store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
-            olm.update_tracked_users(user_ids.iter().map(AsRef::as_ref)).await?
+            olm.update_tracked_users(user_ids.iter()).await?
         }
 
         if !user_ids_to_track.is_empty() {
-            olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?;
+            olm.update_tracked_users(user_ids_to_track.iter()).await?;
         }
     }
 

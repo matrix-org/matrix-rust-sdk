@@ -77,7 +77,7 @@ impl SpaceRoom {
     ) -> Self {
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             summary.name.clone(),
-            summary.canonical_alias.as_deref(),
+            summary.canonical_alias.as_ref(),
             known_room.as_ref().map(|r| r.heroes().to_vec()).unwrap_or_default(),
             summary.num_joined_members.into(),
         )

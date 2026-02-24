@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    iter::once,
-    ops::{ControlFlow, Deref},
-};
+use std::{collections::HashMap, iter::once, ops::ControlFlow};
 
 pub use matrix_sdk_base::latest_event::{LatestEventValue, LocalLatestEventValue};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::SerializableEventContent};
@@ -761,11 +757,7 @@ fn filter_any_sync_state_event(
                     //   `LatestEventValue` to get a first value!
                     // - the user is being invited: we want a `LatestEventValue` to represent the
                     //   invitation!
-                    if member.state_key.deref() == own_user_id {
-                        filter_break()
-                    } else {
-                        filter_continue()
-                    }
+                    if member.state_key == own_user_id { filter_break() } else { filter_continue() }
                 }
 
                 _ => filter_continue(),

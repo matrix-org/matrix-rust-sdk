@@ -1346,7 +1346,7 @@ impl QueueStorage {
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
         let was_being_sent = self.store.lock().await.being_sent.take();
 
-        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        let prev_txn = was_being_sent.as_ref().map(|info| &info.transaction_id);
         if prev_txn != Some(transaction_id) {
             error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after transient error)");
         }
@@ -1364,7 +1364,7 @@ impl QueueStorage {
         let mut guard = self.store.lock().await;
         let was_being_sent = guard.being_sent.take();
 
-        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        let prev_txn = was_being_sent.as_ref().map(|info| &info.transaction_id);
         if prev_txn != Some(transaction_id) {
             error!(
                 ?prev_txn,
@@ -1406,7 +1406,7 @@ impl QueueStorage {
         let mut guard = self.store.lock().await;
         let was_being_sent = guard.being_sent.take();
 
-        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        let prev_txn = was_being_sent.as_ref().map(|info| &info.transaction_id);
         if prev_txn != Some(transaction_id) {
             error!(
                 ?prev_txn,
@@ -1445,9 +1445,7 @@ impl QueueStorage {
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
 
-        if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
-            == Some(transaction_id)
-        {
+        if guard.being_sent.as_ref().map(|info| &info.transaction_id) == Some(transaction_id) {
             // Save the intent to redact the event.
             guard
                 .client()?
@@ -1488,9 +1486,7 @@ impl QueueStorage {
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
 
-        if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
-            == Some(transaction_id)
-        {
+        if guard.being_sent.as_ref().map(|info| &info.transaction_id) == Some(transaction_id) {
             // Save the intent to edit the associated event.
             guard
                 .client()?

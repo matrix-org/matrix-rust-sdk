@@ -237,7 +237,7 @@ impl RoomPreview {
         via: Vec<ServerName>,
     ) -> crate::Result<Self> {
         let own_server_name = client.session_meta().map(|s| s.user_id.server_name());
-        let via = ensure_server_names_is_not_empty(own_server_name, via, room_or_alias_id);
+        let via = ensure_server_names_is_not_empty(own_server_name.as_ref(), via, room_or_alias_id);
 
         let request = ruma::api::client::room::get_summary::v1::Request::new(
             room_or_alias_id.to_owned(),
@@ -384,7 +384,7 @@ fn ensure_server_names_is_not_empty(
         && server_names.is_empty()
         && own_server != alias_server
     {
-        server_names.push(alias_server.to_owned());
+        server_names.push(alias_server);
     }
 
     server_names
@@ -399,10 +399,10 @@ mod tests {
     #[test]
     fn test_ensure_server_names_is_not_empty_when_no_own_server_name_is_provided() {
         let own_server_name: Option<&ServerName> = None;
-        let room_or_alias_id: &RoomOrAliasId = room_id!("!test:localhost").into();
+        let room_or_alias_id: RoomOrAliasId = room_id!("!test:localhost").into();
 
         let server_names =
-            ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
+            ensure_server_names_is_not_empty(own_server_name, Vec::new(), &room_or_alias_id);
 
         // There was no own server name to check against, so no additional server name
         // was added
@@ -412,10 +412,10 @@ mod tests {
     #[test]
     fn test_ensure_server_names_is_not_empty_when_room_alias_or_id_has_no_server_name() {
         let own_server_name: Option<&ServerName> = Some(server_name!("localhost"));
-        let room_or_alias_id: &RoomOrAliasId = room_id!("!test").into();
+        let room_or_alias_id: RoomOrAliasId = room_id!("!test").into();
 
         let server_names =
-            ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
+            ensure_server_names_is_not_empty(own_server_name, Vec::new(), &room_or_alias_id);
 
         // The room id has no server name, so nothing could be added
         assert!(server_names.is_empty());
@@ -424,10 +424,10 @@ mod tests {
     #[test]
     fn test_ensure_server_names_is_not_empty_with_same_server_name() {
         let own_server_name: Option<&ServerName> = Some(server_name!("localhost"));
-        let room_or_alias_id: &RoomOrAliasId = room_id!("!test:localhost").into();
+        let room_or_alias_id: RoomOrAliasId = room_id!("!test:localhost").into();
 
         let server_names =
-            ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
+            ensure_server_names_is_not_empty(own_server_name, Vec::new(), &room_or_alias_id);
 
         // The room id's server name was the same as our own server name, so there's no
         // need to add it
@@ -437,10 +437,10 @@ mod tests {
     #[test]
     fn test_ensure_server_names_is_not_empty_with_different_room_id_server_name() {
         let own_server_name: Option<&ServerName> = Some(server_name!("localhost"));
-        let room_or_alias_id: &RoomOrAliasId = room_id!("!test:matrix.org").into();
+        let room_or_alias_id: RoomOrAliasId = room_id!("!test:matrix.org").into();
 
         let server_names =
-            ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
+            ensure_server_names_is_not_empty(own_server_name, Vec::new(), &room_or_alias_id);
 
         // The server name in the room id was added
         assert!(!server_names.is_empty());
@@ -450,10 +450,10 @@ mod tests {
     #[test]
     fn test_ensure_server_names_is_not_empty_with_different_room_alias_server_name() {
         let own_server_name: Option<&ServerName> = Some(server_name!("localhost"));
-        let room_or_alias_id: &RoomOrAliasId = room_alias_id!("#test:matrix.org").into();
+        let room_or_alias_id: RoomOrAliasId = room_alias_id!("#test:matrix.org").into();
 
         let server_names =
-            ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
+            ensure_server_names_is_not_empty(own_server_name, Vec::new(), &room_or_alias_id);
 
         // The server name in the room alias was added
         assert!(!server_names.is_empty());

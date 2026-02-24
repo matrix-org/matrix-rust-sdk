@@ -104,9 +104,9 @@ impl RoomListService {
     }
 
     fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
-        let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
+        let room_id = RoomId::try_from(room_id).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(Room::new(self.inner.room(room_id)?, self.utd_hook.clone())))
+        Ok(Arc::new(Room::new(self.inner.room(&room_id)?, self.utd_hook.clone())))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -144,9 +144,7 @@ impl RoomListService {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.inner
-            .subscribe_to_rooms(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
-            .await;
+        self.inner.subscribe_to_rooms(&room_ids.iter().collect::<Vec<_>>()).await;
 
         Ok(())
     }

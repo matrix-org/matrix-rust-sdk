@@ -281,8 +281,7 @@ impl SharingView<'_> {
         ) -> impl Iterator<Item = (&'a UserId, &'a DeviceId, &'a ShareInfo)> + use<'a, 'b, 'c>
         {
             set.range::<UserId, _>(user_ids).flat_map(move |(uid, d)| {
-                d.range::<DeviceId, _>(device_ids)
-                    .map(|(id, info)| (uid.as_ref(), id.as_ref(), info))
+                d.range::<DeviceId, _>(device_ids).map(move |(id, info)| (uid, id, info))
             })
         }
 
@@ -419,10 +418,8 @@ impl OutboundGroupSession {
 
         let removed = self.to_share_with_set.write().remove(request_id);
         if let Some((to_device, request)) = removed {
-            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
-                .iter()
-                .map(|(u, d)| (u.as_ref(), d.keys().map(|d| d.as_ref()).collect()))
-                .collect();
+            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
+                request.iter().map(|(u, d)| (u, d.keys().collect())).collect();
 
             info!(
                 ?request_id,

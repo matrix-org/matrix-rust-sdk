@@ -297,7 +297,7 @@ impl PaginableThread for TestRoomDataProvider {
 
 impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
-        self.own_user_id.as_deref().unwrap_or(&ALICE)
+        self.own_user_id.as_ref().unwrap_or(&ALICE)
     }
 
     fn room_version_rules(&self) -> RoomVersionRules {

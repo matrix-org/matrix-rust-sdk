@@ -189,7 +189,7 @@ mod tests {
         .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
-        assert_eq!(observed_thread_root.as_deref(), Some(thread_root));
+        assert_eq!(observed_thread_root.as_ref(), Some(thread_root));
         let observed_relation = extract_relation(&event).unwrap();
         assert_eq!(observed_relation, (RelationType::Thread, thread_root.to_owned()));
 

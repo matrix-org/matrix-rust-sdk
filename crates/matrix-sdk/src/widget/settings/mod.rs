@@ -95,12 +95,16 @@ impl WidgetSettings {
         room: &Room,
         props: ClientProperties,
     ) -> Result<Url, url::ParseError> {
+        let client = room.client();
+        let device_id =
+            if let Some(device_id) = client.device_id() { device_id } else { &"UNKNOWN".into() };
+
         self._generate_webview_url(
-            room.client().account().fetch_user_profile().await.unwrap_or_default(),
+            client.account().fetch_user_profile().await.unwrap_or_default(),
             room.own_user_id(),
             room.room_id(),
-            room.client().device_id().unwrap_or("UNKNOWN".into()),
-            room.client().homeserver(),
+            device_id,
+            client.homeserver(),
             props,
         )
     }

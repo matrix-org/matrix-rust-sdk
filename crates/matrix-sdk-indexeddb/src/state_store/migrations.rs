@@ -1574,7 +1574,7 @@ mod tests {
         create_sender: Option<&UserId>,
     ) -> Result<()> {
         let room_info_json =
-            room_info_v1_json(room_id, RoomState::Joined, name, create_creator.as_deref());
+            room_info_v1_json(room_id, RoomState::Joined, name, create_creator.as_ref());
 
         room_infos_store
             .put(&serialize_value(None, &room_info_json)?)

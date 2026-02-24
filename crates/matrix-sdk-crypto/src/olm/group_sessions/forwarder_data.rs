@@ -64,9 +64,7 @@ impl ForwarderData {
     pub fn user_id(&self) -> &UserId {
         match &self {
             ForwarderData::SenderUnverified(known_sender_data)
-            | ForwarderData::SenderVerified(known_sender_data) => {
-                known_sender_data.user_id.as_ref()
-            }
+            | ForwarderData::SenderVerified(known_sender_data) => &known_sender_data.user_id,
         }
     }
 
@@ -75,7 +73,7 @@ impl ForwarderData {
         match &self {
             ForwarderData::SenderUnverified(known_sender_data)
             | ForwarderData::SenderVerified(known_sender_data) => {
-                known_sender_data.device_id.as_deref()
+                known_sender_data.device_id.as_ref()
             }
         }
     }

@@ -1,4 +1,4 @@
-use std::{ops::Deref, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use assert_matches2::assert_let;
@@ -114,7 +114,7 @@ async fn test_e2ee_state_events() -> Result<()> {
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(Some(&info.sender), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
     let bob_room = bob

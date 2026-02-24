@@ -171,7 +171,7 @@ impl EventCacheStore for MemoryStore {
             if let Some(known_event_id) = event.event_id() {
                 // This event is a duplicate!
                 if let Some(index) =
-                    events.iter().position(|new_event_id| &known_event_id == new_event_id)
+                    events.iter().position(|new_event_id| known_event_id == new_event_id)
                 {
                     duplicated_events.push((events.remove(index), position));
                 }

@@ -406,7 +406,7 @@ impl ClientBuilder {
             None => {
                 if let Some(username) = builder.username {
                     let user = UserId::parse(username)?;
-                    inner_builder.server_name(user.server_name())
+                    inner_builder.server_name(&user.server_name())
                 } else {
                     return Err(ClientBuildError::Generic {
                         message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_owned(),

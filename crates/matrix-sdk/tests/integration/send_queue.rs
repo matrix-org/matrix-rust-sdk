@@ -3894,7 +3894,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().as_ref().unwrap(), event_id!("$msg_now"));
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap. This can happen under real-world
@@ -3919,7 +3919,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().as_ref().unwrap(), event_id!("$msg_now"));
 
     // When paginating with this previous batch token, we should get new events from
     // this room.
@@ -3940,5 +3940,5 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
-    assert_eq!(event.event_id().as_deref().unwrap(), event_id!("$past_msg"));
+    assert_eq!(event.event_id().as_ref().unwrap(), event_id!("$past_msg"));
 }

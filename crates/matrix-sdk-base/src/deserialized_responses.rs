@@ -55,9 +55,9 @@ pub struct AmbiguityChange {
 impl AmbiguityChange {
     /// Get an iterator over the user IDs listed in this `AmbiguityChange`.
     pub fn user_ids(&self) -> impl Iterator<Item = &UserId> {
-        iter::once(&*self.member_id)
-            .chain(self.disambiguated_member.as_deref())
-            .chain(self.ambiguated_member.as_deref())
+        iter::once(&self.member_id)
+            .chain(self.disambiguated_member.as_ref())
+            .chain(self.ambiguated_member.as_ref())
     }
 }
 
@@ -510,8 +510,8 @@ impl MemberEvent {
     /// display for this member event.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self {
-            Self::Sync(event) => event.as_original()?.content.avatar_url.as_deref(),
-            Self::Stripped(event) => event.content.avatar_url.as_deref(),
+            Self::Sync(event) => event.as_original()?.content.avatar_url.as_ref(),
+            Self::Stripped(event) => event.content.avatar_url.as_ref(),
         }
     }
 

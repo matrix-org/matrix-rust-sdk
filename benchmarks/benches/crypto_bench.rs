@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
@@ -199,11 +199,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("Room key sharing [memory]", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_room_key(
-                    room_id,
-                    users.iter().map(Deref::deref),
-                    EncryptionSettings::default(),
-                )
+                .share_room_key(room_id, users.iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
@@ -231,11 +227,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("Room key sharing [SQLite]", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_room_key(
-                    room_id,
-                    users.iter().map(Deref::deref),
-                    EncryptionSettings::default(),
-                )
+                .share_room_key(room_id, users.iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
@@ -278,7 +270,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("Devices collecting [memory]", &name), |b| {
         b.to_async(&runtime).iter_with_large_drop(|| async {
-            machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
+            machine.get_missing_sessions(users.iter()).await.unwrap()
         })
     });
 
@@ -294,9 +286,8 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("Devices collecting [SQLite]", &name), |b| {
-        b.to_async(&runtime).iter(|| async {
-            machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
-        })
+        b.to_async(&runtime)
+            .iter(|| async { machine.get_missing_sessions(users.iter()).await.unwrap() })
     });
 
     {

@@ -241,7 +241,7 @@ impl EventTimelineItem {
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     pub fn forwarder(&self) -> Option<&UserId> {
-        self.forwarder.as_deref()
+        self.forwarder.as_ref()
     }
 
     /// If the keys used to decrypt this event were shared-on-invite as part of

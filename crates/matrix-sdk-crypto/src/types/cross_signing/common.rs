@@ -83,7 +83,7 @@ impl CrossSigningKey {
     ///
     /// [cross_signing_key_spec]: https//spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysdevice_signingupload
     pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {
-        self.keys.iter().find_map(|(id, key)| Some((id.as_ref(), key.ed25519()?)))
+        self.keys.iter().find_map(|(id, key)| Some((id, key.ed25519()?)))
     }
 }
 

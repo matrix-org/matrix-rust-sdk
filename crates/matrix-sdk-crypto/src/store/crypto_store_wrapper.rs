@@ -107,7 +107,7 @@ impl CryptoStoreWrapper {
         // processing the changes
         let own_identity_was_verified_before_change = self
             .store
-            .get_user_identity(self.user_id.as_ref())
+            .get_user_identity(&self.user_id)
             .await?
             .as_ref()
             .and_then(|i| i.own())
@@ -223,7 +223,7 @@ impl CryptoStoreWrapper {
         for tracked_user in tracked_users {
             if let Some(other_identity) = self
                 .store
-                .get_user_identity(tracked_user.user_id.as_ref())
+                .get_user_identity(&tracked_user.user_id)
                 .await?
                 .as_ref()
                 .and_then(|i| i.other())

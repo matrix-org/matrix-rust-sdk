@@ -678,7 +678,7 @@ mod tests {
     fn test_signature_verification() {
         let signing = Signing::new();
         let user_id = user_id();
-        let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "DEVICEID".into());
+        let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &"DEVICEID".into());
 
         let json = json!({
             "hello": "world"

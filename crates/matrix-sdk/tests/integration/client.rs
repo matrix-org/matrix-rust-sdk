@@ -234,7 +234,7 @@ async fn test_join_room_by_id_or_alias() {
         // field
         client
             .join_room_by_id_or_alias(
-                (&**DEFAULT_TEST_ROOM_ID).into(),
+                &(*DEFAULT_TEST_ROOM_ID).into(),
                 &["server.com".try_into().unwrap()]
             )
             .await
@@ -789,7 +789,7 @@ async fn test_encrypt_room_event() {
         .await;
 
     room.send_raw("m.room.message", json!({"body": "Hello", "msgtype": "m.text"}))
-        .with_transaction_id("foobar".into())
+        .with_transaction_id(&"foobar".into())
         .await
         .expect("We should be able to send a message to the encrypted room");
 
@@ -1058,7 +1058,7 @@ async fn test_test_ambiguity_changes() {
     let example_2_change = changes.get(example_2_rename_1_event_id).unwrap();
     assert_eq!(example_2_change.member_id, example_2_id);
     assert!(example_2_change.member_ambiguous);
-    assert_eq!(example_2_change.ambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_2_change.ambiguated_member.as_ref(), Some(example_id));
     assert_eq!(example_2_change.disambiguated_member, None);
 
     // Second joined member only adds itself as ambiguous.
@@ -1080,7 +1080,7 @@ async fn test_test_ambiguity_changes() {
     let example_2_change = changes.get(example_2_rename_1_event_id).unwrap();
     assert_eq!(example_2_change.member_id, example_2_id);
     assert!(example_2_change.member_ambiguous);
-    assert_eq!(example_2_change.ambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_2_change.ambiguated_member.as_ref(), Some(example_id));
     assert_eq!(example_2_change.disambiguated_member, None);
 
     let example_3_change = changes.get(example_3_join_event_id).unwrap();
@@ -1165,8 +1165,8 @@ async fn test_test_ambiguity_changes() {
     let example_3_change = changes.get(example_3_rename_event_id).unwrap();
     assert_eq!(example_3_change.member_id, example_3_id);
     assert!(example_3_change.member_ambiguous);
-    assert_eq!(example_3_change.ambiguated_member.as_deref(), Some(example_2_id));
-    assert_eq!(example_3_change.disambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_3_change.ambiguated_member.as_ref(), Some(example_2_id));
+    assert_eq!(example_3_change.disambiguated_member.as_ref(), Some(example_id));
 
     let example = room.get_member_no_sync(example_id).await.unwrap().unwrap();
     assert!(!example.name_ambiguous());
@@ -1180,8 +1180,8 @@ async fn test_test_ambiguity_changes() {
     let example_3_change = changes.get(example_3_rename_event_id).unwrap();
     assert_eq!(example_3_change.member_id, example_3_id);
     assert!(example_3_change.member_ambiguous);
-    assert_eq!(example_3_change.ambiguated_member.as_deref(), Some(example_2_id));
-    assert_eq!(example_3_change.disambiguated_member.as_deref(), Some(example_id));
+    assert_eq!(example_3_change.ambiguated_member.as_ref(), Some(example_2_id));
+    assert_eq!(example_3_change.disambiguated_member.as_ref(), Some(example_id));
 
     // Rename example, still using a unique name.
     let example_rename_event_id = event_id!("$example_rename");

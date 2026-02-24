@@ -165,7 +165,7 @@ mod tests {
             signatures: Signatures(BTreeMap::from([(
                 owned_user_id!("@alice:localhost"),
                 BTreeMap::from([(
-                    KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
+                    KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &"ABCDEFG".into()),
                     Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),
                 )]),
             )])),

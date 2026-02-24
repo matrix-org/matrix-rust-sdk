@@ -479,44 +479,44 @@ impl BaseRoomInfo {
             .redaction;
 
         if let Some(ev) = &mut self.avatar
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.canonical_alias
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.create
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.guest_access
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.history_visibility
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.join_rules
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.name
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.tombstone
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.topic
-            && ev.event_id.as_deref() == Some(redacts)
+            && ev.event_id.as_ref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
         } else {
             self.rtc_member_events
-                .retain(|_, member_event| member_event.event_id.as_deref() != Some(redacts));
+                .retain(|_, member_event| member_event.event_id.as_ref() != Some(redacts));
         }
     }
 
@@ -873,7 +873,7 @@ impl RoomInfo {
 
     /// Returns the current room avatar.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        self.base_info.avatar.as_ref().and_then(|e| e.content.url.as_deref())
+        self.base_info.avatar.as_ref().and_then(|e| e.content.url.as_ref())
     }
 
     /// Update the room avatar.
@@ -984,7 +984,7 @@ impl RoomInfo {
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<&RoomAliasId> {
-        self.base_info.canonical_alias.as_ref()?.content.alias.as_deref()
+        self.base_info.canonical_alias.as_ref()?.content.alias.as_ref()
     }
 
     /// Get the alternative aliases of this room.

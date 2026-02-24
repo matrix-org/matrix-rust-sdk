@@ -324,7 +324,7 @@ fn find_event_relations(c: &mut Criterion) {
                                     .await
                                     .unwrap()
                                     .unwrap();
-                                assert_eq!(target.event_id().as_deref().unwrap(), target_event_id);
+                                assert_eq!(target.event_id().unwrap(), target_event_id);
                                 assert_eq!(relations.len(), num_related_events as usize);
                             },
                             criterion::BatchSize::PerIteration,

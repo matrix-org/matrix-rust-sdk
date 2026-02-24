@@ -502,7 +502,7 @@ impl BundleReceiverTask {
 
         match (state, elapsed_since_join) {
             (RoomState::Joined, Some(elapsed_since_join)) => {
-                elapsed_since_join < DAY && bundle_sender == &inviter
+                elapsed_since_join < DAY && bundle_sender == inviter
             }
             (RoomState::Joined, None) => false,
             (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => {

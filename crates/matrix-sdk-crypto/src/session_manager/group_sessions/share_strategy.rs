@@ -3124,7 +3124,7 @@ mod tests {
             machine
                 .inner
                 .group_session_manager
-                .mark_request_as_sent(r.as_ref().txn_id.as_ref())
+                .mark_request_as_sent(&r.as_ref().txn_id)
                 .await
                 .unwrap();
         }

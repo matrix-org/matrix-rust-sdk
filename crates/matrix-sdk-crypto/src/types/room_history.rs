@@ -99,7 +99,7 @@ impl Debug for HistoricRoomKey {
 }
 
 impl RoomKeyExport for &HistoricRoomKey {
-    fn room_id(&self) -> &ruma::RoomId {
+    fn room_id(&self) -> &RoomId {
         &self.room_id
     }
 

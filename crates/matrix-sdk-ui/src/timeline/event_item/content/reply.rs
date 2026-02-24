@@ -49,7 +49,7 @@ impl InReplyToDetails {
         let event = timeline_items
             .iter()
             .filter_map(|it| it.as_event())
-            .find(|it| it.event_id() == Some(&*event_id))
+            .find(|it| it.event_id() == Some(&event_id))
             .map(|item| Box::new(EmbeddedEvent::from_timeline_item(item)));
 
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }

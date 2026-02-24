@@ -479,7 +479,7 @@ pub(crate) fn compute_unread_counts(
     let new_receipt = {
         let mut selector = ReceiptSelector::new(
             &all_events,
-            read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id),
+            read_receipts.latest_active.as_ref().map(|receipt| &receipt.event_id),
         );
 
         selector.try_match_implicit(user_id, new_events);

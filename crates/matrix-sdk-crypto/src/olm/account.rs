@@ -910,7 +910,7 @@ impl Account {
             keys_map.insert(
                 OneTimeKeyId::from_parts(
                     OneTimeKeyAlgorithm::SignedCurve25519,
-                    key_id.to_base64().as_str().into(),
+                    &key_id.to_base64().into(),
                 ),
                 signed_key.into_raw(),
             );
@@ -1908,7 +1908,6 @@ fn satisfies_sender_trust_requirement(
 mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
-        ops::Deref,
         time::Duration,
     };
 
@@ -1945,10 +1944,9 @@ mod tests {
         let (_, second_one_time_keys, _) = account.keys_for_upload();
         assert!(!second_one_time_keys.is_empty());
 
-        let one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            one_time_keys.keys().map(Deref::deref).collect();
+        let one_time_key_ids: BTreeSet<&OneTimeKeyId> = one_time_keys.keys().collect();
         let second_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            second_one_time_keys.keys().map(Deref::deref).collect();
+            second_one_time_keys.keys().collect();
 
         assert_eq!(one_time_key_ids, second_one_time_key_ids);
 
@@ -1966,7 +1964,7 @@ mod tests {
         assert!(!fourth_one_time_keys.is_empty());
 
         let fourth_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            fourth_one_time_keys.keys().map(Deref::deref).collect();
+            fourth_one_time_keys.keys().collect();
 
         assert_ne!(one_time_key_ids, fourth_one_time_key_ids);
         Ok(())
