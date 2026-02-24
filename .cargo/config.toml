@@ -9,7 +9,7 @@ crates-io = "https://docs.rs/"
 rustdoc-map = true
 
 [target.'cfg(all())']
-rustflags = ["--cfg", "ruma_identifiers_storage=\"ArcIntern\""]
+rustflags = ["--cfg", "ruma_identifiers_storage=\"EcoString\""]
 
 [target.aarch64-linux-android]
 # These rust flags improve the performance on Android on arm64
