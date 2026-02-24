@@ -11,7 +11,7 @@ use matrix_sdk::{
     Client, Room,
     encryption::EncryptionSettings,
     ruma::{
-        EventEncryptionAlgorithm, OwnedEventId, OwnedRoomId, RoomId,
+        EventEncryptionAlgorithm, EventId, RoomId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
             AnyMessageLikeEventContent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
@@ -116,10 +116,10 @@ struct ClientWrapper {
     sync_service: SyncService,
 
     /// The received events and their plain text content.
-    events: Arc<Mutex<Vec<(OwnedEventId, String)>>>,
+    events: Arc<Mutex<Vec<(EventId, String)>>>,
 }
 
-type EncryptedEventInfo = (Raw<OriginalSyncRoomEncryptedEvent>, OwnedRoomId);
+type EncryptedEventInfo = (Raw<OriginalSyncRoomEncryptedEvent>, RoomId);
 
 impl ClientWrapper {
     /// Create a new ClientWrapper.
@@ -203,7 +203,7 @@ impl ClientWrapper {
     }
 
     /// Create an encrypted room and invite the supplied people.
-    async fn create_room(&self, invite: &[&ClientWrapper]) -> OwnedRoomId {
+    async fn create_room(&self, invite: &[&ClientWrapper]) -> RoomId {
         let invite = invite.iter().map(|cw| cw.client.user_id().unwrap().to_owned()).collect();
 
         let request = assign!(CreateRoomRequest::new(), {
@@ -244,7 +244,7 @@ impl ClientWrapper {
 
     /// Send a text message in the supplied room and return the event ID and
     /// contents.
-    async fn send(&self, room_id: &RoomId, message: &str) -> (OwnedEventId, String) {
+    async fn send(&self, room_id: &RoomId, message: &str) -> (EventId, String) {
         let room = self.wait_until_room_exists(room_id).await;
 
         (
@@ -291,7 +291,7 @@ impl ClientWrapper {
     /// Wait (syncing if needed) until the event with this ID appears, or time
     /// out.
     #[instrument(skip(self))]
-    async fn wait_until_received(&self, event_info: &(OwnedEventId, String)) {
+    async fn wait_until_received(&self, event_info: &(EventId, String)) {
         self.sync_until(|| async {
             self.events.lock().unwrap().contains(event_info).then_some(())
         })
@@ -346,7 +346,7 @@ struct NotificationClientWrapper {
     pub notif_client: NotificationClient,
 
     /// The received events and their plain text content.
-    events: Arc<Mutex<Vec<(OwnedEventId, String)>>>,
+    events: Arc<Mutex<Vec<(EventId, String)>>>,
 }
 
 impl NotificationClientWrapper {
@@ -377,7 +377,7 @@ impl NotificationClientWrapper {
     /// Wait (using [`NotificationClient::get_notification`]) until the event
     /// with this ID appears, or time out.
     #[instrument(skip(self))]
-    async fn nse_wait_until_received(&self, room_id: &RoomId, event_info: &(OwnedEventId, String)) {
+    async fn nse_wait_until_received(&self, room_id: &RoomId, event_info: &(EventId, String)) {
         if self.events.lock().unwrap().contains(event_info) {
             // The event is already here - we are done.
             return;
@@ -424,7 +424,7 @@ async fn decrypt_event(
     client: &Client,
     room_id: &RoomId,
     event: &Raw<OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>>,
-) -> Option<(OwnedEventId, String)> {
+) -> Option<(EventId, String)> {
     let room = client.get_room(room_id).unwrap();
     let push_ctx = room.push_context().await.unwrap();
     let Ok(decrypted) = room.decrypt_event(event, push_ctx.as_ref()).await else {
@@ -458,7 +458,7 @@ fn timeout() -> Duration {
 }
 
 /// Create an encrypted room as `alice_main` and join `bob` to it.
-async fn create_encrypted_room(alice_main: &ClientWrapper, bob: &ClientWrapper) -> OwnedRoomId {
+async fn create_encrypted_room(alice_main: &ClientWrapper, bob: &ClientWrapper) -> RoomId {
     let room_id = alice_main.create_room(&[bob]).await;
 
     info!("alice_main has created and enabled encryption in the room");

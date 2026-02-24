@@ -23,8 +23,7 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedDeviceKeyId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, UInt, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{AnyToDeviceEventContent, key::verification::VerificationMethod},
     serde::Raw,
@@ -519,7 +518,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<OwnedDeviceId, DeviceData>,
+    pub(crate) inner: HashMap<DeviceId, DeviceData>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) device_owner_identity: Option<UserIdentityData>,
@@ -646,7 +645,7 @@ impl DeviceData {
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, DeviceKey> {
+    pub fn keys(&self) -> &BTreeMap<DeviceKeyId, DeviceKey> {
         &self.device_keys.keys
     }
 

@@ -17,7 +17,7 @@ use std::{cmp::Ordering, collections::HashMap};
 use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, UserId,
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
 };
 use tokio::sync::watch;
@@ -36,13 +36,13 @@ pub(super) struct ReadReceipts {
     /// Map of public read receipts on events.
     ///
     /// Event ID => User ID => Read receipt of the user.
-    by_event: HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+    by_event: HashMap<EventId, IndexMap<UserId, Receipt>>,
 
     /// In-memory cache of all latest read receipts by user.
     ///
     /// User ID => Receipt type => Read receipt of the user of the given
     /// type.
-    latest_by_user: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    latest_by_user: HashMap<UserId, HashMap<ReceiptType, (EventId, Receipt)>>,
 
     /// A sender to notify of changes to the receipts of our own user.
     own_user_read_receipts_changed_sender: watch::Sender<()>,
@@ -69,7 +69,7 @@ impl ReadReceipts {
         &self,
         user_id: &UserId,
         receipt_type: &ReceiptType,
-    ) -> Option<&(OwnedEventId, Receipt)> {
+    ) -> Option<&(EventId, Receipt)> {
         self.latest_by_user.get(user_id).and_then(|map| map.get(receipt_type))
     }
 
@@ -77,9 +77,9 @@ impl ReadReceipts {
     /// given user.
     fn upsert_latest(
         &mut self,
-        user_id: OwnedUserId,
+        user_id: UserId,
         receipt_type: ReceiptType,
-        read_receipt: (OwnedEventId, Receipt),
+        read_receipt: (EventId, Receipt),
     ) {
         self.latest_by_user.entry(user_id).or_default().insert(receipt_type, read_receipt);
     }
@@ -252,17 +252,12 @@ impl ReadReceipts {
     }
 
     /// Returns the cached receipts by user for a given `event_id`.
-    fn get_event_receipts(&self, event_id: &EventId) -> Option<&IndexMap<OwnedUserId, Receipt>> {
+    fn get_event_receipts(&self, event_id: &EventId) -> Option<&IndexMap<UserId, Receipt>> {
         self.by_event.get(event_id)
     }
 
     /// Mark the given event as seen by the user with the given receipt.
-    fn add_event_receipt_for_user(
-        &mut self,
-        event_id: OwnedEventId,
-        user_id: OwnedUserId,
-        receipt: Receipt,
-    ) {
+    fn add_event_receipt_for_user(&mut self, event_id: EventId, user_id: UserId, receipt: Receipt) {
         self.by_event.entry(event_id).or_default().insert(user_id, receipt);
     }
 
@@ -287,7 +282,7 @@ impl ReadReceipts {
         event_id: &EventId,
         timeline_items: &mut ObservableItemsTransaction<'_>,
         at_end: bool,
-    ) -> IndexMap<OwnedUserId, Receipt> {
+    ) -> IndexMap<UserId, Receipt> {
         let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
 
         if at_end {
@@ -386,12 +381,12 @@ struct ReadReceiptTimelineUpdate {
     /// if any.
     old_item_pos: Option<usize>,
     /// The old event that had the receipt of the user, if any.
-    old_event_id: Option<OwnedEventId>,
+    old_event_id: Option<EventId>,
     /// The position of the timeline item that has the new receipt of the user,
     /// if any.
     new_item_pos: Option<usize>,
     /// The new event that has the receipt of the user, if any.
-    new_event_id: Option<OwnedEventId>,
+    new_event_id: Option<EventId>,
 }
 
 impl ReadReceiptTimelineUpdate {
@@ -448,7 +443,7 @@ impl ReadReceiptTimelineUpdate {
     fn add_new_receipt(
         self,
         items: &mut ObservableItemsTransaction<'_>,
-        user_id: OwnedUserId,
+        user_id: UserId,
         receipt: Receipt,
     ) {
         let Some(event_id) = self.new_event_id else {
@@ -508,7 +503,7 @@ impl ReadReceiptTimelineUpdate {
     fn apply(
         mut self,
         items: &mut ObservableItemsTransaction<'_>,
-        user_id: OwnedUserId,
+        user_id: UserId,
         receipt: Receipt,
     ) {
         self.remove_old_receipt(items, &user_id);
@@ -806,7 +801,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         user_id: &UserId,
         receipt_thread: ReceiptThread,
         room_data_provider: &P,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         let all_remote_events = self.items.all_remote_events();
 
         let public_read_receipt = self
@@ -850,7 +845,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn latest_user_read_receipt_timeline_event_id(
         &self,
         user_id: &UserId,
-    ) -> Option<OwnedEventId> {
+    ) -> Option<EventId> {
         // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
         let public_read_receipt = self.meta.read_receipts.get_latest(user_id, &ReceiptType::Read);
@@ -899,7 +894,7 @@ impl TimelineMetadata {
         receipt_thread: ReceiptThread,
         room_data_provider: &P,
         all_remote_events: &AllRemoteEvents,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         if let Some(receipt) = self.read_receipts.get_latest(user_id, &receipt_type) {
             // Since it is in the timeline, it should be the most recent.
             return Some(receipt.clone());
@@ -944,8 +939,8 @@ impl TimelineMetadata {
     /// not possible to know which one is the more recent, defaults to
     /// `Ordering::Less`, making the right-hand side the default.
     fn compare_optional_receipts(
-        lhs: Option<&(OwnedEventId, Receipt)>,
-        rhs_or_default: Option<&(OwnedEventId, Receipt)>,
+        lhs: Option<&(EventId, Receipt)>,
+        rhs_or_default: Option<&(EventId, Receipt)>,
         all_remote_events: &AllRemoteEvents,
     ) -> Ordering {
         // If we only have one, use it.

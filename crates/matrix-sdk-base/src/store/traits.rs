@@ -24,8 +24,7 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, RoomId, TransactionId, UserId,
     api::{
         SupportedVersions,
         client::discovery::discover_homeserver::{
@@ -119,7 +118,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `user_ids` - The IDs of the users to fetch the presence events for.
     async fn get_presence_events(
         &self,
-        user_ids: &[OwnedUserId],
+        user_ids: &[UserId],
     ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error>;
 
     /// Get a state event out of the state store.
@@ -189,7 +188,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
+        user_ids: &'a [UserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error>;
 
     /// Get the user ids of members for a given room with the given memberships,
@@ -198,7 +197,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>, Self::Error>;
+    ) -> Result<Vec<UserId>, Self::Error>;
 
     /// Get a set of pure `RoomInfo`s the store knows about.
     async fn get_room_infos(
@@ -218,7 +217,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
-    ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
+    ) -> Result<BTreeSet<UserId>, Self::Error>;
 
     /// Get all the users that use the given display names in the given room.
     ///
@@ -231,7 +230,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
-    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error>;
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<UserId>>, Self::Error>;
 
     /// Get an event out of the account data store.
     ///
@@ -276,7 +275,7 @@ pub trait StateStore: AsyncTraitDeps {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error>;
+    ) -> Result<Option<(EventId, Receipt)>, Self::Error>;
 
     /// Get events out of the event room receipt store.
     ///
@@ -297,7 +296,7 @@ pub trait StateStore: AsyncTraitDeps {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error>;
+    ) -> Result<Vec<(UserId, Receipt)>, Self::Error>;
 
     /// Get arbitrary data from the custom store
     ///
@@ -367,7 +366,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         request: QueuedRequestKind,
         priority: usize,
@@ -422,7 +421,7 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<(), Self::Error>;
 
     /// Loads all the rooms which have any pending requests in their send queue.
-    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error>;
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<RoomId>, Self::Error>;
 
     /// Add a new entry to the list of dependent send queue requests for a
     /// parent request.
@@ -571,7 +570,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn get_presence_events(
         &self,
-        user_ids: &[OwnedUserId],
+        user_ids: &[UserId],
     ) -> Result<Vec<Raw<PresenceEvent>>, Self::Error> {
         self.0.get_presence_events(user_ids).await.map_err(Into::into)
     }
@@ -613,7 +612,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
+        user_ids: &'a [UserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>, Self::Error> {
         self.0.get_profiles(room_id, user_ids).await.map_err(Into::into)
     }
@@ -622,7 +621,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>, Self::Error> {
+    ) -> Result<Vec<UserId>, Self::Error> {
         self.0.get_user_ids(room_id, memberships).await.map_err(Into::into)
     }
 
@@ -637,7 +636,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
-    ) -> Result<BTreeSet<OwnedUserId>, Self::Error> {
+    ) -> Result<BTreeSet<UserId>, Self::Error> {
         self.0.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
     }
 
@@ -645,7 +644,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
-    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error> {
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<UserId>>, Self::Error> {
         self.0.get_users_with_display_names(room_id, display_names).await.map_err(Into::into)
     }
 
@@ -670,7 +669,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
+    ) -> Result<Option<(EventId, Receipt)>, Self::Error> {
         self.0
             .get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
             .await
@@ -683,7 +682,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
+    ) -> Result<Vec<(UserId, Receipt)>, Self::Error> {
         self.0
             .get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
             .await
@@ -713,7 +712,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         content: QueuedRequestKind,
         priority: usize,
@@ -760,7 +759,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .map_err(Into::into)
     }
 
-    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<RoomId>, Self::Error> {
         self.0.load_rooms_with_unsent_requests().await.map_err(Into::into)
     }
 
@@ -1145,10 +1144,10 @@ pub enum StateStoreDataValue {
     Filter(String),
 
     /// The user avatar url
-    UserAvatarUrl(OwnedMxcUri),
+    UserAvatarUrl(MxcUri),
 
     /// A list of recently visited room identifiers for the current user
-    RecentlyVisitedRooms(Vec<OwnedRoomId>),
+    RecentlyVisitedRooms(Vec<RoomId>),
 
     /// Persistent data for
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
@@ -1165,7 +1164,7 @@ pub enum StateStoreDataValue {
     ComposerDraft(ComposerDraft),
 
     /// A list of knock request ids marked as seen in a room.
-    SeenKnockRequests(BTreeMap<OwnedEventId, OwnedUserId>),
+    SeenKnockRequests(BTreeMap<EventId, UserId>),
 
     /// A list of tokens to continue thread subscriptions catchup.
     ///
@@ -1311,12 +1310,12 @@ pub enum ComposerDraftType {
     /// The draft is a reply to an event.
     Reply {
         /// The ID of the event being replied to.
-        event_id: OwnedEventId,
+        event_id: EventId,
     },
     /// The draft is an edit of an event.
     Edit {
         /// The ID of the event being edited.
-        event_id: OwnedEventId,
+        event_id: EventId,
     },
 }
 
@@ -1332,12 +1331,12 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is a user avatar url.
-    pub fn into_user_avatar_url(self) -> Option<OwnedMxcUri> {
+    pub fn into_user_avatar_url(self) -> Option<MxcUri> {
         as_variant!(self, Self::UserAvatarUrl)
     }
 
     /// Get this value if it is a list of recently visited rooms.
-    pub fn into_recently_visited_rooms(self) -> Option<Vec<OwnedRoomId>> {
+    pub fn into_recently_visited_rooms(self) -> Option<Vec<RoomId>> {
         as_variant!(self, Self::RecentlyVisitedRooms)
     }
 
@@ -1362,7 +1361,7 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is the data for the ignored join requests.
-    pub fn into_seen_knock_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
+    pub fn into_seen_knock_requests(self) -> Option<BTreeMap<EventId, UserId>> {
         as_variant!(self, Self::SeenKnockRequests)
     }
 

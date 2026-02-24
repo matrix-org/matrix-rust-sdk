@@ -18,7 +18,7 @@ use matrix_sdk::{
         },
     },
     ruma::{
-        OwnedEventId, OwnedRoomId,
+        EventId, RoomId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
@@ -138,7 +138,7 @@ async fn test_mutual_sas_verification_with_notification_client_ignores_verificat
     .await
     .expect("couldn't create notification client");
 
-    let event_id = OwnedEventId::try_from(alice_verification_request.flow_id())
+    let event_id = EventId::try_from(alice_verification_request.flow_id())
         .expect("We should be able to get the event id from the verification flow id");
 
     // Simulate getting the event for a notification
@@ -914,7 +914,7 @@ pub(super) async fn assert_can_perform_interactive_verification(
     username: impl AsRef<str>,
     backup_download_strategy: BackupDownloadStrategy,
     enable_history_share_on_invite: bool,
-) -> Result<(SyncTokenAwareClient, SyncTokenAwareClient, OwnedRoomId, OwnedEventId)> {
+) -> Result<(SyncTokenAwareClient, SyncTokenAwareClient, RoomId, EventId)> {
     let encryption_settings = EncryptionSettings {
         auto_enable_cross_signing: true,
         auto_enable_backups: true,

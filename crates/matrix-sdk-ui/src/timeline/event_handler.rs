@@ -22,8 +22,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, FullStateEventContent, MessageLikeEventContent, MessageLikeEventType,
@@ -67,7 +66,7 @@ pub(super) enum Flow {
     /// The event was locally created.
     Local {
         /// The transaction id we've used in requests associated to this event.
-        txn_id: OwnedTransactionId,
+        txn_id: TransactionId,
 
         /// A handle to manipulate this event.
         send_handle: Option<SendHandle>,
@@ -77,10 +76,10 @@ pub(super) enum Flow {
     /// etc.). This can be a "remote echo".
     Remote {
         /// The event identifier as returned by the server.
-        event_id: OwnedEventId,
+        event_id: EventId,
         /// The transaction id we might have used, if we're the sender of the
         /// event.
-        txn_id: Option<OwnedTransactionId>,
+        txn_id: Option<TransactionId>,
         /// The raw serialized JSON event.
         raw_event: Raw<AnySyncTimelineEvent>,
         /// Where should this be added in the timeline.
@@ -106,13 +105,13 @@ impl Flow {
 }
 
 pub(super) struct TimelineEventContext {
-    pub(super) sender: OwnedUserId,
+    pub(super) sender: UserId,
     pub(super) sender_profile: Option<Profile>,
     /// If the keys used to decrypt this event were shared-on-invite as part of
     /// an [MSC4268] key bundle, the user ID of the forwarder.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    pub(super) forwarder: Option<OwnedUserId>,
+    pub(super) forwarder: Option<UserId>,
     /// If the keys used to decrypt this event were shared-on-invite as part of
     /// an [MSC4268] key bundle, the forwarder's profile.
     ///
@@ -120,7 +119,7 @@ pub(super) struct TimelineEventContext {
     pub(super) forwarder_profile: Option<Profile>,
     /// The event's `origin_server_ts` field (or creation time for local echo).
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
+    pub(super) read_receipts: IndexMap<UserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
 
@@ -190,7 +189,7 @@ pub(super) enum TimelineAction {
     /// the related event.
     HandleAggregation {
         /// To which other event does this aggregation apply to?
-        related_event: OwnedEventId,
+        related_event: EventId,
         /// What kind of aggregation are we handling here?
         kind: HandleAggregationKind,
     },
@@ -212,7 +211,7 @@ impl TimelineAction {
         room_data_provider: &P,
         unable_to_decrypt: Option<(UnableToDecryptInfo, Option<&Arc<UtdHookManager>>)>,
         in_reply_to: Option<InReplyToDetails>,
-        thread_root: Option<OwnedEventId>,
+        thread_root: Option<EventId>,
         thread_summary: Option<ThreadSummary>,
     ) -> Option<Self> {
         let redaction_rules = room_data_provider.room_version_rules().redaction;
@@ -323,7 +322,7 @@ impl TimelineAction {
     pub(super) fn from_content(
         content: AnyMessageLikeEventContent,
         in_reply_to: Option<InReplyToDetails>,
-        thread_root: Option<OwnedEventId>,
+        thread_root: Option<EventId>,
         thread_summary: Option<ThreadSummary>,
     ) -> Self {
         match content {
@@ -585,7 +584,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     #[instrument(skip(self, edit_kind))]
-    fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
+    fn handle_edit(&mut self, edited_event_id: EventId, edit_kind: PendingEditKind) {
         let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
         let encryption_info =
@@ -624,7 +623,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Reactions to local events are applied in
     /// [`crate::timeline::TimelineController::handle_local_echo`].
     #[instrument(skip(self))]
-    fn handle_reaction(&mut self, relates_to: OwnedEventId, reaction_key: String) {
+    fn handle_reaction(&mut self, relates_to: EventId, reaction_key: String) {
         let target = TimelineEventItemId::EventId(relates_to);
 
         // Add the aggregation to the manager.
@@ -659,7 +658,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
     }
 
-    fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
+    fn handle_poll_response(&mut self, poll_event_id: EventId, answers: Vec<String>) {
         let target = TimelineEventItemId::EventId(poll_event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
@@ -679,7 +678,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
     }
 
-    fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
+    fn handle_poll_end(&mut self, poll_event_id: EventId) {
         let target = TimelineEventItemId::EventId(poll_event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
@@ -701,7 +700,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// This assumes the redacted event was present in the timeline in the first
     /// place; it will warn if the redacted event has not been found.
     #[instrument(skip_all, fields(redacts_event_id = ?redacted))]
-    fn handle_redaction(&mut self, redacted: OwnedEventId) {
+    fn handle_redaction(&mut self, redacted: EventId) {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
@@ -743,7 +742,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///
     /// Returns true if it's succeeded.
     #[instrument(skip_all, fields(redacts = ?aggregation_id))]
-    fn handle_aggregation_redaction(&mut self, aggregation_id: OwnedEventId) -> bool {
+    fn handle_aggregation_redaction(&mut self, aggregation_id: EventId) -> bool {
         let aggregation_id = TimelineEventItemId::EventId(aggregation_id);
 
         match self.meta.aggregations.try_remove_aggregation(&aggregation_id, self.items) {

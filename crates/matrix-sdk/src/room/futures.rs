@@ -27,7 +27,7 @@ use mime::Mime;
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
-    OwnedTransactionId, TransactionId,
+    TransactionId,
     api::client::message::send_message_event,
     assign,
     events::{AnyMessageLikeEventContent, MessageLikeEventContent},
@@ -63,7 +63,7 @@ pub struct SendMessageLikeEvent<'a> {
     room: &'a Room,
     event_type: String,
     content: serde_json::Result<serde_json::Value>,
-    transaction_id: Option<OwnedTransactionId>,
+    transaction_id: Option<TransactionId>,
     request_config: Option<RequestConfig>,
 }
 
@@ -91,7 +91,7 @@ impl<'a> SendMessageLikeEvent<'a> {
     ///   corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///   device. Other devices will not see it. This is then used to ignore
     ///   events sent by our own device and/or to implement local echo.
-    pub fn with_transaction_id(mut self, txn_id: OwnedTransactionId) -> Self {
+    pub fn with_transaction_id(mut self, txn_id: TransactionId) -> Self {
         self.transaction_id = Some(txn_id);
         self
     }
@@ -124,7 +124,7 @@ pub struct SendRawMessageLikeEvent<'a> {
     event_type: &'a str,
     content: Raw<AnyMessageLikeEventContent>,
     tracing_span: Span,
-    transaction_id: Option<OwnedTransactionId>,
+    transaction_id: Option<TransactionId>,
     request_config: Option<RequestConfig>,
 }
 

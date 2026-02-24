@@ -19,8 +19,7 @@ use std::{collections::BTreeMap, fmt, hash::Hash, iter, sync::LazyLock};
 pub use matrix_sdk_common::deserialized_responses::*;
 use regex::Regex;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, UInt,
-    UserId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, RoomId, UInt, UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
@@ -43,14 +42,14 @@ use unicode_normalization::UnicodeNormalization;
 pub struct AmbiguityChange {
     /// The user ID of the member that is contained in the state key of the
     /// `m.room.member` event.
-    pub member_id: OwnedUserId,
+    pub member_id: UserId,
     /// Is the member that is contained in the state key of the `m.room.member`
     /// event itself ambiguous because of the event.
     pub member_ambiguous: bool,
     /// Has another user been disambiguated because of this event.
-    pub disambiguated_member: Option<OwnedUserId>,
+    pub disambiguated_member: Option<UserId>,
     /// Has another user become ambiguous because of this event.
-    pub ambiguated_member: Option<OwnedUserId>,
+    pub ambiguated_member: Option<UserId>,
 }
 
 impl AmbiguityChange {
@@ -68,7 +67,7 @@ impl AmbiguityChange {
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
-    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
+    pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
 }
 
 static MXID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -539,7 +538,7 @@ impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
     pub fn power_levels(
         &self,
         rules: &AuthorizationRules,
-        creators: Vec<OwnedUserId>,
+        creators: Vec<UserId>,
     ) -> RoomPowerLevels {
         match self {
             Self::Sync(e) => e.power_levels(rules, creators),

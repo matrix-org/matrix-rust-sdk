@@ -22,7 +22,7 @@ use matrix_sdk_test::{
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
 };
 use ruma::{
-    OwnedUserId, RoomVersionId, TransactionId,
+    RoomVersionId, TransactionId, UserId,
     api::client::{
         membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType,
         room::upgrade_room::v3::Request as UpgradeRoomRequest,
@@ -840,7 +840,7 @@ async fn test_subscribe_to_typing_notifications() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
+    let typing_sequences: Arc<Mutex<Vec<Vec<UserId>>>> = Arc::new(Mutex::new(Vec::new()));
     // The expected typing sequences that we will receive, note that the current
     // user_id is filtered out.
     let asserted_typing_sequences =

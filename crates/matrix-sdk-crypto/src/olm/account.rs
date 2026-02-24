@@ -29,8 +29,7 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
-    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    OneTimeKeyAlgorithm, OneTimeKeyId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -167,9 +166,9 @@ impl OlmMessageHash {
 #[cfg_attr(not(tarpaulin_include), derive(Debug))]
 pub struct StaticAccountData {
     /// The user_id this account belongs to.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The device_id of this entry.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
     /// Whether the account is for a dehydrated device.
@@ -259,7 +258,7 @@ impl StaticAccountData {
     }
 
     /// Get the key ID of our Ed25519 signing key.
-    pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
+    pub fn signing_key_id(&self) -> DeviceKeyId {
         DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
     }
 
@@ -379,9 +378,9 @@ impl Deref for Account {
 #[allow(missing_debug_implementations)]
 pub struct PickledAccount {
     /// The user id of the account owner.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The device ID of the account owner.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
     /// Was the account shared.
@@ -414,7 +413,7 @@ impl fmt::Debug for Account {
     }
 }
 
-pub type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>;
+pub type OneTimeKeys = BTreeMap<OneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>;
 pub type FallbackKeys = OneTimeKeys;
 
 impl Account {
@@ -464,7 +463,7 @@ impl Account {
     /// encoded as base64 will be used for the device ID.
     pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
@@ -473,7 +472,7 @@ impl Account {
     /// Create a new random Olm Account for a dehydrated device
     pub fn new_dehydrated(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         let mut ret = Self::new_helper(account, user_id, &device_id);

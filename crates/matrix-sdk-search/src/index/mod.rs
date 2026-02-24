@@ -17,9 +17,7 @@ pub mod builder;
 
 use std::{collections::HashSet, fmt};
 
-use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
-};
+use ruma::{EventId, RoomId, events::room::message::OriginalSyncRoomMessageEvent};
 use tantivy::{
     Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
     query::QueryParser, schema::Value,
@@ -40,11 +38,11 @@ pub enum RoomIndexOperation {
     Add(OriginalSyncRoomMessageEvent),
     /// Remove all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id.
-    Remove(OwnedEventId),
+    Remove(EventId),
     /// Replace all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with
     /// the new event.
-    Edit(OwnedEventId, OriginalSyncRoomMessageEvent),
+    Edit(EventId, OriginalSyncRoomMessageEvent),
     /// Do nothing.
     Noop,
 }
@@ -55,9 +53,9 @@ pub struct RoomIndex {
     index: Index,
     schema: RoomMessageSchema,
     query_parser: QueryParser,
-    room_id: OwnedRoomId,
-    uncommitted_adds: HashSet<OwnedEventId>,
-    uncommitted_removes: HashSet<OwnedEventId>,
+    room_id: RoomId,
+    uncommitted_adds: HashSet<EventId>,
+    uncommitted_removes: HashSet<EventId>,
 }
 
 impl fmt::Debug for RoomIndex {
@@ -136,7 +134,7 @@ impl RoomIndex {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<EventId>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
         let searcher = self.get_reader()?.searcher();
 
@@ -144,13 +142,13 @@ impl RoomIndex {
 
         let results = searcher
             .search(&query, &TopDocs::with_limit(max_number_of_results).and_offset(offset))?;
-        let mut ret: Vec<OwnedEventId> = Vec::new();
+        let mut ret: Vec<EventId> = Vec::new();
         let pk = self.schema.primary_key();
 
         for (_score, doc_address) in results {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
             match retrieved_doc.get_first(pk).and_then(|maybe_value| maybe_value.as_str()) {
-                Some(value) => match OwnedEventId::try_from(value) {
+                Some(value) => match EventId::try_from(value) {
                     Ok(event_id) => ret.push(event_id),
                     Err(err) => error!("error while parsing event_id from search result: {err:?}"),
                 },
@@ -161,10 +159,7 @@ impl RoomIndex {
         Ok(ret)
     }
 
-    fn get_events_to_be_removed(
-        &self,
-        event_id: &EventId,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    fn get_events_to_be_removed(&self, event_id: &EventId) -> Result<Vec<EventId>, IndexError> {
         self.search(
             format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.deletion_key()))
                 .as_str(),
@@ -189,7 +184,7 @@ impl RoomIndex {
     fn remove(
         &mut self,
         writer: &mut SearchIndexWriter,
-        event_id: OwnedEventId,
+        event_id: EventId,
     ) -> Result<(), IndexError> {
         let events = self.get_events_to_be_removed(&event_id)?;
 

@@ -34,7 +34,7 @@ pub mod sync {
 
     use as_variant::as_variant;
     use ruma::{
-        OwnedUserId, RoomId, UserId,
+        RoomId, UserId,
         events::{
             AnySyncStateEvent, AnySyncTimelineEvent, StateEventType, room::member::MembershipState,
         },
@@ -209,7 +209,7 @@ pub mod sync {
         fn insert(&mut self, user_id: &UserId);
     }
 
-    impl NewUsers for BTreeSet<OwnedUserId> {
+    impl NewUsers for BTreeSet<UserId> {
         fn insert(&mut self, user_id: &UserId) {
             self.insert(user_id.to_owned());
         }
@@ -529,10 +529,10 @@ async fn decrypt_state_event(
     e2ee: &e2ee::E2EE<'_>,
 ) -> Option<RawSyncStateEventWithKeys> {
     use matrix_sdk_crypto::RoomEventDecryptionResult;
-    use ruma::OwnedEventId;
+    use ruma::EventId;
     use tracing::{trace, warn};
 
-    let event_id = match raw_event.raw.get_field::<OwnedEventId>("event_id") {
+    let event_id = match raw_event.raw.get_field::<EventId>("event_id") {
         Ok(Some(event_id)) => event_id,
         Ok(None) => {
             warn!("Couldn't deserialize encrypted state event's ID: missing `event_id` field");

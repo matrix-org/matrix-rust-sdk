@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use http::Response;
 use ruma::{
-    OwnedRoomId, OwnedUserId, UserId,
+    RoomId, UserId,
     api::{
         IncomingResponse,
         client::sync::sync_events::v3::{
@@ -37,13 +37,13 @@ pub use left_room::LeftRoomBuilder;
 #[derive(Default)]
 pub struct SyncResponseBuilder {
     /// Updates to joined `Room`s.
-    joined_rooms: HashMap<OwnedRoomId, JoinedRoom>,
+    joined_rooms: HashMap<RoomId, JoinedRoom>,
     /// Updates to invited `Room`s.
-    invited_rooms: HashMap<OwnedRoomId, InvitedRoom>,
+    invited_rooms: HashMap<RoomId, InvitedRoom>,
     /// Updates to left `Room`s.
-    left_rooms: HashMap<OwnedRoomId, LeftRoom>,
+    left_rooms: HashMap<RoomId, LeftRoom>,
     /// Updates to knocked `Room`s.
-    knocked_rooms: HashMap<OwnedRoomId, KnockedRoom>,
+    knocked_rooms: HashMap<RoomId, KnockedRoom>,
     /// Events that determine the presence state of a user.
     presence: Vec<Raw<PresenceEvent>>,
     /// Global account data events.
@@ -52,7 +52,7 @@ pub struct SyncResponseBuilder {
     /// sync response to vary.
     batch_counter: i64,
     /// The device lists of the user.
-    changed_device_lists: Vec<OwnedUserId>,
+    changed_device_lists: Vec<UserId>,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
 }
 

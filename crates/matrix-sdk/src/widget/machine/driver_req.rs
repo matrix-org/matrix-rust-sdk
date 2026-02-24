@@ -17,7 +17,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    OwnedUserId,
+    UserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
@@ -297,7 +297,7 @@ pub(crate) struct SendToDeviceRequest {
     /// They are organized in a map of user ID -> device ID -> content like the
     /// cs api request.
     pub(crate) messages:
-        BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+        BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
 
 impl From<SendToDeviceRequest> for MatrixDriverRequestData {

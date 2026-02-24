@@ -24,7 +24,7 @@ use async_trait::async_trait;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
+use ruma::{EventId, RoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
@@ -663,10 +663,10 @@ pub(crate) trait EncryptableStore {
             );
 
             if let Some(raw) = raw_json {
-                if let Some(room_id) = raw.get_field::<OwnedRoomId>("room_id").ok().flatten() {
+                if let Some(room_id) = raw.get_field::<RoomId>("room_id").ok().flatten() {
                     warn!("Found a room id in the source data to deserialize: {room_id}");
                 }
-                if let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() {
+                if let Some(event_id) = raw.get_field::<EventId>("event_id").ok().flatten() {
                     warn!("Found an event id in the source data to deserialize: {event_id}");
                 }
             }

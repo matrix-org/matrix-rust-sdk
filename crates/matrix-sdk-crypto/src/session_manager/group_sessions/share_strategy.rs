@@ -19,7 +19,7 @@ use std::{
 
 use itertools::{Either, Itertools};
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
@@ -137,7 +137,7 @@ pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<DeviceData>>,
+    pub devices: BTreeMap<UserId, Vec<DeviceData>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
     pub withheld_devices: Vec<(DeviceData, WithheldCode)>,
@@ -209,7 +209,7 @@ pub(crate) async fn collect_recipients_for_share_strategy(
     trace!(?users, ?share_strategy, "Calculating group session recipients");
 
     let mut result = CollectRecipientsResult::default();
-    let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
+    let mut verified_users_with_new_identities: Vec<UserId> = Default::default();
 
     // If we have an outbound session, check if a user is missing from the set of
     // users that should get the session but is in the set of users that
@@ -243,7 +243,7 @@ pub(crate) async fn collect_recipients_for_share_strategy(
             }
         }
         CollectStrategy::ErrorOnVerifiedUserProblem => {
-            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+            let mut unsigned_devices_of_verified_users: BTreeMap<UserId, Vec<DeviceId>> =
                 Default::default();
 
             for user_id in users {
@@ -461,13 +461,12 @@ pub(crate) async fn split_devices_for_share_strategy(
 ) -> OlmResult<(Vec<DeviceData>, Vec<(DeviceData, WithheldCode)>)> {
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
-    let mut verified_users_with_new_identities: BTreeSet<OwnedUserId> = Default::default();
+    let mut verified_users_with_new_identities: BTreeSet<UserId> = Default::default();
 
     let mut allowed_devices: Vec<DeviceData> = Default::default();
     let mut blocked_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
 
-    let mut user_identities_cache: BTreeMap<OwnedUserId, Option<UserIdentityData>> =
-        Default::default();
+    let mut user_identities_cache: BTreeMap<UserId, Option<UserIdentityData>> = Default::default();
     let mut get_user_identity = async move |user_id| -> OlmResult<_> {
         match user_identities_cache.get(user_id) {
             Some(user_identity) => Ok(user_identity.clone()),
@@ -503,7 +502,7 @@ pub(crate) async fn split_devices_for_share_strategy(
             // associated user has a verification violation.  If so, we add the
             // device to `unsigned_devices_of_verified_users`, which will be
             // returned with the error.
-            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+            let mut unsigned_devices_of_verified_users: BTreeMap<UserId, Vec<DeviceId>> =
                 Default::default();
             let mut add_device_to_unsigned_devices_map = |user_id: &UserId, device: &DeviceData| {
                 let device_id = device.device_id().to_owned();
@@ -732,7 +731,7 @@ enum ErrorOnVerifiedUserProblemResult {
     /// We found devices that should cause the transmission to fail, due to
     /// being an unsigned device belonging to a verified user. Only
     /// populated when `error_on_verified_user_problem` is set.
-    UnsignedDevicesOfVerifiedUser(Vec<OwnedDeviceId>),
+    UnsignedDevicesOfVerifiedUser(Vec<DeviceId>),
 
     /// There were no unsigned devices of verified users.
     Devices(RecipientDevicesForUser),
@@ -741,7 +740,7 @@ enum ErrorOnVerifiedUserProblemResult {
 /// Partition the list of a user's devices according to whether they should
 /// receive the key, for [`CollectStrategy::AllDevices`].
 fn split_devices_for_user_for_all_devices_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
@@ -818,7 +817,7 @@ fn should_withhold_to_dehydrated_device(
 ///   the devices that should receive the room key, and those that should
 ///   receive a withheld code.
 fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
 ) -> ErrorOnVerifiedUserProblemResult {
@@ -826,7 +825,7 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
 
     // We construct unsigned_devices_of_verified_users lazily, because chances are
     // we won't need it.
-    let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
+    let mut unsigned_devices_of_verified_users: Option<Vec<DeviceId>> = None;
 
     for d in user_devices.into_values() {
         match handle_device_for_user_for_error_on_verified_user_problem_strategy(
@@ -889,7 +888,7 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
 }
 
 fn split_devices_for_user_for_identity_based_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     match device_owner_identity {
@@ -946,7 +945,7 @@ fn withheld_code_for_device_with_owner_for_identity_based_strategy(
 /// Partition the list of a user's devices according to whether they should
 /// receive the key, for [`CollectStrategy::OnlyTrustedDevices`].
 fn split_devices_for_user_for_only_trusted_devices(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {

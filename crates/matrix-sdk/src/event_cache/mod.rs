@@ -50,10 +50,7 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-use ruma::{
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
-    serde::Raw,
-};
+use ruma::{EventId, RoomId, TransactionId, events::AnySyncEphemeralRoomEvent, serde::Raw};
 use tokio::{
     select,
     sync::{
@@ -101,7 +98,7 @@ pub enum EventCacheError {
     #[error("Room `{room_id}` is not found.")]
     RoomNotFound {
         /// The ID of the room not being found.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
     },
 
     /// An error has been observed while back-paginating.
@@ -622,7 +619,7 @@ impl EventCache {
     async fn handle_thread_subscriber_send_queue_update(
         client: &WeakClient,
         thread_subscriber_sender: &Sender<()>,
-        events_being_sent: &mut HashMap<OwnedTransactionId, OwnedEventId>,
+        events_being_sent: &mut HashMap<TransactionId, EventId>,
         up: SendQueueUpdate,
     ) -> bool {
         let Some(client) = client.get() else {
@@ -890,7 +887,7 @@ struct EventCacheInner {
     multiple_room_updates_lock: Mutex<()>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
-    by_room: RwLock<HashMap<OwnedRoomId, RoomEventCache>>,
+    by_room: RwLock<HashMap<RoomId, RoomEventCache>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
@@ -946,7 +943,7 @@ struct EventCacheInner {
     redecryption_channels: redecryptor::RedecryptorChannels,
 }
 
-type AutoShrinkChannelPayload = OwnedRoomId;
+type AutoShrinkChannelPayload = RoomId;
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
@@ -1180,7 +1177,7 @@ impl EventCacheInner {
 #[derive(Clone, Debug)]
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 }
 
 /// An update being triggered when events change in the persisted event cache
@@ -1228,7 +1225,7 @@ pub enum RoomEventCacheUpdate {
     /// The fully read marker has moved to a different event.
     MoveReadMarkerTo {
         /// Event at which the read marker is now pointing.
-        event_id: OwnedEventId,
+        event_id: EventId,
     },
 
     /// The members have changed.
@@ -1237,7 +1234,7 @@ pub enum RoomEventCacheUpdate {
         ///
         /// This is a map of event ID of the `m.room.member` event to the
         /// details of the ambiguity change.
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
     },
 
     /// The room has received updates for the timeline as _diffs_.

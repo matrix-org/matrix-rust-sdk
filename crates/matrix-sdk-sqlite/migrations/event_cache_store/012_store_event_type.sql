@@ -16,7 +16,7 @@ CREATE TABLE "events" (
     -- The room in which the event is located.
     "room_id" BLOB NOT NULL,
 
-    -- The `OwnedEventId` of this event.
+    -- The `EventId` of this event.
     "event_id" BLOB NOT NULL,
 
     -- The event type of this event.

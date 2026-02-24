@@ -29,8 +29,8 @@ use std::{
 };
 
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId, api::client::backup::RoomKeyBackup, serde::Raw,
+    DeviceId, DeviceKeyAlgorithm, RoomId, TransactionId, api::client::backup::RoomKeyBackup,
+    serde::Raw,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
@@ -67,9 +67,9 @@ type SessionId = String;
 
 #[derive(Debug, Clone)]
 struct PendingBackup {
-    request_id: OwnedTransactionId,
+    request_id: TransactionId,
     request: KeysBackupRequest,
-    sessions: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
+    sessions: BTreeMap<RoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
 }
 
 /// The result of a signature verification of a signed JSON object.
@@ -83,7 +83,7 @@ pub struct SignatureVerification {
     pub user_identity_signature: SignatureState,
     /// The result of the signature verification using public keys of other
     /// devices we own.
-    pub other_signatures: BTreeMap<OwnedDeviceId, SignatureState>,
+    pub other_signatures: BTreeMap<DeviceId, SignatureState>,
 }
 
 impl SignatureVerification {
@@ -219,7 +219,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
         compute_all_signatures: bool,
-    ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
+    ) -> Result<BTreeMap<DeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
         if let Some(user_signatures) = signatures.get(&self.store.static_account().user_id) {
@@ -448,7 +448,7 @@ impl BackupMachine {
     /// out to backup the room keys.
     pub async fn backup(
         &self,
-    ) -> Result<Option<(OwnedTransactionId, KeysBackupRequest)>, CryptoStoreError> {
+    ) -> Result<Option<(TransactionId, KeysBackupRequest)>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 
         if let Some(request) = &*request {
@@ -556,12 +556,10 @@ impl BackupMachine {
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
-    ) -> (
-        BTreeMap<OwnedRoomId, RoomKeyBackup>,
-        BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
-    ) {
-        let mut backup: BTreeMap<OwnedRoomId, RoomKeyBackup> = BTreeMap::new();
-        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>> =
+    ) -> (BTreeMap<RoomId, RoomKeyBackup>, BTreeMap<RoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>)
+    {
+        let mut backup: BTreeMap<RoomId, RoomKeyBackup> = BTreeMap::new();
+        let mut session_record: BTreeMap<RoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>> =
             BTreeMap::new();
 
         for session in sessions {
@@ -602,7 +600,7 @@ impl BackupMachine {
     #[deprecated(note = "Use the OlmMachine::store::import_room_keys method instead")]
     pub async fn import_backed_up_room_keys(
         &self,
-        room_keys: BTreeMap<OwnedRoomId, BTreeMap<String, BackedUpRoomKey>>,
+        room_keys: BTreeMap<RoomId, BTreeMap<String, BackedUpRoomKey>>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult, CryptoStoreError> {
         let mut decrypted_room_keys = vec![];

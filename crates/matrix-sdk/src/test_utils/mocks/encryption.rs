@@ -25,8 +25,8 @@ use assert_matches2::assert_let;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::test_json;
 use ruma::{
-    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
-    OwnedOneTimeKeyId, OwnedUserId, UserId,
+    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId,
+    UserId,
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
@@ -53,8 +53,7 @@ use crate::{
 
 /// Stores pending to-device messages for each user and device.
 /// To be used with [`MatrixMockServer::capture_put_to_device_traffic`].
-pub type PendingToDeviceMessages =
-    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
+pub type PendingToDeviceMessages = BTreeMap<UserId, BTreeMap<DeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
 
 /// Extends the `MatrixMockServer` with useful methods to help mocking
 /// matrix crypto API and perform integration test with encryption.
@@ -105,7 +104,7 @@ impl MatrixMockServer {
     }
 
     /// Makes the server forget about all the one-time-keys for that device.
-    pub fn exhaust_one_time_keys(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) {
+    pub fn exhaust_one_time_keys(&self, user_id: UserId, device_id: DeviceId) {
         let mut keys = self.keys.lock().unwrap();
         let known_otks = &mut keys.one_time_keys;
         known_otks.entry(user_id).or_default().entry(device_id).or_default().clear();
@@ -518,7 +517,7 @@ fn mock_keys_query(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> ResponseTempl
     move |req| {
         #[derive(Debug, serde::Deserialize)]
         struct Parameters {
-            device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+            device_keys: BTreeMap<UserId, Vec<DeviceId>>,
         }
 
         let params: Parameters = req.body_json().unwrap();
@@ -560,13 +559,13 @@ fn mock_keys_query(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> ResponseTempl
 /// in this mapping, only merge the signatures.
 fn mock_keys_upload(
     keys: Arc<Mutex<Keys>>,
-    token_to_user_id_map: Arc<Mutex<BTreeMap<String, OwnedUserId>>>,
+    token_to_user_id_map: Arc<Mutex<BTreeMap<String, UserId>>>,
 ) -> impl Fn(&Request) -> ResponseTemplate {
     move |req: &Request| {
         #[derive(Debug, serde::Deserialize)]
         struct Parameters {
             device_keys: Option<Raw<DeviceKeys>>,
-            one_time_keys: Option<BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
+            one_time_keys: Option<BTreeMap<OneTimeKeyId, Raw<OneTimeKey>>>,
         }
         let bearer_token = req
             .headers
@@ -712,7 +711,7 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
     move |req: &Request| {
         #[derive(Debug, serde::Deserialize)]
         #[serde(transparent)]
-        struct Parameters(BTreeMap<OwnedUserId, SignedKeys>);
+        struct Parameters(BTreeMap<UserId, SignedKeys>);
 
         let params: Parameters = req.body_json().unwrap();
 
@@ -787,7 +786,7 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
         // Accept all cross-signing setups by default.
         #[derive(Debug, serde::Deserialize)]
         struct Parameters {
-            one_time_keys: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, OneTimeKeyAlgorithm>>,
+            one_time_keys: BTreeMap<UserId, BTreeMap<DeviceId, OneTimeKeyAlgorithm>>,
         }
 
         let params: Parameters = req.body_json().unwrap();
@@ -796,8 +795,8 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
         let known_otks = &mut keys.one_time_keys;
 
         let mut found_one_time_keys: BTreeMap<
-            OwnedUserId,
-            BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
+            UserId,
+            BTreeMap<DeviceId, BTreeMap<OneTimeKeyId, Raw<OneTimeKey>>>,
         > = BTreeMap::new();
 
         for (user, requested_one_time_keys) in params.one_time_keys {

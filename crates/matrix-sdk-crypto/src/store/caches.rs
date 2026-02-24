@@ -28,7 +28,7 @@ use std::{
 };
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
 use tracing::{Span, field::display, instrument, trace};
@@ -88,7 +88,7 @@ impl SessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Debug, Default)]
 pub struct DeviceStore {
-    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, DeviceData>>>,
+    entries: StdRwLock<BTreeMap<UserId, BTreeMap<DeviceId, DeviceData>>>,
 }
 
 impl DeviceStore {
@@ -124,7 +124,7 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, DeviceData> {
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<DeviceId, DeviceData> {
         self.entries
             .write()
             .entry(user_id.to_owned())
@@ -180,7 +180,7 @@ impl SequenceNumber {
 #[derive(Debug)]
 pub(super) struct KeysQueryWaiter {
     /// The user that we are waiting for
-    user: OwnedUserId,
+    user: UserId,
 
     /// The sequence number of the last invalidation of the users's device list
     /// when we started waiting (ie, any `/keys/query` result with the same or
@@ -207,7 +207,7 @@ pub(super) struct UsersForKeyQuery {
 
     /// The users pending a lookup, together with the sequence number at which
     /// they were added to the list
-    user_map: HashMap<OwnedUserId, SequenceNumber>,
+    user_map: HashMap<UserId, SequenceNumber>,
 
     /// A list of tasks waiting for key queries to complete.
     ///
@@ -298,7 +298,7 @@ impl UsersForKeyQuery {
 
     /// Fetch the list of users waiting for a key query, and the current
     /// sequence number
-    pub(super) fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
+    pub(super) fn users_for_key_query(&self) -> (HashSet<UserId>, SequenceNumber) {
         // we return the sequence number of the last invalidation
         let sequence_number = self.next_sequence_number.previous();
         (self.user_map.keys().cloned().collect(), sequence_number)
@@ -333,7 +333,7 @@ impl UsersForKeyQuery {
 #[derive(Debug)]
 pub(crate) struct StoreCache {
     pub(super) store: Arc<CryptoStoreWrapper>,
-    pub(super) tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
+    pub(super) tracked_users: StdRwLock<BTreeSet<UserId>>,
     pub(super) loaded_tracked_users: RwLock<bool>,
     pub(super) account: Mutex<Option<Account>>,
 }

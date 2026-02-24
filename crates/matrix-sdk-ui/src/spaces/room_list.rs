@@ -23,7 +23,7 @@ use matrix_sdk::{
     Client, Error, locks::Mutex, paginators::PaginationToken, task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     api::client::space::get_hierarchy,
     events::space::child::{HierarchySpaceChildEvent, SpaceChildEventContent},
     uint,
@@ -104,11 +104,11 @@ pub enum SpaceRoomListPaginationState {
 pub struct SpaceRoomList {
     client: Client,
 
-    space_id: OwnedRoomId,
+    space_id: RoomId,
 
     space: SharedObservable<Option<SpaceRoom>>,
 
-    children_state: Mutex<Option<HashMap<OwnedRoomId, HierarchySpaceChildEvent>>>,
+    children_state: Mutex<Option<HashMap<RoomId, HierarchySpaceChildEvent>>>,
 
     token: AsyncMutex<PaginationToken>,
 
@@ -123,7 +123,7 @@ pub struct SpaceRoomList {
 
 impl SpaceRoomList {
     /// Creates a new `SpaceRoomList` for the given space identifier.
-    pub async fn new(client: Client, space_id: OwnedRoomId) -> Self {
+    pub async fn new(client: Client, space_id: RoomId) -> Self {
         let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
@@ -297,8 +297,7 @@ impl SpaceRoomList {
                     result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
 
                 if let Some(room) = space.first() {
-                    let mut children_state =
-                        HashMap::<OwnedRoomId, HierarchySpaceChildEvent>::new();
+                    let mut children_state = HashMap::<RoomId, HierarchySpaceChildEvent>::new();
                     for child_state in &room.children_state {
                         match child_state.deserialize() {
                             Ok(child) => {
@@ -381,7 +380,7 @@ impl SpaceRoomList {
     fn compare_rooms(
         a: &SpaceRoom,
         b: &SpaceRoom,
-        children_state: &HashMap<OwnedRoomId, HierarchySpaceChildEvent>,
+        children_state: &HashMap<RoomId, HierarchySpaceChildEvent>,
     ) -> Ordering {
         let a_state = children_state.get(&a.room_id);
         let b_state = children_state.get(&b.room_id);
@@ -402,7 +401,7 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        OwnedRoomId, RoomId,
+        RoomId,
         events::space::child::HierarchySpaceChildEvent,
         owned_room_id, owned_server_name,
         room::{JoinRuleSummary, RoomSummary},
@@ -758,7 +757,7 @@ mod tests {
 
     #[async_test]
     async fn test_room_list_sorting() {
-        let mut children_state = HashMap::<OwnedRoomId, HierarchySpaceChildEvent>::new();
+        let mut children_state = HashMap::<RoomId, HierarchySpaceChildEvent>::new();
 
         // Rooms not present in the `children_state` should be sorted by their room ID
         assert_eq!(
@@ -933,10 +932,10 @@ mod tests {
     }
 
     fn make_space_room(
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         order: Option<&str>,
         origin_server_ts: Option<u32>,
-        children_state: &mut HashMap<OwnedRoomId, HierarchySpaceChildEvent>,
+        children_state: &mut HashMap<RoomId, HierarchySpaceChildEvent>,
     ) -> SpaceRoom {
         if let Some(origin_server_ts) = origin_server_ts {
             children_state.insert(

@@ -17,7 +17,7 @@
 //!
 //! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 
-use ruma::{OwnedRoomId, events::room::EncryptedFile};
+use ruma::{RoomId, events::room::EncryptedFile};
 use serde::{Deserialize, Serialize};
 
 use super::EventType;
@@ -30,7 +30,7 @@ use super::EventType;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomKeyBundleContent {
     /// The room that these keys are for.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The location and encryption info of the key bundle.
     pub file: EncryptedFile,

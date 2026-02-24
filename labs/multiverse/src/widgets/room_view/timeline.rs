@@ -3,7 +3,7 @@ use std::sync::Arc;
 use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::ruma::{
-    OwnedUserId,
+    UserId,
     events::{receipt::Receipt, room::message::MessageType},
 };
 use matrix_sdk_ui::timeline::{
@@ -159,7 +159,7 @@ fn format_text_message(
     sender: &str,
     message: &Message,
     thread_summary: Option<ThreadSummary>,
-    read_receipts: &IndexMap<OwnedUserId, Receipt>,
+    read_receipts: &IndexMap<UserId, Receipt>,
 ) -> Option<ListItem<'static>> {
     if let MessageType::Text(text) = message.msgtype() {
         let mut lines = Vec::new();

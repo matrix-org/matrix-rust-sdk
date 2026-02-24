@@ -18,7 +18,7 @@
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
 use ruma::{
-    OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
+    RoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
     serde::Raw,
 };
 use tracing::{instrument, trace};
@@ -239,7 +239,7 @@ impl BaseClient {
     #[doc(hidden)]
     pub async fn process_sliding_sync_receipts_extension_for_room(
         &self,
-        room_id: &OwnedRoomId,
+        room_id: &RoomId,
         response: &http::Response,
         new_sync_events: Vec<TimelineEvent>,
         room_previous_events: Vec<TimelineEvent>,
@@ -308,12 +308,12 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
-        JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
+        JsOption, MxcUri, RoomAliasId, RoomId, UserId,
         api::client::sync::sync_events::UnreadNotificationsCount,
         assign, event_id,
         events::{
             GlobalAccountDataEventContent, StateEventContent, StateEventType,
-            direct::{DirectEventContent, DirectUserIdentifier, OwnedDirectUserIdentifier},
+            direct::{DirectEventContent, DirectUserIdentifier},
             room::{
                 avatar::RoomAvatarEventContent,
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -1950,8 +1950,7 @@ mod tests {
         let mut room_response = http::response::Room::new();
         set_room_joined(&mut room_response, user_a_id);
         let mut response = response_with_room(room_id_1, room_response);
-        let mut direct_content: BTreeMap<OwnedDirectUserIdentifier, Vec<OwnedRoomId>> =
-            BTreeMap::new();
+        let mut direct_content: BTreeMap<DirectUserIdentifier, Vec<RoomId>> = BTreeMap::new();
         direct_content.insert(user_a_id.into(), vec![room_id_1.to_owned()]);
         direct_content.insert(user_b_id.into(), vec![room_id_2.to_owned()]);
         response
@@ -2118,7 +2117,7 @@ mod tests {
         member.membership().clone()
     }
 
-    fn direct_targets(client: &BaseClient, room_id: &RoomId) -> HashSet<OwnedDirectUserIdentifier> {
+    fn direct_targets(client: &BaseClient, room_id: &RoomId) -> HashSet<DirectUserIdentifier> {
         let room = client.get_room(room_id).expect("Room not found!");
         room.direct_targets()
     }
@@ -2178,13 +2177,8 @@ mod tests {
             .expect("Failed to process sync");
     }
 
-    fn set_direct_with(
-        response: &mut http::Response,
-        user_id: OwnedUserId,
-        room_ids: Vec<OwnedRoomId>,
-    ) {
-        let mut direct_content: BTreeMap<OwnedDirectUserIdentifier, Vec<OwnedRoomId>> =
-            BTreeMap::new();
+    fn set_direct_with(response: &mut http::Response, user_id: UserId, room_ids: Vec<RoomId>) {
+        let mut direct_content: BTreeMap<DirectUserIdentifier, Vec<RoomId>> = BTreeMap::new();
         direct_content.insert(user_id.into(), room_ids);
         response
             .extensions

@@ -14,9 +14,7 @@
 
 use std::time::Duration;
 
-use ruma::{
-    OwnedServerName, api::client::account::request_openid_token, authentication::TokenType,
-};
+use ruma::{ServerName, api::client::account::request_openid_token, authentication::TokenType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -25,7 +23,7 @@ pub(crate) struct OpenIdState {
     pub(crate) access_token: String,
     #[serde(with = "ruma::serde::duration::secs")]
     pub(crate) expires_in: Duration,
-    pub(crate) matrix_server_name: OwnedServerName,
+    pub(crate) matrix_server_name: ServerName,
     pub(crate) token_type: TokenType,
 }
 

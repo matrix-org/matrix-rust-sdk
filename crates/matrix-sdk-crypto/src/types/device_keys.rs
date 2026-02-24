@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use js_option::JsOption;
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     serde::{JsonCastable, Raw},
 };
 use serde::{Deserialize, Serialize};
@@ -56,18 +56,18 @@ pub struct DeviceKeys {
     /// The ID of the user the device belongs to.
     ///
     /// Must match the user ID used when logging in.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
 
     /// The ID of the device these keys belong to.
     ///
     /// Must match the device ID used when logging in.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
 
     /// The encryption algorithms supported by this device.
     pub algorithms: Vec<EventEncryptionAlgorithm>,
 
     /// Public identity keys.
-    pub keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
+    pub keys: BTreeMap<DeviceKeyId, DeviceKey>,
 
     /// Signatures for the device key object.
     pub signatures: Signatures,
@@ -89,10 +89,10 @@ impl DeviceKeys {
     /// Creates a new `DeviceKeys` from the given user id, device ID,
     /// algorithms, keys and signatures.
     pub fn new(
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
+        user_id: UserId,
+        device_id: DeviceId,
         algorithms: Vec<EventEncryptionAlgorithm>,
-        keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
+        keys: BTreeMap<DeviceKeyId, DeviceKey>,
         signatures: Signatures,
     ) -> Self {
         Self {
@@ -211,10 +211,10 @@ impl From<Ed25519PublicKey> for DeviceKey {
 /// [`DeviceKey`]s.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct DeviceKeyHelper {
-    pub user_id: OwnedUserId,
-    pub device_id: OwnedDeviceId,
+    pub user_id: UserId,
+    pub device_id: DeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
-    pub keys: BTreeMap<OwnedDeviceKeyId, String>,
+    pub keys: BTreeMap<DeviceKeyId, String>,
     #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
     pub dehydrated: JsOption<bool>,
     pub signatures: Signatures,
@@ -228,7 +228,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
     type Error = vodozemac::KeyError;
 
     fn try_from(value: DeviceKeyHelper) -> Result<Self, Self::Error> {
-        let keys: Result<BTreeMap<OwnedDeviceKeyId, DeviceKey>, vodozemac::KeyError> = value
+        let keys: Result<BTreeMap<DeviceKeyId, DeviceKey>, vodozemac::KeyError> = value
             .keys
             .into_iter()
             .map(|(k, v)| {
@@ -261,7 +261,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
 
 impl From<DeviceKeys> for DeviceKeyHelper {
     fn from(value: DeviceKeys) -> Self {
-        let keys: BTreeMap<OwnedDeviceKeyId, String> =
+        let keys: BTreeMap<DeviceKeyId, String> =
             value.keys.into_iter().map(|(k, v)| (k, v.to_base64())).collect();
 
         Self {
@@ -281,7 +281,7 @@ impl From<DeviceKeys> for DeviceKeyHelper {
 mod tests {
     use std::str::FromStr;
 
-    use ruma::{OwnedDeviceKeyId, device_id, user_id};
+    use ruma::{DeviceKeyId, device_id, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Curve25519SecretKey};
 
@@ -352,7 +352,7 @@ mod tests {
 
         // Change one of the fields and verify that the signature check fails.
         let new_curve_key = Curve25519SecretKey::new();
-        let key_id = OwnedDeviceKeyId::from_str("curve25519:BNYQQWUMXO").unwrap();
+        let key_id = DeviceKeyId::from_str("curve25519:BNYQQWUMXO").unwrap();
         device_keys.keys.insert(key_id, Curve25519PublicKey::from(&new_curve_key).into());
 
         assert!(device_keys.check_self_signature().is_err());

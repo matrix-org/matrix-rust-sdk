@@ -20,7 +20,7 @@ limitations under the License.
 
 use std::fmt::Debug;
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, RoomId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, megolm::ExportedSessionKey};
 
@@ -67,7 +67,7 @@ pub struct HistoricRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The Curve25519 key of the device which initiated the session originally,
     /// according to the device that sent us this key.

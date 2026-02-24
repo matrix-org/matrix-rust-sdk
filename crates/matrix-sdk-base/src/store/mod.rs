@@ -46,7 +46,7 @@ use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use observable_map::ObservableMap;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    EventId, RoomId, UserId,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
@@ -188,7 +188,7 @@ pub(crate) struct BaseStateStore {
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
 
     /// All rooms the store knows about.
-    rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
+    rooms: Arc<StdRwLock<ObservableMap<RoomId, Room>>>,
 
     /// A lock to synchronize access to the store, such that data by the sync is
     /// never overwritten.
@@ -196,7 +196,7 @@ pub(crate) struct BaseStateStore {
 
     /// Which rooms have already logged a log line about missing room info, in
     /// the context of response processors?
-    pub(crate) already_logged_missing_room: Arc<SyncMutex<HashSet<OwnedRoomId>>>,
+    pub(crate) already_logged_missing_room: Arc<SyncMutex<HashSet<RoomId>>>,
 }
 
 impl BaseStateStore {
@@ -467,7 +467,7 @@ pub enum RoomLoadSettings {
     ///
     /// Please, be careful with this option. Read the documentation of
     /// [`RoomLoadSettings`].
-    One(OwnedRoomId),
+    One(RoomId),
 }
 
 /// The subscription status of a thread.
@@ -546,45 +546,42 @@ pub struct StateChanges {
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
-    pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
+    pub presence: BTreeMap<UserId, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their
     /// `MinimalRoomMemberEvent`.
-    pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
+    pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MinimalRoomMemberEvent>>,
 
     /// A mapping of room profiles to delete.
     ///
     /// These are deleted *before* other room profiles are inserted.
-    pub profiles_to_delete: BTreeMap<OwnedRoomId, Vec<OwnedUserId>>,
+    pub profiles_to_delete: BTreeMap<RoomId, Vec<UserId>>,
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
-    pub state:
-        BTreeMap<OwnedRoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
+    pub state: BTreeMap<RoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data:
-        BTreeMap<OwnedRoomId, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
+        BTreeMap<RoomId, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
 
-    /// A map of `OwnedRoomId` to `RoomInfo`.
-    pub room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
+    /// A map of `RoomId` to `RoomInfo`.
+    pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
     /// A map of `RoomId` to `ReceiptEventContent`.
-    pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
+    pub receipts: BTreeMap<RoomId, ReceiptEventContent>,
 
-    /// A map of `RoomId` to maps of `OwnedEventId` to be redacted by
+    /// A map of `RoomId` to maps of `EventId` to be redacted by
     /// `SyncRoomRedactionEvent`.
-    pub redactions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, Raw<SyncRoomRedactionEvent>>>,
+    pub redactions: BTreeMap<RoomId, BTreeMap<EventId, Raw<SyncRoomRedactionEvent>>>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `StrippedState`.
-    pub stripped_state: BTreeMap<
-        OwnedRoomId,
-        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
-    >,
+    pub stripped_state:
+        BTreeMap<RoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
-    pub ambiguity_maps: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
+    pub ambiguity_maps: BTreeMap<RoomId, HashMap<DisplayName, BTreeSet<UserId>>>,
 }
 
 impl StateChanges {

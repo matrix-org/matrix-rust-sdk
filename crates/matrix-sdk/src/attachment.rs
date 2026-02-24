@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use ruma::{
-    OwnedTransactionId, UInt, assign,
+    TransactionId, UInt, assign,
     events::{
         Mentions,
         room::{
@@ -183,7 +183,7 @@ pub struct AttachmentConfig {
     /// A fixed transaction id to be used for sending this attachment.
     ///
     /// Otherwise, a random one will be generated.
-    pub txn_id: Option<OwnedTransactionId>,
+    pub txn_id: Option<TransactionId>,
 
     /// Type-specific metadata about the attachment.
     pub info: Option<AttachmentInfo>,
@@ -228,7 +228,7 @@ impl AttachmentConfig {
     ///   in its unsigned field as `transaction_id`. If not given, one is
     ///   created for the message.
     #[must_use]
-    pub fn txn_id(mut self, txn_id: OwnedTransactionId) -> Self {
+    pub fn txn_id(mut self, txn_id: TransactionId) -> Self {
         self.txn_id = Some(txn_id);
         self
     }
@@ -280,7 +280,7 @@ impl AttachmentConfig {
 #[cfg(feature = "unstable-msc4274")]
 #[derive(Debug, Default)]
 pub struct GalleryConfig {
-    pub(crate) txn_id: Option<OwnedTransactionId>,
+    pub(crate) txn_id: Option<TransactionId>,
     pub(crate) items: Vec<GalleryItemInfo>,
     pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
@@ -302,7 +302,7 @@ impl GalleryConfig {
     ///   in its unsigned field as `transaction_id`. If not given, one is
     ///   created for the message.
     #[must_use]
-    pub fn txn_id(mut self, txn_id: OwnedTransactionId) -> Self {
+    pub fn txn_id(mut self, txn_id: TransactionId) -> Self {
         self.txn_id = Some(txn_id);
         self
     }

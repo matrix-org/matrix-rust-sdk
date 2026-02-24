@@ -37,7 +37,7 @@ use matrix_sdk_base::RequestedRequiredStates;
 use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
     assign,
 };
@@ -107,7 +107,7 @@ pub(super) struct SlidingSyncInner {
 
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
-    room_subscriptions: StdRwLock<BTreeMap<OwnedRoomId, http::request::RoomSubscription>>,
+    room_subscriptions: StdRwLock<BTreeMap<RoomId, http::request::RoomSubscription>>,
 
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
@@ -814,7 +814,7 @@ impl SlidingSync {
 fn subscribe_to_rooms(
     mut room_subscriptions: StdRwLockWriteGuard<
         '_,
-        BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+        BTreeMap<RoomId, http::request::RoomSubscription>,
     >,
     client: &Client,
     room_ids: &[&RoomId],
@@ -888,7 +888,7 @@ pub struct UpdateSummary {
     /// The names of the lists that have seen an update.
     pub lists: Vec<String>,
     /// The rooms that have seen updates
-    pub rooms: Vec<OwnedRoomId>,
+    pub rooms: Vec<RoomId>,
 }
 
 /// Define what kind of poll timeout [`SlidingSync`] must use.
@@ -957,7 +957,7 @@ mod tests {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
-        OwnedRoomId, assign,
+        RoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id, room_id,
         serde::Raw,
@@ -1054,7 +1054,7 @@ mod tests {
         assert!(room0.are_members_synced().not());
 
         {
-            struct MemberMatcher(OwnedRoomId);
+            struct MemberMatcher(RoomId);
 
             impl Match for MemberMatcher {
                 fn matches(&self, request: &Request) -> bool {
@@ -1094,7 +1094,7 @@ mod tests {
         // Subscribing to the same room doesn't reset the member sync state.
 
         {
-            struct MemberMatcher(OwnedRoomId);
+            struct MemberMatcher(RoomId);
 
             impl Match for MemberMatcher {
                 fn matches(&self, request: &Request) -> bool {
@@ -1891,7 +1891,7 @@ mod tests {
 
     fn make_mark_unread_response(
         response_number: &str,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         unread: bool,
         add_rooms_section: bool,
     ) -> http::Response {

@@ -51,7 +51,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     api::client::{
         error::{ErrorBody, StandardErrorBody},
         keys::{
@@ -457,7 +457,7 @@ impl Client {
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
-        device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        device_keys: BTreeMap<UserId, Vec<DeviceId>>,
     ) -> Result<get_keys::v3::Response> {
         let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
@@ -481,7 +481,7 @@ impl Client {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # use matrix_sdk::ruma::{room_id, OwnedRoomId};
+    /// # use matrix_sdk::ruma::{room_id, RoomId};
     /// use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::events::{macros::EventContent, room::EncryptedFile};
     ///
@@ -874,7 +874,7 @@ impl Encryption {
     ///
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
-    pub async fn tracked_users(&self) -> Result<HashSet<OwnedUserId>, CryptoStoreError> {
+    pub async fn tracked_users(&self) -> Result<HashSet<UserId>, CryptoStoreError> {
         if let Some(machine) = self.client.olm_machine().await.as_ref() {
             machine.tracked_users().await
         } else {
@@ -1955,7 +1955,7 @@ impl Encryption {
         event_type: &str,
         content: Raw<AnyToDeviceEventContent>,
         share_strategy: CollectStrategy,
-    ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
+    ) -> Result<Vec<(UserId, DeviceId)>> {
         let users = recipient_devices.iter().map(|device| device.user_id());
 
         // Will claim one-time-key for users that needs it
@@ -1977,7 +1977,7 @@ impl Encryption {
             )
             .await?;
 
-        let mut failures: Vec<(OwnedUserId, OwnedDeviceId)> = Default::default();
+        let mut failures: Vec<(UserId, DeviceId)> = Default::default();
 
         // Push the withhelds in the failures
         withhelds.iter().for_each(|(d, _)| {

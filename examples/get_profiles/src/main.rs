@@ -3,7 +3,7 @@ use std::{env, process::exit};
 use matrix_sdk::{
     Client, Result as MatrixResult,
     ruma::{
-        OwnedMxcUri, UserId,
+        MxcUri, UserId,
         api::client::profile::{self, AvatarUrl, DisplayName},
     },
 };
@@ -12,7 +12,7 @@ use url::Url;
 #[derive(Debug)]
 #[allow(dead_code)]
 struct UserProfile {
-    avatar_url: Option<OwnedMxcUri>,
+    avatar_url: Option<MxcUri>,
     displayname: Option<String>,
 }
 

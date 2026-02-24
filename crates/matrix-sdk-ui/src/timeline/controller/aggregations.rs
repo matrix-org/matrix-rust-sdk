@@ -42,7 +42,7 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use as_variant::as_variant;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnySyncTimelineEvent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -87,7 +87,7 @@ pub(in crate::timeline) struct PendingEdit {
 
     /// If provided, this is the identifier of a remote event item that included
     /// this bundled edit.
-    pub bundled_item_owner: Option<OwnedEventId>,
+    pub bundled_item_owner: Option<EventId>,
 }
 
 /// Which kind of aggregation (related event) is this?
@@ -96,7 +96,7 @@ pub(crate) enum AggregationKind {
     /// This is a response to a poll.
     PollResponse {
         /// Sender of the poll's response.
-        sender: OwnedUserId,
+        sender: UserId,
         /// Timestamp at which the response has beens ent.
         timestamp: MilliSecondsSinceUnixEpoch,
         /// All the answers to the poll sent by the sender.
@@ -117,7 +117,7 @@ pub(crate) enum AggregationKind {
         /// The reaction "key" displayed by the client, often an emoji.
         key: String,
         /// Sender of the reaction.
-        sender: OwnedUserId,
+        sender: UserId,
         /// Timestamp at which the reaction has been sent.
         timestamp: MilliSecondsSinceUnixEpoch,
         /// The send status of the reaction this is, with handles to abort it if
@@ -531,7 +531,7 @@ impl Aggregations {
     /// Mark a target event as being sent (i.e. it transitions from an local
     /// transaction id to its remote event id counterpart), by updating the
     /// internal mappings.
-    pub fn mark_target_as_sent(&mut self, txn_id: OwnedTransactionId, event_id: OwnedEventId) {
+    pub fn mark_target_as_sent(&mut self, txn_id: TransactionId, event_id: EventId) {
         let from = TimelineEventItemId::TransactionId(txn_id);
         let to = TimelineEventItemId::EventId(event_id);
 
@@ -558,8 +558,8 @@ impl Aggregations {
     /// passing the context to apply an aggregation here.
     pub fn mark_aggregation_as_sent(
         &mut self,
-        txn_id: OwnedTransactionId,
-        event_id: OwnedEventId,
+        txn_id: TransactionId,
+        event_id: EventId,
         items: &mut ObservableItemsTransaction<'_>,
         rules: &RoomVersionRules,
     ) -> bool {
@@ -670,7 +670,7 @@ fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
     let PendingEdit { kind: edit_kind, edit_json, encryption_info, bundled_item_owner: _ } = edit;
 
     if let Some(event_json) = &edit_json {
-        let Some(edit_sender) = event_json.get_field::<OwnedUserId>("sender").ok().flatten() else {
+        let Some(edit_sender) = event_json.get_field::<UserId>("sender").ok().flatten() else {
             info!("edit event didn't have a sender; likely a malformed event");
             return false;
         };

@@ -138,7 +138,7 @@ use matrix_sdk_base::{
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
 use ruma::{
-    OwnedEventId, OwnedRoomId, RoomId,
+    EventId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
     push::Action,
     serde::Raw,
@@ -168,17 +168,16 @@ use crate::{
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
 
-type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
-type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-pub(in crate::event_cache) type ResolvedUtd =
-    (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+type EventIdAndUtd = (EventId, Raw<AnySyncTimelineEvent>);
+type EventIdAndEvent = (EventId, DecryptedRoomEvent);
+pub(in crate::event_cache) type ResolvedUtd = (EventId, DecryptedRoomEvent, Option<Vec<Action>>);
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
 #[derive(Debug, Clone)]
 pub struct DecryptionRetryRequest {
     /// The room ID of the room the events belong to.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// Events that are not decrypted.
     pub utd_session_ids: BTreeSet<OwnedSessionId>,
     /// Events that are decrypted but might need to have their
@@ -192,9 +191,9 @@ pub enum RedecryptorReport {
     /// Events which we were able to decrypt.
     ResolvedUtds {
         /// The room ID of the room the events belong to.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         /// The list of event IDs of the decrypted events.
-        events: BTreeSet<OwnedEventId>,
+        events: BTreeSet<EventId>,
     },
     /// The redecryptor might have missed some room keys so it might not have
     /// re-decrypted events that are now decryptable.
@@ -232,7 +231,7 @@ impl RedecryptorChannels {
 /// The tuple can be used to attempt to redecrypt events.
 fn filter_timeline_event_to_utd(
     event: TimelineEvent,
-) -> Option<(OwnedEventId, Raw<AnySyncTimelineEvent>)> {
+) -> Option<(EventId, Raw<AnySyncTimelineEvent>)> {
     let event_id = event.event_id();
 
     // Only pick out events that are UTDs, get just the Raw event as this is what
@@ -250,7 +249,7 @@ fn filter_timeline_event_to_utd(
 /// decrypted event.
 fn filter_timeline_event_to_decrypted(
     event: TimelineEvent,
-) -> Option<(OwnedEventId, DecryptedRoomEvent)> {
+) -> Option<(EventId, DecryptedRoomEvent)> {
     let event_id = event.event_id();
 
     let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
@@ -287,7 +286,7 @@ impl EventCache {
 
     /// Retrieve a set of events that we weren't able to decrypt from the memory
     /// of the event cache.
-    async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
+    async fn get_utds_from_memory(&self) -> BTreeMap<RoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
         for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
@@ -323,9 +322,7 @@ impl EventCache {
         Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
     }
 
-    async fn get_decrypted_events_from_memory(
-        &self,
-    ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
+    async fn get_decrypted_events_from_memory(&self) -> BTreeMap<RoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
         for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
@@ -1099,7 +1096,7 @@ mod tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedEventId, RoomId, RoomVersionId, device_id, event_id,
+        EventId, RoomId, RoomVersionId, device_id, event_id,
         events::{AnySyncTimelineEvent, relation::RelationType},
         room_id,
         serde::Raw,
@@ -1226,8 +1223,8 @@ mod tests {
         async fn filter_duplicated_events(
             &self,
             linked_chunk_id: LinkedChunkId<'_>,
-            events: Vec<OwnedEventId>,
-        ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+            events: Vec<EventId>,
+        ) -> Result<Vec<(EventId, Position)>, Self::Error> {
             self.memory_store.filter_duplicated_events(linked_chunk_id, events).await
         }
 

@@ -861,7 +861,7 @@ mod tests {
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UserId,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
         events::{
             AnySyncStateEvent, StateEventType,
             room::{
@@ -1570,7 +1570,7 @@ mod tests {
         room_state_store: &ObjectStore<'_>,
         room_id: &RoomId,
         name: Option<&str>,
-        create_creator: Option<OwnedUserId>,
+        create_creator: Option<UserId>,
         create_sender: Option<&UserId>,
     ) -> Result<()> {
         let room_info_json =

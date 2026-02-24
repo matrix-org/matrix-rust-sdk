@@ -11,7 +11,7 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     room::power_levels::RoomPowerLevelChanges,
     ruma::{
-        EventId, OwnedEventId, OwnedRoomId,
+        EventId, RoomId,
         api::client::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
             uiaa::Password,
@@ -861,8 +861,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
     let (alice_a, alice_b, room_id, event_id): (
         SyncTokenAwareClient,
         SyncTokenAwareClient,
-        OwnedRoomId,
-        OwnedEventId,
+        RoomId,
+        EventId,
     ) = assert_can_perform_interactive_verification("alice", BackupDownloadStrategy::Manual, true)
         .instrument(alice_span)
         .await?;

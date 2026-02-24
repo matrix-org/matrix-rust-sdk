@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
 };
@@ -28,14 +28,14 @@ use crate::{
 /// and push rules.
 pub struct Notification<'a> {
     pub push_rules: &'a Ruleset,
-    pub notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
+    pub notifications: &'a mut BTreeMap<RoomId, Vec<sync::Notification>>,
     pub state_store: &'a BaseStateStore,
 }
 
 impl<'a> Notification<'a> {
     pub fn new(
         push_rules: &'a Ruleset,
-        notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
+        notifications: &'a mut BTreeMap<RoomId, Vec<sync::Notification>>,
         state_store: &'a BaseStateStore,
     ) -> Self {
         Self { push_rules, notifications, state_store }
@@ -43,7 +43,7 @@ impl<'a> Notification<'a> {
 
     fn push_notification(
         &mut self,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         actions: Vec<Action>,
         event: RawAnySyncOrStrippedTimelineEvent,
     ) {

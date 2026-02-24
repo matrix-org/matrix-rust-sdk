@@ -20,7 +20,7 @@ use std::{
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    EventId, OwnedEventId, OwnedUserId,
+    EventId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, poll::unstable_start::UnstablePollStartEventContent,
@@ -86,8 +86,8 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// This value is constant over the lifetime of the metadata.
     pub room_version_rules: RoomVersionRules,
 
-    /// The own [`OwnedUserId`] of the client who opened the timeline.
-    pub(crate) own_user_id: OwnedUserId,
+    /// The own [`UserId`] of the client who opened the timeline.
+    pub(crate) own_user_id: UserId,
 
     // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and
@@ -107,11 +107,11 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Given an event, what are all the events that are replies to it?
     ///
     /// Only works for remote events *and* replies which are remote-echoed.
-    pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
+    pub replies: HashMap<EventId, BTreeSet<EventId>>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.
-    pub fully_read_event: Option<OwnedEventId>,
+    pub fully_read_event: Option<EventId>,
 
     /// Whether we have a fully read-marker item in the timeline, that's up to
     /// date with the room's read marker.
@@ -129,7 +129,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(
-        own_user_id: OwnedUserId,
+        own_user_id: UserId,
         room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
@@ -317,7 +317,7 @@ impl TimelineMetadata {
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         is_thread_focus: bool,
-    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+    ) -> (Option<InReplyToDetails>, Option<EventId>) {
         if let AnySyncTimelineEvent::MessageLike(ev) = event
             && let Some(content) = ev.original_content()
         {
@@ -344,7 +344,7 @@ impl TimelineMetadata {
         remote_ctx: Option<RemoteEventContext<'_>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         is_thread_focus: bool,
-    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+    ) -> (Option<InReplyToDetails>, Option<EventId>) {
         match content {
             AnyMessageLikeEventContent::Sticker(content) => {
                 let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
@@ -448,7 +448,7 @@ impl TimelineMetadata {
         relates_to: Option<RelationWithoutReplacement>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         is_thread_focus: bool,
-    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+    ) -> (Option<InReplyToDetails>, Option<EventId>) {
         let mut thread_root = None;
 
         let in_reply_to = relates_to.and_then(|relation| match relation {
@@ -510,11 +510,11 @@ pub(in crate::timeline) enum RelativePosition {
 #[derive(Debug, Clone)]
 pub(in crate::timeline) struct EventMeta {
     /// The ID of the event.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
 
     /// If this event is part of a thread, this will contain its thread root
     /// event id.
-    pub thread_root_id: Option<OwnedEventId>,
+    pub thread_root_id: Option<EventId>,
 
     /// Whether the event is among the timeline items.
     pub visible: bool,
@@ -588,10 +588,10 @@ pub(in crate::timeline) struct EventMeta {
 
 impl EventMeta {
     pub fn new(
-        event_id: OwnedEventId,
+        event_id: EventId,
         visible: bool,
         can_show_read_receipts: bool,
-        thread_root_id: Option<OwnedEventId>,
+        thread_root_id: Option<EventId>,
     ) -> Self {
         Self {
             event_id,

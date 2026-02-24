@@ -7,8 +7,7 @@ use base64::{
 use indexed_db_futures::KeyRange;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
     events::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, receipt::ReceiptType,
     },
@@ -274,7 +273,7 @@ impl SafeEncode for RoomId {
     }
 }
 
-impl SafeEncode for OwnedRoomId {
+impl SafeEncode for RoomId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }
@@ -286,7 +285,7 @@ impl SafeEncode for UserId {
     }
 }
 
-impl SafeEncode for OwnedUserId {
+impl SafeEncode for UserId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }
@@ -304,7 +303,7 @@ impl SafeEncode for EventId {
     }
 }
 
-impl SafeEncode for OwnedEventId {
+impl SafeEncode for EventId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }

@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
-    OwnedEventId, OwnedRoomId,
+    EventId, RoomId,
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
@@ -210,20 +210,20 @@ pub(super) struct ReadEventsResponse {
 #[derive(Serialize, Debug)]
 pub(crate) struct SendEventResponse {
     /// The room id for the send event.
-    pub(crate) room_id: Option<OwnedRoomId>,
+    pub(crate) room_id: Option<RoomId>,
     /// The event id of the send event. It's optional because if it's a delayed
     /// event, it does not get the event_id at this point.
-    pub(crate) event_id: Option<OwnedEventId>,
+    pub(crate) event_id: Option<EventId>,
     /// The `delay_id` generated for this delayed event. Used to interact with
     /// the delayed event.
     pub(crate) delay_id: Option<String>,
 }
 
 impl SendEventResponse {
-    pub(crate) fn from_event_id(event_id: OwnedEventId) -> Self {
+    pub(crate) fn from_event_id(event_id: EventId) -> Self {
         SendEventResponse { room_id: None, event_id: Some(event_id), delay_id: None }
     }
-    pub(crate) fn set_room_id(&mut self, room_id: OwnedRoomId) {
+    pub(crate) fn set_room_id(&mut self, room_id: RoomId) {
         self.room_id = Some(room_id);
     }
 }

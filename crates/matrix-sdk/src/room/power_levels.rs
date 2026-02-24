@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use ruma::{
-    OwnedUserId,
+    UserId,
     events::{
         StateEventType,
         room::power_levels::{
@@ -178,7 +178,7 @@ impl From<js_int::TryFromIntError> for crate::error::Error {
 pub fn power_level_user_changes(
     content: &RoomPowerLevelsEventContent,
     prev_content: &Option<PossiblyRedactedRoomPowerLevelsEventContent>,
-) -> HashMap<OwnedUserId, i64> {
+) -> HashMap<UserId, i64> {
     let Some(prev_content) = prev_content.as_ref() else {
         return Default::default();
     };
@@ -357,14 +357,14 @@ mod tests {
         // moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
-        content.users.insert(OwnedUserId::try_from("@charlie:example.com").unwrap(), int!(50));
+        content.users.insert(UserId::try_from("@charlie:example.com").unwrap(), int!(50));
 
         // When calculating the changes.
         let changes = power_level_user_changes(&content, &Some(prev_content));
 
         // Then the changes should reflect the new moderator.
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes.get(&OwnedUserId::try_from("@charlie:example.com").unwrap()), Some(&50));
+        assert_eq!(changes.get(&UserId::try_from("@charlie:example.com").unwrap()), Some(&50));
     }
 
     #[test]
@@ -373,14 +373,14 @@ mod tests {
         // moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
-        content.users.remove(&OwnedUserId::try_from("@bob:example.com").unwrap());
+        content.users.remove(&UserId::try_from("@bob:example.com").unwrap());
 
         // When calculating the changes.
         let changes = power_level_user_changes(&content, &Some(prev_content));
 
         // Then the changes should reflect the removed moderator.
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes.get(&OwnedUserId::try_from("@bob:example.com").unwrap()), Some(&0));
+        assert_eq!(changes.get(&UserId::try_from("@bob:example.com").unwrap()), Some(&0));
     }
 
     #[test]
@@ -389,14 +389,14 @@ mod tests {
         // moderator to an admin.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
-        content.users.insert(OwnedUserId::try_from("@bob:example.com").unwrap(), int!(100));
+        content.users.insert(UserId::try_from("@bob:example.com").unwrap(), int!(100));
 
         // When calculating the changes.
         let changes = power_level_user_changes(&content, &Some(prev_content));
 
         // Then the changes should reflect the new admin.
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes.get(&OwnedUserId::try_from("@bob:example.com").unwrap()), Some(&100));
+        assert_eq!(changes.get(&UserId::try_from("@bob:example.com").unwrap()), Some(&100));
     }
 
     #[test]
@@ -406,7 +406,7 @@ mod tests {
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users_default = int!(50);
-        content.users.remove(&OwnedUserId::try_from("@bob:example.com").unwrap());
+        content.users.remove(&UserId::try_from("@bob:example.com").unwrap());
 
         // When calculating the changes.
         let changes = power_level_user_changes(&content, &Some(prev_content));
@@ -461,8 +461,8 @@ mod tests {
         content.state_default = int!(50);
         content.users_default = int!(0);
         content.users = BTreeMap::from_iter(vec![
-            (OwnedUserId::try_from("@alice:example.com").unwrap(), int!(100)),
-            (OwnedUserId::try_from("@bob:example.com").unwrap(), int!(50)),
+            (UserId::try_from("@alice:example.com").unwrap(), int!(100)),
+            (UserId::try_from("@bob:example.com").unwrap(), int!(50)),
         ]);
         content.notifications = NotificationPowerLevels::default();
         content

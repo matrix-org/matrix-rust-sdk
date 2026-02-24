@@ -10,7 +10,7 @@ use matrix_sdk::{
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    OwnedUserId,
+    UserId,
     api::{
         MatrixVersion,
         client::{
@@ -434,7 +434,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
         .respond_with(|req: &Request| {
             #[derive(Debug, serde::Deserialize)]
             #[serde(transparent)]
-            struct Parameters(BTreeMap<OwnedUserId, SignedKeys>);
+            struct Parameters(BTreeMap<UserId, SignedKeys>);
 
             let params: Parameters = req.body_json().unwrap();
             assert!(params.0.contains_key(user_id!("@alice:example.org")));

@@ -1,5 +1,5 @@
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
         AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent,
@@ -14,7 +14,7 @@ use crate::{DEFAULT_TEST_ROOM_ID, event_factory::EventBuilder};
 
 #[derive(Debug, Clone)]
 pub struct JoinedRoomBuilder {
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
     pub(super) inner: JoinedRoom,
 }
 

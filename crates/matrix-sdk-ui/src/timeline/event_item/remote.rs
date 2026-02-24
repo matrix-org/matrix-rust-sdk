@@ -17,7 +17,7 @@ use std::{fmt, sync::Arc};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, TransactionId, UserId,
     events::{AnySyncTimelineEvent, receipt::Receipt},
     serde::Raw,
 };
@@ -26,10 +26,10 @@ use ruma::{
 #[derive(Clone)]
 pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
 
     /// If available, the transaction id we've used to send this event.
-    pub transaction_id: Option<OwnedTransactionId>,
+    pub transaction_id: Option<TransactionId>,
 
     /// All read receipts for the event.
     ///
@@ -37,7 +37,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// read receipt.
     ///
     /// Note that currently this ignores threads.
-    pub read_receipts: IndexMap<OwnedUserId, Receipt>,
+    pub read_receipts: IndexMap<UserId, Receipt>,
 
     /// Whether the event has been sent by the logged-in user themselves.
     pub is_own: bool,

@@ -28,8 +28,7 @@ use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock as S
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent,
         room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
@@ -172,10 +171,10 @@ pub struct OutboundGroupSessionEncryptionResult {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<RwLock<GroupSession>>,
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     pub(crate) creation_time: SecondsSinceUnixEpoch,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
@@ -189,9 +188,9 @@ pub struct OutboundGroupSession {
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<UserId, BTreeMap<DeviceId, ShareInfo>>;
 
-type ToShareMap = BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>;
+type ToShareMap = BTreeMap<TransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -341,7 +340,7 @@ impl OutboundGroupSession {
     /// * `settings` - Settings determining the algorithm and rotation period of
     ///   the outbound group session.
     pub fn new(
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -378,7 +377,7 @@ impl OutboundGroupSession {
     /// of crypto-store implementations. **Do not use this outside of tests**.
     pub fn add_request(
         &self,
-        request_id: OwnedTransactionId,
+        request_id: TransactionId,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
@@ -415,7 +414,7 @@ impl OutboundGroupSession {
     pub fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-    ) -> BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>> {
+    ) -> BTreeMap<UserId, BTreeSet<DeviceId>> {
         let mut no_olm_devices = BTreeMap::new();
 
         let removed = self.to_share_with_set.write().remove(request_id);
@@ -433,7 +432,7 @@ impl OutboundGroupSession {
             );
 
             for (user_id, info) in request {
-                let no_olms: BTreeSet<OwnedDeviceId> = info
+                let no_olms: BTreeSet<DeviceId> = info
                     .iter()
                     .filter(|(_, info)| matches!(info, ShareInfo::Withheld(WithheldCode::NoOlm)))
                     .map(|(d, _)| d.to_owned())
@@ -765,7 +764,7 @@ impl OutboundGroupSession {
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
-    pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
+    pub(crate) fn pending_request_ids(&self) -> Vec<TransactionId> {
         self.to_share_with_set.read().keys().cloned().collect()
     }
 
@@ -787,7 +786,7 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
     ) -> Result<Self, PickleError> {
@@ -858,7 +857,7 @@ pub struct PickledOutboundGroupSession {
     /// The settings this session adheres to.
     pub settings: Arc<EncryptionSettings>,
     /// The room id this session is used for.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// The timestamp when this session was created.
     pub creation_time: SecondsSinceUnixEpoch,
     /// The number of messages this session has already encrypted.
@@ -868,9 +867,9 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
+    pub shared_with_set: BTreeMap<UserId, BTreeMap<DeviceId, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
+    pub requests: BTreeMap<TransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]

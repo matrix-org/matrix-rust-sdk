@@ -21,7 +21,7 @@
 use futures_util::future::join_all;
 use matrix_sdk_base::{RawSyncStateEventWithKeys, RoomHero, RoomInfo, RoomState};
 use ruma::{
-    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
+    MxcUri, RoomAliasId, RoomId, RoomOrAliasId, ServerName,
     api::client::{membership::joined_members, state::get_state_events},
     events::room::history_visibility::HistoryVisibility,
     room::{JoinRuleSummary, RoomType},
@@ -38,10 +38,10 @@ pub struct RoomPreview {
     ///
     /// Remember the room preview can be fetched from a room alias id, so we
     /// might not know ahead of time what the room id is.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The canonical alias for the room.
-    pub canonical_alias: Option<OwnedRoomAliasId>,
+    pub canonical_alias: Option<RoomAliasId>,
 
     /// The room's name, if set.
     pub name: Option<String>,
@@ -50,7 +50,7 @@ pub struct RoomPreview {
     pub topic: Option<String>,
 
     /// The MXC URI to the room's avatar, if set.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
 
     /// The number of joined members.
     pub num_joined_members: u64,
@@ -135,9 +135,9 @@ impl RoomPreview {
     #[instrument(skip(client))]
     pub(crate) async fn from_remote_room(
         client: &Client,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         room_or_alias_id: &RoomOrAliasId,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> crate::Result<Self> {
         // Use the room summary endpoint, if available, as described in
         // https://github.com/deepbluev7/matrix-doc/blob/room-summaries/proposals/3266-room-summary.md
@@ -182,7 +182,7 @@ impl RoomPreview {
         client: &Client,
         room_id: &RoomId,
         room_or_alias_id: &RoomOrAliasId,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> crate::Result<Option<Self>> {
         // Get either the room alias or the room id without the leading identifier char
         let search_term = if room_or_alias_id.is_room_alias_id() {
@@ -232,9 +232,9 @@ impl RoomPreview {
     /// `Client::get_room_preview` in general over this.
     pub async fn from_room_summary(
         client: &Client,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         room_or_alias_id: &RoomOrAliasId,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> crate::Result<Self> {
         let own_server_name = client.session_meta().map(|s| s.user_id.server_name());
         let via = ensure_server_names_is_not_empty(own_server_name, via, room_or_alias_id);
@@ -337,7 +337,7 @@ async fn search_for_room_preview_in_room_directory(
     client: Client,
     filter: Option<String>,
     batch_size: u32,
-    server: Option<OwnedServerName>,
+    server: Option<ServerName>,
     expected_room_id: &RoomId,
 ) -> crate::Result<Option<RoomPreview>> {
     let mut directory_search = RoomDirectorySearch::new(client);
@@ -375,9 +375,9 @@ async fn search_for_room_preview_in_room_directory(
 // included in the list of server names to send if no server names are provided
 fn ensure_server_names_is_not_empty(
     own_server_name: Option<&ServerName>,
-    server_names: Vec<OwnedServerName>,
+    server_names: Vec<ServerName>,
     room_or_alias_id: &RoomOrAliasId,
-) -> Vec<OwnedServerName> {
+) -> Vec<ServerName> {
     let mut server_names = server_names;
 
     if let Some((own_server, alias_server)) = own_server_name.zip(room_or_alias_id.server_name())

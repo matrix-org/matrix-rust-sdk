@@ -9,11 +9,11 @@ use matrix_sdk::{
     Client, LoopCtrl,
     config::SyncSettings,
     encryption::CrossSigningResetAuthType,
-    ruma::{OwnedUserId, api::client::uiaa},
+    ruma::{UserId, api::client::uiaa},
 };
 use url::Url;
 
-async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Result<()> {
+async fn bootstrap(client: Client, user_id: UserId, password: String) -> Result<()> {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
 
     let mut input = String::new();

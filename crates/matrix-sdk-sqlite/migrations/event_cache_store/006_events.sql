@@ -48,7 +48,7 @@ CREATE TABLE "events" (
     -- Which chunk does this event refer to? Corresponds to a `ChunkIdentifier`.
     "chunk_id" INTEGER NOT NULL,
 
-    -- `OwnedEventId` for events.
+    -- `EventId` for events.
     "event_id" BLOB NOT NULL,
     -- JSON serialized `TimelineEvent` (encrypted value).
     "content" BLOB NOT NULL,

@@ -190,7 +190,7 @@ use oauth2::{
 };
 pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
-    DeviceId, OwnedDeviceId,
+    DeviceId,
     api::client::discovery::get_authorization_server_metadata::{
         self,
         v1::{AccountManagementAction, AuthorizationServerMetadata},
@@ -792,9 +792,9 @@ impl OAuth {
 
     /// The scopes to request for logging in and the corresponding device ID.
     fn login_scopes(
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
         additional_scopes: Option<Vec<Scope>>,
-    ) -> (Vec<Scope>, OwnedDeviceId) {
+    ) -> (Vec<Scope>, DeviceId) {
         /// Scope to grand full access to the client-server API.
         const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
             "urn:matrix:org.matrix.msc2967.client:api:*";
@@ -889,7 +889,7 @@ impl OAuth {
     pub fn login(
         &self,
         redirect_uri: Url,
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
         registration_data: Option<ClientRegistrationData>,
         additional_scopes: Option<Vec<Scope>>,
     ) -> OAuthAuthCodeUrlBuilder {
@@ -941,7 +941,7 @@ impl OAuth {
     ///
     /// Returns an error if the request to get the user ID fails, or if the
     /// client was already logged in with a different session.
-    pub(crate) async fn load_session(&self, device_id: OwnedDeviceId) -> Result<()> {
+    pub(crate) async fn load_session(&self, device_id: DeviceId) -> Result<()> {
         // Get the user ID.
         let whoami_res = self.client.whoami().await.map_err(crate::Error::from)?;
 
@@ -1016,7 +1016,7 @@ impl OAuth {
     async fn finish_authorization(
         &self,
         auth_code: AuthorizationCode,
-    ) -> Result<OwnedDeviceId, OAuthError> {
+    ) -> Result<DeviceId, OAuthError> {
         let data = self.data().ok_or(OAuthError::NotAuthenticated)?;
         let client_id = data.client_id.clone();
 
@@ -1070,7 +1070,7 @@ impl OAuth {
     async fn request_device_authorization(
         &self,
         server_metadata: &AuthorizationServerMetadata,
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
         let (scopes, _) = Self::login_scopes(device_id, None);
@@ -1739,7 +1739,7 @@ struct AuthorizationValidationData {
     server_metadata: AuthorizationServerMetadata,
 
     /// The device ID used in the scope.
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
 
     /// The URI where the end-user will be redirected after authorization.
     redirect_uri: RedirectUrl,

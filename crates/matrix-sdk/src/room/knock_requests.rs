@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use js_int::UInt;
-use ruma::{EventId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomId};
+use ruma::{EventId, MxcUri, RoomId, UserId};
 
 use crate::{Error, Room, room::RoomMember};
 
@@ -22,7 +22,7 @@ use crate::{Error, Room, room::RoomMember};
 pub struct KnockRequest {
     room: Room,
     /// The event id of the event containing knock membership change.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
     /// The timestamp when this request was created.
     pub timestamp: Option<UInt>,
     /// Some general room member info to display.
@@ -82,11 +82,11 @@ impl KnockRequest {
 #[derive(Debug, Clone)]
 pub struct KnockRequestMemberInfo {
     /// The user id for the room member requesting access.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The optional display name of the room member requesting access.
     pub display_name: Option<String>,
     /// The optional avatar url of the room member requesting access.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
     /// An optional reason why the user wants access to the room.
     pub reason: Option<String>,
 }

@@ -23,7 +23,7 @@ use matrix_sdk::{
     },
     send_queue::RoomSendQueueUpdate,
 };
-use ruma::OwnedEventId;
+use ruma::EventId;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, instrument, trace, warn};
 
@@ -90,7 +90,7 @@ pub(in crate::timeline) async fn thread_updates_task(
     mut receiver: Receiver<TimelineVectorDiffs>,
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    root: OwnedEventId,
+    root: EventId,
 ) {
     trace!("Spawned the thread event subscriber task.");
 

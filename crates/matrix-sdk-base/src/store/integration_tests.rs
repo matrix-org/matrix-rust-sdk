@@ -10,7 +10,7 @@ use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
     api::{
         FeatureFlag, MatrixVersion,
         client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
@@ -465,10 +465,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         // Empty user IDs list.
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, OwnedUserId, _>(
-                room_id,
-                &[],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, UserId, _>(room_id, &[])
             .await;
         assert!(member_events?.is_empty());
         let profiles = self.get_profiles(room_id, &[]).await;
@@ -760,10 +757,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         // Empty user IDs list.
         let member_events = self
-            .get_state_events_for_keys_static::<RoomMemberEventContent, OwnedUserId, _>(
-                room_id,
-                &[],
-            )
+            .get_state_events_for_keys_static::<RoomMemberEventContent, UserId, _>(room_id, &[])
             .await;
         assert!(member_events?.is_empty());
 

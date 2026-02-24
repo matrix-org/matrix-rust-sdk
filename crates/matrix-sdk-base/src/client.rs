@@ -35,7 +35,7 @@ use ruma::DeviceId;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    MilliSecondsSinceUnixEpoch, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -432,12 +432,12 @@ impl BaseClient {
     ///
     /// ```rust
     /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
-    /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
+    /// # use ruma::{RoomId, UserId, RoomId};
     /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     /// # async {
     /// # let client = BaseClient::new(StoreConfig::new(CrossProcessLockConfig::multi_process("example")), ThreadingSupport::Disabled);
-    /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
-    /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
+    /// # async fn send_join_request() -> anyhow::Result<RoomId> { todo!() }
+    /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<UserId>> { todo!() }
     /// # let room_id: &RoomId = todo!();
     /// let maybe_inviter = maybe_get_inviter(room_id).await?;
     /// let room_id = send_join_request().await?;
@@ -446,11 +446,7 @@ impl BaseClient {
     /// assert_eq!(room.state(), RoomState::Joined);
     /// # matrix_sdk_test::TestResult::Ok(()) };
     /// ```
-    pub async fn room_joined(
-        &self,
-        room_id: &RoomId,
-        inviter: Option<OwnedUserId>,
-    ) -> Result<Room> {
+    pub async fn room_joined(&self, room_id: &RoomId, inviter: Option<UserId>) -> Result<Room> {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Joined);
 
         // If the state isn't `RoomState::Joined` then this means that we knew about
@@ -624,8 +620,7 @@ impl BaseClient {
         let mut room_updates = RoomUpdates::default();
         let mut notifications = Default::default();
 
-        let mut updated_members_in_room: BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>> =
-            BTreeMap::new();
+        let mut updated_members_in_room: BTreeMap<RoomId, BTreeSet<UserId>> = BTreeMap::new();
 
         for (room_id, joined_room) in response.rooms.join {
             let joined_room_update = processors::room::sync_v2::update_joined_room(
@@ -817,7 +812,7 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let mut user_ids = BTreeSet::new();
 
-        let mut ambiguity_map: HashMap<DisplayName, BTreeSet<OwnedUserId>> = Default::default();
+        let mut ambiguity_map: HashMap<DisplayName, BTreeSet<UserId>> = Default::default();
 
         for raw_event in &response.chunk {
             let member = match raw_event.deserialize() {
@@ -1102,7 +1097,7 @@ impl BaseClient {
 #[derive(Debug, Default)]
 pub struct RequestedRequiredStates {
     default: Vec<(StateEventType, String)>,
-    for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+    for_rooms: HashMap<RoomId, Vec<(StateEventType, String)>>,
 }
 
 impl RequestedRequiredStates {
@@ -1112,7 +1107,7 @@ impl RequestedRequiredStates {
     /// `for_rooms` is the `required_state` per room.
     pub fn new(
         default: Vec<(StateEventType, String)>,
-        for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+        for_rooms: HashMap<RoomId, Vec<(StateEventType, String)>>,
     ) -> Self {
         Self { default, for_rooms }
     }

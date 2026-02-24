@@ -8,7 +8,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory, test_json,
 };
 use ruma::{
-    OwnedRoomOrAliasId,
+    RoomOrAliasId,
     events::direct::{DirectEventContent, DirectUserIdentifier},
     user_id,
 };
@@ -276,7 +276,7 @@ async fn test_knocking() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
-    let room_id = OwnedRoomOrAliasId::from((*DEFAULT_TEST_ROOM_ID).to_owned());
+    let room_id = RoomOrAliasId::from((*DEFAULT_TEST_ROOM_ID).to_owned());
     let room = client.knock(room_id, None, Vec::new()).await.unwrap();
     assert_eq!(room.state(), RoomState::Knocked);
 }

@@ -26,7 +26,7 @@ use matrix_sdk_common::{
     },
     ring_buffer::RingBuffer,
 };
-use ruma::{MxcUri, OwnedMxcUri, time::SystemTime};
+use ruma::{MxcUri, time::SystemTime};
 
 use super::Result;
 use crate::media::{
@@ -58,7 +58,7 @@ struct MemoryMediaStoreInner {
 #[derive(Debug)]
 struct MediaContent {
     /// The URI of the content.
-    uri: OwnedMxcUri,
+    uri: MxcUri,
 
     /// The unique key of the content.
     key: String,

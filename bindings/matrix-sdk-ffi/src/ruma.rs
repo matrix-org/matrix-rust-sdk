@@ -82,7 +82,7 @@ use ruma::{
     },
     serde::JsonObject,
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
-    OwnedRoomId, OwnedUserId, UInt, UserId,
+    RoomId, UInt, UserId,
 };
 use tracing::info;
 
@@ -330,7 +330,7 @@ pub struct Mentions {
 
 impl From<Mentions> for ruma::events::Mentions {
     fn from(value: Mentions) -> Self {
-        let mut user_ids = BTreeSet::<OwnedUserId>::new();
+        let mut user_ids = BTreeSet::<UserId>::new();
         for user_id in value.user_ids {
             if let Ok(user_id) = UserId::parse(user_id) {
                 user_ids.insert(user_id);
@@ -1403,10 +1403,10 @@ pub struct SimplePushRule {
     pub rule_id: String,
 }
 
-impl TryFrom<RumaSimplePushRule<OwnedRoomId>> for SimplePushRule {
+impl TryFrom<RumaSimplePushRule<RoomId>> for SimplePushRule {
     type Error = String;
 
-    fn try_from(value: RumaSimplePushRule<OwnedRoomId>) -> Result<Self, Self::Error> {
+    fn try_from(value: RumaSimplePushRule<RoomId>) -> Result<Self, Self::Error> {
         Ok(Self {
             actions: value
                 .actions
@@ -1420,10 +1420,10 @@ impl TryFrom<RumaSimplePushRule<OwnedRoomId>> for SimplePushRule {
     }
 }
 
-impl TryFrom<RumaSimplePushRule<OwnedUserId>> for SimplePushRule {
+impl TryFrom<RumaSimplePushRule<UserId>> for SimplePushRule {
     type Error = String;
 
-    fn try_from(value: RumaSimplePushRule<OwnedUserId>) -> Result<Self, Self::Error> {
+    fn try_from(value: RumaSimplePushRule<UserId>) -> Result<Self, Self::Error> {
         Ok(Self {
             actions: value
                 .actions

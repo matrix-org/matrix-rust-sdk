@@ -15,7 +15,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedEventId, OwnedRoomId, event_id,
+    EventId, RoomId, event_id,
     events::{AnySyncTimelineEvent, Mentions},
     push::{ConditionalPushRule, Ruleset},
     room_id,
@@ -458,12 +458,12 @@ struct ThreadSubscriptionTestSetup {
     server: MatrixMockServer,
     client: Client,
     factory: EventFactory,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     subscriber: RoomEventCacheSubscriber,
     /// 3 events: 1 non-mention, 1 mention, and another non-mention.
     events: Vec<Raw<AnySyncTimelineEvent>>,
-    mention_event_id: OwnedEventId,
-    thread_root: OwnedEventId,
+    mention_event_id: EventId,
+    thread_root: EventId,
 }
 
 /// Create a new setup for a thread subscription test, with enough data so that
@@ -811,8 +811,8 @@ async fn test_redact_touches_threads() {
     event_cache.subscribe().unwrap();
 
     let thread_root_id = s.thread_root;
-    let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
-    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+    let thread_resp1 = s.events[0].get_field::<EventId>("event_id").unwrap().unwrap();
+    let thread_resp2 = s.events[1].get_field::<EventId>("event_id").unwrap().unwrap();
 
     let room = s.server.sync_joined_room(&s.client, &s.room_id).await;
 

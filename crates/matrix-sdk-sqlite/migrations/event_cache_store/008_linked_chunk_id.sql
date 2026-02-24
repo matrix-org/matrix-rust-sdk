@@ -33,7 +33,7 @@ CREATE TABLE "event_chunks" (
     -- Which chunk does this event refer to? Corresponds to a `ChunkIdentifier`.
     "chunk_id" INTEGER NOT NULL,
 
-    -- `OwnedEventId` for events.
+    -- `EventId` for events.
     "event_id" BLOB NOT NULL,
     -- Position (index) in the chunk.
     "position" INTEGER NOT NULL,

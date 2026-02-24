@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock as StdRwLock;
-use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
+use ruma::{DeviceId, TransactionId, UserId};
 #[cfg(feature = "qrcode")]
 use tracing::debug;
 use tracing::{trace, warn};
@@ -51,15 +51,15 @@ fn test_send_sync_for_room() {
 
 #[derive(Debug, Default)]
 struct VerificationCacheInner {
-    verification: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<String, Verification>>>,
-    outgoing_requests: StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>,
-    flow_ids_waiting_for_response: StdRwLock<BTreeMap<OwnedTransactionId, (OwnedUserId, FlowId)>>,
+    verification: StdRwLock<BTreeMap<UserId, BTreeMap<String, Verification>>>,
+    outgoing_requests: StdRwLock<BTreeMap<TransactionId, OutgoingRequest>>,
+    flow_ids_waiting_for_response: StdRwLock<BTreeMap<TransactionId, (UserId, FlowId)>>,
 }
 
 #[derive(Debug)]
 pub struct RequestInfo {
     pub flow_id: FlowId,
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
 }
 
 impl VerificationCache {

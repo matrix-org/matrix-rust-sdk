@@ -51,7 +51,7 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
     events::secret::request::SecretName,
 };
 use serde::{Deserialize, Serialize};
@@ -1300,7 +1300,7 @@ impl_crypto_store! {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         let range = self.serializer.encode_to_range(keys::DEVICES, user_id);
         Ok(self
             .inner

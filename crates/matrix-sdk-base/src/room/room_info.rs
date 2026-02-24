@@ -22,8 +22,7 @@ use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
@@ -32,7 +31,7 @@ use ruma::{
         call::member::{
             CallMemberStateKey, MembershipData, PossiblyRedactedCallMemberEventContent,
         },
-        direct::OwnedDirectUserIdentifier,
+        direct::DirectUserIdentifier,
         member_hints::PossiblyRedactedMemberHintsEventContent,
         room::{
             avatar::{self, PossiblyRedactedRoomAvatarEventContent},
@@ -85,7 +84,7 @@ pub struct InviteAcceptanceDetails {
     pub invite_accepted_at: MilliSecondsSinceUnixEpoch,
 
     /// The user ID of the person that invited us.
-    pub inviter: OwnedUserId,
+    pub inviter: UserId,
 }
 
 impl Room {
@@ -139,7 +138,7 @@ pub struct BaseRoomInfo {
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
-    pub(crate) dm_targets: HashSet<OwnedDirectUserIdentifier>,
+    pub(crate) dm_targets: HashSet<DirectUserIdentifier>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
@@ -572,7 +571,7 @@ pub struct RoomInfo {
     pub(crate) data_format_version: u8,
 
     /// The unique room id of the room.
-    pub(crate) room_id: OwnedRoomId,
+    pub(crate) room_id: RoomId,
 
     /// The state of the room.
     pub(crate) room_state: RoomState,
@@ -878,7 +877,7 @@ impl RoomInfo {
     }
 
     /// Update the room avatar.
-    pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
+    pub fn update_avatar(&mut self, url: Option<MxcUri>) {
         self.base_info.avatar = url.map(|url| {
             let mut content = PossiblyRedactedRoomAvatarEventContent::new();
             content.url = Some(url);
@@ -989,7 +988,7 @@ impl RoomInfo {
     }
 
     /// Get the alternative aliases of this room.
-    pub fn alt_aliases(&self) -> &[OwnedRoomAliasId] {
+    pub fn alt_aliases(&self) -> &[RoomAliasId] {
         self.base_info
             .canonical_alias
             .as_ref()
@@ -1035,7 +1034,7 @@ impl RoomInfo {
     }
 
     /// Get the creators of this room.
-    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
+    pub fn creators(&self) -> Option<Vec<UserId>> {
         Some(self.base_info.create.as_ref()?.content.creators())
     }
 
@@ -1072,7 +1071,7 @@ impl RoomInfo {
 
     /// Return the service members for this room if the `m.member_hints` event
     /// is available
-    pub fn service_members(&self) -> Option<&BTreeSet<OwnedUserId>> {
+    pub fn service_members(&self) -> Option<&BTreeSet<UserId>> {
         self.base_info.member_hints.as_ref()?.content.service_members.as_ref()
     }
 
@@ -1139,7 +1138,7 @@ impl RoomInfo {
     /// amount of sessions.
     ///
     /// The vector is ordered by oldest membership user to newest.
-    pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
+    pub fn active_room_call_participants(&self) -> Vec<UserId> {
         self.active_room_call_memberships()
             .iter()
             .map(|(call_member_state_key, _)| call_member_state_key.user_id().to_owned())
@@ -1159,7 +1158,7 @@ impl RoomInfo {
     }
 
     /// Returns the current pinned event ids for this room.
-    pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
+    pub fn pinned_event_ids(&self) -> Option<Vec<EventId>> {
         self.base_info.pinned_events.clone().map(|c| c.pinned)
     }
 
@@ -1319,7 +1318,7 @@ pub fn apply_redaction(
 #[derive(Debug, Clone)]
 pub struct RoomInfoNotableUpdate {
     /// The room which was updated.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The reason for this update.
     pub reasons: RoomInfoNotableUpdateReasons,

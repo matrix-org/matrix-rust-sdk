@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt, ops::Not, sync::Arc};
 
 use ruma::{
-    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedUserId,
+    DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
         MessageLikeEventType, room::encrypted::EncryptedEventScheme,
@@ -321,9 +321,9 @@ pub enum AlgorithmInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ForwarderInfo {
     /// The user ID of the forwarder.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The device ID of the forwarder.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -331,10 +331,10 @@ pub struct ForwarderInfo {
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is `Verified` as well.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is `Verified` as well.
-    pub sender_device: Option<OwnedDeviceId>,
+    pub sender_device: Option<DeviceId>,
     /// If the keys for this message were shared-on-invite as part of an
     /// [MSC4268] key bundle, information about the forwarder.
     ///
@@ -371,8 +371,8 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
         // EncryptionInfo the session_id was not in AlgorithmInfo
         #[derive(Deserialize)]
         struct Helper {
-            pub sender: OwnedUserId,
-            pub sender_device: Option<OwnedDeviceId>,
+            pub sender: UserId,
+            pub sender_device: Option<DeviceId>,
             pub forwarder: Option<ForwarderInfo>,
             pub algorithm_info: AlgorithmInfo,
             pub verification_state: VerificationState,
@@ -419,7 +419,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
 pub struct ThreadSummary {
     /// The event id for the latest reply to the thread.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_reply: Option<OwnedEventId>,
+    pub latest_reply: Option<EventId>,
 
     /// The number of replies to the thread.
     ///
@@ -722,7 +722,7 @@ impl TimelineEvent {
 
         match latest_event.get_field::<MessageLikeEventType>("type") {
             Ok(None) => {
-                let event_id = latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
+                let event_id = latest_event.get_field::<EventId>("event_id").ok().flatten();
                 warn!(
                     ?event_id,
                     "couldn't deserialize bundled latest thread event: missing `type` field \
@@ -758,7 +758,7 @@ impl TimelineEvent {
             ))),
 
             Err(err) => {
-                let event_id = latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
+                let event_id = latest_event.get_field::<EventId>("event_id").ok().flatten();
                 warn!(?event_id, "couldn't deserialize bundled latest thread event's type: {err}");
                 None
             }
@@ -780,7 +780,7 @@ impl TimelineEvent {
 
     /// Get the event id of this [`TimelineEvent`] if the event has any valid
     /// id.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    pub fn event_id(&self) -> Option<EventId> {
         self.kind.event_id()
     }
 
@@ -921,8 +921,8 @@ impl TimelineEventKind {
 
     /// Get the event id of this `TimelineEventKind` if the event has any valid
     /// id.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
+    pub fn event_id(&self) -> Option<EventId> {
+        self.raw().get_field::<EventId>("event_id").ok().flatten()
     }
 
     /// Whether we could not decrypt the event (i.e. it is a UTD).

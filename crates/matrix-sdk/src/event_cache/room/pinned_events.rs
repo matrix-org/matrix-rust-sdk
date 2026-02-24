@@ -26,7 +26,7 @@ use matrix_sdk_base::{
 #[cfg(feature = "e2e-encryption")]
 use ruma::EventId;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    EventId, MilliSecondsSinceUnixEpoch, RoomId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType, relation::RelationType,
     },
@@ -49,7 +49,7 @@ use crate::{
 
 pub(in super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// A sender for live events updates in this room's pinned events list.
     sender: Sender<TimelineVectorDiffs>,
@@ -204,7 +204,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
 impl PinnedEventCacheState {
     /// Return a list of the current event IDs in this linked chunk.
-    fn current_event_ids(&self) -> Vec<OwnedEventId> {
+    fn current_event_ids(&self) -> Vec<EventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
     }
 
@@ -329,7 +329,7 @@ impl PinnedEventCache {
 
     /// Given a raw event, try to extract the target event ID of a relation as
     /// defined with `m.relates_to`.
-    fn extract_relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
+    fn extract_relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<EventId> {
         let (rel_type, event_id) = extract_relation(raw)?;
 
         // Don't include thread responses in the pinned event chunk.
@@ -344,7 +344,7 @@ impl PinnedEventCache {
     fn extract_redaction_target(
         raw: &Raw<AnySyncTimelineEvent>,
         room_redaction_rules: &RedactionRules,
-    ) -> Option<OwnedEventId> {
+    ) -> Option<EventId> {
         // Try to find a redaction, but do not deserialize the entire event if we aren't
         // certain it's a `m.room.redaction`.
         if raw.get_field::<MessageLikeEventType>("type").ok()??
@@ -375,7 +375,7 @@ impl PinnedEventCache {
         trace!("checking live events for relations to pinned events");
         let mut guard = self.state.write().await?;
 
-        let pinned_event_ids: BTreeSet<OwnedEventId> =
+        let pinned_event_ids: BTreeSet<EventId> =
             guard.state.current_event_ids().into_iter().collect();
 
         if pinned_event_ids.is_empty() {
@@ -539,7 +539,7 @@ impl PinnedEventCache {
             (config.max_pinned_events_to_load, config.max_pinned_events_concurrent_requests)
         };
 
-        let pinned_event_ids: Vec<OwnedEventId> = room
+        let pinned_event_ids: Vec<EventId> = room
             .pinned_event_ids()
             .unwrap_or_default()
             .into_iter()

@@ -1,5 +1,5 @@
 use ruma::{
-    OwnedEventId,
+    EventId,
     events::{
         AnySyncStateEvent, AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
         RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
@@ -32,7 +32,7 @@ pub struct MinimalStateEvent<C: PossiblyRedactedStateEventContent + RedactConten
     /// The event's content.
     pub content: C,
     /// The event's ID, if known.
-    pub event_id: Option<OwnedEventId>,
+    pub event_id: Option<EventId>,
 }
 
 impl<C> MinimalStateEvent<C>
@@ -88,7 +88,7 @@ where
 #[derive(Serialize, Deserialize)]
 struct MinimalStateEventSerdeHelperInner<C> {
     content: C,
-    event_id: Option<OwnedEventId>,
+    event_id: Option<EventId>,
 }
 
 impl<C> From<MinimalStateEventSerdeHelperInner<C>> for MinimalStateEvent<C>

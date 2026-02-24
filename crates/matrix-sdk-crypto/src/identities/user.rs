@@ -24,7 +24,7 @@ use std::{
 use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+    DeviceId, EventId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
@@ -592,7 +592,7 @@ impl UserIdentityData {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(try_from = "OtherUserIdentityDataSerializer", into = "OtherUserIdentityDataSerializer")]
 pub struct OtherUserIdentityData {
-    user_id: OwnedUserId,
+    user_id: UserId,
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
     pinned_master_key: Arc<RwLock<MasterPubkey>>,
@@ -617,14 +617,14 @@ struct OtherUserIdentityDataSerializer {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OtherUserIdentityDataSerializerV0 {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OtherUserIdentityDataSerializerV1 {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     pinned_master_key: MasterPubkey,
@@ -632,7 +632,7 @@ struct OtherUserIdentityDataSerializerV1 {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OtherUserIdentityDataSerializerV2 {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     pinned_master_key: MasterPubkey,
@@ -913,7 +913,7 @@ impl OtherUserIdentityData {
 /// the identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnUserIdentityData {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
     user_signing_key: Arc<UserSigningPubkey>,
@@ -1166,9 +1166,9 @@ impl OwnUserIdentityData {
 
     fn filter_devices_to_request(
         &self,
-        devices: HashMap<OwnedDeviceId, DeviceData>,
+        devices: HashMap<DeviceId, DeviceData>,
         own_device_id: &DeviceId,
-    ) -> Vec<OwnedDeviceId> {
+    ) -> Vec<DeviceId> {
         devices
             .into_iter()
             .filter_map(|(device_id, device)| {

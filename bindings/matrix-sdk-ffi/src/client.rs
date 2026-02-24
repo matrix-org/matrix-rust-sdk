@@ -105,7 +105,7 @@ use ruma::{
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    DeviceId, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -614,7 +614,7 @@ impl Client {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let device_id = device_id.map(OwnedDeviceId::from);
+        let device_id = device_id.map(DeviceId::from);
 
         let additional_scopes =
             additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
@@ -1705,7 +1705,7 @@ impl Client {
         let room_id = RoomOrAliasId::parse(&room_id_or_alias)?;
         let server_names = server_names
             .iter()
-            .map(|name| OwnedServerName::try_from(name.as_str()))
+            .map(|name| ServerName::try_from(name.as_str()))
             .collect::<Result<Vec<_>, _>>()?;
         let room =
             self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;

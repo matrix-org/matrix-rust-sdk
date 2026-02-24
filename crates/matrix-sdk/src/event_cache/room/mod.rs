@@ -33,7 +33,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, RoomId,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
@@ -87,7 +87,7 @@ pub struct RoomEventCacheSubscriber {
     recv: Receiver<RoomEventCacheUpdate>,
 
     /// To which room are we listening?
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// Sender to the auto-shrink channel.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
@@ -163,7 +163,7 @@ impl RoomEventCache {
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
@@ -226,7 +226,7 @@ impl RoomEventCache {
     /// initially known list of events for that thread.
     pub async fn subscribe_to_thread(
         &self,
-        thread_root: OwnedEventId,
+        thread_root: EventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let mut state = self.inner.state.write().await?;
         Ok(state.subscribe_to_thread(thread_root))
@@ -258,7 +258,7 @@ impl RoomEventCache {
 
     /// Return a `ThreadPagination` API object useful for running
     /// back-pagination queries in the `thread_id` thread.
-    pub fn thread_pagination(&self, thread_id: OwnedEventId) -> ThreadPagination {
+    pub fn thread_pagination(&self, thread_id: EventId) -> ThreadPagination {
         ThreadPagination::new(self.inner.clone(), thread_id)
     }
 
@@ -407,7 +407,7 @@ impl RoomEventCache {
 /// The (non-cloneable) details of the `RoomEventCache`.
 pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
 
     pub weak_room: WeakRoom,
 
@@ -443,7 +443,7 @@ impl RoomEventCacheInner {
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
@@ -527,7 +527,7 @@ impl RoomEventCacheInner {
         &self,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
@@ -604,7 +604,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
-        EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+        EventId, RoomId, UserId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -638,10 +638,10 @@ mod private {
         enabled_thread_support: bool,
 
         /// The room this state relates to.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
 
         /// The user's own user id.
-        own_user_id: OwnedUserId,
+        own_user_id: UserId,
 
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
@@ -653,7 +653,7 @@ mod private {
         /// Threads present in this room.
         ///
         /// Keyed by the thread root event ID.
-        threads: HashMap<OwnedEventId, ThreadEventCache>,
+        threads: HashMap<EventId, ThreadEventCache>,
 
         /// Cache for pinned events in this room, initialized on-demand.
         pinned_event_cache: OnceLock<PinnedEventCache>,
@@ -715,8 +715,8 @@ mod private {
         /// [`RoomPagination`]: super::RoomPagination
         #[allow(clippy::too_many_arguments)]
         pub async fn new(
-            own_user_id: OwnedUserId,
-            room_id: OwnedRoomId,
+            own_user_id: UserId,
+            room_id: RoomId,
             room_version_rules: RoomVersionRules,
             enabled_thread_support: bool,
             update_sender: Sender<RoomEventCacheUpdate>,
@@ -1221,8 +1221,8 @@ mod private {
         #[instrument(skip_all)]
         pub async fn remove_events(
             &mut self,
-            in_memory_events: Vec<(OwnedEventId, Position)>,
-            in_store_events: Vec<(OwnedEventId, Position)>,
+            in_memory_events: Vec<(EventId, Position)>,
+            in_store_events: Vec<(EventId, Position)>,
         ) -> Result<(), EventCacheError> {
             // In-store events.
             if !in_store_events.is_empty() {
@@ -1554,7 +1554,7 @@ mod private {
         /// initially known list of events for that thread.
         pub fn subscribe_to_thread(
             &mut self,
-            root: OwnedEventId,
+            root: EventId,
         ) -> (Vec<Event>, Receiver<TimelineVectorDiffs>) {
             self.get_or_reload_thread(root).subscribe()
         }
@@ -1651,7 +1651,7 @@ mod private {
 
         pub(in super::super) fn get_or_reload_thread(
             &mut self,
-            root_event_id: OwnedEventId,
+            root_event_id: EventId,
         ) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
@@ -1666,7 +1666,7 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
-            new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
+            new_events_by_thread: BTreeMap<EventId, Vec<Event>>,
             post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
@@ -1701,8 +1701,8 @@ mod private {
         /// Update a thread summary on the given thread root, if needs be.
         async fn maybe_update_thread_summary(
             &mut self,
-            thread_root: OwnedEventId,
-            latest_event_id: Option<OwnedEventId>,
+            thread_root: EventId,
+            latest_event_id: Option<EventId>,
             _post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             // Add a thread summary to the (room) event which has the thread root, if we
@@ -2478,7 +2478,7 @@ mod timed_tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedUserId, event_id,
+        EventId, UserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id, user_id,
     };
@@ -3648,7 +3648,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -3661,7 +3661,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -3673,9 +3673,8 @@ mod timed_tests {
         assert!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
-                        == Some(user_id))
-                    .then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_deref() == Some(user_id))
+                        .then(|| event.event_id())
                 })
                 .await
                 .unwrap()

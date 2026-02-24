@@ -1364,7 +1364,7 @@ macro_rules! cryptostore_integration_tests {
                     }.into();
 
                     let file = ruma::events::room::EncryptedFileInit {
-                        url: ruma::OwnedMxcUri::from(bundle_uri),
+                        url: ruma::MxcUri::from(bundle_uri),
                         key: jwk,
                         iv: ruma::serde::Base64::new(vec![0u8; 0]),
                         hashes: Default::default(),

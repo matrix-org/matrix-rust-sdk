@@ -33,8 +33,7 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
-    DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    UserId,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
@@ -161,7 +160,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>, CryptoStoreError> {
+    ) -> Result<HashMap<DeviceId, DeviceData>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -408,10 +407,10 @@ impl Cancelled {
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum FlowId {
     /// The flow ID comes from a to-device request.
-    ToDevice(OwnedTransactionId),
+    ToDevice(TransactionId),
 
     /// The flow ID comes from a room event.
-    InRoom(OwnedRoomId, OwnedEventId),
+    InRoom(RoomId, EventId),
 }
 
 impl FlowId {
@@ -429,14 +428,14 @@ impl FlowId {
     }
 }
 
-impl From<OwnedTransactionId> for FlowId {
-    fn from(transaction_id: OwnedTransactionId) -> Self {
+impl From<TransactionId> for FlowId {
+    fn from(transaction_id: TransactionId) -> Self {
         Self::ToDevice(transaction_id)
     }
 }
 
-impl From<(OwnedRoomId, OwnedEventId)> for FlowId {
-    fn from(ids: (OwnedRoomId, OwnedEventId)) -> Self {
+impl From<(RoomId, EventId)> for FlowId {
+    fn from(ids: (RoomId, EventId)) -> Self {
         Self::InRoom(ids.0, ids.1)
     }
 }

@@ -7,7 +7,7 @@ use std::{
 
 use cfg_if::cfg_if;
 use matrix_sdk_common::timer;
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use ruma::{RoomId, api::client::sync::sync_events::v5 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
@@ -28,7 +28,7 @@ pub struct SlidingSyncBuilder {
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
-    room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+    room_subscriptions: BTreeMap<RoomId, http::request::RoomSubscription>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]

@@ -22,7 +22,7 @@ pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState, StateChanges};
-use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
+use ruma::{EventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tracing::{error, info, instrument, trace, warn};
 
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
@@ -36,7 +36,7 @@ pub(super) struct LatestEvent {
     weak_room: WeakRoom,
 
     /// The thread (if any) owning this latest event.
-    _thread_id: Option<OwnedEventId>,
+    _thread_id: Option<EventId>,
 
     /// A buffer of the current [`LatestEventValue`]s computed for local events
     /// seen by the send queue. See [`BufferOfValuesForLocalEvents`] to learn
@@ -314,7 +314,7 @@ mod tests_latest_event {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
+        MilliSecondsSinceUnixEpoch, TransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         owned_event_id, owned_room_id, room_id, user_id,
     };
@@ -331,7 +331,7 @@ mod tests_latest_event {
 
     fn new_local_echo_content(
         room_send_queue: &RoomSendQueue,
-        transaction_id: &OwnedTransactionId,
+        transaction_id: &TransactionId,
         body: &str,
     ) -> LocalEchoContent {
         LocalEchoContent::Event {
@@ -526,7 +526,7 @@ mod tests_latest_event {
 
         // Second, let's create a `LatestEventValue` from the send queue. It
         // must overwrite the current `LatestEventValue`.
-        let transaction_id = OwnedTransactionId::from("txnid0");
+        let transaction_id = TransactionId::from("txnid0");
 
         {
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");

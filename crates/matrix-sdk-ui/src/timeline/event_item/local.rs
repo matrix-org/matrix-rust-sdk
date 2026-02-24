@@ -19,7 +19,7 @@ use matrix_sdk::{
     Error,
     send_queue::{AbstractProgress, SendHandle},
 };
-use ruma::{EventId, OwnedEventId, OwnedTransactionId};
+use ruma::{EventId, TransactionId};
 
 use super::TimelineEventItemId;
 
@@ -30,7 +30,7 @@ pub(in crate::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
     pub send_state: EventSendState,
     /// The transaction ID.
-    pub transaction_id: OwnedTransactionId,
+    pub transaction_id: TransactionId,
     /// A handle to manipulate this event before it is sent, if possible.
     pub send_handle: Option<SendHandle>,
 }
@@ -88,7 +88,7 @@ pub enum EventSendState {
     /// The local event has been sent successfully to the server.
     Sent {
         /// The event ID assigned by the server.
-        event_id: OwnedEventId,
+        event_id: EventId,
     },
 }
 

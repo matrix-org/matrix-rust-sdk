@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedRoomId, api::client::backup::RoomKeyBackup};
+use ruma::{RoomId, api::client::backup::RoomKeyBackup};
 
 /// A request that will back up a batch of room keys to the server.
 #[derive(Clone, Debug)]
@@ -23,5 +23,5 @@ pub struct KeysBackupRequest {
     pub version: String,
     /// The map from room id to a backed up room key that we're going to upload
     /// to the server.
-    pub rooms: BTreeMap<OwnedRoomId, RoomKeyBackup>,
+    pub rooms: BTreeMap<RoomId, RoomKeyBackup>,
 }

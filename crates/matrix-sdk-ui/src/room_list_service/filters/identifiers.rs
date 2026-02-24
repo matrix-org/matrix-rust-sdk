@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::OwnedRoomId;
+use ruma::RoomId;
 
 use super::Filter;
 
 /// Create a new filter that will filter out rooms that are not part of the
 /// given identifiers array
-pub fn new_filter(identifiers: Vec<OwnedRoomId>) -> impl Filter {
+pub fn new_filter(identifiers: Vec<RoomId>) -> impl Filter {
     move |room| -> bool { identifiers.contains(&room.room_id().to_owned()) }
 }
 

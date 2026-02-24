@@ -1,7 +1,7 @@
 //! The Latest Event basic types.
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 
 use crate::store::SerializableEventContent;
@@ -20,13 +20,13 @@ pub enum LatestEventValue {
     /// invited to join a room.
     RemoteInvite {
         /// The ID of the invite event.
-        event_id: Option<OwnedEventId>,
+        event_id: Option<EventId>,
 
         /// The timestamp of the invite event.
         timestamp: MilliSecondsSinceUnixEpoch,
 
         /// The user ID of the inviter.
-        inviter: Option<OwnedUserId>,
+        inviter: Option<UserId>,
     },
 
     /// The latest event represents a local event that is sending.
@@ -36,7 +36,7 @@ pub enum LatestEventValue {
     /// successfully. It should come quickly as a [`Self::Remote`].
     LocalHasBeenSent {
         /// ID of the sent event.
-        event_id: OwnedEventId,
+        event_id: EventId,
 
         /// Value, as for other `Self::Local*` variants.
         value: LocalLatestEventValue,
@@ -114,7 +114,7 @@ impl LatestEventValue {
 
     /// Get the event ID (if it exists) of the event representing the
     /// [`LatestEventValue`].
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    pub fn event_id(&self) -> Option<EventId> {
         match self {
             Self::Remote(event) => event.event_id(),
             Self::RemoteInvite { event_id, .. } => event_id.clone(),

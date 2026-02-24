@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt::Debug};
 
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -31,10 +31,10 @@ where
     C: EventType + Debug + Sized + Serialize,
 {
     /// Contains the fully-qualified ID of the user who sent this event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
 
     /// The globally unique identifier for this event.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
 
     /// Present if and only if this event is a state event.
     #[cfg(feature = "experimental-encrypted-state-events")]

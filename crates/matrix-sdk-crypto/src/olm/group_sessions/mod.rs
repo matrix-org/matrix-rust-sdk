@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, RoomId};
 use serde::{Deserialize, Serialize};
 
 mod forwarder_data;
@@ -79,7 +79,7 @@ pub struct ExportedRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
@@ -118,7 +118,7 @@ impl ExportedRoomKey {
     ///
     /// This can be used when importing the keys from a backup into the store.
     pub fn from_backed_up_room_key(
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         session_id: String,
         room_key: BackedUpRoomKey,
     ) -> Self {

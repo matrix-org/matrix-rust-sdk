@@ -17,7 +17,7 @@
 use std::fmt;
 
 use ruma::{
-    OwnedEventId,
+    EventId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations, Mentions,
         poll::unstable_start::{
@@ -114,7 +114,7 @@ pub(crate) fn extract_bundled_edit_event_json(
 /// relations , along with the event ID of the replacement event.
 pub(crate) fn extract_room_msg_edit_content(
     relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-) -> Option<(OwnedEventId, RoomMessageEventContentWithoutRelation)> {
+) -> Option<(EventId, RoomMessageEventContentWithoutRelation)> {
     match *relations.replace? {
         AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
             .content
@@ -143,7 +143,7 @@ pub(crate) fn extract_room_msg_edit_content(
 /// relations, along with the event ID of the replacement event.
 pub(crate) fn extract_poll_edit_content(
     relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-) -> Option<(OwnedEventId, NewUnstablePollStartEventContentWithoutRelation)> {
+) -> Option<(EventId, NewUnstablePollStartEventContentWithoutRelation)> {
     match *relations.replace? {
         AnySyncMessageLikeEvent::UnstablePollStart(SyncUnstablePollStartEvent::Original(ev)) => {
             match ev.content {

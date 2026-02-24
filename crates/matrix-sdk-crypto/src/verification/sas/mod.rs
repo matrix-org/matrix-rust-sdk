@@ -24,7 +24,7 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use inner_sas::InnerSas;
 use ruma::{
-    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
@@ -358,7 +358,7 @@ impl Sas {
     /// sent out through the server to the other device.
     pub(crate) fn start(
         identities: IdentitiesBeingVerified,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         we_started: bool,
         request_handle: Option<RequestHandle>,
         short_auth_strings: Option<Vec<ShortAuthenticationString>>,
@@ -380,8 +380,8 @@ impl Sas {
     /// sent out through the server to the other device.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in_room(
-        flow_id: OwnedEventId,
-        room_id: OwnedRoomId,
+        flow_id: EventId,
+        room_id: RoomId,
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: RequestHandle,

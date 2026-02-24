@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
-    CanonicalJsonValue, DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
+    CanonicalJsonValue, DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
     events::{
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEventContent, MessageLikeEvent,
         key::verification::{
@@ -567,7 +567,7 @@ impl CancelContent<'_> {
 #[derive(Clone, Debug)]
 pub enum OwnedStartContent {
     ToDevice(ToDeviceKeyVerificationStartEventContent),
-    Room(OwnedRoomId, KeyVerificationStartEventContent),
+    Room(RoomId, KeyVerificationStartEventContent),
 }
 
 impl OwnedStartContent {
@@ -609,8 +609,8 @@ impl OwnedStartContent {
     }
 }
 
-impl From<(OwnedRoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
-    fn from(tuple: (OwnedRoomId, KeyVerificationStartEventContent)) -> Self {
+impl From<(RoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
+    fn from(tuple: (RoomId, KeyVerificationStartEventContent)) -> Self {
         Self::Room(tuple.0, tuple.1)
     }
 }
@@ -624,7 +624,7 @@ impl From<ToDeviceKeyVerificationStartEventContent> for OwnedStartContent {
 #[derive(Clone, Debug)]
 pub enum OwnedAcceptContent {
     ToDevice(ToDeviceKeyVerificationAcceptEventContent),
-    Room(OwnedRoomId, KeyVerificationAcceptEventContent),
+    Room(RoomId, KeyVerificationAcceptEventContent),
 }
 
 impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
@@ -633,8 +633,8 @@ impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
     }
 }
 
-impl From<(OwnedRoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
-    fn from(content: (OwnedRoomId, KeyVerificationAcceptEventContent)) -> Self {
+impl From<(RoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
+    fn from(content: (RoomId, KeyVerificationAcceptEventContent)) -> Self {
         Self::Room(content.0, content.1)
     }
 }
@@ -650,7 +650,7 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(OwnedRoomId, Box<AnyMessageLikeEventContent>),
+    Room(RoomId, Box<AnyMessageLikeEventContent>),
     ToDevice(Box<AnyToDeviceEventContent>),
 }
 
@@ -673,14 +673,14 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
-    fn from(content: (OwnedRoomId, AnyMessageLikeEventContent)) -> Self {
+impl From<(RoomId, AnyMessageLikeEventContent)> for OutgoingContent {
+    fn from(content: (RoomId, AnyMessageLikeEventContent)) -> Self {
         OutgoingContent::Room(content.0, Box::new(content.1))
     }
 }
 
-impl From<(OwnedRoomId, Box<AnyMessageLikeEventContent>)> for OutgoingContent {
-    fn from(content: (OwnedRoomId, Box<AnyMessageLikeEventContent>)) -> Self {
+impl From<(RoomId, Box<AnyMessageLikeEventContent>)> for OutgoingContent {
+    fn from(content: (RoomId, Box<AnyMessageLikeEventContent>)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }

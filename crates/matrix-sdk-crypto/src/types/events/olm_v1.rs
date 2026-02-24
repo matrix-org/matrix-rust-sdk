@@ -17,7 +17,7 @@
 
 use std::fmt::Debug;
 
-use ruma::{OwnedUserId, UserId};
+use ruma::UserId;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
@@ -187,9 +187,9 @@ where
     C: EventType + Debug + Sized + Serialize,
 {
     /// The sender of the event, as set by the sender of the event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The intended recipient of the event, as set by the sender of the event.
-    pub recipient: OwnedUserId,
+    pub recipient: UserId,
     /// The sender's signing keys of the encrypted event.
     pub keys: OlmV1Keys,
     /// The recipient's signing keys of the encrypted event.
@@ -280,9 +280,9 @@ impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceCustomEvent {
     /// The sender of the encrypted to-device event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The recipient of the encrypted to-device event.
-    pub recipient: OwnedUserId,
+    pub recipient: UserId,
     /// The sender's signing keys of the encrypted event.
     pub keys: OlmV1Keys,
     /// The recipient's signing keys of the encrypted event.

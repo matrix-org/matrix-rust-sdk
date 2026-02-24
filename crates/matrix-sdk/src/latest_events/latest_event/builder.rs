@@ -21,7 +21,7 @@ use std::{
 pub use matrix_sdk_base::latest_event::{LatestEventValue, LocalLatestEventValue};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::SerializableEventContent};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
         relation::Replacement,
@@ -44,7 +44,7 @@ impl Builder {
     /// Create a new [`LatestEventValue::Remote`].
     pub async fn new_remote(
         room_event_cache: &RoomEventCache,
-        current_value_event_id: Option<OwnedEventId>,
+        current_value_event_id: Option<EventId>,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
@@ -59,7 +59,7 @@ impl Builder {
         let mut current_value_must_be_erased = false;
 
         // Track the most recent edit for each event.
-        let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
+        let mut latest_edit_for_event: HashMap<EventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event| {
@@ -149,7 +149,7 @@ impl Builder {
         send_queue_update: &RoomSendQueueUpdate,
         buffer_of_values_for_local_events: &mut BufferOfValuesForLocalEvents,
         room_event_cache: &RoomEventCache,
-        current_value_event_id: Option<OwnedEventId>,
+        current_value_event_id: Option<EventId>,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
@@ -387,7 +387,7 @@ impl Builder {
     async fn new_local_or_remote(
         buffer_of_values_for_local_events: &mut BufferOfValuesForLocalEvents,
         room_event_cache: &RoomEventCache,
-        current_value_event_id: Option<OwnedEventId>,
+        current_value_event_id: Option<EventId>,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
@@ -441,7 +441,7 @@ impl Builder {
 /// behaviours.
 #[derive(Debug)]
 pub(super) struct BufferOfValuesForLocalEvents {
-    buffer: Vec<(OwnedTransactionId, LatestEventValue)>,
+    buffer: Vec<(TransactionId, LatestEventValue)>,
 }
 
 impl BufferOfValuesForLocalEvents {
@@ -456,7 +456,7 @@ impl BufferOfValuesForLocalEvents {
     }
 
     /// Get the last [`LatestEventValue`].
-    fn last(&self) -> Option<&(OwnedTransactionId, LatestEventValue)> {
+    fn last(&self) -> Option<&(TransactionId, LatestEventValue)> {
         self.buffer.last()
     }
 
@@ -473,7 +473,7 @@ impl BufferOfValuesForLocalEvents {
     ///
     /// Panics if `value` is not of kind [`LatestEventValue::LocalIsSending`] or
     /// [`LatestEventValue::LocalCannotBeSent`].
-    fn push(&mut self, transaction_id: OwnedTransactionId, value: LatestEventValue) {
+    fn push(&mut self, transaction_id: TransactionId, value: LatestEventValue) {
         assert!(value.is_local(), "`value` must be a local `LatestEventValue`");
 
         self.buffer.push((transaction_id, value));
@@ -506,7 +506,7 @@ impl BufferOfValuesForLocalEvents {
     /// # Panics
     ///
     /// Panics if `position` is strictly greater than buffer's length.
-    fn remove(&mut self, position: usize) -> (OwnedTransactionId, LatestEventValue) {
+    fn remove(&mut self, position: usize) -> (TransactionId, LatestEventValue) {
         self.buffer.remove(position)
     }
 
@@ -579,7 +579,7 @@ struct FilterContinue {
     /// Whether the current [`LatestEventValue`] must be erased or not.
     current_value_must_be_erased: bool,
     /// When the event is a replacement, this is the targeted event ID.
-    edited_event_id: Option<OwnedEventId>,
+    edited_event_id: Option<EventId>,
 }
 
 /// Build the [`ControlFlow::Break`] for the filters.
@@ -605,7 +605,7 @@ fn filter_continue_with_erasing() -> ControlFlow<(), FilterContinue> {
 
 /// Build the [`ControlFlow::Continue`] with an edited event ID, for the
 /// filters.
-fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), FilterContinue> {
+fn filter_continue_with_edit(edited_event_id: EventId) -> ControlFlow<(), FilterContinue> {
     ControlFlow::Continue(FilterContinue {
         current_value_must_be_erased: false,
         edited_event_id: Some(edited_event_id),
@@ -621,7 +621,7 @@ fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), F
 ///   [`LatestEventValue`].
 fn filter_timeline_event(
     event: &TimelineEvent,
-    current_value_event_id: Option<&OwnedEventId>,
+    current_value_event_id: Option<&EventId>,
     own_user_id: &UserId,
     power_levels: Option<&RoomPowerLevels>,
 ) -> ControlFlow<(), FilterContinue> {
@@ -660,7 +660,7 @@ fn filter_timeline_event(
 
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-    current_value_event_id: Option<&OwnedEventId>,
+    current_value_event_id: Option<&EventId>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
         // `m.room.message`
@@ -928,7 +928,7 @@ mod filter_tests {
             event | event_factory | {
                 event_factory
                     .call_invite(
-                        ruma::OwnedVoipId::from("vvooiipp".to_owned()),
+                        ruma::VoipId::from("vvooiipp".to_owned()),
                         ruma::UInt::from(1234u32),
                         ruma::events::call::SessionDescription::new(
                             "type".to_owned(),
@@ -951,7 +951,7 @@ mod filter_tests {
                         NotificationType::Ring,
                     )
                     .mentions(vec![owned_user_id!("@alice:server.name")])
-                    .relates_to_membership_state_event(ruma::OwnedEventId::try_from("$abc:server.name").unwrap())
+                    .relates_to_membership_state_event(ruma::EventId::try_from("$abc:server.name").unwrap())
                     .lifetime(60)
                     .into_event()
             }
@@ -967,7 +967,7 @@ mod filter_tests {
                     .sticker(
                         "wink wink",
                         ruma::events::room::ImageInfo::new(),
-                        ruma::OwnedMxcUri::from("mxc://foo/bar"),
+                        ruma::MxcUri::from("mxc://foo/bar"),
                     )
                     .into_event()
             }
@@ -1269,7 +1269,7 @@ mod filter_tests {
 
     #[test]
     fn test_room_message_verification_request() {
-        use ruma::{OwnedDeviceId, events::room::message};
+        use ruma::{DeviceId, events::room::message};
 
         assert_latest_event_content!(
             event | event_factory | {
@@ -1278,7 +1278,7 @@ mod filter_tests {
                         message::KeyVerificationRequestEventContent::new(
                             "body".to_owned(),
                             vec![],
-                            OwnedDeviceId::from("device_id"),
+                            DeviceId::from("device_id"),
                             owned_user_id!("@user:server.name"),
                         ),
                     )))
@@ -1293,7 +1293,7 @@ mod filter_tests {
 mod buffer_of_values_for_local_event_tests {
     use assert_matches::assert_matches;
     use ruma::{
-        OwnedTransactionId,
+        TransactionId,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         owned_event_id,
         serde::Raw,
@@ -1327,7 +1327,7 @@ mod buffer_of_values_for_local_event_tests {
 
         assert!(buffer.last().is_none());
 
-        let transaction_id = OwnedTransactionId::from("txnid");
+        let transaction_id = TransactionId::from("txnid");
         buffer.push(
             transaction_id.clone(),
             LatestEventValue::LocalIsSending(local_room_message("tome")),
@@ -1344,7 +1344,7 @@ mod buffer_of_values_for_local_event_tests {
     #[test]
     fn test_position() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id = OwnedTransactionId::from("txnid");
+        let transaction_id = TransactionId::from("txnid");
 
         assert!(buffer.position(&transaction_id).is_none());
 
@@ -1353,7 +1353,7 @@ mod buffer_of_values_for_local_event_tests {
             LatestEventValue::LocalIsSending(local_room_message("raclette")),
         );
         buffer.push(
-            OwnedTransactionId::from("othertxnid"),
+            TransactionId::from("othertxnid"),
             LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
 
@@ -1365,7 +1365,7 @@ mod buffer_of_values_for_local_event_tests {
     fn test_push_none() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
-        buffer.push(OwnedTransactionId::from("txnid"), LatestEventValue::None);
+        buffer.push(TransactionId::from("txnid"), LatestEventValue::None);
     }
 
     #[test]
@@ -1374,7 +1374,7 @@ mod buffer_of_values_for_local_event_tests {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid"),
+            TransactionId::from("txnid"),
             LatestEventValue::Remote(remote_room_message("tome")),
         );
     }
@@ -1384,15 +1384,15 @@ mod buffer_of_values_for_local_event_tests {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid0"),
+            TransactionId::from("txnid0"),
             LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
         buffer.push(
-            OwnedTransactionId::from("txnid1"),
+            TransactionId::from("txnid1"),
             LatestEventValue::LocalCannotBeSent(local_room_message("raclette")),
         );
         buffer.push(
-            OwnedTransactionId::from("txnid1"),
+            TransactionId::from("txnid1"),
             LatestEventValue::LocalHasBeenSent {
                 event_id: owned_event_id!("$ev0"),
                 value: local_room_message("raclette"),
@@ -1408,7 +1408,7 @@ mod buffer_of_values_for_local_event_tests {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid"),
+            TransactionId::from("txnid"),
             LatestEventValue::Remote(remote_room_message("gruyère")),
         );
 
@@ -1423,7 +1423,7 @@ mod buffer_of_values_for_local_event_tests {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid"),
+            TransactionId::from("txnid"),
             LatestEventValue::LocalHasBeenSent {
                 event_id: owned_event_id!("$ev0"),
                 value: local_room_message("gruyère"),
@@ -1439,7 +1439,7 @@ mod buffer_of_values_for_local_event_tests {
     fn test_replace_content_on_local_is_sending() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
-        let transaction_id = OwnedTransactionId::from("txnid0");
+        let transaction_id = TransactionId::from("txnid0");
         buffer.push(
             transaction_id.clone(),
             LatestEventValue::LocalIsSending(local_room_message("gruyère")),
@@ -1467,7 +1467,7 @@ mod buffer_of_values_for_local_event_tests {
     fn test_replace_content_on_local_cannot_be_sent() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
-        let transaction_id = OwnedTransactionId::from("txnid0");
+        let transaction_id = TransactionId::from("txnid0");
         buffer.push(
             transaction_id.clone(),
             LatestEventValue::LocalCannotBeSent(local_room_message("gruyère")),
@@ -1496,7 +1496,7 @@ mod buffer_of_values_for_local_event_tests {
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
         buffer.push(
-            OwnedTransactionId::from("txnid"),
+            TransactionId::from("txnid"),
             LatestEventValue::LocalIsSending(local_room_message("gryuère")),
         );
 
@@ -1510,9 +1510,9 @@ mod buffer_of_values_for_local_event_tests {
     #[test]
     fn test_mark_cannot_be_sent_from() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
-        let transaction_id_2 = OwnedTransactionId::from("txnid2");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
+        let transaction_id_2 = TransactionId::from("txnid2");
 
         buffer.push(
             transaction_id_0,
@@ -1538,9 +1538,9 @@ mod buffer_of_values_for_local_event_tests {
     #[test]
     fn test_mark_is_sending_from() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
-        let transaction_id_2 = OwnedTransactionId::from("txnid2");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
+        let transaction_id_2 = TransactionId::from("txnid2");
 
         buffer.push(
             transaction_id_0,
@@ -1566,9 +1566,9 @@ mod buffer_of_values_for_local_event_tests {
     #[test]
     fn test_mark_is_sending_after() {
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
-        let transaction_id_2 = OwnedTransactionId::from("txnid2");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
+        let transaction_id_2 = TransactionId::from("txnid2");
 
         buffer.push(
             transaction_id_0,
@@ -1605,7 +1605,7 @@ mod builder_tests {
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId, event_id,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             SyncMessageLikeEvent, reaction::ReactionEventContent, relation::Annotation,
@@ -2491,7 +2491,7 @@ mod builder_tests {
         assert!(Builder::new_remote(&room_event_cache, None, user_id, None).await.is_none());
     }
 
-    async fn local_prelude() -> (Client, OwnedRoomId, RoomSendQueue, RoomEventCache) {
+    async fn local_prelude() -> (Client, RoomId, RoomSendQueue, RoomEventCache) {
         let room_id = owned_room_id!("!r0");
 
         let server = MatrixMockServer::new().await;
@@ -2539,7 +2539,7 @@ mod builder_tests {
 
     fn new_local_echo_content(
         room_send_queue: &RoomSendQueue,
-        transaction_id: &OwnedTransactionId,
+        transaction_id: &TransactionId,
         body: &str,
     ) -> LocalEchoContent {
         LocalEchoContent::Event {
@@ -2565,7 +2565,7 @@ mod builder_tests {
 
         // Receiving one `NewLocalEvent`.
         let previous_value = {
-            let transaction_id = OwnedTransactionId::from("txnid0");
+            let transaction_id = TransactionId::from("txnid0");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
 
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
@@ -2579,7 +2579,7 @@ mod builder_tests {
 
         // Receiving another `NewLocalEvent`, ensuring it's pushed back in the buffer.
         {
-            let transaction_id = OwnedTransactionId::from("txnid1");
+            let transaction_id = TransactionId::from("txnid1");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
 
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
@@ -2604,7 +2604,7 @@ mod builder_tests {
 
         // Receiving one `NewLocalEvent`.
         let (transaction_id_0, previous_value) = {
-            let transaction_id = OwnedTransactionId::from("txnid0");
+            let transaction_id = TransactionId::from("txnid0");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
 
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -2648,7 +2648,7 @@ mod builder_tests {
         // and as a `LocalCannotBeSent` because the previous value is itself
         // `LocalCannotBeSent`.
         {
-            let transaction_id = OwnedTransactionId::from("txnid1");
+            let transaction_id = TransactionId::from("txnid1");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
 
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
@@ -2674,7 +2674,7 @@ mod builder_tests {
 
         // Receiving one `NewLocalEvent` with content of kind event.
         let (transaction_id_0, previous_value) = {
-            let transaction_id = OwnedTransactionId::from("txnid0");
+            let transaction_id = TransactionId::from("txnid0");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
 
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -2694,7 +2694,7 @@ mod builder_tests {
         // Receiving one `NewLocalEvent` with content of kind react! This time, it is
         // ignored.
         {
-            let transaction_id = OwnedTransactionId::from("txnid1");
+            let transaction_id = TransactionId::from("txnid1");
             let content = LocalEchoContent::React {
                 key: "<< 1".to_owned(),
                 send_handle: SendReactionHandle::new(
@@ -2730,9 +2730,9 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
-        let transaction_id_2 = OwnedTransactionId::from("txnid2");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
+        let transaction_id_2 = TransactionId::from("txnid2");
 
         // Receiving three `NewLocalEvent`s.
         let previous_value = {
@@ -2830,8 +2830,8 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
 
         // Receiving two `NewLocalEvent`s.
         let previous_value = {
@@ -2908,8 +2908,8 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
 
         // Receiving two `NewLocalEvent`s.
         let previous_value = {
@@ -2994,7 +2994,7 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id = OwnedTransactionId::from("txnid0");
+        let transaction_id = TransactionId::from("txnid0");
 
         // Receiving one `NewLocalEvent`.
         let previous_value = {
@@ -3058,7 +3058,7 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id = OwnedTransactionId::from("txnid0");
+        let transaction_id = TransactionId::from("txnid0");
 
         // Receiving one `NewLocalEvent`.
         let previous_value = {
@@ -3135,8 +3135,8 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
 
         // Receiving two `NewLocalEvent`s.
         let previous_value = {
@@ -3213,8 +3213,8 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
 
         // Receiving two `NewLocalEvent`s.
         let previous_value = {
@@ -3291,8 +3291,8 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id_0 = OwnedTransactionId::from("txnid0");
-        let transaction_id_1 = OwnedTransactionId::from("txnid1");
+        let transaction_id_0 = TransactionId::from("txnid0");
+        let transaction_id_1 = TransactionId::from("txnid1");
 
         // Receiving two `NewLocalEvent`s.
         let previous_value = {
@@ -3367,7 +3367,7 @@ mod builder_tests {
         let user_id = client.user_id().unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
-        let transaction_id = OwnedTransactionId::from("txnid");
+        let transaction_id = TransactionId::from("txnid");
 
         // Receiving a `NewLocalEvent`.
         let previous_value = {
@@ -3475,7 +3475,7 @@ mod builder_tests {
                 // An update that won't create a new `LatestEventValue`: it maps
                 // to zero existing local value.
                 &RoomSendQueueUpdate::SentEvent {
-                    transaction_id: OwnedTransactionId::from("txnid"),
+                    transaction_id: TransactionId::from("txnid"),
                     event_id: event_id_1.to_owned(),
                 },
                 &mut buffer,

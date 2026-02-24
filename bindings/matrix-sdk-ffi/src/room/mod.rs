@@ -48,8 +48,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
-    ServerName, UserId,
+    DeviceId, EventId, Int, RoomAliasId, RoomOrAliasId, ServerName, UserId,
 };
 use tracing::{error, warn};
 
@@ -871,8 +870,7 @@ impl Room {
         user_ids: Vec<String>,
         send_handle: Arc<SendHandle>,
     ) -> Result<(), ClientError> {
-        let user_ids: Vec<OwnedUserId> =
-            user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
+        let user_ids: Vec<UserId> = user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
 
         let encryption = self.inner.client().encryption();
 
@@ -908,7 +906,7 @@ impl Room {
             let user_id = UserId::parse(user_id)?;
 
             for device_id in device_ids {
-                let device_id: OwnedDeviceId = device_id.as_str().into();
+                let device_id: DeviceId = device_id.as_str().into();
 
                 if let Some(device) = encryption.get_device(&user_id, &device_id).await? {
                     device.set_local_trust(LocalTrust::Ignored).await?;
@@ -1176,7 +1174,7 @@ impl Room {
     /// invited, knocked or banned rooms.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
         // Validate parameters first.
-        let server_names: Vec<OwnedServerName> = via
+        let server_names: Vec<ServerName> = via
             .into_iter()
             .map(|server| ServerName::parse(server).map_err(ClientError::from))
             .collect::<Result<_, ClientError>>()?;
@@ -1185,10 +1183,10 @@ impl Room {
         let client = self.inner.client();
         let (room_or_alias_id, mut server_names) = if let Some(alias) = self.inner.canonical_alias()
         {
-            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
+            let room_or_alias_id: RoomOrAliasId = alias.into();
             (room_or_alias_id, Vec::new())
         } else {
-            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.room_id().to_owned().into();
+            let room_or_alias_id: RoomOrAliasId = self.inner.room_id().to_owned().into();
             (room_or_alias_id, server_names)
         };
 

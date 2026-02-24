@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::OwnedUserId;
+use ruma::UserId;
 
 use super::Room;
 
@@ -23,7 +23,7 @@ impl Room {
         self.info.read().has_active_room_call()
     }
 
-    /// Returns a `Vec` of `OwnedUserId`'s that participate in the room call.
+    /// Returns a `Vec` of `UserId`'s that participate in the room call.
     ///
     /// MatrixRTC memberships with application `m.call` and scope `m.room` are
     /// considered. A user can occur twice if they join with two devices.
@@ -31,7 +31,7 @@ impl Room {
     /// amount of sessions.
     ///
     /// The vector is ordered by oldest membership user to newest.
-    pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
+    pub fn active_room_call_participants(&self) -> Vec<UserId> {
         self.info.read().active_room_call_participants()
     }
 }
@@ -43,7 +43,7 @@ mod tests {
     use assign::assign;
     use matrix_sdk_test::{ALICE, BOB, CAROL, event_factory::EventFactory};
     use ruma::{
-        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
+        DeviceId, EventId, MilliSecondsSinceUnixEpoch, UserId, device_id, event_id,
         events::{
             AnySyncStateEvent,
             call::member::{
@@ -279,7 +279,7 @@ mod tests {
         receive_state_events(&room, vec![b_empty_membership, c_empty_membership]);
 
         // We have no active call anymore after emptying the memberships
-        assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
+        assert_eq!(Vec::<UserId>::new(), room.active_room_call_participants());
         assert!(!room.has_active_room_call());
     }
 }

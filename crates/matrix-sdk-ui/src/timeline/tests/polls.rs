@@ -2,7 +2,7 @@ use assert_matches2::assert_let;
 use fakes::poll_a2;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    EventId, OwnedEventId, UserId, event_id,
+    EventId, UserId, event_id,
     events::poll::unstable_start::{
         NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
         UnstablePollStartContentBlock, UnstablePollStartEventContent,
@@ -156,7 +156,7 @@ async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
 #[async_test]
 async fn test_events_received_before_start_are_not_lost() {
     let timeline = TestTimeline::new();
-    let poll_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
+    let poll_id: EventId = EventId::new(server_name!("dummy.server"));
 
     // Alice votes
     timeline.send_poll_response(&ALICE, vec!["0"], &poll_id).await;

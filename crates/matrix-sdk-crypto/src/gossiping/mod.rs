@@ -22,7 +22,7 @@ use std::{
 pub(crate) use machine::GossipMachine;
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
+    DeviceId, TransactionId, UserId,
     events::{
         AnyToDeviceEventContent, ToDeviceEventType,
         room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
@@ -89,9 +89,9 @@ pub enum KeyForwardDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipRequest {
     /// The user we requested the secret from
-    pub request_recipient: OwnedUserId,
+    pub request_recipient: UserId,
     /// The unique id of the secret request.
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
     /// The info of the requested secret.
     pub info: SecretInfo,
     /// Has the request been sent out.
@@ -137,7 +137,7 @@ impl From<SecretName> for SecretInfo {
 
 impl GossipRequest {
     /// Create an outgoing secret request for the given secret.
-    pub(crate) fn from_secret_name(own_user_id: OwnedUserId, secret_name: SecretName) -> Self {
+    pub(crate) fn from_secret_name(own_user_id: UserId, secret_name: SecretName) -> Self {
         Self {
             request_recipient: own_user_id,
             request_id: TransactionId::new(),
@@ -289,17 +289,13 @@ impl RequestEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RequestInfo {
-    sender: OwnedUserId,
-    requesting_device_id: OwnedDeviceId,
-    request_id: OwnedTransactionId,
+    sender: UserId,
+    requesting_device_id: DeviceId,
+    request_id: TransactionId,
 }
 
 impl RequestInfo {
-    fn new(
-        sender: OwnedUserId,
-        requesting_device_id: OwnedDeviceId,
-        request_id: OwnedTransactionId,
-    ) -> Self {
+    fn new(sender: UserId, requesting_device_id: DeviceId, request_id: TransactionId) -> Self {
         Self { sender, requesting_device_id, request_id }
     }
 }
@@ -314,7 +310,7 @@ struct WaitQueue {
 #[derive(Debug, Default)]
 struct WaitQueueInner {
     requests_waiting_for_session: BTreeMap<RequestInfo, RequestEvent>,
-    requests_ids_waiting: BTreeMap<(OwnedUserId, OwnedDeviceId), BTreeSet<OwnedTransactionId>>,
+    requests_ids_waiting: BTreeMap<(UserId, DeviceId), BTreeSet<TransactionId>>,
 }
 
 impl WaitQueue {

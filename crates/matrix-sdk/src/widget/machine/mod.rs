@@ -20,7 +20,7 @@ use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
 use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     events::{AnyStateEvent, AnyTimelineEvent},
     serde::{JsonObject, Raw},
 };
@@ -131,7 +131,7 @@ pub(crate) struct WidgetMachine {
     widget_id: String,
 
     /// The room to which this widget machine is attached.
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// Outstanding requests sent to the widget (mapped by uuid).
     pending_to_widget_requests: PendingRequests<ToWidgetRequestMeta>,
@@ -161,7 +161,7 @@ impl WidgetMachine {
     /// actions (commands) from the client.
     pub(crate) fn new(
         widget_id: String,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         init_on_content_load: bool,
     ) -> (Self, Vec<Action>) {
         let limits =

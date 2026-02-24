@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     api::client::sync::sync_events::v5 as http,
     events::{AnySyncEphemeralRoomEvent, SyncEphemeralRoomEvent, receipt::ReceiptEventContent},
     serde::Raw,
@@ -34,7 +34,7 @@ use crate::{
 /// response.
 pub fn dispatch_typing_ephemeral_events(
     typing: &http::response::Typing,
-    joined_room_updates: &mut BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
+    joined_room_updates: &mut BTreeMap<RoomId, JoinedRoomUpdate>,
 ) {
     for (room_id, raw) in &typing.rooms {
         joined_room_updates

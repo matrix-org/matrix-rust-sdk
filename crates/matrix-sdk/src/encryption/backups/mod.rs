@@ -35,7 +35,7 @@ use matrix_sdk_base::crypto::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
 use ruma::{
-    OwnedRoomId, RoomId, TransactionId,
+    RoomId, TransactionId,
     api::client::{
         backup::{
             RoomKeyBackup, add_backup_keys, create_backup_version, get_backup_keys,
@@ -1000,7 +1000,7 @@ impl Backups {
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub(crate) fn maybe_download_room_key(
         &self,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         event: Raw<OriginalSyncRoomEncryptedEvent>,
     ) {
         let tasks = self.client.inner.e2ee.tasks.lock();
@@ -1014,7 +1014,7 @@ impl Backups {
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub(crate) fn maybe_download_room_key<T: JsonCastable<EncryptedEvent>>(
         &self,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         event: Raw<T>,
     ) {
         let tasks = self.client.inner.e2ee.tasks.lock();

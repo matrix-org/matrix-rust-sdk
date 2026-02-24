@@ -27,7 +27,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, RoomId,
     api::client::threads::get_thread_subscriptions_changes::unstable::{
         ThreadSubscription, ThreadUnsubscription,
     },
@@ -174,8 +174,8 @@ impl ThreadSubscriptionCatchup {
     #[instrument(skip_all)]
     pub(crate) async fn sync_subscriptions(
         &self,
-        subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
-        unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+        subscribed: BTreeMap<RoomId, BTreeMap<EventId, ThreadSubscription>>,
+        unsubscribed: BTreeMap<RoomId, BTreeMap<EventId, ThreadUnsubscription>>,
         token: Option<ThreadSubscriptionCatchupToken>,
     ) -> Result<()> {
         // Precompute the updates so we don't hold the guard for too long.
@@ -361,8 +361,8 @@ impl ThreadSubscriptionCatchup {
 
 /// Internal helper for building the thread subscription updates Vec.
 fn build_subscription_updates<'a>(
-    subscribed: &'a BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
-    unsubscribed: &'a BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+    subscribed: &'a BTreeMap<RoomId, BTreeMap<EventId, ThreadSubscription>>,
+    unsubscribed: &'a BTreeMap<RoomId, BTreeMap<EventId, ThreadUnsubscription>>,
 ) -> Vec<(&'a RoomId, &'a EventId, StoredThreadSubscription)> {
     let mut updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)> =
         Vec::with_capacity(unsubscribed.len() + subscribed.len());

@@ -507,7 +507,7 @@ mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
-    use ruma::{EventId, OwnedEventId, event_id, user_id};
+    use ruma::{EventId, event_id, user_id};
 
     use super::*;
 
@@ -528,7 +528,7 @@ mod tests {
         };
     }
 
-    fn new_event(event_id: &str) -> (OwnedEventId, Event) {
+    fn new_event(event_id: &str) -> (EventId, Event) {
         let event_id = EventId::parse(event_id).unwrap();
         let event = EventFactory::new()
             .text_msg("")

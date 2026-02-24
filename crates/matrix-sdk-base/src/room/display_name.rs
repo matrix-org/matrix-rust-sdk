@@ -17,7 +17,7 @@ use std::fmt;
 use as_variant::as_variant;
 use regex::Regex;
 use ruma::{
-    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId,
+    MxcUri, RoomAliasId, UserId,
     events::{SyncStateEvent, member_hints::MemberHintsEventContent},
 };
 use serde::{Deserialize, Serialize};
@@ -391,11 +391,11 @@ impl RoomSummary {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoomHero {
     /// The user id of the hero.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The display name of the hero.
     pub display_name: Option<String>,
     /// The avatar url of the hero.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
 }
 
 /// The number of heroes chosen to compute a room's name, if the room didn't

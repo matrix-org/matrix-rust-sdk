@@ -45,8 +45,7 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::T
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, EventId, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         auth_scheme::{AuthScheme, SendAccessToken},
@@ -225,7 +224,7 @@ pub(crate) struct ClientLocks {
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
@@ -233,15 +232,15 @@ pub(crate) struct ClientLocks {
 
     /// Handler to ensure that only one members request is running at a time,
     /// given a room.
-    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
-    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Deduplicating handler for sending read receipts. The string is an
     /// internal implementation detail, see [`Self::send_single_receipt`].
-    pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
+    pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, EventId)>,
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
@@ -319,7 +318,7 @@ pub(crate) struct ClientInner {
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
-    pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
+    pub(crate) typing_notice_times: StdRwLock<BTreeMap<RoomId, Instant>>,
 
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -328,7 +327,7 @@ pub(crate) struct ClientInner {
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
 
     /// The sender-side of channels used to receive room updates.
-    pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
+    pub(crate) room_update_channels: StdMutex<BTreeMap<RoomId, broadcast::Sender<RoomUpdate>>>,
 
     /// The sender-side of a channel used to observe all the room updates of a
     /// sync response.
@@ -1086,7 +1085,7 @@ impl Client {
     /// `Client::observe_room_events`.
     fn observe_room_events_impl<Ev, Ctx>(
         &self,
-        room_id: Option<OwnedRoomId>,
+        room_id: Option<RoomId>,
     ) -> ObservableEventHandler<(Ev, Ctx)>
     where
         Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
@@ -1335,7 +1334,7 @@ impl Client {
     pub async fn get_room_preview(
         &self,
         room_or_alias_id: &RoomOrAliasId,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> Result<RoomPreview> {
         let room_id = match <&RoomId>::try_from(room_or_alias_id) {
             Ok(room_id) => room_id.to_owned(),
@@ -1676,7 +1675,7 @@ impl Client {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
-        server_names: &[OwnedServerName],
+        server_names: &[ServerName],
     ) -> Result<Room> {
         let pre_join_info = {
             match alias.try_into() {
@@ -2544,7 +2543,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     pub async fn delete_devices(
         &self,
-        devices: &[OwnedDeviceId],
+        devices: &[DeviceId],
         auth_data: Option<uiaa::AuthData>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
@@ -2581,7 +2580,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `device_id` - The ID of the device to query.
-    pub async fn device_exists(&self, device_id: OwnedDeviceId) -> Result<bool> {
+    pub async fn device_exists(&self, device_id: DeviceId) -> Result<bool> {
         let request = device::get_device::v3::Request::new(device_id);
         match self.send(request).await {
             Ok(_) => Ok(true),
@@ -3173,9 +3172,9 @@ impl Client {
     /// join it.
     pub async fn knock(
         &self,
-        room_id_or_alias: OwnedRoomOrAliasId,
+        room_id_or_alias: RoomOrAliasId,
         reason: Option<String>,
-        server_names: Vec<OwnedServerName>,
+        server_names: Vec<ServerName>,
     ) -> Result<Room> {
         let request =
             assign!(knock_room::v3::Request::new(room_id_or_alias), { reason, via: server_names });

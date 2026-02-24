@@ -23,8 +23,8 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 use ruma::{
-    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
-    UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
+    DeviceId, ServerName, TransactionId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
 };
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
@@ -69,7 +69,7 @@ pub(crate) struct IdentityManager {
     /// `/keys/query` response.
     ///
     /// See also [`crate::session_manager::SessionManager::failures`].
-    failures: FailuresCache<OwnedServerName>,
+    failures: FailuresCache<ServerName>,
     store: Store,
 
     pub(crate) key_query_manager: Arc<KeyQueryManager>,
@@ -88,12 +88,12 @@ struct KeysQueryRequestDetails {
     /// A single batch of queries returned by the Store is broken up into one or
     /// more actual KeysQueryRequests, each with their own request id. We
     /// record the outstanding request ids here.
-    request_ids: HashSet<OwnedTransactionId>,
+    request_ids: HashSet<TransactionId>,
 }
 
 // Helper type to handle key query response
 struct KeySetInfo {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: MasterPubkey,
     self_signing: SelfSigningPubkey,
 }
@@ -292,14 +292,14 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
-        user_id: OwnedUserId,
-        device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
+        user_id: UserId,
+        device_map: BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = store.static_account().device_id().to_owned();
 
         let mut changes = DeviceChanges::default();
 
-        let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
+        let current_devices: HashSet<DeviceId> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
@@ -339,9 +339,9 @@ impl IdentityManager {
             }
         }
 
-        let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
+        let current_devices: HashSet<&DeviceId> = current_devices.iter().collect();
         let stored_devices = store.get_device_data_for_user(&user_id).await?;
-        let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
+        let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         let own_user_id = store.static_account().user_id();
@@ -376,10 +376,7 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<
-            OwnedUserId,
-            BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
-        >,
+        device_keys_map: BTreeMap<UserId, BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>>,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
@@ -804,7 +801,7 @@ impl IdentityManager {
     pub(crate) fn build_key_query_for_users<'a>(
         &self,
         users: impl IntoIterator<Item = &'a UserId>,
-    ) -> (OwnedTransactionId, KeysQueryRequest) {
+    ) -> (TransactionId, KeysQueryRequest) {
         // Since this is an "out-of-band" request, we just make up a transaction ID and
         // do not store the details in `self.keys_query_request_details`.
         //
@@ -828,7 +825,7 @@ impl IdentityManager {
     /// [`receive_keys_query_response`]: Self::receive_keys_query_response
     pub async fn users_for_key_query(
         &self,
-    ) -> StoreResult<BTreeMap<OwnedTransactionId, KeysQueryRequest>> {
+    ) -> StoreResult<BTreeMap<TransactionId, KeysQueryRequest>> {
         // Forget about any previous key queries in flight.
         *self.keys_query_request_details.lock().await = None;
 
@@ -926,7 +923,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
+    ) -> StoreResult<HashMap<UserId, HashMap<DeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -992,7 +989,7 @@ impl IdentityManager {
             //
             // We don't actually update the `devices_by_user` map here since that could
             // require concurrent access to it. Instead each task returns a
-            // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
+            // `(UserId, HashMap)` pair (or rather, an `Option` of one) so that we can
             // add the results to the map.
             let results = join_all(
                 users_with_no_devices_on_unfailed_servers
@@ -1032,7 +1029,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
+    ) -> Result<Option<(&'a UserId, HashMap<DeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager

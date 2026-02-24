@@ -15,7 +15,7 @@
 use std::collections::HashSet;
 
 use ruma::{
-    OwnedEventId,
+    EventId,
     events::{FullStateEventContent, room::pinned_events::RoomPinnedEventsEventContent},
 };
 
@@ -36,11 +36,9 @@ impl From<&FullStateEventContent<RoomPinnedEventsEventContent>> for RoomPinnedEv
         match value {
             FullStateEventContent::Original { content, prev_content } => {
                 if let Some(prev_content) = prev_content {
-                    let mut new_pinned: HashSet<&OwnedEventId> =
-                        HashSet::from_iter(&content.pinned);
+                    let mut new_pinned: HashSet<&EventId> = HashSet::from_iter(&content.pinned);
                     if let Some(old_pinned) = &prev_content.pinned {
-                        let mut still_pinned: HashSet<&OwnedEventId> =
-                            HashSet::from_iter(old_pinned);
+                        let mut still_pinned: HashSet<&EventId> = HashSet::from_iter(old_pinned);
 
                         // Newly added elements will be kept in new_pinned, previous ones in
                         // still_pinned instead

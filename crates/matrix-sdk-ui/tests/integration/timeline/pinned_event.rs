@@ -19,8 +19,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
-    event_id,
+    EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, assign, event_id,
     events::{
         AnySyncTimelineEvent, AnyTimelineEvent,
         room::{
@@ -863,7 +862,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let (client, server) = logged_in_client_with_server().await;
     let room_id = owned_room_id!("!a_room:example.org");
 
-    let pinned_event_ids: Vec<OwnedEventId> =
+    let pinned_event_ids: Vec<EventId> =
         (0..100).map(|idx| EventId::parse(format!("${idx}")).unwrap()).collect();
 
     let max_concurrent_requests = 10;
@@ -943,9 +942,9 @@ async fn mock_events_endpoint(
 /// event ids
 #[derive(Debug, Clone)]
 struct PinnedEventsSync {
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     timeline_events: Vec<Raw<AnySyncTimelineEvent>>,
-    pinned_event_ids: Option<Vec<OwnedEventId>>,
+    pinned_event_ids: Option<Vec<EventId>>,
 }
 
 impl PinnedEventsSync {
@@ -959,7 +958,7 @@ impl PinnedEventsSync {
     }
 
     fn with_pinned_event_ids(mut self, pinned_event_ids: Vec<&str>) -> Self {
-        let pinned_event_ids: Vec<OwnedEventId> = pinned_event_ids
+        let pinned_event_ids: Vec<EventId> = pinned_event_ids
             .into_iter()
             .map(|id| match EventId::parse(id) {
                 Ok(id) => id,

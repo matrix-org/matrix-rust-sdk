@@ -29,7 +29,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, Int, OwnedUserId, RoomId, RoomVersionId,
+    EventId, Int, RoomId, RoomVersionId, UserId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -46,7 +46,7 @@ use ruma::{
     event_id,
     events::{
         AnyInitialStateEvent, AnyRoomAccountDataEvent,
-        direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        direct::{DirectEventContent, DirectUserIdentifier},
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
@@ -544,7 +544,7 @@ async fn test_marking_room_as_dm() {
         );
 
         let bob_entry = content
-            .get(&OwnedDirectUserIdentifier::from(bob.to_owned()))
+            .get(&DirectUserIdentifier::from(bob.to_owned()))
             .expect("We should have bob in the direct event content");
 
         assert_eq!(content.len(), 2, "We should have entries for bob and foo");
@@ -866,7 +866,7 @@ async fn test_create_dm_non_encrypted() {
 
             // The body's `invite` field is set to an array with the user ID.
             if !body
-                .get_field::<Vec<OwnedUserId>>("invite")
+                .get_field::<Vec<UserId>>("invite")
                 .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
             {
                 return false;
@@ -915,7 +915,7 @@ async fn test_create_dm_encrypted() {
 
             // The body's `invite` field is set to an array with the user ID.
             if !body
-                .get_field::<Vec<OwnedUserId>>("invite")
+                .get_field::<Vec<UserId>>("invite")
                 .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
             {
                 return false;

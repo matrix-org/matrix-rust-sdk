@@ -21,7 +21,7 @@ use std::sync::{
 
 pub use pk_signing::{MasterSigning, PickledSignings, SelfSigning, SigningError, UserSigning};
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::secret::request::SecretName,
 };
@@ -51,7 +51,7 @@ use crate::{
 /// It can be used to sign devices or other identities.
 #[derive(Clone, Debug)]
 pub struct PrivateCrossSigningIdentity {
-    user_id: OwnedUserId,
+    user_id: UserId,
     shared: Arc<AtomicBool>,
     pub(crate) master_key: Arc<Mutex<Option<MasterSigning>>>,
     pub(crate) user_signing_key: Arc<Mutex<Option<UserSigning>>>,
@@ -89,7 +89,7 @@ impl DiffResult {
 #[allow(missing_debug_implementations)]
 pub struct PickledCrossSigningIdentity {
     /// The user id of the identity owner.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// Have the public keys of the identity been shared.
     pub shared: bool,
     /// The pickled signing keys
@@ -141,9 +141,9 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Get the key ID of the master key.
-    pub async fn master_key_id(&self) -> Option<OwnedDeviceKeyId> {
+    pub async fn master_key_id(&self) -> Option<DeviceKeyId> {
         let master_key = self.master_public_key().await?.get_first_key()?.to_base64();
-        let master_key = OwnedDeviceId::from(master_key);
+        let master_key = DeviceId::from(master_key);
 
         Some(DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key))
     }
@@ -543,7 +543,7 @@ impl PrivateCrossSigningIdentity {
     /// created it.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub fn new(user_id: OwnedUserId) -> Self {
+    pub fn new(user_id: UserId) -> Self {
         let master = MasterSigning::new(user_id.to_owned());
         Self::new_helper(&user_id, master)
     }

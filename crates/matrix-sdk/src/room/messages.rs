@@ -17,7 +17,7 @@ use std::fmt;
 use futures_util::future::join_all;
 use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::TimelineEvent};
 use ruma::{
-    OwnedEventId, RoomId, UInt,
+    EventId, RoomId, UInt,
     api::{
         Direction,
         client::{
@@ -282,7 +282,7 @@ pub struct RelationsOptions {
 impl RelationsOptions {
     /// Converts this options object into a request, according to the filled
     /// parameters, and returns a canonicalized response.
-    pub(super) async fn send(self, room: &Room, event: OwnedEventId) -> Result<Relations> {
+    pub(super) async fn send(self, room: &Room, event: EventId) -> Result<Relations> {
         macro_rules! fill_params {
             ($request:expr) => {
                 assign! { $request, {

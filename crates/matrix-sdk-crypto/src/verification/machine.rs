@@ -16,8 +16,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, SecondsSinceUnixEpoch, TransactionId,
+    UInt, UserId,
     events::{
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
         key::verification::VerificationMethod,
@@ -48,7 +48,7 @@ use crate::{
 pub struct VerificationMachine {
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<StdRwLock<HashMap<OwnedUserId, HashMap<String, VerificationRequest>>>>,
+    requests: Arc<StdRwLock<HashMap<UserId, HashMap<String, VerificationRequest>>>>,
 }
 
 impl VerificationMachine {
@@ -75,7 +75,7 @@ impl VerificationMachine {
     pub(crate) fn request_to_device_verification(
         &self,
         user_id: &UserId,
-        recipient_devices: Vec<OwnedDeviceId>,
+        recipient_devices: Vec<DeviceId>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());

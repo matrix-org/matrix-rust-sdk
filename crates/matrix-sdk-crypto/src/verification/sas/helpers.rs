@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
@@ -223,7 +223,7 @@ pub fn receive_mac_event(
             "Checking a SAS MAC",
         );
 
-        let key_id: OwnedDeviceKeyId = match key_id.as_str().try_into() {
+        let key_id: DeviceKeyId = match key_id.as_str().try_into() {
             Ok(id) => id,
             Err(_) => continue,
         };

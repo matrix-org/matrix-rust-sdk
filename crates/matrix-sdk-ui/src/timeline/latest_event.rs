@@ -15,7 +15,7 @@
 use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
 use matrix_sdk_base::latest_event::LatestEventValue as BaseLatestEventValue;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, UserId,
     events::{
         AnyMessageLikeEventContent, relation::Replacement, room::message::RoomMessageEventContent,
     },
@@ -41,7 +41,7 @@ pub enum LatestEventValue {
         timestamp: MilliSecondsSinceUnixEpoch,
 
         /// The sender of the remote event.
-        sender: OwnedUserId,
+        sender: UserId,
 
         /// Has this event been sent by the current logged user?
         is_own: bool,
@@ -59,7 +59,7 @@ pub enum LatestEventValue {
         timestamp: MilliSecondsSinceUnixEpoch,
 
         /// The inviter (can be unknown).
-        inviter: Option<OwnedUserId>,
+        inviter: Option<UserId>,
 
         /// The inviter's profile (can be unknown).
         inviter_profile: TimelineDetails<Profile>,
@@ -73,7 +73,7 @@ pub enum LatestEventValue {
         timestamp: MilliSecondsSinceUnixEpoch,
 
         /// The sender of the remote event.
-        sender: OwnedUserId,
+        sender: UserId,
 
         /// The sender's profile.
         profile: TimelineDetails<Profile>,

@@ -26,7 +26,7 @@ use matrix_sdk_test::{
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
 use ruma::{
-    MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, event_id,
+    EventId, MxcUri, TransactionId, event_id,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
         poll::unstable_start::{
@@ -755,7 +755,7 @@ async fn test_reenabling_queue() {
 
     // They're sent, in the same order.
     for i in 1..=3 {
-        let event_id = OwnedEventId::try_from(format!("${i}").as_str()).unwrap();
+        let event_id = EventId::try_from(format!("${i}").as_str()).unwrap();
         assert_update!((global_watch, watch) => sent { event_id = event_id });
     }
 
@@ -2836,7 +2836,7 @@ async fn abort_and_verify(
     watch: &mut Receiver<RoomSendQueueUpdate>,
     img_content: ImageMessageEventContent,
     upload_handle: SendHandle,
-    upload_txn: OwnedTransactionId,
+    upload_txn: TransactionId,
 ) {
     let file_source = img_content.source;
     let info = img_content.info.unwrap();

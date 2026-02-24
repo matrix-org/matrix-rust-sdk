@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{OwnedRoomId, events::room::tombstone::PossiblyRedactedRoomTombstoneEventContent};
+use ruma::{RoomId, events::room::tombstone::PossiblyRedactedRoomTombstoneEventContent};
 
 use super::Room;
 
@@ -83,7 +83,7 @@ impl Room {
 #[derive(Debug)]
 pub struct SuccessorRoom {
     /// The ID of the next room replacing this (tombstoned) room.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The reason why the room has been tombstoned.
     pub reason: Option<String>,
@@ -100,7 +100,7 @@ pub struct SuccessorRoom {
 #[derive(Debug)]
 pub struct PredecessorRoom {
     /// The ID of the old room.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 }
 
 #[cfg(test)]

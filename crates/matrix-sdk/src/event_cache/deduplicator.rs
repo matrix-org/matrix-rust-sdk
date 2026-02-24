@@ -21,7 +21,7 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
-use ruma::{OwnedEventId, OwnedUserId, UserId};
+use ruma::{EventId, UserId};
 
 use super::{
     EventCacheError,
@@ -84,7 +84,7 @@ pub async fn filter_duplicate_events(
     // rationale behind the following booleans.
     let at_least_one_event_not_sent_by_me = new_events.iter().any(|ev| {
         ev.raw()
-            .get_field::<OwnedUserId>("sender")
+            .get_field::<UserId>("sender")
             .ok()
             .flatten()
             .is_some_and(|sender| sender != own_user_id)
@@ -117,7 +117,7 @@ pub(super) struct DeduplicationOutcome {
     ///
     /// Events are sorted by their position, from the newest to the oldest
     /// (position is descending).
-    pub in_memory_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+    pub in_memory_duplicated_event_ids: Vec<(EventId, Position)>,
 
     /// Events in [`Self::all_events`] that are duplicated and present in
     /// the store. It means they have **NOT** been loaded from the store into
@@ -125,7 +125,7 @@ pub(super) struct DeduplicationOutcome {
     ///
     /// Events are sorted by their position, from the newest to the oldest
     /// (position is descending).
-    pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+    pub in_store_duplicated_event_ids: Vec<(EventId, Position)>,
 
     /// Whether there's at least one new event sent by some other user, and all
     /// new events are duplicate.

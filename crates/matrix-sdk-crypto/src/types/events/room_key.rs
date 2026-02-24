@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedRoomId, RoomId, serde::Raw};
+use ruma::{RoomId, serde::Raw};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, value::to_raw_value};
 use vodozemac::megolm::SessionKey;
@@ -111,7 +111,7 @@ impl RoomKeyContent {
 #[derive(Deserialize, Serialize)]
 pub struct MegolmV1AesSha2Content {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// The ID of the session that the key is for.
     pub session_id: String,
     /// The key to be exchanged. Can be used to create a [`InboundGroupSession`]
@@ -134,7 +134,7 @@ pub struct MegolmV1AesSha2Content {
 impl MegolmV1AesSha2Content {
     /// Create a new `m.megolm.v1.aes-sha2` `m.room_key` content.
     pub fn new(
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         session_id: String,
         session_key: SessionKey,
         shared_history: bool,

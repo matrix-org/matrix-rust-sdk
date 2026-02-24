@@ -40,7 +40,7 @@ use matrix_sdk::{
 };
 use mime::Mime;
 use ruma::{
-    EventId, OwnedEventId, OwnedTransactionId, UserId,
+    EventId, TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
@@ -135,14 +135,14 @@ pub enum TimelineFocus {
 
     /// Focus on a specific event, e.g. after clicking a permalink.
     Event {
-        target: OwnedEventId,
+        target: EventId,
         num_context_events: u16,
         /// How to handle threaded events.
         thread_mode: TimelineEventFocusThreadMode,
     },
 
     /// Focus on a specific thread
-    Thread { root_event_id: OwnedEventId },
+    Thread { root_event_id: EventId },
 
     /// Only show pinned events.
     PinnedEvents,
@@ -199,12 +199,12 @@ pub enum DateDividerMode {
 /// deciding to fill the rest of the reply parameters.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {
-    pub txn_id: Option<OwnedTransactionId>,
+    pub txn_id: Option<TransactionId>,
     pub info: Option<AttachmentInfo>,
     pub thumbnail: Option<Thumbnail>,
     pub caption: Option<TextMessageEventContent>,
     pub mentions: Option<Mentions>,
-    pub in_reply_to: Option<OwnedEventId>,
+    pub in_reply_to: Option<EventId>,
 }
 
 impl Timeline {
@@ -271,7 +271,7 @@ impl Timeline {
     }
 
     /// Get the latest of the timeline's remote event ids.
-    pub async fn latest_event_id(&self) -> Option<OwnedEventId> {
+    pub async fn latest_event_id(&self) -> Option<EventId> {
         self.controller.latest_event_id().await
     }
 
@@ -383,7 +383,7 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        in_reply_to: OwnedEventId,
+        in_reply_to: EventId,
     ) -> Result<(), Error> {
         let reply = self
             .infer_reply(Some(in_reply_to))
@@ -397,7 +397,7 @@ impl Timeline {
     /// Given a message or media to send, and an optional `in_reply_to` event,
     /// automatically fills the [`Reply`] information based on the current
     /// timeline focus.
-    pub(crate) async fn infer_reply(&self, in_reply_to: Option<OwnedEventId>) -> Option<Reply> {
+    pub(crate) async fn infer_reply(&self, in_reply_to: Option<EventId>) -> Option<Reply> {
         // If there's a replied-to event id, the reply is pretty straightforward, and we
         // should only infer the `EnforceThread` based on the current focus.
         if let Some(in_reply_to) = in_reply_to {
@@ -669,10 +669,7 @@ impl Timeline {
     /// receipts received from the homeserver, this keeps also track of implicit
     /// read receipts in this timeline, i.e. when a room member sends an event.
     #[instrument(skip(self))]
-    pub async fn latest_user_read_receipt(
-        &self,
-        user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    pub async fn latest_user_read_receipt(&self, user_id: &UserId) -> Option<(EventId, Receipt)> {
         self.controller.latest_user_read_receipt(user_id).await
     }
 
@@ -687,7 +684,7 @@ impl Timeline {
     pub async fn latest_user_read_receipt_timeline_event_id(
         &self,
         user_id: &UserId,
-    ) -> Option<OwnedEventId> {
+    ) -> Option<EventId> {
         self.controller.latest_user_read_receipt_timeline_event_id(user_id).await
     }
 
@@ -713,7 +710,7 @@ impl Timeline {
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
-        event_id: OwnedEventId,
+        event_id: EventId,
     ) -> Result<bool> {
         let thread = self.controller.infer_thread_for_read_receipt(&receipt_type);
 
@@ -938,11 +935,11 @@ where
 #[cfg(feature = "unstable-msc4274")]
 #[derive(Debug, Default)]
 pub struct GalleryConfig {
-    pub(crate) txn_id: Option<OwnedTransactionId>,
+    pub(crate) txn_id: Option<TransactionId>,
     pub(crate) items: Vec<GalleryItemInfo>,
     pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
-    pub(crate) in_reply_to: Option<OwnedEventId>,
+    pub(crate) in_reply_to: Option<EventId>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -960,7 +957,7 @@ impl GalleryConfig {
     ///   in its unsigned field as `transaction_id`. If not given, one is
     ///   created for the message.
     #[must_use]
-    pub fn txn_id(mut self, txn_id: OwnedTransactionId) -> Self {
+    pub fn txn_id(mut self, txn_id: TransactionId) -> Self {
         self.txn_id = Some(txn_id);
         self
     }
@@ -1001,7 +998,7 @@ impl GalleryConfig {
     /// # Arguments
     ///
     /// * `event_id` - The event ID to reply to.
-    pub fn in_reply_to(mut self, event_id: Option<OwnedEventId>) -> Self {
+    pub fn in_reply_to(mut self, event_id: Option<EventId>) -> Self {
         self.in_reply_to = event_id;
         self
     }

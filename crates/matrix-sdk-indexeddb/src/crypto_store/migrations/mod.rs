@@ -285,7 +285,7 @@ mod tests {
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::{OwnedRoomId, RoomId, owned_device_id, owned_user_id, room_id};
+    use ruma::{RoomId, owned_device_id, owned_user_id, room_id};
     use serde::Serialize;
     use tracing_subscriber::util::SubscriberInitExt;
     use wasm_bindgen::JsValue;
@@ -519,7 +519,7 @@ mod tests {
             24, 25, 26, 27, 28, 29, 30, 31,
         ])
         .unwrap();
-        let room_id: OwnedRoomId = format!("!a{i}:b.co").try_into().unwrap();
+        let room_id: RoomId = format!("!a{i}:b.co").try_into().unwrap();
         let encryption_algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
         let history_visibility = None;
 

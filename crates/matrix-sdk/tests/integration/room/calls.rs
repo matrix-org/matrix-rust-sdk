@@ -3,9 +3,7 @@ use std::sync::{Arc, Mutex};
 use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{
-    OwnedUserId, events::rtc::notification::NotificationType, owned_event_id, room_id, user_id,
-};
+use ruma::{UserId, events::rtc::notification::NotificationType, owned_event_id, room_id, user_id};
 use tokio::spawn;
 
 #[async_test]
@@ -13,7 +11,7 @@ async fn test_subscribe_to_decline_call_events() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let decliners_sequences: Arc<Mutex<Vec<OwnedUserId>>> = Arc::new(Mutex::new(Vec::new()));
+    let decliners_sequences: Arc<Mutex<Vec<UserId>>> = Arc::new(Mutex::new(Vec::new()));
     let asserted_decliners = vec![user_id!("@bob:matrix.org"), user_id!("@carl:example.com")];
 
     let room_id = room_id!("!test:example.org");

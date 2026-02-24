@@ -67,7 +67,7 @@ use matrix_sdk::{
 };
 pub use room_list::*;
 use ruma::{
-    OwnedRoomId, RoomId, UInt,
+    RoomId, UInt,
     api::{FeatureFlag, client::sync::sync_events::v5 as http},
     assign,
     events::StateEventType,
@@ -532,7 +532,7 @@ pub enum Error {
 
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
-    RoomNotFound(OwnedRoomId),
+    RoomNotFound(RoomId),
 
     #[error(transparent)]
     EventCache(#[from] EventCacheError),

@@ -3,7 +3,7 @@ use std::{future, ops::Deref, sync::Arc};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::cross_process_lock::{CrossProcessLock, CrossProcessLockConfig};
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, UserId};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
@@ -25,8 +25,8 @@ use crate::{
 /// [`crate::verification::VerificationStore`].
 #[derive(Debug)]
 pub(crate) struct CryptoStoreWrapper {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
+    user_id: UserId,
+    device_id: DeviceId,
 
     store: Arc<DynCryptoStore>,
 

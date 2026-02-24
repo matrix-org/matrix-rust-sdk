@@ -591,7 +591,7 @@ mod tests {
         notification_settings::{build_ruleset, get_server_default_ruleset},
     };
     use ruma::{
-        OwnedRoomId, RoomId, owned_room_id,
+        RoomId, owned_room_id,
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
@@ -613,7 +613,7 @@ mod tests {
         test_utils::{logged_in_client, mocks::MatrixMockServer},
     };
 
-    fn get_test_room_id() -> OwnedRoomId {
+    fn get_test_room_id() -> RoomId {
         owned_room_id!("!AAAaAAAAAaaAAaaaaa:matrix.org")
     }
 

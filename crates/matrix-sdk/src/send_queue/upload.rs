@@ -37,7 +37,7 @@ use mime::Mime;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::{GalleryItemType, GalleryMessageEventContent};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, TransactionId,
     events::{
         AnyMessageLikeEventContent, Mentions,
         room::{
@@ -170,7 +170,7 @@ fn update_gallery_event_after_upload(
 
 #[derive(Default)]
 struct MediaCacheResult {
-    upload_thumbnail_txn: Option<OwnedTransactionId>,
+    upload_thumbnail_txn: Option<TransactionId>,
     event_thumbnail_info: Option<(MediaSource, Box<ThumbnailInfo>)>,
     queue_thumbnail_info: Option<QueueThumbnailInfo>,
 }
@@ -486,10 +486,10 @@ impl QueueStorage {
     pub(super) async fn handle_dependent_finish_upload(
         &self,
         client: &Client,
-        event_txn: OwnedTransactionId,
+        event_txn: TransactionId,
         parent_key: SentRequestKey,
         mut local_echo: RoomMessageEventContent,
-        file_upload_txn: OwnedTransactionId,
+        file_upload_txn: TransactionId,
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<(), RoomSendQueueError> {
@@ -536,7 +536,7 @@ impl QueueStorage {
     pub(super) async fn handle_dependent_finish_gallery_upload(
         &self,
         client: &Client,
-        event_txn: OwnedTransactionId,
+        event_txn: TransactionId,
         parent_key: SentRequestKey,
         mut local_echo: RoomMessageEventContent,
         item_infos: Vec<FinishGalleryItemInfo>,
@@ -607,11 +607,11 @@ impl QueueStorage {
     pub(super) async fn handle_dependent_file_or_thumbnail_upload(
         &self,
         client: &Client,
-        next_upload_txn: OwnedTransactionId,
+        next_upload_txn: TransactionId,
         parent_key: SentRequestKey,
         content_type: String,
         cache_key: MediaRequestParameters,
-        event_txn: OwnedTransactionId,
+        event_txn: TransactionId,
         parent_is_thumbnail_upload: bool,
     ) -> Result<(), RoomSendQueueError> {
         // The previous file or thumbnail has been sent, now transform the dependent
@@ -927,7 +927,7 @@ impl QueueStorage {
 /// thumbnail.
 async fn update_media_cache_keys_after_upload(
     client: &Client,
-    file_upload_txn: &OwnedTransactionId,
+    file_upload_txn: &TransactionId,
     thumbnail_info: Option<FinishUploadThumbnailInfo>,
     sent_media: &SentMediaInfo,
 ) -> Result<(), RoomSendQueueError> {

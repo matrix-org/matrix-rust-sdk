@@ -76,8 +76,7 @@ use ruma::events::{
     AnySyncTimelineEvent, SyncMessageLikeEvent, room::encrypted::OriginalSyncRoomEncryptedEvent,
 };
 use ruma::{
-    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    EventId, Int, MatrixToUri, MatrixUri, MxcUri, RoomId, ServerName, TransactionId, UInt, UserId,
     api::client::{
         config::{set_global_account_data, set_room_account_data},
         context,
@@ -655,7 +654,7 @@ impl Room {
     /// be filtered out.
     pub fn subscribe_to_typing_notifications(
         &self,
-    ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<OwnedUserId>>) {
+    ) -> (EventHandlerDropGuard, broadcast::Receiver<Vec<UserId>>) {
         let (sender, receiver) = broadcast::channel(16);
         let typing_event_handler_handle = self.client.add_room_event_handler(self.room_id(), {
             let own_user_id = self.own_user_id().to_owned();
@@ -1324,7 +1323,7 @@ impl Room {
     /// ```no_run
     /// # async {
     /// # let room: matrix_sdk::Room = todo!();
-    /// # let user_ids: &[matrix_sdk::ruma::OwnedUserId] = &[];
+    /// # let user_ids: &[matrix_sdk::ruma::UserId] = &[];
     /// use matrix_sdk::ruma::events::room::member::RoomMemberEventContent;
     ///
     /// let room_members = room
@@ -1460,7 +1459,7 @@ impl Room {
                 }
             })
             // Check whether the parent recognizes this room as its child
-            .map(|(state_key, sender): (OwnedRoomId, OwnedUserId)| async move {
+            .map(|(state_key, sender): (RoomId, UserId)| async move {
                 let Some(parent_room) = self.client.get_room(&state_key) else {
                     // We are not in the room, cannot check if the relationship is reciprocal
                     // TODO: try peeking into the room
@@ -1577,7 +1576,7 @@ impl Room {
     /// ```
     /// # async {
     /// # let room: matrix_sdk::Room = todo!();
-    /// # let event_id: ruma::OwnedEventId = todo!();
+    /// # let event_id: ruma::EventId = todo!();
     /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
     /// let content = FullyReadEventContent::new(event_id);
     ///
@@ -2143,7 +2142,7 @@ impl Room {
         &self,
         receipt_type: create_receipt::v3::ReceiptType,
         thread: ReceiptThread,
-        event_id: OwnedEventId,
+        event_id: EventId,
     ) -> Result<()> {
         // Since the receipt type and the thread aren't Hash/Ord, flatten then as a
         // string key.
@@ -2921,9 +2920,9 @@ impl Room {
 
     /// Gets a map with the `UserId` of users with power levels other than `0`
     /// and this power level.
-    pub async fn users_with_power_levels(&self) -> HashMap<OwnedUserId, i64> {
+    pub async fn users_with_power_levels(&self) -> HashMap<UserId, i64> {
         let power_levels = self.power_levels().await.ok();
-        let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
+        let mut user_power_levels = HashMap::<UserId, i64>::new();
         if let Some(power_levels) = power_levels {
             for (id, level) in power_levels.users.into_iter() {
                 user_power_levels.insert(id, level.into());
@@ -3365,7 +3364,7 @@ impl Room {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<OwnedTransactionId>,
+        txn_id: Option<TransactionId>,
     ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request = assign!(
@@ -3384,7 +3383,7 @@ impl Room {
     /// Returns at most three servers.
     ///
     /// [routing algorithm]: https://spec.matrix.org/v1.3/appendices/#routing
-    pub async fn route(&self) -> Result<Vec<OwnedServerName>> {
+    pub async fn route(&self) -> Result<Vec<ServerName>> {
         let acl_ev = self
             .get_state_event_static::<RoomServerAclEventContent>()
             .await?
@@ -3484,7 +3483,7 @@ impl Room {
     /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
     pub async fn matrix_to_event_permalink(
         &self,
-        event_id: impl Into<OwnedEventId>,
+        event_id: impl Into<EventId>,
     ) -> Result<MatrixToUri> {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
@@ -3505,10 +3504,7 @@ impl Room {
     /// * `event_id` - The ID of the event.
     ///
     /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
-    pub async fn matrix_event_permalink(
-        &self,
-        event_id: impl Into<OwnedEventId>,
-    ) -> Result<MatrixUri> {
+    pub async fn matrix_event_permalink(&self, event_id: impl Into<EventId>) -> Result<MatrixUri> {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
@@ -3532,7 +3528,7 @@ impl Room {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+    ) -> Result<Option<(EventId, Receipt)>> {
         self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
     }
 
@@ -3553,7 +3549,7 @@ impl Room {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+    ) -> Result<Vec<(UserId, Receipt)>> {
         self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 
@@ -3830,7 +3826,7 @@ impl Room {
     /// the request.
     pub async fn report_content(
         &self,
-        event_id: OwnedEventId,
+        event_id: EventId,
         score: Option<ReportedContentScore>,
         reason: Option<String>,
     ) -> Result<report_content::v3::Response> {
@@ -4036,7 +4032,7 @@ impl Room {
 
     /// Load pinned state events for a room from the `/state` endpoint in the
     /// home server.
-    pub async fn load_pinned_events(&self) -> Result<Option<Vec<OwnedEventId>>> {
+    pub async fn load_pinned_events(&self) -> Result<Option<Vec<EventId>>> {
         let response = self
             .client
             .send(get_state_event_for_key::v3::Request::new(
@@ -4195,7 +4191,7 @@ impl Room {
 
     async fn get_current_join_requests(
         &self,
-        seen_request_ids: &BTreeMap<OwnedEventId, OwnedUserId>,
+        seen_request_ids: &BTreeMap<EventId, UserId>,
     ) -> Result<Vec<KnockRequest>> {
         Ok(self
             .members(RoomMemberships::KNOCK)
@@ -4253,11 +4249,7 @@ impl Room {
     /// then it must be used with the same
     /// [`RelationsOptions::include_relations`] value as the request that
     /// returns the `from` token, otherwise the server behavior is undefined.
-    pub async fn relations(
-        &self,
-        event_id: OwnedEventId,
-        opts: RelationsOptions,
-    ) -> Result<Relations> {
+    pub async fn relations(&self, event_id: EventId, opts: RelationsOptions) -> Result<Relations> {
         let relations = opts.send(self, event_id).await;
 
         // Save any new related events to the cache.
@@ -4278,7 +4270,7 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<EventId>, IndexError> {
         let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
@@ -4307,8 +4299,8 @@ impl Room {
     #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn subscribe_thread(
         &self,
-        thread_root: OwnedEventId,
-        automatic: Option<OwnedEventId>,
+        thread_root: EventId,
+        automatic: Option<EventId>,
     ) -> Result<()> {
         let is_automatic = automatic.is_some();
 
@@ -4366,7 +4358,7 @@ impl Room {
     pub async fn subscribe_thread_if_needed(
         &self,
         thread_root: &EventId,
-        automatic: Option<OwnedEventId>,
+        automatic: Option<EventId>,
     ) -> Result<()> {
         if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
             // If we have a previous subscription, we should only send the new one if it's
@@ -4392,7 +4384,7 @@ impl Room {
     ///   already unsubscribed.
     /// - A 404 error if the event isn't known, or isn't a thread root.
     #[instrument(skip(self), fields(room_id = %self.room_id()))]
-    pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
+    pub async fn unsubscribe_thread(&self, thread_root: EventId) -> Result<()> {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
@@ -4437,7 +4429,7 @@ impl Room {
     #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn fetch_thread_subscription(
         &self,
-        thread_root: OwnedEventId,
+        thread_root: EventId,
     ) -> Result<Option<ThreadSubscription>> {
         let result = self
             .client
@@ -4603,12 +4595,12 @@ impl RoomIdentityProvider for Room {
 #[derive(Clone, Debug)]
 pub(crate) struct WeakRoom {
     client: WeakClient,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl WeakRoom {
     /// Create a new `WeakRoom` given its weak components.
-    pub fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
+    pub fn new(client: WeakClient, room_id: RoomId) -> Self {
         Self { client, room_id }
     }
 
@@ -4632,7 +4624,7 @@ pub struct Invite {
     /// The user ID of who sent the invite.
     ///
     /// This is useful if `Self::inviter` is `None`.
-    pub inviter_id: OwnedUserId,
+    pub inviter_id: UserId,
 
     /// Who sent the invite.
     ///
@@ -4651,11 +4643,11 @@ enum InvitationError {
 #[non_exhaustive]
 pub struct Receipts {
     /// Fully-read marker (room account data).
-    pub fully_read: Option<OwnedEventId>,
+    pub fully_read: Option<EventId>,
     /// Read receipt (public ephemeral room event).
-    pub public_read_receipt: Option<OwnedEventId>,
+    pub public_read_receipt: Option<EventId>,
     /// Read receipt (private ephemeral room event).
-    pub private_read_receipt: Option<OwnedEventId>,
+    pub private_read_receipt: Option<EventId>,
 }
 
 impl Receipts {
@@ -4672,7 +4664,7 @@ impl Receipts {
     ///
     /// Note that this is technically not a receipt as it is persisted in the
     /// room account data.
-    pub fn fully_read_marker(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+    pub fn fully_read_marker(mut self, event_id: impl Into<Option<EventId>>) -> Self {
         self.fully_read = event_id.into();
         self
     }
@@ -4682,7 +4674,7 @@ impl Receipts {
     ///
     /// This is used to reset the unread messages/notification count and
     /// advertise to other users the last event that the user has likely seen.
-    pub fn public_read_receipt(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+    pub fn public_read_receipt(mut self, event_id: impl Into<Option<EventId>>) -> Self {
         self.public_read_receipt = event_id.into();
         self
     }
@@ -4690,7 +4682,7 @@ impl Receipts {
     /// Set the last event presented to the user and don't forward it.
     ///
     /// This is used to reset the unread messages/notification count.
-    pub fn private_read_receipt(mut self, event_id: impl Into<Option<OwnedEventId>>) -> Self {
+    pub fn private_read_receipt(mut self, event_id: impl Into<Option<EventId>>) -> Self {
         self.private_read_receipt = event_id.into();
         self
     }
@@ -4720,7 +4712,7 @@ pub enum ParentSpace {
     Illegitimate(Room),
     /// The room recognizes the given id as its parent room, but we cannot check
     /// whether the parent recognizes it as its child.
-    Unverifiable(OwnedRoomId),
+    Unverifiable(RoomId),
 }
 
 /// The score to rate an inappropriate content.

@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use ruma::OwnedRoomId;
+use ruma::RoomId;
 use tantivy::{
     Index,
     directory::{MmapDirectory, error::OpenDirectoryError},
@@ -19,15 +19,12 @@ pub struct RoomIndexBuilder {}
 
 impl RoomIndexBuilder {
     /// Make an index on disk
-    pub fn new_on_disk<R: Into<OwnedRoomId>>(
-        path: PathBuf,
-        room_id: R,
-    ) -> PhysicalRoomIndexBuilder {
+    pub fn new_on_disk<R: Into<RoomId>>(path: PathBuf, room_id: R) -> PhysicalRoomIndexBuilder {
         PhysicalRoomIndexBuilder::new(path, room_id.into())
     }
 
     /// Make an index in memory
-    pub fn new_in_memory<R: Into<OwnedRoomId>>(room_id: R) -> MemoryRoomIndexBuilder {
+    pub fn new_in_memory<R: Into<RoomId>>(room_id: R) -> MemoryRoomIndexBuilder {
         MemoryRoomIndexBuilder::new(room_id.into())
     }
 }
@@ -35,12 +32,12 @@ impl RoomIndexBuilder {
 /// Incomplete builder for [`RoomIndex`] on disk.
 pub struct PhysicalRoomIndexBuilder {
     path: PathBuf,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl PhysicalRoomIndexBuilder {
     /// Make an new [`PhysicalRoomIndexBuilder`]
-    pub(crate) fn new(path: PathBuf, room_id: OwnedRoomId) -> PhysicalRoomIndexBuilder {
+    pub(crate) fn new(path: PathBuf, room_id: RoomId) -> PhysicalRoomIndexBuilder {
         PhysicalRoomIndexBuilder { path, room_id }
     }
 
@@ -65,7 +62,7 @@ impl PhysicalRoomIndexBuilder {
 /// Complete builder for [`RoomIndex`] on disk.
 pub struct UnencryptedPhysicalRoomIndexBuilder {
     path: PathBuf,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl UnencryptedPhysicalRoomIndexBuilder {
@@ -96,7 +93,7 @@ impl UnencryptedPhysicalRoomIndexBuilder {
 /// Complete builder for [`RoomIndex`] on disk.
 pub struct EncryptedPhysicalRoomIndexBuilder {
     path: PathBuf,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     password: Zeroizing<String>,
 }
 
@@ -128,12 +125,12 @@ impl EncryptedPhysicalRoomIndexBuilder {
 
 /// Builder for [`RoomIndex`] in memory
 pub struct MemoryRoomIndexBuilder {
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl MemoryRoomIndexBuilder {
     /// Make an new [`MemoryIndexBuilder`]
-    pub(crate) fn new(room_id: OwnedRoomId) -> MemoryRoomIndexBuilder {
+    pub(crate) fn new(room_id: RoomId) -> MemoryRoomIndexBuilder {
         MemoryRoomIndexBuilder { room_id }
     }
 

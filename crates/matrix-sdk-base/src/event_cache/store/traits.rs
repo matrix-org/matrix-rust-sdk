@@ -23,7 +23,7 @@ use matrix_sdk_common::{
         RawChunk, Update,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, RoomId, events::relation::RelationType};
 
 use super::EventCacheStoreError;
 use crate::event_cache::{Event, Gap};
@@ -119,8 +119,8 @@ pub trait EventCacheStore: AsyncTraitDeps {
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        events: Vec<OwnedEventId>,
-    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
+        events: Vec<EventId>,
+    ) -> Result<Vec<(EventId, Position)>, Self::Error>;
 
     /// Find an event by its ID in a room.
     ///
@@ -259,8 +259,8 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        events: Vec<OwnedEventId>,
-    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+        events: Vec<EventId>,
+    ) -> Result<Vec<(EventId, Position)>, Self::Error> {
         self.0.filter_duplicated_events(linked_chunk_id, events).await.map_err(Into::into)
     }
 

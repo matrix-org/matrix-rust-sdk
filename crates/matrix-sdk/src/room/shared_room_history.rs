@@ -18,7 +18,7 @@ use matrix_sdk_base::{
     crypto::{store::types::Changes, types::events::room_key_bundle::RoomKeyBundleContent},
     media::{MediaFormat, MediaRequestParameters},
 };
-use ruma::{OwnedUserId, UserId, events::room::MediaSource};
+use ruma::{UserId, events::room::MediaSource};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{Error, Result, Room};
@@ -28,7 +28,7 @@ use crate::{Error, Result, Room};
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id()))]
-pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
+pub(super) async fn share_room_history(room: &Room, user_id: UserId) -> Result<()> {
     let client = &room.client;
 
     // 0. We can only share room history if our user has set up cross signing

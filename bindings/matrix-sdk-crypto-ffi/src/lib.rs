@@ -54,9 +54,9 @@ pub use responses::{
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
 use ruma::{
-    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
-    DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId,
-    RoomId, SecondsSinceUnixEpoch, UserId,
+    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility, DeviceId,
+    DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, RoomId, SecondsSinceUnixEpoch,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -248,7 +248,7 @@ async fn migrate_data(
     listener(processed_steps, total_steps);
 
     let user_id = parse_user_id(&data.account.user_id)?;
-    let device_id: OwnedDeviceId = data.account.device_id.into();
+    let device_id: DeviceId = data.account.device_id.into();
 
     let account = Account::from_libolm_pickle(&data.account.pickle, &data.pickle_key)?;
     let pickle = account.pickle();
@@ -395,7 +395,7 @@ async fn migrate_session_data(
     let processed_steps = 0;
 
     let user_id = UserId::parse(data.user_id)?;
-    let device_id: OwnedDeviceId = data.device_id.into();
+    let device_id: DeviceId = data.device_id.into();
 
     let identity_keys = IdentityKeys {
         ed25519: Ed25519PublicKey::from_base64(&data.ed25519_key)?,
@@ -425,8 +425,8 @@ fn collect_sessions(
     total_steps: usize,
     listener: &dyn Fn(usize, usize),
     pickle_key: &[u8],
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
+    user_id: UserId,
+    device_id: DeviceId,
     identity_keys: Arc<IdentityKeys>,
     session_pickles: Vec<PickledSession>,
     group_session_pickles: Vec<PickledInboundGroupSession>,
@@ -949,7 +949,7 @@ impl From<RoomSettings> for RustRoomSettings {
     }
 }
 
-fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
+fn parse_user_id(user_id: &str) -> Result<UserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 

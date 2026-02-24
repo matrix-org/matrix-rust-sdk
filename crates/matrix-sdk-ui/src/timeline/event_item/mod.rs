@@ -26,8 +26,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::deserialized_responses::ShieldStateCode;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, TransactionId, UserId,
     events::{AnySyncTimelineEvent, receipt::Receipt, room::message::MessageType},
     room_version_rules::RedactionRules,
     serde::Raw,
@@ -63,14 +62,14 @@ pub(super) use self::{
 #[derive(Clone, Debug)]
 pub struct EventTimelineItem {
     /// The sender of the event.
-    pub(super) sender: OwnedUserId,
+    pub(super) sender: UserId,
     /// The sender's profile of the event.
     pub(super) sender_profile: TimelineDetails<Profile>,
     /// If the keys used to decrypt this event were shared-on-invite as part of
     /// an [MSC4268] key bundle, the user ID of the forwarder.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    pub(super) forwarder: Option<OwnedUserId>,
+    pub(super) forwarder: Option<UserId>,
     /// If the keys used to decrypt this event were shared-on-invite as part of
     /// an [MSC4268] key bundle, the forwarder's profile, if present.
     ///
@@ -101,9 +100,9 @@ pub(super) enum EventTimelineItemKind {
 pub enum TimelineEventItemId {
     /// The item is local, identified by its transaction id (to be used in
     /// subsequent requests).
-    TransactionId(OwnedTransactionId),
+    TransactionId(TransactionId),
     /// The item is remote, identified by its event id.
-    EventId(OwnedEventId),
+    EventId(EventId),
 }
 
 /// An handle that usually allows to perform an action on a timeline event.
@@ -119,9 +118,9 @@ pub(crate) enum TimelineItemHandle<'a> {
 impl EventTimelineItem {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        sender: OwnedUserId,
+        sender: UserId,
         sender_profile: TimelineDetails<Profile>,
-        forwarder: Option<OwnedUserId>,
+        forwarder: Option<UserId>,
         forwarder_profile: Option<TimelineDetails<Profile>>,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
@@ -269,8 +268,8 @@ impl EventTimelineItem {
     /// read receipt.
     ///
     /// Note that currently this ignores threads.
-    pub fn read_receipts(&self) -> &IndexMap<OwnedUserId, Receipt> {
-        static EMPTY_RECEIPTS: LazyLock<IndexMap<OwnedUserId, Receipt>> =
+    pub fn read_receipts(&self) -> &IndexMap<UserId, Receipt> {
+        static EMPTY_RECEIPTS: LazyLock<IndexMap<UserId, Receipt>> =
             LazyLock::new(Default::default);
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_RECEIPTS,
@@ -610,7 +609,7 @@ pub struct Profile {
     pub display_name_ambiguous: bool,
 
     /// The avatar URL, if set.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
 }
 
 /// Some details of an [`EventTimelineItem`] that may require server requests
@@ -677,7 +676,7 @@ pub enum ReactionStatus {
     /// It's a remote reaction to a remote event.
     ///
     /// The event id is that of the reaction event (not the target event).
-    RemoteToRemote(OwnedEventId),
+    RemoteToRemote(EventId),
 }
 
 /// Information about a single reaction stored in [`ReactionsByKeyBySender`].
@@ -693,10 +692,10 @@ pub struct ReactionInfo {
 /// This representation makes sure that a given sender has sent at most one
 /// reaction for an event.
 #[derive(Debug, Clone, Default)]
-pub struct ReactionsByKeyBySender(IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>);
+pub struct ReactionsByKeyBySender(IndexMap<String, IndexMap<UserId, ReactionInfo>>);
 
 impl Deref for ReactionsByKeyBySender {
-    type Target = IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>;
+    type Target = IndexMap<String, IndexMap<UserId, ReactionInfo>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

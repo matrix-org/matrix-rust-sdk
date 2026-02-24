@@ -21,7 +21,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
-    DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
+    DeviceId, OneTimeKeyId, TransactionId, UserId,
     api::client::keys::{
         claim_keys,
         get_keys::{self, v3::Response as KeysQueryResponse},
@@ -52,7 +52,7 @@ use crate::{
 };
 
 /// These keys need to be periodically uploaded to the server.
-type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>;
+type OneTimeKeys = BTreeMap<OneTimeKeyId, Raw<OneTimeKey>>;
 
 fn alice_device_id() -> &'static DeviceId {
     device_id!("JLAFKJWSCS")
@@ -289,7 +289,7 @@ pub async fn build_session_for_pair(
     alice: OlmMachine,
     bob: OlmMachine,
     mut one_time_keys: BTreeMap<
-        ruma::OwnedKeyId<ruma::OneTimeKeyAlgorithm, ruma::OneTimeKeyName>,
+        ruma::KeyId<ruma::OneTimeKeyAlgorithm, ruma::OneTimeKeyName>,
         Raw<OneTimeKey>,
     >,
 ) -> (OlmMachine, OlmMachine) {
@@ -356,7 +356,7 @@ pub async fn create_session(
     machine: &OlmMachine,
     user_id: &UserId,
     device_id: &DeviceId,
-    key_id: OwnedOneTimeKeyId,
+    key_id: OneTimeKeyId,
     one_time_key: Raw<OneTimeKey>,
 ) {
     let one_time_keys = BTreeMap::from([(

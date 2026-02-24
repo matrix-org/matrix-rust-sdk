@@ -21,8 +21,8 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, MxcUri, RoomId, TransactionId,
+    UserId,
     canonical_json::{RedactedBecause, redact},
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
@@ -55,9 +55,9 @@ use crate::{
 #[derive(Debug, Default)]
 #[allow(clippy::type_complexity)]
 struct MemoryStoreInner {
-    recently_visited_rooms: HashMap<OwnedUserId, Vec<OwnedRoomId>>,
-    composer_drafts: HashMap<(OwnedRoomId, Option<OwnedEventId>), ComposerDraft>,
-    user_avatar_url: HashMap<OwnedUserId, OwnedMxcUri>,
+    recently_visited_rooms: HashMap<UserId, Vec<RoomId>>,
+    composer_drafts: HashMap<(RoomId, Option<EventId>), ComposerDraft>,
+    user_avatar_url: HashMap<UserId, MxcUri>,
     sync_token: Option<String>,
     supported_versions: Option<TtlStoreValue<SupportedVersionsResponse>>,
     well_known: Option<TtlStoreValue<Option<WellKnownResponse>>>,
@@ -65,31 +65,28 @@ struct MemoryStoreInner {
     utd_hook_manager_data: Option<GrowableBloom>,
     one_time_key_uploaded_error: bool,
     account_data: HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
-    profiles: HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>,
-    display_names: HashMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
-    members: HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>,
-    room_info: HashMap<OwnedRoomId, RoomInfo>,
-    room_state:
-        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<AnySyncStateEvent>>>>,
+    profiles: HashMap<RoomId, HashMap<UserId, MinimalRoomMemberEvent>>,
+    display_names: HashMap<RoomId, HashMap<DisplayName, BTreeSet<UserId>>>,
+    members: HashMap<RoomId, HashMap<UserId, MembershipState>>,
+    room_info: HashMap<RoomId, RoomInfo>,
+    room_state: HashMap<RoomId, HashMap<StateEventType, HashMap<String, Raw<AnySyncStateEvent>>>>,
     room_account_data:
-        HashMap<OwnedRoomId, HashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
+        HashMap<RoomId, HashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
     stripped_room_state:
-        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<AnyStrippedStateEvent>>>>,
-    stripped_members: HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>,
-    presence: HashMap<OwnedUserId, Raw<PresenceEvent>>,
-    room_user_receipts: HashMap<
-        OwnedRoomId,
-        HashMap<(String, Option<String>), HashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
-    >,
+        HashMap<RoomId, HashMap<StateEventType, HashMap<String, Raw<AnyStrippedStateEvent>>>>,
+    stripped_members: HashMap<RoomId, HashMap<UserId, MembershipState>>,
+    presence: HashMap<UserId, Raw<PresenceEvent>>,
+    room_user_receipts:
+        HashMap<RoomId, HashMap<(String, Option<String>), HashMap<UserId, (EventId, Receipt)>>>,
     room_event_receipts: HashMap<
-        OwnedRoomId,
-        HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
+        RoomId,
+        HashMap<(String, Option<String>), HashMap<EventId, HashMap<UserId, Receipt>>>,
     >,
     custom: HashMap<Vec<u8>, Vec<u8>>,
-    send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
-    dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
-    seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
-    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
+    send_queue_events: BTreeMap<RoomId, Vec<QueuedRequest>>,
+    dependent_send_queue_events: BTreeMap<RoomId, Vec<DependentQueuedRequest>>,
+    seen_knock_requests: BTreeMap<RoomId, BTreeMap<EventId, UserId>>,
+    thread_subscriptions: BTreeMap<RoomId, BTreeMap<EventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
 }
 
@@ -113,7 +110,7 @@ impl MemoryStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         self.inner
             .read()
             .unwrap()
@@ -130,7 +127,7 @@ impl MemoryStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Option<Vec<(OwnedUserId, Receipt)>> {
+    ) -> Option<Vec<(UserId, Receipt)>> {
         Some(
             self.inner
                 .read()
@@ -479,7 +476,7 @@ impl StateStore for MemoryStore {
             }
         }
 
-        let make_redaction_rules = |room_info: &HashMap<OwnedRoomId, RoomInfo>, room_id| {
+        let make_redaction_rules = |room_info: &HashMap<RoomId, RoomInfo>, room_id| {
             room_info.get(room_id).map(|info| info.room_version_rules_or_default()).unwrap_or_else(|| {
                 warn!(
                     ?room_id,
@@ -496,7 +493,7 @@ impl StateStore for MemoryStore {
             if let Some(room) = inner.room_state.get_mut(room_id) {
                 for ref_room_mu in room.values_mut() {
                     for raw_evt in ref_room_mu.values_mut() {
-                        if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id")
+                        if let Ok(Some(event_id)) = raw_evt.get_field::<EventId>("event_id")
                             && let Some(redaction) = redactions.get(&event_id)
                         {
                             let redacted = redact(
@@ -523,10 +520,7 @@ impl StateStore for MemoryStore {
         Ok(self.inner.read().unwrap().presence.get(user_id).cloned())
     }
 
-    async fn get_presence_events(
-        &self,
-        user_ids: &[OwnedUserId],
-    ) -> Result<Vec<Raw<PresenceEvent>>> {
+    async fn get_presence_events(&self, user_ids: &[UserId]) -> Result<Vec<Raw<PresenceEvent>>> {
         let presence = &self.inner.read().unwrap().presence;
         Ok(user_ids.iter().filter_map(|user_id| presence.get(user_id).cloned()).collect())
     }
@@ -550,7 +544,7 @@ impl StateStore for MemoryStore {
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         fn get_events<T>(
-            state_map: &HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<T>>>>,
+            state_map: &HashMap<RoomId, HashMap<StateEventType, HashMap<String, Raw<T>>>>,
             room_id: &RoomId,
             event_type: &StateEventType,
             to_enum: fn(Raw<T>) -> RawAnySyncOrStrippedState,
@@ -623,7 +617,7 @@ impl StateStore for MemoryStore {
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
+        user_ids: &'a [UserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
         if user_ids.is_empty() {
             return Ok(BTreeMap::new());
@@ -645,17 +639,17 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>> {
+    ) -> Result<Vec<UserId>> {
         /// Get the user IDs for the given room with the given memberships and
         /// stripped state.
         ///
         /// If `memberships` is empty, returns all user IDs in the room with the
         /// given stripped state.
         fn get_user_ids_inner(
-            members: &HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>,
+            members: &HashMap<RoomId, HashMap<UserId, MembershipState>>,
             room_id: &RoomId,
             memberships: RoomMemberships,
-        ) -> Vec<OwnedUserId> {
+        ) -> Vec<UserId> {
             members
                 .get(room_id)
                 .map(|members| {
@@ -695,7 +689,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
-    ) -> Result<BTreeSet<OwnedUserId>> {
+    ) -> Result<BTreeSet<UserId>> {
         Ok(self
             .inner
             .read()
@@ -710,7 +704,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
-    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<UserId>>> {
         if display_names.is_empty() {
             return Ok(HashMap::new());
         }
@@ -751,7 +745,7 @@ impl StateStore for MemoryStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+    ) -> Result<Option<(EventId, Receipt)>> {
         Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
     }
 
@@ -761,7 +755,7 @@ impl StateStore for MemoryStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+    ) -> Result<Vec<(UserId, Receipt)>> {
         Ok(self
             .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
             .unwrap_or_default())
@@ -802,7 +796,7 @@ impl StateStore for MemoryStore {
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
@@ -903,7 +897,7 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
-    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<RoomId>, Self::Error> {
         Ok(self.inner.read().unwrap().send_queue_events.keys().cloned().collect())
     }
 

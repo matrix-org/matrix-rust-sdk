@@ -18,7 +18,7 @@ use oauth2::{
     AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, basic::BasicClient as OAuthClient,
 };
 use ruma::{
-    OwnedDeviceId, UserId, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
+    DeviceId, UserId, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
 };
 use tracing::{info, instrument};
 use url::Url;
@@ -35,7 +35,7 @@ pub struct OAuthAuthCodeUrlBuilder {
     oauth: OAuth,
     registration_data: Option<ClientRegistrationData>,
     scopes: Vec<Scope>,
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     redirect_uri: Url,
     prompt: Option<Vec<Prompt>>,
     login_hint: Option<String>,
@@ -45,7 +45,7 @@ impl OAuthAuthCodeUrlBuilder {
     pub(super) fn new(
         oauth: OAuth,
         scopes: Vec<Scope>,
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         redirect_uri: Url,
         registration_data: Option<ClientRegistrationData>,
     ) -> Self {

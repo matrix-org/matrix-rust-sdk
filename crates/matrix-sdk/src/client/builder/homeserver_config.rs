@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::{
-    OwnedServerName, ServerName,
+    ServerName,
     api::client::discovery::{discover_homeserver, get_supported_versions},
 };
 use tracing::debug;
@@ -31,7 +31,7 @@ pub(super) enum HomeserverConfig {
     HomeserverUrl(String),
 
     /// A server name, with the protocol put apart.
-    ServerName { server: OwnedServerName, protocol: UrlScheme },
+    ServerName { server: ServerName, protocol: UrlScheme },
 
     /// A server name with or without the protocol (it will fallback to `https`
     /// if absent), or a homeserver URL.
@@ -215,7 +215,7 @@ pub(super) async fn get_supported_versions(
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::OwnedServerName;
+    use ruma::ServerName;
     use serde_json::json;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
@@ -259,7 +259,7 @@ mod tests {
             .await;
 
         let result = HomeserverConfig::ServerName {
-            server: OwnedServerName::try_from(server.address().to_string()).unwrap(),
+            server: ServerName::try_from(server.address().to_string()).unwrap(),
             protocol: UrlScheme::Http,
         }
         .discover(&http_client)

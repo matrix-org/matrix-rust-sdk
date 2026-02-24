@@ -20,8 +20,8 @@ use std::{
 
 use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
+    DeviceId, OneTimeKeyAlgorithm, OneTimeKeyId, SecondsSinceUnixEpoch, ServerName, TransactionId,
+    UserId,
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
@@ -55,24 +55,24 @@ pub(crate) struct SessionManager {
     /// According to the doc on [`crate::OlmMachine::get_missing_sessions`],
     /// there should only be one such request active at a time, so we only need
     /// to keep a record of the most recent.
-    current_key_claim_request: Arc<StdRwLock<Option<(OwnedTransactionId, KeysClaimRequest)>>>,
+    current_key_claim_request: Arc<StdRwLock<Option<(TransactionId, KeysClaimRequest)>>>,
 
     /// A map of user/devices that we need to automatically claim keys for.
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
-    wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
+    wedged_devices: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>>,
+    outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<TransactionId, OutgoingRequest>>>,
 
     /// Servers that have previously appeared in the `failures` section of a
     /// `/keys/claim` response.
     ///
     /// See also [`crate::identities::IdentityManager::failures`].
-    failures: FailuresCache<OwnedServerName>,
+    failures: FailuresCache<ServerName>,
 
-    failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<OwnedDeviceId>>>>,
+    failed_devices: Arc<StdRwLock<BTreeMap<UserId, FailuresCache<DeviceId>>>>,
 }
 
 impl SessionManager {
@@ -80,7 +80,7 @@ impl SessionManager {
     const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
     pub fn new(
-        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -204,7 +204,7 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(TransactionId, KeysClaimRequest)>> {
         let mut missing_session_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
         let mut timed_out_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
@@ -220,8 +220,8 @@ impl SessionManager {
 
         #[derive(Debug, Default)]
         struct UserFailedDeviceInfo {
-            non_olm_devices: BTreeMap<OwnedDeviceId, Vec<EventEncryptionAlgorithm>>,
-            bad_key_devices: BTreeSet<OwnedDeviceId>,
+            non_olm_devices: BTreeMap<DeviceId, Vec<EventEncryptionAlgorithm>>,
+            bad_key_devices: BTreeSet<DeviceId>,
         }
 
         let mut failed_devices_by_user: BTreeMap<_, UserFailedDeviceInfo> = BTreeMap::new();
@@ -336,11 +336,8 @@ impl SessionManager {
     fn handle_otk_exhaustion_failure(
         &self,
         request_id: &TransactionId,
-        failed_servers: &BTreeSet<OwnedServerName>,
-        one_time_keys: &BTreeMap<
-            &OwnedUserId,
-            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedOneTimeKeyId>>,
-        >,
+        failed_servers: &BTreeSet<ServerName>,
+        one_time_keys: &BTreeMap<&UserId, BTreeMap<&DeviceId, BTreeSet<&OneTimeKeyId>>>,
     ) {
         // First check that the response is for the request we were expecting.
         let request = {
@@ -591,9 +588,8 @@ mod tests {
     use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
-        DeviceId, OwnedUserId, UserId,
-        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
-        owned_server_name, user_id,
+        DeviceId, UserId, api::client::keys::claim_keys::v3::Response as KeyClaimResponse,
+        device_id, owned_server_name, user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -784,7 +780,7 @@ mod tests {
         let (manager, identity_manager) = session_manager_test_helper().await;
 
         // We start tracking Bob's devices.
-        let other_user_id = OwnedUserId::try_from("@bob:example.com").unwrap();
+        let other_user_id = UserId::try_from("@bob:example.com").unwrap();
         {
             let cache = manager.store.cache().await.unwrap();
             identity_manager

@@ -9,8 +9,7 @@ use matrix_sdk::{
     Client, Room, RoomState,
     locks::Mutex,
     ruma::{
-        OwnedEventId, OwnedRoomId, RoomId, UserId,
-        api::client::receipt::create_receipt::v3::ReceiptType,
+        EventId, RoomId, UserId, api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent,
     },
 };
@@ -48,12 +47,12 @@ enum Mode {
 
 enum TimelineKind {
     Room {
-        room: Option<OwnedRoomId>,
+        room: Option<RoomId>,
     },
 
     Thread {
-        room: OwnedRoomId,
-        thread_root: OwnedEventId,
+        room: RoomId,
+        thread_root: EventId,
         /// The threaded-focused timeline for this thread.
         timeline: Arc<OnceCell<Arc<Timeline>>>,
         /// Items in the thread timeline (to avoid recomputing them every single
@@ -97,7 +96,7 @@ impl RoomView {
         }
     }
 
-    fn switch_to_room_timeline(&mut self, room: Option<OwnedRoomId>) {
+    fn switch_to_room_timeline(&mut self, room: Option<RoomId>) {
         match &mut self.kind {
             TimelineKind::Room { room: prev_room } => {
                 self.kind = TimelineKind::Room { room: room.or(prev_room.take()) };
@@ -342,7 +341,7 @@ impl RoomView {
         }
     }
 
-    pub fn set_selected_room(&mut self, room_id: Option<OwnedRoomId>) {
+    pub fn set_selected_room(&mut self, room_id: Option<RoomId>) {
         if let Some(room_id) = room_id.as_deref() {
             let maybe_room = self.client.get_room(room_id);
 

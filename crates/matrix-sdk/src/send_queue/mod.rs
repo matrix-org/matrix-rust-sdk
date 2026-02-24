@@ -158,8 +158,7 @@ use matrix_sdk_base::{
 use matrix_sdk_common::locks::Mutex as SyncMutex;
 use mime::Mime;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
         reaction::ReactionEventContent,
@@ -307,7 +306,7 @@ impl SendQueue {
     /// Get local echoes from all room send queues.
     pub async fn local_echoes(
         &self,
-    ) -> Result<BTreeMap<OwnedRoomId, Vec<LocalEcho>>, RoomSendQueueError> {
+    ) -> Result<BTreeMap<RoomId, Vec<LocalEcho>>, RoomSendQueueError> {
         let room_ids =
             self.client.state_store().load_rooms_with_unsent_requests().await.unwrap_or_else(
                 |err| {
@@ -316,7 +315,7 @@ impl SendQueue {
                 },
             );
 
-        let mut local_echoes: BTreeMap<OwnedRoomId, Vec<LocalEcho>> = BTreeMap::new();
+        let mut local_echoes: BTreeMap<RoomId, Vec<LocalEcho>> = BTreeMap::new();
 
         for room_id in room_ids {
             if let Some(room) = self.client.get_room(&room_id) {
@@ -357,7 +356,7 @@ struct QueueThumbnailInfo {
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
     /// For which room is the send queue failing?
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The error the room has ran into, when trying to send a request.
     pub error: Arc<crate::Error>,
@@ -380,7 +379,7 @@ impl Client {
 
 pub(super) struct SendQueueData {
     /// Mapping of room to their unique send queue.
-    rooms: RwLock<BTreeMap<OwnedRoomId, RoomSendQueue>>,
+    rooms: RwLock<BTreeMap<RoomId, RoomSendQueue>>,
 
     /// Is the whole mechanism enabled or disabled?
     ///
@@ -463,7 +462,7 @@ impl RoomSendQueue {
         global_error_sender: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
         client: &Client,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         report_media_upload_progress: Arc<AtomicBool>,
     ) -> Self {
         let (update_sender, _) = broadcast::channel(32);
@@ -1171,7 +1170,7 @@ struct RoomSendQueueInner {
 /// Information about a request being sent right this moment.
 struct BeingSentInfo {
     /// Transaction id of the thing being sent.
-    transaction_id: OwnedTransactionId,
+    transaction_id: TransactionId,
 
     /// For an upload request, a trigger to cancel the upload before it
     /// completes.
@@ -1242,7 +1241,7 @@ struct QueueStorage {
     store: StoreLock,
 
     /// To which room is this storage related.
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// In-memory mapping of media transaction IDs to thumbnail sizes for the
     /// purpose of progress reporting.
@@ -1256,7 +1255,7 @@ struct QueueStorage {
     /// For galleries, some gallery items might not have a thumbnail while
     /// others do. Since we access the thumbnails by their index within the
     /// gallery, the vector needs to hold optional usize's.
-    thumbnail_file_sizes: Arc<SyncMutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
+    thumbnail_file_sizes: Arc<SyncMutex<HashMap<TransactionId, Vec<Option<usize>>>>>,
 }
 
 impl QueueStorage {
@@ -1267,7 +1266,7 @@ impl QueueStorage {
     const HIGH_PRIORITY: usize = 10;
 
     /// Create a new queue for queuing requests to be sent later.
-    fn new(client: WeakClient, room: OwnedRoomId) -> Self {
+    fn new(client: WeakClient, room: RoomId) -> Self {
         Self {
             room_id: room,
             store: StoreLock { client, being_sent: Default::default() },
@@ -1282,7 +1281,7 @@ impl QueueStorage {
         &self,
         request: QueuedRequestKind,
         created_at: MilliSecondsSinceUnixEpoch,
-    ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
+    ) -> Result<TransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
         self.store
@@ -1525,9 +1524,9 @@ impl QueueStorage {
         &self,
         event: RoomMessageEventContent,
         content_type: Mime,
-        send_event_txn: OwnedTransactionId,
+        send_event_txn: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
-        upload_file_txn: OwnedTransactionId,
+        upload_file_txn: TransactionId,
         file_media_request: MediaRequestParameters,
         thumbnail: Option<QueueThumbnailInfo>,
     ) -> Result<(), RoomSendQueueStorageError> {
@@ -1578,7 +1577,7 @@ impl QueueStorage {
     async fn push_gallery(
         &self,
         event: RoomMessageEventContent,
-        send_event_txn: OwnedTransactionId,
+        send_event_txn: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         item_queue_infos: Vec<GalleryItemQueueInfo>,
     ) -> Result<(), RoomSendQueueStorageError> {
@@ -1710,9 +1709,9 @@ impl QueueStorage {
         &self,
         store: &DynStateStore,
         content_type: &Mime,
-        send_event_txn: OwnedTransactionId,
+        send_event_txn: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
-        upload_file_txn: OwnedTransactionId,
+        upload_file_txn: TransactionId,
         file_media_request: MediaRequestParameters,
         thumbnail: Option<QueueThumbnailInfo>,
     ) -> Result<Option<FinishUploadThumbnailInfo>, RoomSendQueueStorageError> {
@@ -2298,7 +2297,7 @@ impl QueueStorage {
 /// Metadata needed for pushing gallery item uploads onto the send queue.
 struct GalleryItemQueueInfo {
     content_type: Mime,
-    upload_file_txn: OwnedTransactionId,
+    upload_file_txn: TransactionId,
     file_media_request: MediaRequestParameters,
     thumbnail: Option<QueueThumbnailInfo>,
 }
@@ -2325,7 +2324,7 @@ pub enum LocalEchoContent {
         /// A handle to manipulate the sending of the reaction.
         send_handle: SendReactionHandle,
         /// The local echo which has been reacted to.
-        applies_to: OwnedTransactionId,
+        applies_to: TransactionId,
     },
 }
 
@@ -2334,7 +2333,7 @@ pub enum LocalEchoContent {
 #[derive(Clone, Debug)]
 pub struct LocalEcho {
     /// Transaction id used to identify the associated request.
-    pub transaction_id: OwnedTransactionId,
+    pub transaction_id: TransactionId,
     /// The content for the local echo.
     pub content: LocalEchoContent,
 }
@@ -2353,13 +2352,13 @@ pub enum RoomSendQueueUpdate {
     /// before sending.
     CancelledLocalEvent {
         /// Transaction id used to identify this event.
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
     },
 
     /// A local event's content has been replaced with something else.
     ReplacedLocalEvent {
         /// Transaction id used to identify this event.
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
 
         /// The new content replacing the previous one.
         new_content: SerializableEventContent,
@@ -2371,7 +2370,7 @@ pub enum RoomSendQueueUpdate {
     /// will be disabled after this happens, and must be manually re-enabled.
     SendError {
         /// Transaction id used to identify this event.
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         /// Error received while sending the event.
         error: Arc<crate::Error>,
         /// Whether the error is considered recoverable or not.
@@ -2385,23 +2384,23 @@ pub enum RoomSendQueueUpdate {
     /// The event has been unwedged and sending is now being retried.
     RetryEvent {
         /// Transaction id used to identify this event.
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
     },
 
     /// The event has been sent to the server, and the query returned
     /// successfully.
     SentEvent {
         /// Transaction id used to identify this event.
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         /// Received event id from the send response.
-        event_id: OwnedEventId,
+        event_id: EventId,
     },
 
     /// A media upload (consisting of a file and possibly a thumbnail) has made
     /// progress.
     MediaUpload {
         /// The media event this uploaded media relates to.
-        related_to: OwnedTransactionId,
+        related_to: TransactionId,
 
         /// The final media source for the file if it has finished uploading.
         file: Option<MediaSource>,
@@ -2418,14 +2417,14 @@ pub enum RoomSendQueueUpdate {
     },
 }
 
-/// A [`RoomSendQueueUpdate`] with an associated [`OwnedRoomId`].
+/// A [`RoomSendQueueUpdate`] with an associated [`RoomId`].
 ///
 /// This is used by [`SendQueue::subscribe`] to get a single channel to receive
 /// updates for all [`RoomSendQueue`]s.
 #[derive(Clone, Debug)]
 pub struct SendQueueUpdate {
     /// The room where the update happened.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The update for this room.
     pub update: RoomSendQueueUpdate,
@@ -2510,10 +2509,10 @@ struct MediaHandles {
     /// Transaction id used when uploading the thumbnail.
     ///
     /// Optional because a media can be uploaded without a thumbnail.
-    upload_thumbnail_txn: Option<OwnedTransactionId>,
+    upload_thumbnail_txn: Option<TransactionId>,
 
     /// Transaction id used when uploading the media itself.
-    upload_file_txn: OwnedTransactionId,
+    upload_file_txn: TransactionId,
 }
 
 /// A handle to manipulate an event that was scheduled to be sent to a room.
@@ -2526,7 +2525,7 @@ pub struct SendHandle {
     ///
     /// If this is a media upload, this is the "main" transaction id, i.e. the
     /// one used to send the event, and that will be seen by observers.
-    transaction_id: OwnedTransactionId,
+    transaction_id: TransactionId,
 
     /// Additional handles for a media upload.
     media_handles: Vec<MediaHandles>,
@@ -2540,7 +2539,7 @@ impl SendHandle {
     #[cfg(test)]
     pub(crate) fn new(
         room: RoomSendQueue,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
     ) -> Self {
         Self { room, transaction_id, media_handles: vec![], created_at }
@@ -2819,7 +2818,7 @@ impl SendReactionHandle {
 fn canonicalize_dependent_requests(
     dependent: &[DependentQueuedRequest],
 ) -> Vec<DependentQueuedRequest> {
-    let mut by_txn = HashMap::<OwnedTransactionId, Vec<&DependentQueuedRequest>>::new();
+    let mut by_txn = HashMap::<TransactionId, Vec<&DependentQueuedRequest>>::new();
 
     for d in dependent {
         let prevs = by_txn.entry(d.parent_transaction_id.clone()).or_default();

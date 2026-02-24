@@ -106,7 +106,7 @@ use std::{
 
 pub use as_vector::*;
 pub use order_tracker::OrderTracker;
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, RoomId};
 use serde::{Deserialize, Serialize};
 pub use updates::*;
 
@@ -185,9 +185,9 @@ impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
 /// An identifier for a linked chunk; owned variant.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OwnedLinkedChunkId {
-    Room(OwnedRoomId),
-    Thread(OwnedRoomId, OwnedEventId),
-    PinnedEvents(OwnedRoomId),
+    Room(RoomId),
+    Thread(RoomId, EventId),
+    PinnedEvents(RoomId),
 }
 
 impl Display for OwnedLinkedChunkId {

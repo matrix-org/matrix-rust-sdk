@@ -31,7 +31,7 @@ use mime::Mime;
 #[cfg(feature = "experimental-element-recent-emojis")]
 use ruma::api::client::config::set_global_account_data::v3::Request as UpdateGlobalAccountDataRequest;
 use ruma::{
-    ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
+    ClientSecret, MxcUri, RoomId, SessionId, UInt, UserId,
     api::{
         Metadata,
         client::{
@@ -176,7 +176,7 @@ impl Account {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
+    pub async fn get_avatar_url(&self) -> Result<Option<MxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         #[allow(deprecated)] // get_profile_field fails when the response is {"avatar_url":null} 🤷‍♂️
@@ -210,7 +210,7 @@ impl Account {
     }
 
     /// Get the URL of the account's avatar, if is stored in cache.
-    pub async fn get_cached_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
+    pub async fn get_cached_avatar_url(&self) -> Result<Option<MxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data = self
             .client
@@ -312,7 +312,7 @@ impl Account {
     /// ```
     ///
     /// [`Media::upload()`]: crate::Media::upload
-    pub async fn upload_avatar(&self, content_type: &Mime, data: Vec<u8>) -> Result<OwnedMxcUri> {
+    pub async fn upload_avatar(&self, content_type: &Mime, data: Vec<u8>) -> Result<MxcUri> {
         let upload_response = self.client.media().upload(content_type, data, None).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
@@ -382,7 +382,7 @@ impl Account {
     /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
     pub async fn fetch_profile_field_of(
         &self,
-        user_id: OwnedUserId,
+        user_id: UserId,
         field: ProfileFieldName,
     ) -> Result<Option<ProfileFieldValue>> {
         let request = get_profile_field::v3::Request::new(user_id, field);
@@ -414,7 +414,7 @@ impl Account {
     /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
     pub async fn fetch_profile_field_of_static<F>(
         &self,
-        user_id: OwnedUserId,
+        user_id: UserId,
     ) -> Result<Option<F::Value>>
     where
         F: StaticProfileField
@@ -1014,7 +1014,7 @@ impl Account {
     /// * `room_id` - The room ID of the direct message room.
     /// * `user_ids` - The user IDs to be associated with this direct message
     ///   room.
-    pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
+    pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[UserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
         // This function does a read/update/store of an account data event stored on the
@@ -1127,7 +1127,7 @@ impl Account {
     }
 
     /// Retrieves the user's recently visited room list
-    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<OwnedRoomId>> {
+    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<RoomId>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data = self
             .client
@@ -1144,7 +1144,7 @@ impl Account {
     }
 
     /// Moves/inserts the given room to the front of the recently visited list
-    pub async fn track_recently_visited_room(&self, room_id: OwnedRoomId) -> Result<(), Error> {
+    pub async fn track_recently_visited_room(&self, room_id: RoomId) -> Result<(), Error> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         // Get the previously stored recently visited rooms

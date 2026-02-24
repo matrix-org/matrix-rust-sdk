@@ -5,7 +5,7 @@ use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use matrix_sdk_test::ruma_response_from_json;
 use ruma::{
-    DeviceId, OwnedUserId, TransactionId, UserId,
+    DeviceId, TransactionId, UserId,
     api::client::{
         keys::{claim_keys, get_keys},
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
@@ -182,7 +182,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let room_id = room_id!("!test:localhost");
 
     let to_device_response = ToDeviceResponse::new();
-    let users: Vec<OwnedUserId> = keys_query_response.device_keys.keys().cloned().collect();
+    let users: Vec<UserId> = keys_query_response.device_keys.keys().cloned().collect();
 
     let count = response.one_time_keys.values().fold(0, |acc, d| acc + d.len());
 
@@ -263,7 +263,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
     let response = huge_keys_query_response();
     let txn_id = TransactionId::new();
-    let users: Vec<OwnedUserId> = response.device_keys.keys().cloned().collect();
+    let users: Vec<UserId> = response.device_keys.keys().cloned().collect();
 
     let count = response.device_keys.values().fold(0, |acc, d| acc + d.len());
 

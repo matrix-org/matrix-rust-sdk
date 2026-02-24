@@ -22,8 +22,8 @@ use imbl::vector;
 use matrix_sdk::assert_next_matches_with_timeout;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
-    events::AnyMessageLikeEventContent, server_name, uint,
+    EventId, MilliSecondsSinceUnixEpoch, event_id, events::AnyMessageLikeEventContent, server_name,
+    uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
@@ -235,7 +235,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
 async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) -> (TimelineEventItemId, OwnedEventId, usize) {
+) -> (TimelineEventItemId, EventId, usize) {
     timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);

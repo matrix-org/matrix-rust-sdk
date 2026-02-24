@@ -11,7 +11,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory, stripped_state_event, sync_state_event,
 };
 use ruma::{
-    Int, OwnedRoomId, event_id,
+    Int, RoomId, event_id,
     events::{AnyStrippedStateEvent, StateEventType},
     owned_user_id, room_id,
     serde::Raw,
@@ -29,7 +29,7 @@ async fn test_notifications_joined() {
     let room_id = room_id!("!joined_room:localhost");
     let user_id = client.user_id().unwrap();
 
-    let (sender, receiver) = mpsc::channel::<(OwnedRoomId, Notification)>(10);
+    let (sender, receiver) = mpsc::channel::<(RoomId, Notification)>(10);
     let mut receiver_stream = ReceiverStream::new(receiver);
 
     client
@@ -110,7 +110,7 @@ async fn test_notifications_invite() {
     let room_id = room_id!("!invited_room:localhost");
     let user_id = client.user_id().unwrap();
 
-    let (sender, receiver) = mpsc::channel::<(OwnedRoomId, Notification)>(10);
+    let (sender, receiver) = mpsc::channel::<(RoomId, Notification)>(10);
     let mut receiver_stream = ReceiverStream::new(receiver);
 
     client

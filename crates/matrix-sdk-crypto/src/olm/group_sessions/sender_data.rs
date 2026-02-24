@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, fmt};
 
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, UserId};
 use serde::{Deserialize, Deserializer, Serialize, de, de::Visitor};
 use tracing::error;
 use vodozemac::Ed25519PublicKey;
@@ -29,12 +29,12 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct KnownSenderData {
     /// The user ID of the user who established this session.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
 
     /// The device ID of the device that send the session.
     /// This is an `Option` for backwards compatibility, but we should always
     /// populate it on creation.
-    pub device_id: Option<OwnedDeviceId>,
+    pub device_id: Option<DeviceId>,
 
     /// The cross-signing key of the user who established this session.
     #[serde(
@@ -332,7 +332,7 @@ impl SenderData {
     ///
     /// For `SenderData::UnknownDevice`, we don't record any information about
     /// the owner of the sender, so returns `None`.
-    pub(crate) fn user_id(&self) -> Option<OwnedUserId> {
+    pub(crate) fn user_id(&self) -> Option<UserId> {
         match &self {
             SenderData::UnknownDevice { .. } => None,
             SenderData::DeviceInfo { device_keys, .. } => Some(device_keys.user_id.clone()),
@@ -384,8 +384,8 @@ enum SenderDataReader {
     // If we read this older variant, it gets changed to SenderUnverified or
     // SenderVerified, depending on the master_key_verified flag.
     SenderKnown {
-        user_id: OwnedUserId,
-        device_id: Option<OwnedDeviceId>,
+        user_id: UserId,
+        device_id: Option<DeviceId>,
         master_key: Box<Ed25519PublicKey>,
         master_key_verified: bool,
     },

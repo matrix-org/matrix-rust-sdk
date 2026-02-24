@@ -16,7 +16,7 @@
 
 use as_variant::as_variant;
 use ruma::{
-    OwnedEventId, UserId,
+    EventId, UserId,
     events::{
         AnySyncTimelineEvent,
         room::{
@@ -37,7 +37,7 @@ use super::{EventSource, Room};
 #[derive(Debug)]
 pub struct Reply {
     /// The event ID of the event to reply to.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
     /// Whether to enforce a thread relation.
     pub enforce_thread: EnforceThread,
 }
@@ -150,7 +150,7 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedEventId, event_id,
+        EventId, event_id,
         events::{
             AnySyncTimelineEvent,
             room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
@@ -165,7 +165,7 @@ mod tests {
 
     #[derive(Default)]
     struct TestEventCache {
-        events: BTreeMap<OwnedEventId, TimelineEvent>,
+        events: BTreeMap<EventId, TimelineEvent>,
     }
 
     impl EventSource for TestEventCache {

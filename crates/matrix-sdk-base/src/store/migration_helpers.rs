@@ -18,9 +18,9 @@ use std::{collections::HashSet, sync::Arc};
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
-    OwnedRoomId, OwnedUserId, RoomId,
+    RoomId, UserId,
     events::{
-        direct::OwnedDirectUserIdentifier,
+        direct::DirectUserIdentifier,
         room::{
             avatar::PossiblyRedactedRoomAvatarEventContent,
             canonical_alias::PossiblyRedactedRoomCanonicalAliasEventContent,
@@ -58,7 +58,7 @@ use crate::{
 /// 4. Replace the room info in the store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfoV1 {
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     room_type: RoomState,
     notification_counts: UnreadNotificationsCount,
     summary: RoomSummary,
@@ -142,7 +142,7 @@ fn encryption_state_default() -> bool {
 struct BaseRoomInfoV1 {
     avatar: Option<MinimalStateEvent<PossiblyRedactedRoomAvatarEventContent>>,
     canonical_alias: Option<MinimalStateEvent<PossiblyRedactedRoomCanonicalAliasEventContent>>,
-    dm_targets: HashSet<OwnedUserId>,
+    dm_targets: HashSet<UserId>,
     encryption: Option<RoomEncryptionEventContent>,
     guest_access: Option<MinimalStateEvent<PossiblyRedactedRoomGuestAccessEventContent>>,
     history_visibility:
@@ -181,7 +181,7 @@ impl BaseRoomInfoV1 {
 
         let mut converted_dm_targets = HashSet::new();
         for dm_target in dm_targets {
-            converted_dm_targets.insert(OwnedDirectUserIdentifier::from(dm_target));
+            converted_dm_targets.insert(DirectUserIdentifier::from(dm_target));
         }
 
         Box::new(BaseRoomInfo {

@@ -25,9 +25,8 @@ use matrix_sdk_common::deserialized_responses::{
     TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
-    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    DeviceId, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, RoomAliasId, RoomId, RoomVersionId,
+    TransactionId, UInt, UserId, VoipId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -39,7 +38,7 @@ use ruma::{
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
-        direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        direct::{DirectEventContent, DirectUserIdentifier},
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         macros::EventContent,
@@ -127,10 +126,10 @@ struct RedactedBecause {
     content: RoomRedactionEventContent,
 
     /// The globally unique event identifier for the user who sent the event.
-    event_id: OwnedEventId,
+    event_id: EventId,
 
     /// The fully-qualified ID of the user who sent this event.
-    sender: OwnedUserId,
+    sender: UserId,
 
     /// Timestamp in milliseconds on originating homeserver when this event was
     /// sent.
@@ -143,7 +142,7 @@ struct Unsigned<C: StaticEventContent> {
     prev_content: Option<C>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    transaction_id: Option<OwnedTransactionId>,
+    transaction_id: Option<TransactionId>,
 
     #[serde(rename = "m.relations", skip_serializing_if = "Option::is_none")]
     relations: Option<BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>>,
@@ -213,12 +212,12 @@ pub struct EventBuilder<C: StaticEventContent<IsPrefix = False>> {
     ///
     /// It will decide which fields are added to the JSON.
     format: EventFormat,
-    sender: Option<OwnedUserId>,
-    room: Option<OwnedRoomId>,
-    event_id: Option<OwnedEventId>,
+    sender: Option<UserId>,
+    room: Option<RoomId>,
+    event_id: Option<EventId>,
     /// Whether the event should *not* have an event id. False by default.
     no_event_id: bool,
-    redacts: Option<OwnedEventId>,
+    redacts: Option<EventId>,
     content: C,
     server_ts: MilliSecondsSinceUnixEpoch,
     unsigned: Option<Unsigned<C>>,
@@ -862,8 +861,8 @@ where
 #[derive(Debug, Default)]
 pub struct EventFactory {
     next_ts: AtomicU64,
-    sender: Option<OwnedUserId>,
-    room: Option<OwnedRoomId>,
+    sender: Option<UserId>,
+    room: Option<RoomId>,
 }
 
 impl EventFactory {
@@ -927,7 +926,7 @@ impl EventFactory {
         &self,
         ciphertext: impl Into<String>,
         sender_key: impl Into<String>,
-        device_id: impl Into<OwnedDeviceId>,
+        device_id: impl Into<DeviceId>,
         session_id: impl Into<String>,
     ) -> EventBuilder<RoomEncryptedEventContent> {
         self.event(RoomEncryptedEventContent::new(
@@ -1072,7 +1071,7 @@ impl EventFactory {
     /// Create a state event for the room's pinned events.
     pub fn room_pinned_events(
         &self,
-        pinned: Vec<OwnedEventId>,
+        pinned: Vec<EventId>,
     ) -> EventBuilder<RoomPinnedEventsEventContent> {
         self.event(RoomPinnedEventsEventContent::new(pinned)).state_key("")
     }
@@ -1099,7 +1098,7 @@ impl EventFactory {
     /// ```
     pub fn member_hints(
         &self,
-        service_members: BTreeSet<OwnedUserId>,
+        service_members: BTreeSet<UserId>,
     ) -> EventBuilder<MemberHintsEventContent> {
         // The `m.member_hints` event always has an empty state key, so let's set it.
         self.event(MemberHintsEventContent::new(service_members)).state_key("")
@@ -1255,11 +1254,7 @@ impl EventFactory {
 
     /// Creates a plain (unencrypted) image event content referencing the given
     /// MXC ID.
-    pub fn image(
-        &self,
-        filename: String,
-        url: OwnedMxcUri,
-    ) -> EventBuilder<RoomMessageEventContent> {
+    pub fn image(&self, filename: String, url: MxcUri) -> EventBuilder<RoomMessageEventContent> {
         let image_event_content = ImageMessageEventContent::plain(filename, url);
         self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
     }
@@ -1270,7 +1265,7 @@ impl EventFactory {
         &self,
         body: String,
         filename: String,
-        url: OwnedMxcUri,
+        url: MxcUri,
     ) -> EventBuilder<RoomMessageEventContent> {
         let gallery_event_content = GalleryMessageEventContent::new(
             body,
@@ -1314,7 +1309,7 @@ impl EventFactory {
     /// Create a new `m.room.power_levels` event.
     pub fn power_levels(
         &self,
-        map: &mut BTreeMap<OwnedUserId, Int>,
+        map: &mut BTreeMap<UserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
         let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
         content.users.append(map);
@@ -1341,8 +1336,8 @@ impl EventFactory {
     /// Create a new `m.room.canonical_alias` event.
     pub fn canonical_alias(
         &self,
-        alias: Option<OwnedRoomAliasId>,
-        alt_aliases: Vec<OwnedRoomAliasId>,
+        alias: Option<RoomAliasId>,
+        alt_aliases: Vec<RoomAliasId>,
     ) -> EventBuilder<RoomCanonicalAliasEventContent> {
         let mut content = RoomCanonicalAliasEventContent::new();
         content.alias = alias;
@@ -1380,7 +1375,7 @@ impl EventFactory {
     /// ```
     pub fn beacon(
         &self,
-        beacon_info_event_id: OwnedEventId,
+        beacon_info_event_id: EventId,
         latitude: f64,
         longitude: f64,
         uncertainty: u32,
@@ -1395,7 +1390,7 @@ impl EventFactory {
         &self,
         body: impl Into<String>,
         info: ImageInfo,
-        url: OwnedMxcUri,
+        url: MxcUri,
     ) -> EventBuilder<StickerEventContent> {
         self.event(StickerEventContent::new(body.into(), info, url))
     }
@@ -1403,7 +1398,7 @@ impl EventFactory {
     /// Create a new `m.call.invite` event.
     pub fn call_invite(
         &self,
-        call_id: OwnedVoipId,
+        call_id: VoipId,
         lifetime: UInt,
         offer: SessionDescription,
         version: VoipVersionId,
@@ -1439,7 +1434,7 @@ impl EventFactory {
     /// Create a new `m.ignored_user_list` global account data event.
     pub fn ignored_user_list(
         &self,
-        users: impl IntoIterator<Item = OwnedUserId>,
+        users: impl IntoIterator<Item = UserId>,
     ) -> EventBuilder<IgnoredUserListEventContent> {
         self.global_account_data(IgnoredUserListEventContent::users(users))
     }
@@ -1452,8 +1447,8 @@ impl EventFactory {
     /// Create a new `m.space.child` state event.
     pub fn space_child(
         &self,
-        parent: OwnedRoomId,
-        child: OwnedRoomId,
+        parent: RoomId,
+        child: RoomId,
     ) -> EventBuilder<SpaceChildEventContent> {
         let mut event = self.event(SpaceChildEventContent::new(vec![]));
         event.room = Some(parent);
@@ -1464,8 +1459,8 @@ impl EventFactory {
     /// Create a new `m.space.parent` state event.
     pub fn space_parent(
         &self,
-        parent: OwnedRoomId,
-        child: OwnedRoomId,
+        parent: RoomId,
+        child: RoomId,
     ) -> EventBuilder<SpaceParentEventContent> {
         let mut event = self.event(SpaceParentEventContent::new(vec![]));
         event.state_key = Some(parent.to_string());
@@ -1535,7 +1530,7 @@ impl EventFactory {
 /// Builder for presence events.
 #[derive(Debug)]
 pub struct PresenceBuilder {
-    sender: Option<OwnedUserId>,
+    sender: Option<UserId>,
     content: PresenceEventContent,
 }
 
@@ -1587,7 +1582,7 @@ impl From<PresenceBuilder> for Raw<PresenceEvent> {
 
 impl EventBuilder<DirectEventContent> {
     /// Add a user/room pair to the `m.direct` event.
-    pub fn add_user(mut self, user_id: OwnedDirectUserIdentifier, room_id: &RoomId) -> Self {
+    pub fn add_user(mut self, user_id: DirectUserIdentifier, room_id: &RoomId) -> Self {
         self.content.0.entry(user_id).or_default().push(room_id.to_owned());
         self
     }
@@ -1715,12 +1710,12 @@ impl EventBuilder<RoomAvatarEventContent> {
 }
 
 impl EventBuilder<RtcNotificationEventContent> {
-    pub fn mentions(mut self, users: impl IntoIterator<Item = OwnedUserId>) -> Self {
+    pub fn mentions(mut self, users: impl IntoIterator<Item = UserId>) -> Self {
         self.content.mentions = Some(Mentions::with_user_ids(users));
         self
     }
 
-    pub fn relates_to_membership_state_event(mut self, event_id: OwnedEventId) -> Self {
+    pub fn relates_to_membership_state_event(mut self, event_id: EventId) -> Self {
         self.content.relates_to = Some(Reference::new(event_id));
         self
     }
@@ -1784,7 +1779,7 @@ impl ReadReceiptBuilder<'_> {
 
 pub struct PreviousMembership {
     state: MembershipState,
-    avatar_url: Option<OwnedMxcUri>,
+    avatar_url: Option<MxcUri>,
     display_name: Option<String>,
 }
 

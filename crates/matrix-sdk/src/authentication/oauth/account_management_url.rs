@@ -17,7 +17,7 @@
 //! This is a Matrix extension introduced in [MSC4191](https://github.com/matrix-org/matrix-spec-proposals/pull/4191).
 
 use ruma::{
-    OwnedDeviceId,
+    DeviceId,
     api::client::discovery::get_authorization_server_metadata::v1::AccountManagementAction,
 };
 use url::Url;
@@ -46,7 +46,7 @@ pub enum AccountManagementActionFull {
     /// The user wishes to view the details of a specific session.
     SessionView {
         /// The ID of the session to view the details of.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     },
 
     /// `org.matrix.session_end`
@@ -54,7 +54,7 @@ pub enum AccountManagementActionFull {
     /// The user wishes to end/log out of a specific session.
     SessionEnd {
         /// The ID of the session to end.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     },
 
     /// `org.matrix.account_deactivate`

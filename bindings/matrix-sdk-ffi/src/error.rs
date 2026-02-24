@@ -239,7 +239,7 @@ impl From<spaces::Error> for ClientError {
     }
 }
 
-/// Bindings version of the sdk type replacing OwnedUserId/DeviceIds with simple
+/// Bindings version of the sdk type replacing UserId/DeviceIds with simple
 /// String.
 ///
 /// Represent a failed to send unrecoverable error of an event sent via the
@@ -317,7 +317,7 @@ impl From<SdkQueueWedgeError> for QueueWedgeError {
                     .collect(),
             },
             SdkQueueWedgeError::IdentityViolations { users } => Self::IdentityViolations {
-                users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
+                users: users.iter().map(ruma::UserId::to_string).collect(),
             },
             SdkQueueWedgeError::CrossVerificationRequired => Self::CrossVerificationRequired,
             SdkQueueWedgeError::MissingMediaContent => Self::MissingMediaContent,

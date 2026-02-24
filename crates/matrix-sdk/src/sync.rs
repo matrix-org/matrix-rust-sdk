@@ -32,7 +32,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     api::client::sync::sync_events::{
         self,
         v3::{InvitedRoom, KnockedRoom},
@@ -60,7 +60,7 @@ pub struct SyncResponse {
     /// Messages sent directly between devices.
     pub to_device: Vec<ProcessedToDeviceEvent>,
     /// New notifications per room.
-    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
+    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
 }
 
 impl SyncResponse {
@@ -357,7 +357,7 @@ impl Client {
 #[instrument(skip_all)]
 pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
 where
-    R: Iterator<Item = &'a OwnedRoomId>,
+    R: Iterator<Item = &'a RoomId>,
 {
     if !client.event_cache().has_subscribed() {
         return;

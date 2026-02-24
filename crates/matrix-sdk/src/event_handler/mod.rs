@@ -59,7 +59,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use pin_project_lite::pin_project;
-use ruma::{OwnedRoomId, events::BooleanType, push::Action, serde::Raw};
+use ruma::{RoomId, events::BooleanType, push::Action, serde::Raw};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
@@ -166,7 +166,7 @@ pub(crate) struct EventHandlerWrapper {
 pub struct EventHandlerHandle {
     pub(crate) ev_kind: HandlerKind,
     pub(crate) ev_type: Option<StaticEventTypePart>,
-    pub(crate) room_id: Option<OwnedRoomId>,
+    pub(crate) room_id: Option<RoomId>,
     pub(crate) handler_id: u64,
 }
 
@@ -299,7 +299,7 @@ impl Client {
     pub(crate) fn add_event_handler_impl<Ev, Ctx, H>(
         &self,
         handler: H,
-        room_id: Option<OwnedRoomId>,
+        room_id: Option<RoomId>,
     ) -> EventHandlerHandle
     where
         Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + 'static,

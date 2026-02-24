@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, OwnedLinkedChunkId, Position},
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId};
+use ruma::{EventId, RoomId};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, trace};
 
@@ -34,11 +34,11 @@ use super::super::{
 /// All the information related to a single thread.
 pub(crate) struct ThreadEventCache {
     /// The room owning this thread.
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// The ID of the thread root event, which is the first event in the thread
     /// (and eventually the first in the linked chunk).
-    thread_root: OwnedEventId,
+    thread_root: EventId,
 
     /// The linked chunk for this thread.
     chunk: EventLinkedChunk,
@@ -56,8 +56,8 @@ pub(crate) struct ThreadEventCache {
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
     pub fn new(
-        room_id: OwnedRoomId,
-        thread_root: OwnedEventId,
+        room_id: RoomId,
+        thread_root: EventId,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self {
@@ -249,7 +249,7 @@ impl ThreadEventCache {
     /// result of the above function, otherwise this can panic.
     fn remove_in_memory_duplicated_events(
         &mut self,
-        in_memory_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+        in_memory_duplicated_event_ids: Vec<(EventId, Position)>,
     ) {
         // Remove the duplicated events from the thread chunk.
         self.chunk
@@ -327,7 +327,7 @@ impl ThreadEventCache {
     }
 
     /// Returns the latest event ID in this thread, if any.
-    pub fn latest_event_id(&self) -> Option<OwnedEventId> {
+    pub fn latest_event_id(&self) -> Option<EventId> {
         self.chunk.revents().next().and_then(|(_position, event)| event.event_id())
     }
 }

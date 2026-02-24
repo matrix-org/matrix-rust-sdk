@@ -30,7 +30,7 @@ use matrix_sdk_base::{
     crypto::types::events::UtdCause,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, ServerName, UserId,
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
@@ -52,7 +52,7 @@ pub trait UnableToDecryptHook: std::fmt::Debug + SendOutsideWasm + SyncOutsideWa
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnableToDecryptInfo {
     /// The identifier of the event that couldn't get decrypted.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
 
     /// If the event could be decrypted late (that is, the event was encrypted
     /// at first, but could be decrypted later on), then this indicates the
@@ -74,11 +74,11 @@ pub struct UnableToDecryptInfo {
     pub user_trusts_own_identity: bool,
 
     /// The homeserver of the user that sent the undecryptable event.
-    pub sender_homeserver: OwnedServerName,
+    pub sender_homeserver: ServerName,
 
     /// Our local user's own homeserver, or `None` if the client is not logged
     /// in.
-    pub own_homeserver: Option<OwnedServerName>,
+    pub own_homeserver: Option<ServerName>,
 }
 
 /// Data about a UTD event which we are waiting to report to the parent hook.
@@ -121,7 +121,7 @@ pub struct UtdHookManager {
     ///
     /// Note: this is theoretically unbounded in size, although this set of
     /// tasks will degrow over time, as tasks expire after the max delay.
-    pending_delayed: Arc<Mutex<HashMap<OwnedEventId, PendingUtdReport>>>,
+    pending_delayed: Arc<Mutex<HashMap<EventId, PendingUtdReport>>>,
 
     /// Bloom filter containing the event IDs of events which have been reported
     /// as UTDs

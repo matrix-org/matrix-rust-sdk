@@ -33,7 +33,7 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
     ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             InitialStateEvent,
@@ -732,7 +732,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     }
 
     /// Send the supplied message in the supplied room
-    async fn send_message(room: &Room, message: &str) -> OwnedEventId {
+    async fn send_message(room: &Room, message: &str) -> EventId {
         room.send(RoomMessageEventContent::text_plain(message))
             .await
             .expect("We should be able to send a message to our new room")
@@ -1093,7 +1093,7 @@ async fn prepare_room_with_pinned_events(
     alice: &Client,
     recovery_passphrase: &str,
     number_of_normal_events: usize,
-) -> Result<(OwnedRoomId, OwnedEventId), TestError> {
+) -> Result<(RoomId, EventId), TestError> {
     let sync_service = SyncService::builder(alice.clone()).build().await?;
     sync_service.start().await;
 

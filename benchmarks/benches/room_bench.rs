@@ -13,7 +13,7 @@ use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, UserId,
     api::client::membership::get_member_events,
     events::room::member::{MembershipState, RoomMemberEvent},
     mxc_uri, owned_device_id, owned_room_id, owned_user_id,
@@ -31,7 +31,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let f = EventFactory::new().room(&room_id);
     let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
     for i in 0..MEMBERS_IN_ROOM {
-        let user_id = OwnedUserId::try_from(format!("@user_{i}:matrix.org")).unwrap();
+        let user_id = UserId::try_from(format!("@user_{i}:matrix.org")).unwrap();
         let event = f
             .member(&user_id)
             .membership(MembershipState::Join)
@@ -113,7 +113,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     let mut joined_room_builder =
         JoinedRoomBuilder::new(&room_id).add_state_event(f.room_encryption());
 
-    let pinned_event_ids: Vec<OwnedEventId> = (0..PINNED_EVENTS_COUNT)
+    let pinned_event_ids: Vec<EventId> = (0..PINNED_EVENTS_COUNT)
         .map(|i| EventId::parse(format!("${i}")).expect("Invalid event id"))
         .collect();
     joined_room_builder =

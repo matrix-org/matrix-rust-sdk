@@ -31,9 +31,7 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
-};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, RoomId, events::relation::RelationType};
 use rusqlite::{
     OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
 };
@@ -1218,8 +1216,8 @@ impl EventCacheStore for SqliteEventCacheStore {
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        events: Vec<OwnedEventId>,
-    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+        events: Vec<EventId>,
+    ) -> Result<Vec<(EventId, Position)>, Self::Error> {
         let _timer = timer!("method");
 
         // If there's no events for which we want to check duplicates, we can return
@@ -1461,7 +1459,7 @@ fn find_event_relations_transaction(
     store: SqliteEventCacheStore,
     hashed_room_id: Key,
     hashed_linked_chunk_id: Key,
-    event_id: OwnedEventId,
+    event_id: EventId,
     filters: Option<Vec<RelationType>>,
     txn: &Transaction<'_>,
 ) -> Result<Vec<(Event, Option<Position>)>> {

@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use matrix_sdk_common::timer;
 use matrix_sdk_crypto::OlmMachine;
-use ruma::{OwnedUserId, RoomId};
+use ruma::{RoomId, UserId};
 
 use crate::{EncryptionState, Result, RoomMemberships, store::BaseStateStore};
 
@@ -24,7 +24,7 @@ use crate::{EncryptionState, Result, RoomMemberships, store::BaseStateStore};
 pub async fn update(
     olm_machine: Option<&OlmMachine>,
     room_encryption_state: EncryptionState,
-    user_ids_to_track: &BTreeSet<OwnedUserId>,
+    user_ids_to_track: &BTreeSet<UserId>,
 ) -> Result<()> {
     if room_encryption_state.is_encrypted()
         && let Some(olm) = olm_machine
@@ -40,7 +40,7 @@ pub async fn update(
 /// encrypted.
 pub async fn update_or_set_if_room_is_newly_encrypted(
     olm_machine: Option<&OlmMachine>,
-    user_ids_to_track: &BTreeSet<OwnedUserId>,
+    user_ids_to_track: &BTreeSet<UserId>,
     new_room_encryption_state: EncryptionState,
     previous_room_encryption_state: EncryptionState,
     room_id: &RoomId,
