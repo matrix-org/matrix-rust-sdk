@@ -394,7 +394,7 @@ impl OutboundGroupSession {
             self.room_id().to_owned(),
             self.session_id().to_owned(),
             self.sender_key().to_owned(),
-            (*self.device_id).to_owned(),
+            self.device_id.clone(),
         )
     }
 
