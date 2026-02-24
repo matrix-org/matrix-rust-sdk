@@ -45,7 +45,7 @@ impl Drop for TracingTimer {
             return;
         }
 
-        let message = format!("_{}_ finished in {:?}", self.id, elapsed);
+        let message = format!("Timer _{}_ finished in {:?}", self.id, elapsed);
 
         let metadata = self.callsite.metadata();
         let fields = metadata.fields();
@@ -123,15 +123,15 @@ mod tests {
     async fn test_timer_name() {
         use tracing::{Level, span};
 
-        tracing::warn!("Starting test...");
+        tracing::warn!("Starting test…");
 
         mod time123 {
             pub async fn run() {
                 let _timer_guard = timer!(tracing::Level::DEBUG, "test");
                 tokio::time::sleep(ruma::time::Duration::from_millis(123)).await;
                 // Displays: 2023-08-25T15:18:31.169498Z DEBUG
-                // matrix_sdk_common::tracing_timer::tests: _test_ finished in
-                // 124ms
+                // matrix_sdk_common::tracing_timer::tests: Timer _test_
+                // finished in 124ms
             }
         }
 
@@ -145,6 +145,7 @@ mod tests {
 
         tracing::warn!("Test about to finish.");
         // Displays: 2023-08-25T15:18:31.427070Z DEBUG le 256ms span:
-        // matrix_sdk_common::tracing_timer::tests: in span finished in 257ms
+        // matrix_sdk_common::tracing_timer::tests: Timer _in span_ finished in
+        // 257ms
     }
 }
