@@ -58,6 +58,9 @@ All notable changes to this project will be documented in this file.
   the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
+- [**breaking**] Add `NotificationState.EventRedacted` enum value, to handle the case
+  where a notification resolves to a redacted event.
+  ([#6203](https://github.com/matrix-org/matrix-rust-sdk/pull/6203))
   
 ### Refactor
 

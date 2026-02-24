@@ -159,7 +159,9 @@ impl NotificationClient {
     ) -> Result<NotificationStatus, Error> {
         let status = self.get_notification_with_sliding_sync(room_id, event_id).await?;
         match status {
-            NotificationStatus::Event(..) | NotificationStatus::EventFilteredOut => Ok(status),
+            NotificationStatus::Event(..)
+            | NotificationStatus::EventFilteredOut
+            | NotificationStatus::EventRedacted => Ok(status),
             NotificationStatus::EventNotFound => {
                 self.get_notification_with_context(room_id, event_id).await
             }
@@ -689,6 +691,21 @@ impl NotificationClient {
 
             let (raw_event, push_actions) = match &raw_event {
                 RawNotificationEvent::Timeline(timeline_event) => {
+                    // Check if the event is redacted first
+                    let event_for_redaction_check: AnySyncTimelineEvent =
+                        match timeline_event.deserialize() {
+                            Ok(event) => event,
+                            Err(_) => {
+                                batch_result.insert(event_id, Err(Error::InvalidRumaEvent));
+                                continue;
+                            }
+                        };
+
+                    if is_event_redacted(&event_for_redaction_check) {
+                        batch_result.insert(event_id, Ok(NotificationStatus::EventRedacted));
+                        continue;
+                    }
+
                     // Timeline events may be encrypted, so make sure they get decrypted first.
                     match self.retry_decryption(&room, timeline_event).await {
                         Ok(Some(timeline_event)) => {
@@ -771,6 +788,14 @@ impl NotificationClient {
         let mut timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
         let state_events = response.state;
 
+        // Check if the event is redacted
+        let event_for_redaction_check: AnySyncTimelineEvent =
+            timeline_event.raw().deserialize().map_err(|_| Error::InvalidRumaEvent)?;
+
+        if is_event_redacted(&event_for_redaction_check) {
+            return Ok(NotificationStatus::EventRedacted);
+        }
+
         if let Some(decrypted_event) = self.retry_decryption(&room, timeline_event.raw()).await? {
             timeline_event = decrypted_event;
         }
@@ -797,6 +822,15 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
     is_still_encrypted
 }
 
+fn is_event_redacted(event: &AnySyncTimelineEvent) -> bool {
+    // Check if the event is a message-like event but has no original content (i.e.,
+    // redacted)
+    match event {
+        AnySyncTimelineEvent::MessageLike(msg) => msg.original_content().is_none(),
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub enum NotificationStatus {
     /// The event has been found and was not filtered out.
@@ -807,6 +841,8 @@ pub enum NotificationStatus {
     /// rules, or because the user which triggered it is ignored by the
     /// current user.
     EventFilteredOut,
+    /// The event has been redacted and has no meaningful content.
+    EventRedacted,
 }
 
 #[derive(Debug, Clone)]
@@ -1060,15 +1096,17 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::sync::sync_events::v5, assign, event_id,
-        events::room::member::MembershipState, owned_event_id, owned_room_id, room_id, user_id,
+        api::client::sync::sync_events::v5,
+        assign, event_id,
+        events::room::{member::MembershipState, message::RedactedRoomMessageEventContent},
+        owned_event_id, owned_room_id, room_id, user_id,
     };
 
     use crate::notification_client::{
         NotificationClient, NotificationItem, NotificationItemsRequest, NotificationProcessSetup,
-        RawNotificationEvent,
+        NotificationStatus, RawNotificationEvent,
     };
 
     #[async_test]
@@ -1159,5 +1197,54 @@ mod tests {
         let invite = raw_invite.deserialize().expect("Could not deserialize invite event");
         assert_eq!(invite.state_key, user_id.to_string());
         assert_eq!(invite.content.membership, MembershipState::Invite);
+    }
+
+    #[async_test]
+    async fn test_redacted_event_returns_event_redacted_status() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+
+        // Create a redacted message event (no content)
+        let event_id = owned_event_id!("$redacted:b.c");
+        let redacted_event = EventFactory::new()
+            .room(room_id)
+            .sender(user_id!("@sender:b.c"))
+            .redacted(&ALICE, RedactedRoomMessageEventContent::new())
+            .event_id(&event_id)
+            .into_raw_sync();
+        let redacted_bytes = redacted_event.json().get().as_bytes().to_vec();
+        let mut room = v5::response::Room::new();
+        room.timeline =
+            vec![ruma::serde::Raw::from_json(serde_json::from_slice(&redacted_bytes).unwrap())];
+
+        let mut rooms = BTreeMap::new();
+        rooms.insert(room_id.to_owned(), room);
+
+        server
+            .mock_sliding_sync()
+            .ok(assign!(v5::Response::new("1".to_owned()), {
+                rooms: rooms,
+            }))
+            .mount()
+            .await;
+
+        let notification_client =
+            NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+                .await
+                .expect("Could not create a notification client");
+
+        let result: NotificationStatus = notification_client
+            .get_notification_with_sliding_sync(room_id, &event_id)
+            .await
+            .expect("Could not get notification");
+
+        match result {
+            NotificationStatus::EventRedacted => {
+                // Success - redacted event was properly detected
+            }
+            other => panic!("Expected EventRedacted, got {:?}", other),
+        }
     }
 }
