@@ -217,6 +217,10 @@ where
 {
     type Connection = LiveKitSdkConnection;
 
+    fn room_options_description(&self, room: &MatrixRoom) -> Option<String> {
+        Some(format!("{:?}", self.room_options.room_options(room)))
+    }
+
     async fn connect(
         &self,
         service_url: &str,

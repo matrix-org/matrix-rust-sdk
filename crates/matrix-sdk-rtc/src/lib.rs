@@ -49,6 +49,11 @@ pub trait LiveKitConnector: Send + Sync {
     /// The type for LiveKit room connections.
     type Connection: LiveKitConnection;
 
+    /// Return a human-readable description of the room options used for a room connection.
+    fn room_options_description(&self, _room: &Room) -> Option<String> {
+        None
+    }
+
     /// Connect to a LiveKit room for the given room id.
     async fn connect(&self, service_url: &str, room: &Room) -> LiveKitResult<Self::Connection>;
 }
@@ -114,6 +119,20 @@ where
                     room_id = ?self.room.room_id(),
                     "joining LiveKit room for active call"
                 );
+                if let Some(room_options_description) =
+                    self.connector.room_options_description(&self.room)
+                {
+                    info!(
+                        room_id = ?self.room.room_id(),
+                        room_options = room_options_description,
+                        "calling connector.connect for LiveKit room"
+                    );
+                } else {
+                    info!(
+                        room_id = ?self.room.room_id(),
+                        "calling connector.connect for LiveKit room"
+                    );
+                }
                 let connection = self.connector.connect(service_url, &self.room).await?;
                 self.connection = Some(connection);
             }
