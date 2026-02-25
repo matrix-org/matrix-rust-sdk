@@ -9,6 +9,7 @@ pub use livekit::e2ee;
 use livekit::RoomEvent;
 pub use livekit::{ConnectionState, Room, RoomOptions};
 use tokio::sync::Mutex;
+use tracing::info;
 
 #[cfg(feature = "crypto")]
 pub mod matrix_keys {
@@ -217,10 +218,6 @@ where
 {
     type Connection = LiveKitSdkConnection;
 
-    fn room_options_description(&self, room: &MatrixRoom) -> Option<String> {
-        Some(format!("{:?}", self.room_options.room_options(room)))
-    }
-
     async fn connect(
         &self,
         service_url: &str,
@@ -228,6 +225,12 @@ where
     ) -> LiveKitResult<Self::Connection> {
         let token = self.token_provider.token(room).await?;
         let room_options = self.room_options.room_options(room);
+        info!(
+            room_id = ?room.room_id(),
+            service_url,
+            room_options = ?room_options,
+            "connecting to LiveKit room with resolved room options"
+        );
         let (livekit_room, events) = Room::connect(service_url, &token, room_options)
             .await
             .map_err(LiveKitError::connector)?;
