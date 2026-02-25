@@ -1857,6 +1857,7 @@ impl Store {
             rooms_pending_key_bundle: HashMap::from([(
                 room_id.to_owned(),
                 Some(RoomPendingKeyBundleDetails {
+                    room_id: room_id.to_owned(),
                     invite_accepted_at,
                     inviter: inviter.to_owned(),
                 }),

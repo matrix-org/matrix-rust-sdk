@@ -508,7 +508,7 @@ impl BundleReceiverTask {
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Ok(Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter })) =
+        let Ok(Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter, .. })) =
             room.client.base_client().get_pending_key_bundle_details_for_room(room.room_id()).await
         else {
             debug!("Not accepting key bundle as there are no recorded invite acceptance details");

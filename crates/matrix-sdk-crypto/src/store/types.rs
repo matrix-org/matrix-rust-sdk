@@ -555,6 +555,11 @@ impl From<&StoredRoomKeyBundleData> for RoomKeyBundleInfo {
 /// invite (and so should accept a room key bundle if we receive one).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomPendingKeyBundleDetails {
+    /// The ID of the room associated with this entry, used to track and
+    /// enumerate all such rooms during the startup process. This enables the
+    /// client to resume importing after a crash.
+    pub room_id: OwnedRoomId,
+
     /// A timestamp remembering when we observed the user accepting an invite
     /// using this client.
     pub invite_accepted_at: MilliSecondsSinceUnixEpoch,

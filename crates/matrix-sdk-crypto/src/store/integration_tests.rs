@@ -1416,6 +1416,7 @@ macro_rules! cryptostore_integration_tests {
                     rooms_pending_key_bundle: HashMap::from([(
                         test_room.to_owned(),
                         Some(RoomPendingKeyBundleDetails {
+                            room_id: test_room.to_owned(),
                             invite_accepted_at: timestamp,
                             inviter: test_user.to_owned(),
                         }),
