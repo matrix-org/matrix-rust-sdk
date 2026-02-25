@@ -27,6 +27,7 @@ matrix-sdk-rtc.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
