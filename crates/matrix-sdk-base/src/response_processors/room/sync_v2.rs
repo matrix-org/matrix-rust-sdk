@@ -211,6 +211,7 @@ pub async fn update_invited_room(
     user_id: &UserId,
     invited_room: InvitedRoom,
     notification: notification::Notification<'_>,
+    #[cfg(feature = "e2e-encryption")] _e2ee: &e2ee::E2EE<'_>,
 ) -> Result<InvitedRoomUpdate> {
     let state_store = notification.state_store;
 
@@ -251,6 +252,7 @@ pub async fn update_knocked_room(
     user_id: &UserId,
     knocked_room: KnockedRoom,
     notification: notification::Notification<'_>,
+    #[cfg(feature = "e2e-encryption")] _e2ee: &e2ee::E2EE<'_>,
 ) -> Result<KnockedRoomUpdate> {
     let state_store = notification.state_store;
 

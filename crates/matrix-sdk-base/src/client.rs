@@ -715,6 +715,8 @@ impl BaseClient {
                     &mut notifications,
                     &self.state_store,
                 ),
+                #[cfg(feature = "e2e-encryption")]
+                &e2ee_context,
             )
             .await?;
 
@@ -732,6 +734,8 @@ impl BaseClient {
                     &mut notifications,
                     &self.state_store,
                 ),
+                #[cfg(feature = "e2e-encryption")]
+                &e2ee_context,
             )
             .await?;
 
