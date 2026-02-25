@@ -1213,11 +1213,9 @@ mod tests {
             .sender(user_id!("@sender:b.c"))
             .redacted(&ALICE, RedactedRoomMessageEventContent::new())
             .event_id(&event_id)
-            .into_raw_sync();
-        let redacted_bytes = redacted_event.json().get().as_bytes().to_vec();
+            .into_raw();
         let mut room = v5::response::Room::new();
-        room.timeline =
-            vec![ruma::serde::Raw::from_json(serde_json::from_slice(&redacted_bytes).unwrap())];
+        room.timeline = vec![redacted_event];
 
         let mut rooms = BTreeMap::new();
         rooms.insert(room_id.to_owned(), room);
