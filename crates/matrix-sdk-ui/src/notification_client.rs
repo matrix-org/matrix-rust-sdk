@@ -826,7 +826,7 @@ fn is_event_redacted(event: &AnySyncTimelineEvent) -> bool {
     // Check if the event is a message-like event but has no original content (i.e.,
     // redacted)
     match event {
-        AnySyncTimelineEvent::MessageLike(msg) => msg.original_content().is_none(),
+        AnySyncTimelineEvent::MessageLike(msg) => msg.is_redacted(),
         _ => false,
     }
 }
