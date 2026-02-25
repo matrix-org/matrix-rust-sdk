@@ -47,15 +47,11 @@ use tracing::{instrument, trace, warn};
 use super::{
     AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
     RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
-    caches::{
-        TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome,
-        thread::pagination::ThreadPagination,
-    },
+    caches::{TimelineVectorDiffs, thread::pagination::ThreadPagination},
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
 pub(super) mod events;
-mod threads;
 
 /// A subset of an event cache, for a room.
 ///
@@ -620,6 +616,7 @@ mod private {
                 TimelineVectorDiffs, lock,
                 pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
                 pinned_events::PinnedEventCache,
+                thread::ThreadEventCache,
             },
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
@@ -628,7 +625,6 @@ mod private {
         RoomEventCacheUpdate,
         events::EventLinkedChunk,
         sort_positions_descending,
-        threads::ThreadEventCache,
     };
     use crate::Room;
 
