@@ -19,6 +19,7 @@ use crate::event_cache::EventsOrigin;
 
 pub(super) mod lock;
 pub mod pagination;
+pub mod pinned_events;
 pub mod room;
 pub mod thread;
 

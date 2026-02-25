@@ -244,7 +244,7 @@ impl EventLinkedChunk {
     /// might hide some underlying updates to the in-memory chunk; those
     /// updates should be reflected with manual updates to
     /// [`Self::chunks_updates_as_vectordiffs`].
-    pub(super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+    pub(in super::super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
@@ -426,7 +426,7 @@ impl EventLinkedChunk {
     ///
     /// This clears all the chunks in memory before resetting to the new chunk,
     /// if provided.
-    pub(super) fn replace_with(
+    pub(in super::super) fn replace_with(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
@@ -439,7 +439,7 @@ impl EventLinkedChunk {
     }
 
     /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
-    pub(super) fn insert_new_chunk_as_first(
+    pub(in super::super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LazyLoaderError> {
