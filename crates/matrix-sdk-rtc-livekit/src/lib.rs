@@ -5,8 +5,8 @@ use matrix_sdk::Room as MatrixRoom;
 use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitResult};
 
 pub use livekit;
-use livekit::RoomEvent;
 pub use livekit::e2ee;
+use livekit::RoomEvent;
 pub use livekit::{ConnectionState, Room, RoomOptions};
 use tokio::sync::Mutex;
 use tracing::info;
@@ -14,11 +14,11 @@ use tracing::info;
 #[cfg(feature = "crypto")]
 pub mod matrix_keys {
     use async_trait::async_trait;
-    use matrix_sdk::Room as MatrixRoom;
     use matrix_sdk::ruma::RoomId;
+    use matrix_sdk::Room as MatrixRoom;
     use matrix_sdk_crypto::{
-        OlmMachine, olm::ExportedRoomKey, store::CryptoStoreError,
-        types::room_history::RoomKeyBundle,
+        olm::ExportedRoomKey, store::CryptoStoreError, types::room_history::RoomKeyBundle,
+        OlmMachine,
     };
     use thiserror::Error;
 
@@ -108,7 +108,7 @@ pub mod matrix_keys {
         use std::sync::Arc;
 
         use matrix_sdk::ruma::{device_id, room_id, user_id};
-        use matrix_sdk_crypto::{OlmMachine, store::MemoryStore};
+        use matrix_sdk_crypto::{store::MemoryStore, OlmMachine};
 
         use super::{OlmMachineKeyMaterialProvider, PerParticipantKeyMaterialProvider};
 
@@ -137,18 +137,18 @@ pub trait LiveKitTokenProvider: Send + Sync {
     async fn token(&self, room: &MatrixRoom) -> LiveKitResult<String>;
 }
 
-/// Provides LiveKit room options for a Matrix room.
+/// Provides LiveKit room options.
 pub trait LiveKitRoomOptionsProvider: Send + Sync {
-    /// Create the LiveKit room options for the given Matrix room.
-    fn room_options(&self, room: &MatrixRoom) -> RoomOptions;
+    /// Create the LiveKit room options used when connecting to LiveKit.
+    fn room_options(&self) -> RoomOptions;
 }
 
 impl<F> LiveKitRoomOptionsProvider for F
 where
-    F: Fn(&MatrixRoom) -> RoomOptions + Send + Sync,
+    F: Fn() -> RoomOptions + Send + Sync,
 {
-    fn room_options(&self, room: &MatrixRoom) -> RoomOptions {
-        (self)(room)
+    fn room_options(&self) -> RoomOptions {
+        (self)()
     }
 }
 
@@ -224,7 +224,7 @@ where
         room: &MatrixRoom,
     ) -> LiveKitResult<Self::Connection> {
         let token = self.token_provider.token(room).await?;
-        let mut room_options = self.room_options_provider().room_options(room);
+        let mut room_options = self.room_options_provider().room_options();
         if room_options.encryption.is_none() {
             room_options.encryption = room_options.e2ee.clone();
         }

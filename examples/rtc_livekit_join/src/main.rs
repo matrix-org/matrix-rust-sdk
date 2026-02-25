@@ -115,7 +115,7 @@ impl LiveKitTokenProvider for EnvLiveKitTokenProvider {
 }
 
 impl LiveKitRoomOptionsProvider for DefaultRoomOptionsProvider {
-    fn room_options(&self, _room: &matrix_sdk::Room) -> RoomOptions {
+    fn room_options(&self) -> RoomOptions {
         RoomOptions::default()
     }
 }
@@ -136,7 +136,7 @@ struct E2eeRoomOptionsProvider {
 
 #[cfg(feature = "e2ee-per-participant")]
 impl LiveKitRoomOptionsProvider for E2eeRoomOptionsProvider {
-    fn room_options(&self, _room: &matrix_sdk::Room) -> RoomOptions {
+    fn room_options(&self) -> RoomOptions {
         let mut options = RoomOptions::default();
         if let Some(context) = &self.e2ee {
             options.encryption = Some(E2eeOptions {
