@@ -41,7 +41,7 @@ pub async fn update_joined_room(
     joined_room: JoinedRoom,
     updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
     notification: notification::Notification<'_>,
-    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
     let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
@@ -71,7 +71,7 @@ pub async fn update_joined_room(
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        e2ee,
     )
     .await?;
 
@@ -147,7 +147,7 @@ pub async fn update_left_room(
     room_creation_data: RoomCreationData<'_>,
     left_room: LeftRoom,
     notification: notification::Notification<'_>,
-    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
     let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
@@ -172,7 +172,7 @@ pub async fn update_left_room(
         &mut (),
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        e2ee,
     )
     .await?;
 
