@@ -494,7 +494,7 @@ fn chunk_debug_string(
 /// that all positions remain valid inside the same chunk while they are being
 /// removed. For the sake of debugability, we also sort by position chunk
 /// identifier, but this is not required.
-pub(super) fn sort_positions_descending(positions: &mut [Position]) {
+pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
     positions.sort_by(|a, b| {
         b.chunk_identifier()
             .cmp(&a.chunk_identifier())
