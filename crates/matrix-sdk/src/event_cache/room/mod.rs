@@ -55,7 +55,6 @@ use super::{
 use crate::{client::WeakClient, room::WeakRoom};
 
 pub(super) mod events;
-mod pinned_events;
 mod threads;
 
 /// A subset of an event cache, for a room.
@@ -620,6 +619,7 @@ mod private {
             caches::{
                 TimelineVectorDiffs, lock,
                 pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
+                pinned_events::PinnedEventCache,
             },
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
@@ -627,7 +627,6 @@ mod private {
         EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
         events::EventLinkedChunk,
-        pinned_events::PinnedEventCache,
         sort_positions_descending,
         threads::ThreadEventCache,
     };
