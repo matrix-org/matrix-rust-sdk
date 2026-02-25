@@ -469,6 +469,23 @@ impl BundleReceiverTask {
         }
     }
 
+    /// We have received a key bundle for a given room: check if we recently
+    /// accepted an invite from the sender of the bundle, and if so, join
+    /// the room.
+    ///
+    /// Note that there is a potential race with the room-join logic
+    /// ([`Client::finish_join_room`]), which, having joined a room after an
+    /// invite, checks if we already have a bundle, and accepts it if so.
+    /// However, here we have already recorded the receipt of a bundle, and are
+    /// now checking if we have accepted an invite, whereas in
+    /// `finish_join_room`, we first record the acceptance of an invite
+    /// and then check for a bundle.
+    ///
+    /// In theory then, it is possible for both threads to decide to process the
+    /// bundle at once; however this is (a) unlikely and (b) harmless. On the
+    /// other hand, it is **not** possible for a race to mean that we end up
+    /// processing the bundle zero times: we can be sure that at least one
+    /// thread will process it.
     #[instrument(skip(room), fields(room_id = %room.room_id()))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
         if Self::should_accept_bundle(room, bundle_info).await {

@@ -1630,6 +1630,12 @@ impl Client {
             room.set_is_direct(true).await?;
         }
 
+        // If we joined following an invite, check if we had previously received a key
+        // bundle from the inviter, and import it if so.
+        //
+        // It's important that we only do this once `BaseClient::room_joined` has
+        // completed: see the notes on `BundleReceiverTask::handle_bundle` on avoiding a
+        // race.
         #[cfg(feature = "e2e-encryption")]
         if self.inner.enable_share_history_on_invite
             && let Some(inviter) =
