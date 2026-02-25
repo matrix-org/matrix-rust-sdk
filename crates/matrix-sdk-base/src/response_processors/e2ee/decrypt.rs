@@ -30,7 +30,7 @@ use crate::Result;
 /// The returned [`TimelineEvent`] has no push actions set up. It's the
 /// responsibility of the caller to set them.
 pub async fn sync_timeline_event(
-    e2ee: E2EE<'_>,
+    e2ee: &E2EE<'_>,
     event: &TimelineEvent,
     room_id: &RoomId,
 ) -> Result<Option<TimelineEvent>> {

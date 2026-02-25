@@ -111,7 +111,7 @@ pub async fn update_any_room(
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        &e2ee,
     )
     .await?;
 
@@ -141,7 +141,7 @@ pub async fn update_any_room(
         timeline::builder::Timeline::from(room_response),
         notification,
         #[cfg(feature = "e2e-encryption")]
-        e2ee.clone(),
+        &e2ee,
     )
     .await?;
 

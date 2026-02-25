@@ -627,6 +627,13 @@ impl BaseClient {
         let mut updated_members_in_room: BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>> =
             BTreeMap::new();
 
+        #[cfg(feature = "e2e-encryption")]
+        let e2ee_context = processors::e2ee::E2EE::new(
+            olm_machine.as_ref(),
+            &self.decryption_settings,
+            self.handle_verification_events,
+        );
+
         for (room_id, joined_room) in response.rooms.join {
             let joined_room_update = processors::room::sync_v2::update_joined_room(
                 &mut context,
@@ -643,11 +650,7 @@ impl BaseClient {
                     &self.state_store,
                 ),
                 #[cfg(feature = "e2e-encryption")]
-                processors::e2ee::E2EE::new(
-                    olm_machine.as_ref(),
-                    &self.decryption_settings,
-                    self.handle_verification_events,
-                ),
+                &e2ee_context,
             )
             .await?;
 
@@ -669,11 +672,7 @@ impl BaseClient {
                     &self.state_store,
                 ),
                 #[cfg(feature = "e2e-encryption")]
-                processors::e2ee::E2EE::new(
-                    olm_machine.as_ref(),
-                    &self.decryption_settings,
-                    self.handle_verification_events,
-                ),
+                &e2ee_context,
             )
             .await?;
 
