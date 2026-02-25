@@ -364,6 +364,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             writeln!(buffer, "<li>{message}</li>").unwrap();
         }
     }
+
     let output = OUTPUT_TEMPLATE.replace("{log_file}", &log_path.to_string_lossy());
 
     output_file.write_all(output.as_bytes()).expect(
