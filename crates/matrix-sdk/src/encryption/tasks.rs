@@ -531,6 +531,11 @@ impl BundleReceiverTask {
             info!("Refusing to accept a historic room key bundle.");
         }
     }
+
+    #[cfg(any(feature = "testing", test))]
+    pub(crate) fn abort(&self) {
+        self._handle.abort();
+    }
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
