@@ -35,10 +35,7 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
-use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
-    serde::StringEnum,
-};
+use ruma::{DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId, serde::StringEnum};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -213,9 +210,7 @@ impl From<Ed25519Signature> for Signature {
 
 /// Signatures for a signed object.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Signatures(
-    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>>,
-);
+pub struct Signatures(BTreeMap<UserId, BTreeMap<DeviceKeyId, Result<Signature, InvalidSignature>>>);
 
 impl Signatures {
     /// Create a new, empty, signatures collection.
@@ -227,8 +222,8 @@ impl Signatures {
     /// the collection.
     pub fn add_signature(
         &mut self,
-        signer: OwnedUserId,
-        key_id: OwnedDeviceKeyId,
+        signer: UserId,
+        key_id: DeviceKeyId,
         signature: Ed25519Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
@@ -244,7 +239,7 @@ impl Signatures {
     pub fn get(
         &self,
         signer: &UserId,
-    ) -> Option<&BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>> {
+    ) -> Option<&BTreeMap<DeviceKeyId, Result<Signature, InvalidSignature>>> {
         self.0.get(signer)
     }
 
@@ -271,10 +266,9 @@ impl Default for Signatures {
 }
 
 impl IntoIterator for Signatures {
-    type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>);
+    type Item = (UserId, BTreeMap<DeviceKeyId, Result<Signature, InvalidSignature>>);
 
-    type IntoIter =
-        IntoIter<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>>;
+    type IntoIter = IntoIter<UserId, BTreeMap<DeviceKeyId, Result<Signature, InvalidSignature>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -286,7 +280,7 @@ impl<'de> Deserialize<'de> for Signatures {
     where
         D: Deserializer<'de>,
     {
-        let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
+        let map: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> =
             Deserialize::deserialize(deserializer)?;
 
         let map = map
@@ -320,7 +314,7 @@ impl Serialize for Signatures {
     where
         S: Serializer,
     {
-        let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = self
+        let signatures: BTreeMap<&UserId, BTreeMap<&DeviceKeyId, String>> = self
             .0
             .iter()
             .map(|(u, m)| {
@@ -412,14 +406,14 @@ impl<K: Ord, const N: usize> From<[(K, SigningKey); N]> for SigningKeys<K> {
     }
 }
 
-// Helper trait to generalize between a `OwnedDeviceKeyId` and a
+// Helper trait to generalize between a `DeviceKeyId` and a
 // `DeviceKeyAlgorithm` so that we can support Deserialize for
 // `SigningKeys<T>`
 trait Algorithm {
     fn algorithm(&self) -> DeviceKeyAlgorithm;
 }
 
-impl Algorithm for OwnedDeviceKeyId {
+impl Algorithm for DeviceKeyId {
     fn algorithm(&self) -> DeviceKeyAlgorithm {
         DeviceKeyId::algorithm(self)
     }

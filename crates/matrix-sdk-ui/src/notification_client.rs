@@ -14,7 +14,6 @@
 
 use std::{
     collections::BTreeMap,
-    ops::Deref,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -26,7 +25,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
+    EventId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
     assign,
     events::{
@@ -376,7 +375,7 @@ impl NotificationClient {
     async fn try_sliding_sync(
         &self,
         requests: &[NotificationItemsRequest],
-    ) -> Result<BTreeMap<OwnedEventId, (OwnedRoomId, Option<RawNotificationEvent>)>, Error> {
+    ) -> Result<BTreeMap<EventId, (RoomId, Option<RawNotificationEvent>)>, Error> {
         const MAX_SLIDING_SYNC_ATTEMPTS: u64 = 3;
         // Serialize all the calls to this method by taking a lock at the beginning,
         // that will be dropped later.
@@ -400,7 +399,7 @@ impl NotificationClient {
         let timeline_event_handler = self.client.add_event_handler({
             let requests = requests.clone();
             move |raw: Raw<AnySyncTimelineEvent>| async move {
-                match &raw.get_field::<OwnedEventId>("event_id") {
+                match &raw.get_field::<EventId>("event_id") {
                     Ok(Some(event_id)) => {
                         let Some(request) =
                             &requests.iter().find(|request| request.event_ids.contains(event_id))
@@ -449,7 +448,7 @@ impl NotificationClient {
 
                 // Try to match the event by event_id, as it's the most precise. In theory, we
                 // shouldn't receive it, so that's a first attempt.
-                match &raw.get_field::<OwnedEventId>("event_id") {
+                match &raw.get_field::<EventId>("event_id") {
                     Ok(Some(event_id)) => {
                         let request =
                             &requests.iter().find(|request| request.event_ids.contains(event_id));
@@ -529,7 +528,7 @@ impl NotificationClient {
             .await?;
 
         sync.subscribe_to_rooms(
-            &room_ids.iter().map(|id| id.deref()).collect::<Vec<&RoomId>>(),
+            &room_ids.iter().collect::<Vec<&RoomId>>(),
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: uint!(16)
@@ -811,11 +810,11 @@ pub enum NotificationStatus {
 
 #[derive(Debug, Clone)]
 pub struct NotificationItemsRequest {
-    pub room_id: OwnedRoomId,
-    pub event_ids: Vec<OwnedEventId>,
+    pub room_id: RoomId,
+    pub event_ids: Vec<EventId>,
 }
 
-type BatchNotificationFetchingResult = BTreeMap<OwnedEventId, Result<NotificationStatus, Error>>;
+type BatchNotificationFetchingResult = BTreeMap<EventId, Result<NotificationStatus, Error>>;
 
 /// The Notification event as it was fetched from remote for the
 /// given `event_id`, represented as Raw but decrypted, thus only
@@ -850,7 +849,7 @@ impl NotificationEvent {
 
     /// Returns the root event id of the thread the notification event is in, if
     /// any.
-    fn thread_id(&self) -> Option<OwnedEventId> {
+    fn thread_id(&self) -> Option<EventId> {
         let NotificationEvent::Timeline(sync_timeline_event) = &self else {
             return None;
         };
@@ -911,7 +910,7 @@ pub struct NotificationItem {
     /// It is set if and only if the push actions could be determined.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
-    pub thread_id: Option<OwnedEventId>,
+    pub thread_id: Option<EventId>,
 
     /// The push actions for this notification (notify, sound, highlight, etc.).
     pub actions: Option<Vec<Action>>,

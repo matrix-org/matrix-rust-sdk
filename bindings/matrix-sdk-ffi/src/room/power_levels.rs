@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use ruma::{
     events::{room::power_levels::RoomPowerLevels as RumaPowerLevels, TimelineEventType},
-    OwnedUserId, UserId,
+    UserId,
 };
 
 use crate::{
@@ -28,11 +28,11 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct RoomPowerLevels {
     inner: RumaPowerLevels,
-    own_user_id: OwnedUserId,
+    own_user_id: UserId,
 }
 
 impl RoomPowerLevels {
-    pub fn new(value: RumaPowerLevels, own_user_id: OwnedUserId) -> Self {
+    pub fn new(value: RumaPowerLevels, own_user_id: UserId) -> Self {
         Self { inner: value, own_user_id }
     }
 }

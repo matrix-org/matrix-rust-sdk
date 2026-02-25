@@ -408,7 +408,7 @@ mod tests {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        MxcUri, OwnedMxcUri,
+        MxcUri,
         events::room::MediaSource,
         mxc_uri,
         time::{Duration, SystemTime},
@@ -470,7 +470,7 @@ mod tests {
         key: String,
 
         /// The original URI of the media content.
-        uri: OwnedMxcUri,
+        uri: MxcUri,
 
         /// The media content.
         content: Vec<u8>,

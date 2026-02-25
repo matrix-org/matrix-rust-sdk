@@ -24,7 +24,7 @@ pub use ruma::api::client::sync::sync_events::v3::{
     InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
 };
 use ruma::{
-    OwnedEventId, OwnedRoomId,
+    EventId, RoomId,
     api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
@@ -58,7 +58,7 @@ pub struct SyncResponse {
     /// Messages sent directly between devices.
     pub to_device: Vec<ProcessedToDeviceEvent>,
     /// New notifications per room.
-    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
+    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -77,20 +77,20 @@ impl fmt::Debug for SyncResponse {
 #[derive(Clone, Default)]
 pub struct RoomUpdates {
     /// The rooms that the user has left or been banned from.
-    pub left: BTreeMap<OwnedRoomId, LeftRoomUpdate>,
+    pub left: BTreeMap<RoomId, LeftRoomUpdate>,
     /// The rooms that the user has joined.
-    pub joined: BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
+    pub joined: BTreeMap<RoomId, JoinedRoomUpdate>,
     /// The rooms that the user has been invited to.
-    pub invited: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
+    pub invited: BTreeMap<RoomId, InvitedRoomUpdate>,
     /// The rooms that the user has knocked on.
-    pub knocked: BTreeMap<OwnedRoomId, KnockedRoomUpdate>,
+    pub knocked: BTreeMap<RoomId, KnockedRoomUpdate>,
 }
 
 impl RoomUpdates {
     /// Iterate over all room IDs, from [`RoomUpdates::left`],
     /// [`RoomUpdates::joined`], [`RoomUpdates::invited`] and
     /// [`RoomUpdates::knocked`].
-    pub fn iter_all_room_ids(&self) -> impl Iterator<Item = &OwnedRoomId> {
+    pub fn iter_all_room_ids(&self) -> impl Iterator<Item = &RoomId> {
         self.left
             .keys()
             .chain(self.joined.keys())
@@ -218,7 +218,7 @@ pub struct JoinedRoomUpdate {
     ///
     /// This is a map of event ID of the `m.room.member` event to the
     /// details of the ambiguity change.
-    pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    pub ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -242,7 +242,7 @@ impl JoinedRoomUpdate {
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         unread_notifications: UnreadNotificationsCount,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
     ) -> Self {
         Self { unread_notifications, timeline, state, account_data, ephemeral, ambiguity_changes }
     }
@@ -290,7 +290,7 @@ pub struct LeftRoomUpdate {
     ///
     /// This is a map of event ID of the `m.room.member` event to the
     /// details of the ambiguity change.
-    pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    pub ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
 }
 
 impl LeftRoomUpdate {
@@ -298,7 +298,7 @@ impl LeftRoomUpdate {
         timeline: Timeline,
         state: State,
         account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
     ) -> Self {
         Self { timeline, state, account_data, ambiguity_changes }
     }
@@ -375,7 +375,7 @@ impl fmt::Debug for State {
     }
 }
 
-struct DebugInvitedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoomUpdate>);
+struct DebugInvitedRoomUpdates<'a>(&'a BTreeMap<RoomId, InvitedRoomUpdate>);
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for DebugInvitedRoomUpdates<'_> {
@@ -384,7 +384,7 @@ impl fmt::Debug for DebugInvitedRoomUpdates<'_> {
     }
 }
 
-struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, KnockedRoomUpdate>);
+struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<RoomId, KnockedRoomUpdate>);
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for DebugKnockedRoomUpdates<'_> {

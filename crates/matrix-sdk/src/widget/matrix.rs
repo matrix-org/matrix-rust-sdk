@@ -24,7 +24,7 @@ use matrix_sdk_base::{
     sync::State,
 };
 use ruma::{
-    EventId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
@@ -353,10 +353,7 @@ impl MatrixDriver {
     pub(crate) async fn send_to_device(
         &self,
         event_type: ToDeviceEventType,
-        messages: BTreeMap<
-            OwnedUserId,
-            BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
-        >,
+        messages: BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
     ) -> Result<SendToDeviceEventResponse> {
         // TODO: block this at the negotiation stage, no reason to let widget believe
         // they can do that
@@ -368,7 +365,7 @@ impl MatrixDriver {
 
         let client = self.room.client();
 
-        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+        let mut failures: BTreeMap<UserId, Vec<DeviceId>> = BTreeMap::new();
 
         let room_encrypted = self
             .room
@@ -387,7 +384,7 @@ impl MatrixDriver {
             // map].
             let mut content_to_recipients_map: BTreeMap<
                 &str,
-                BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+                BTreeMap<UserId, Vec<DeviceIdOrAllDevices>>,
             > = BTreeMap::new();
 
             for (user_id, device_map) in messages.iter() {
@@ -434,8 +431,8 @@ impl MatrixDriver {
         &self,
         event_type: &ToDeviceEventType,
         content: &str,
-        user_to_list_of_device_id_or_all: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-        failures: &mut BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        user_to_list_of_device_id_or_all: BTreeMap<UserId, Vec<DeviceIdOrAllDevices>>,
+        failures: &mut BTreeMap<UserId, Vec<DeviceId>>,
     ) -> Result<()> {
         let client = self.room.client();
         let mut recipient_devices = Vec::<_>::new();

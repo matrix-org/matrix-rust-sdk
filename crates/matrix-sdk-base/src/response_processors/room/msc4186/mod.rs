@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 
 use matrix_sdk_common::timer;
 use ruma::{
-    JsOption, OwnedRoomId, RoomId, UserId,
+    JsOption, RoomId, UserId,
     api::client::sync::sync_events::{
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
         v5 as http,
@@ -59,7 +59,7 @@ pub async fn update_any_room(
     user_id: &UserId,
     room_creation_data: RoomCreationData<'_>,
     room_response: &http::response::Room,
-    rooms_account_data: &BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
+    rooms_account_data: &BTreeMap<RoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     notification: notification::Notification<'_>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {

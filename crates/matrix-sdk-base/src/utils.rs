@@ -1,5 +1,5 @@
 use ruma::{
-    OwnedEventId,
+    EventId,
     events::{
         AnySyncStateEvent, AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
         RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
@@ -32,7 +32,7 @@ pub struct MinimalStateEvent<C: PossiblyRedactedStateEventContent + RedactConten
     /// The event's content.
     pub content: C,
     /// The event's ID, if known.
-    pub event_id: Option<OwnedEventId>,
+    pub event_id: Option<EventId>,
 }
 
 impl<C> MinimalStateEvent<C>
@@ -88,7 +88,7 @@ where
 #[derive(Serialize, Deserialize)]
 struct MinimalStateEventSerdeHelperInner<C> {
     content: C,
-    event_id: Option<OwnedEventId>,
+    event_id: Option<EventId>,
 }
 
 impl<C> From<MinimalStateEventSerdeHelperInner<C>> for MinimalStateEvent<C>
@@ -349,7 +349,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         let event =
             serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
@@ -357,7 +357,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name, None);
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         // The new format works.
         let event =
@@ -366,7 +366,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
 
         let event =
             serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
@@ -374,6 +374,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event.content.name, None);
-        assert_eq!(event.event_id.as_deref(), Some(event_id));
+        assert_eq!(event.event_id.as_ref(), Some(event_id));
     }
 }

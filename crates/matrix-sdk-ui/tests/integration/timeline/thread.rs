@@ -365,7 +365,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), reply_event_id);
     assert!(event_item.content().thread_summary().is_none());
-    assert_eq!(event_item.content().thread_root().as_deref(), Some(thread_event_id));
+    assert_eq!(event_item.content().thread_root().as_ref(), Some(thread_event_id));
     // First, the replied-to event (thread root) doesn't have any thread summary
     // info.
     let replied_to_details = value.as_event().unwrap().content().in_reply_to().unwrap().event;
@@ -431,7 +431,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), another_reply_event_id);
     assert!(event_item.content().thread_summary().is_none());
-    assert_eq!(event_item.content().thread_root().as_deref(), Some(thread_event_id));
+    assert_eq!(event_item.content().thread_root().as_ref(), Some(thread_event_id));
 
     // Then the first thread reply is updated with the up-to-date thread summary in
     // the replied-to event.
@@ -2171,7 +2171,7 @@ async fn test_main_timeline_has_receipts_in_thread_summaries() {
     assert!(summary.latest_event.is_ready());
 
     // The public read receipt event id is filled (but the private isn't).
-    assert_eq!(summary.public_read_receipt_event_id.as_deref(), Some(latest_event_id));
+    assert_eq!(summary.public_read_receipt_event_id.as_ref(), Some(latest_event_id));
     assert_eq!(summary.private_read_receipt_event_id, None);
 
     // Now, a new read receipt is received for the same thread (we haven't received
@@ -2204,6 +2204,6 @@ async fn test_main_timeline_has_receipts_in_thread_summaries() {
     assert_let!(Some(summary) = event_item.content().thread_summary());
 
     // Now, the private read receipt is *also* filled.
-    assert_eq!(summary.public_read_receipt_event_id.as_deref(), Some(latest_event_id));
-    assert_eq!(summary.private_read_receipt_event_id.as_deref(), Some(new_latest_event_id));
+    assert_eq!(summary.public_read_receipt_event_id.as_ref(), Some(latest_event_id));
+    assert_eq!(summary.private_read_receipt_event_id.as_ref(), Some(new_latest_event_id));
 }

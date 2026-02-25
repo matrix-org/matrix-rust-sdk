@@ -20,7 +20,7 @@ use std::{
     hash::Hash,
 };
 
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, RoomId};
 use thiserror::Error;
 
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
@@ -110,7 +110,7 @@ pub trait IndexableItem {
 }
 
 impl IndexableItem for TimelineEvent {
-    type ItemId = OwnedEventId;
+    type ItemId = EventId;
 
     fn id(&self) -> Self::ItemId {
         self.event_id()
@@ -414,7 +414,7 @@ where
     }
 
     /// Save a single item "out-of-band" in the relational linked chunk.
-    pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
+    pub fn save_item(&mut self, room_id: RoomId, item: Item) {
         let id = item.id();
         let linked_chunk_id = OwnedLinkedChunkId::Room(room_id);
 

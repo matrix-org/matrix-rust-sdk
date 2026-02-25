@@ -16,7 +16,7 @@ use std::{matches, sync::Arc, time::Duration};
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    DeviceId, OwnedTransactionId, TransactionId, UserId,
+    DeviceId, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
@@ -389,7 +389,7 @@ pub struct Started {
 pub struct Accepted {
     pub accepted_protocols: AcceptedProtocols,
     start_content: Arc<OwnedStartContent>,
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
     commitment: Base64,
 }
 
@@ -410,7 +410,7 @@ pub struct WeAccepted {
 pub struct KeyReceived {
     sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
     pub accepted_protocols: AcceptedProtocols,
 }
 

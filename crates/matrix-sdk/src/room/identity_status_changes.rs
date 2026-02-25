@@ -23,7 +23,7 @@ use futures_util::{StreamExt, stream_select};
 use matrix_sdk_base::crypto::{
     IdentityState, IdentityStatusChange, RoomIdentityChange, RoomIdentityState,
 };
-use ruma::{OwnedUserId, UserId, events::room::member::SyncRoomMemberEvent};
+use ruma::{UserId, events::room::member::SyncRoomMemberEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -178,8 +178,8 @@ fn to_base_updates(
 }
 
 fn to_base_identities(
-    input: BTreeMap<OwnedUserId, UserIdentity>,
-) -> BTreeMap<OwnedUserId, matrix_sdk_base::crypto::UserIdentity> {
+    input: BTreeMap<UserId, UserIdentity>,
+) -> BTreeMap<UserId, matrix_sdk_base::crypto::UserIdentity> {
     input.into_iter().map(|(k, v)| (k, v.underlying_identity())).collect()
 }
 
@@ -607,7 +607,7 @@ mod tests {
             test_json::keys_query_sets::IdentityChangeDataSet,
         };
         use ruma::{
-            OwnedUserId, TransactionId, UserId,
+            TransactionId, UserId,
             api::client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
             events::room::member::MembershipState,
             owned_user_id, user_id,
@@ -633,7 +633,7 @@ mod tests {
         /// The other user is called `@bob:localhost`.
         pub(super) struct TestSetup {
             client: Client,
-            bob_user_id: OwnedUserId,
+            bob_user_id: UserId,
             sync_response_builder: SyncResponseBuilder,
             room: Room,
         }
@@ -800,7 +800,7 @@ mod tests {
                     .expect("Should be able to subscribe")
             }
 
-            async fn init() -> (Client, OwnedUserId, SyncResponseBuilder) {
+            async fn init() -> (Client, UserId, SyncResponseBuilder) {
                 let (client, _server) = create_client_and_server().await;
 
                 // Ensure our user has cross-signing keys etc.

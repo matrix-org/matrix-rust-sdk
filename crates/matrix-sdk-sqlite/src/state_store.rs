@@ -20,8 +20,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UInt, UserId,
     canonical_json::{RedactedBecause, redact},
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
@@ -1483,10 +1482,7 @@ impl StateStore for SqliteStateStore {
             .transpose()
     }
 
-    async fn get_presence_events(
-        &self,
-        user_ids: &[OwnedUserId],
-    ) -> Result<Vec<Raw<PresenceEvent>>> {
+    async fn get_presence_events(&self, user_ids: &[UserId]) -> Result<Vec<Raw<PresenceEvent>>> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1589,7 +1585,7 @@ impl StateStore for SqliteStateStore {
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
+        user_ids: &'a [UserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
         if user_ids.is_empty() {
             return Ok(BTreeMap::new());
@@ -1598,7 +1594,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::PROFILE, room_id);
         let mut user_ids_map = user_ids
             .iter()
-            .map(|u| (self.encode_key(keys::PROFILE, u), u.as_ref()))
+            .map(|u| (self.encode_key(keys::PROFILE, u), u))
             .collect::<BTreeMap<_, _>>();
         let user_ids = user_ids_map.keys().cloned().collect();
 
@@ -1622,7 +1618,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         membership: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>> {
+    ) -> Result<Vec<UserId>> {
         let room_id = self.encode_key(keys::MEMBER, room_id);
         let memberships = membership
             .as_vec()
@@ -1655,7 +1651,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
-    ) -> Result<BTreeSet<OwnedUserId>> {
+    ) -> Result<BTreeSet<UserId>> {
         let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
         let names = vec![self.encode_key(
             keys::DISPLAY_NAME,
@@ -1678,7 +1674,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
-    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<UserId>>> {
         let mut result = HashMap::new();
 
         if display_names.is_empty() {
@@ -1755,7 +1751,7 @@ impl StateStore for SqliteStateStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+    ) -> Result<Option<(EventId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
@@ -1779,7 +1775,7 @@ impl StateStore for SqliteStateStore {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+    ) -> Result<Vec<(UserId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
@@ -1879,7 +1875,7 @@ impl StateStore for SqliteStateStore {
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         content: QueuedRequestKind,
         priority: usize,
@@ -2015,7 +2011,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<RoomId>, Self::Error> {
         // If the values were not encrypted, we could use `SELECT DISTINCT` here, but we
         // have to manually do the deduplication: indeed, for all X, encrypt(X)
         // != encrypted(X), since we use a nonce in the encryption process.
@@ -2033,7 +2029,7 @@ impl StateStore for SqliteStateStore {
         Ok(res
             .into_iter()
             .map(|entry| self.deserialize_value(&entry))
-            .collect::<Result<BTreeSet<OwnedRoomId>, _>>()?
+            .collect::<Result<BTreeSet<RoomId>, _>>()?
             .into_iter()
             .collect())
     }
@@ -2303,8 +2299,8 @@ impl StateStore for SqliteStateStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReceiptData {
     receipt: Receipt,
-    event_id: OwnedEventId,
-    user_id: OwnedUserId,
+    event_id: EventId,
+    user_id: UserId,
 }
 
 #[cfg(test)]
@@ -2439,7 +2435,7 @@ mod migration_tests {
     };
     use matrix_sdk_test::async_test;
     use ruma::{
-        EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, RoomId, TransactionId, UserId,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
         events::{
             StateEventType,
             room::{MediaSource, create::RoomCreateEventContent, message::RoomMessageEventContent},
@@ -2803,7 +2799,7 @@ mod migration_tests {
         UploadFileWithThumbnail {
             content_type: String,
             cache_key: MediaRequestParameters,
-            related_to: OwnedTransactionId,
+            related_to: TransactionId,
         },
     }
 

@@ -268,8 +268,8 @@ macro_rules! assert_next_eq_with_timeout {
 /// ```no_run
 /// # async {
 /// # let client: matrix_sdk::Client = unreachable!();
-/// # let room_id: ruma::OwnedRoomId = unreachable!();
-/// # let event_id: ruma::OwnedEventId = unreachable!();
+/// # let room_id: ruma::RoomId = unreachable!();
+/// # let event_id: ruma::EventId = unreachable!();
 /// use matrix_sdk::assert_decrypted_message_eq;
 ///
 /// let room =
@@ -319,8 +319,8 @@ macro_rules! assert_decrypted_message_eq {
 /// ```no_run
 /// # async {
 /// # let client: matrix_sdk::Client = unreachable!();
-/// # let room_id: ruma::OwnedRoomId = unreachable!();
-/// # let event_id: ruma::OwnedEventId = unreachable!();
+/// # let room_id: ruma::RoomId = unreachable!();
+/// # let event_id: ruma::EventId = unreachable!();
 /// use matrix_sdk::assert_let_decrypted_state_event_content;
 ///
 /// let room =

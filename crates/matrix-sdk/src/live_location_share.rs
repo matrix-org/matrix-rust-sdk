@@ -19,7 +19,7 @@
 use async_stream::stream;
 use futures_util::Stream;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId,
+    MilliSecondsSinceUnixEpoch, RoomId, UserId,
     events::{
         beacon::OriginalSyncBeaconEvent, beacon_info::BeaconInfoEventContent,
         location::LocationContent,
@@ -82,5 +82,5 @@ pub struct LiveLocationShare {
     /// Information about the associated beacon event.
     pub beacon_info: Option<BeaconInfoEventContent>,
     /// The user ID of the person sharing their live location.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
 }

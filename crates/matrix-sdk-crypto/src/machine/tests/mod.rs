@@ -462,7 +462,7 @@ async fn test_session_encryption_info_can_be_fetched() {
 
     // Then the expected info is returned
     assert_eq!(encryption_info.sender, alice_id());
-    assert_eq!(encryption_info.sender_device.as_deref(), Some(alice_device_id()));
+    assert_eq!(encryption_info.sender_device.as_ref(), Some(alice_device_id()));
     assert_matches!(
         &encryption_info.algorithm_info,
         AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
@@ -1496,7 +1496,7 @@ async fn test_room_key_with_fake_identity_keys() {
 #[async_test]
 async fn test_importing_private_cross_signing_keys_verifies_the_public_identity() {
     async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
-        let second_machine = OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into()).await;
+        let second_machine = OlmMachine::new(machine.user_id(), &"ADDITIONAL_MACHINE".into()).await;
 
         let identity = machine
             .get_identity(machine.user_id(), None)

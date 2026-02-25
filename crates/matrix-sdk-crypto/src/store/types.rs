@@ -22,7 +22,7 @@ use std::{
     time::Duration,
 };
 
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{DeviceId, RoomId, UserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -78,8 +78,8 @@ pub struct Changes {
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
     /// Stores when a `m.room_key.withheld` is received
-    pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
-    pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
+    pub withheld_session_info: BTreeMap<RoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
+    pub room_settings: HashMap<RoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
     pub next_batch_token: Option<String>,
 
@@ -89,7 +89,7 @@ pub struct Changes {
 
     /// The set of rooms for which we have requested all room keys from the
     /// backup in advance of constructing a room key bundle.
-    pub room_key_backups_fully_downloaded: HashSet<OwnedRoomId>,
+    pub room_key_backups_fully_downloaded: HashSet<RoomId>,
 }
 
 /// Information about an [MSC4268] room key bundle.
@@ -98,7 +98,7 @@ pub struct Changes {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoredRoomKeyBundleData {
     /// The user that sent us this data.
-    pub sender_user: OwnedUserId,
+    pub sender_user: UserId,
 
     /// The [`Curve25519PublicKey`] of the device that sent us this data.
     pub sender_key: Curve25519PublicKey,
@@ -115,7 +115,7 @@ pub struct StoredRoomKeyBundleData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrackedUser {
     /// The user ID of the user.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The outdate/dirty flag of the user, remembers if the list of devices for
     /// the user is considered to be out of date. If the list of devices is
     /// out of date, a `/keys/query` request should be sent out for this
@@ -173,9 +173,9 @@ impl IdentityChanges {
     pub(super) fn into_maps(
         self,
     ) -> (
-        BTreeMap<OwnedUserId, UserIdentityData>,
-        BTreeMap<OwnedUserId, UserIdentityData>,
-        BTreeMap<OwnedUserId, UserIdentityData>,
+        BTreeMap<UserId, UserIdentityData>,
+        BTreeMap<UserId, UserIdentityData>,
+        BTreeMap<UserId, UserIdentityData>,
     ) {
         let new: BTreeMap<_, _> = self
             .new
@@ -216,9 +216,9 @@ pub struct DeviceUpdates {
     /// A device being in this list does not necessarily mean that the device
     /// was just created, it just means that it's the first time we're
     /// seeing this device.
-    pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub new: BTreeMap<UserId, BTreeMap<DeviceId, Device>>,
     /// The list of changed devices.
-    pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub changed: BTreeMap<UserId, BTreeMap<DeviceId, Device>>,
 }
 
 /// Updates about [`UserIdentity`]s which got received over the `/keys/query`
@@ -230,11 +230,11 @@ pub struct IdentityUpdates {
     /// A identity being in this list does not necessarily mean that the
     /// identity was just created, it just means that it's the first time
     /// we're seeing this identity.
-    pub new: BTreeMap<OwnedUserId, UserIdentity>,
+    pub new: BTreeMap<UserId, UserIdentity>,
     /// The list of changed identities.
-    pub changed: BTreeMap<OwnedUserId, UserIdentity>,
+    pub changed: BTreeMap<UserId, UserIdentity>,
     /// The list of unchanged identities.
-    pub unchanged: BTreeMap<OwnedUserId, UserIdentity>,
+    pub unchanged: BTreeMap<UserId, UserIdentity>,
 }
 
 /// The private part of a backup key.
@@ -462,7 +462,7 @@ pub struct RoomKeyInfo {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
     pub sender_key: Curve25519PublicKey,
@@ -486,7 +486,7 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RoomKeyWithheldInfo {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The ID of the session that the key is for.
     pub session_id: String,
@@ -506,7 +506,7 @@ pub struct RoomKeyWithheldEntry {
     /// `m.room_key.withheld` to-device event or an [MSC4268] room key bundle.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The content of the entry, which provides details about the reason the
     /// key was withheld.
     pub content: RoomKeyWithheldContent,
@@ -528,13 +528,13 @@ impl From<RoomKeyWithheldEvent> for RoomKeyWithheldEntry {
 #[derive(Debug, Clone)]
 pub struct RoomKeyBundleInfo {
     /// The user ID of the person that sent us the historic room key bundle.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
 
     /// The [`Curve25519PublicKey`] of the device that sent us this data.
     pub sender_key: Curve25519PublicKey,
 
     /// The ID of the room the bundle should be used in.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 }
 
 impl From<&StoredRoomKeyBundleData> for RoomKeyBundleInfo {

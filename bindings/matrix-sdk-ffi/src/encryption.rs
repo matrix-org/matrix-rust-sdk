@@ -20,6 +20,7 @@ use matrix_sdk::{
     encryption::{backups, recovery},
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+use ruma::UserId;
 use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
@@ -466,7 +467,8 @@ impl Encryption {
         user_id: String,
         fallback_to_server: bool,
     ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
-        match self.inner.get_user_identity(user_id.as_str().try_into()?).await {
+        let user_id = UserId::try_from(user_id)?;
+        match self.inner.get_user_identity(&user_id).await {
             Ok(Some(identity)) => {
                 return Ok(Some(Arc::new(UserIdentity { inner: identity })));
             }
@@ -481,7 +483,7 @@ impl Encryption {
         info!("Requesting identity from the server.");
 
         if fallback_to_server {
-            let identity = self.inner.request_user_identity(user_id.as_str().try_into()?).await?;
+            let identity = self.inner.request_user_identity(&user_id).await?;
             Ok(identity.map(|identity| Arc::new(UserIdentity { inner: identity })))
         } else {
             Ok(None)

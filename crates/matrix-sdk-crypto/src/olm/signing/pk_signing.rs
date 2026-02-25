@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::{
-    CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId,
+    CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     canonical_json::to_canonical_value, encryption::KeyUsage,
 };
 use serde::{Deserialize, Serialize};
@@ -101,7 +101,7 @@ pub struct PickledSelfSigning {
 }
 
 impl MasterSigning {
-    pub fn new(user_id: OwnedUserId) -> Self {
+    pub fn new(user_id: UserId) -> Self {
         let inner = Signing::new();
         let public_key = inner
             .cross_signing_key(user_id, KeyUsage::Master)
@@ -165,7 +165,7 @@ impl MasterSigning {
         self.inner.to_base64()
     }
 
-    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: UserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner
             .cross_signing_key(user_id, KeyUsage::Master)
@@ -194,7 +194,7 @@ impl MasterSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -216,7 +216,7 @@ impl UserSigning {
         self.inner.to_base64()
     }
 
-    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: UserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner
             .cross_signing_key(user_id, KeyUsage::UserSigning)
@@ -251,7 +251,7 @@ impl UserSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -281,7 +281,7 @@ impl SelfSigning {
         self.inner.to_base64()
     }
 
-    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: UserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner
             .cross_signing_key(user_id, KeyUsage::SelfSigning)
@@ -299,7 +299,7 @@ impl SelfSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -375,11 +375,11 @@ impl Signing {
         self.public_key
     }
 
-    pub fn cross_signing_key(&self, user_id: OwnedUserId, usage: KeyUsage) -> CrossSigningKey {
+    pub fn cross_signing_key(&self, user_id: UserId, usage: KeyUsage) -> CrossSigningKey {
         let keys = SigningKeys::from([(
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.public_key().to_base64().as_str().into(),
+                &self.public_key().to_base64().into(),
             ),
             self.inner.public_key().into(),
         )]);

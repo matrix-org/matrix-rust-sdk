@@ -29,8 +29,7 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
-    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    OneTimeKeyAlgorithm, OneTimeKeyId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -167,9 +166,9 @@ impl OlmMessageHash {
 #[cfg_attr(not(tarpaulin_include), derive(Debug))]
 pub struct StaticAccountData {
     /// The user_id this account belongs to.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The device_id of this entry.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
     /// Whether the account is for a dehydrated device.
@@ -259,7 +258,7 @@ impl StaticAccountData {
     }
 
     /// Get the key ID of our Ed25519 signing key.
-    pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
+    pub fn signing_key_id(&self) -> DeviceKeyId {
         DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
     }
 
@@ -379,9 +378,9 @@ impl Deref for Account {
 #[allow(missing_debug_implementations)]
 pub struct PickledAccount {
     /// The user id of the account owner.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The device ID of the account owner.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
     /// Was the account shared.
@@ -414,7 +413,7 @@ impl fmt::Debug for Account {
     }
 }
 
-pub type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>;
+pub type OneTimeKeys = BTreeMap<OneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>;
 pub type FallbackKeys = OneTimeKeys;
 
 impl Account {
@@ -464,7 +463,7 @@ impl Account {
     /// encoded as base64 will be used for the device ID.
     pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
@@ -473,7 +472,7 @@ impl Account {
     /// Create a new random Olm Account for a dehydrated device
     pub fn new_dehydrated(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         let mut ret = Self::new_helper(account, user_id, &device_id);
@@ -911,7 +910,7 @@ impl Account {
             keys_map.insert(
                 OneTimeKeyId::from_parts(
                     OneTimeKeyAlgorithm::SignedCurve25519,
-                    key_id.to_base64().as_str().into(),
+                    &key_id.to_base64().into(),
                 ),
                 signed_key.into_raw(),
             );
@@ -1909,7 +1908,6 @@ fn satisfies_sender_trust_requirement(
 mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
-        ops::Deref,
         time::Duration,
     };
 
@@ -1946,10 +1944,9 @@ mod tests {
         let (_, second_one_time_keys, _) = account.keys_for_upload();
         assert!(!second_one_time_keys.is_empty());
 
-        let one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            one_time_keys.keys().map(Deref::deref).collect();
+        let one_time_key_ids: BTreeSet<&OneTimeKeyId> = one_time_keys.keys().collect();
         let second_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            second_one_time_keys.keys().map(Deref::deref).collect();
+            second_one_time_keys.keys().collect();
 
         assert_eq!(one_time_key_ids, second_one_time_key_ids);
 
@@ -1967,7 +1964,7 @@ mod tests {
         assert!(!fourth_one_time_keys.is_empty());
 
         let fourth_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
-            fourth_one_time_keys.keys().map(Deref::deref).collect();
+            fourth_one_time_keys.keys().collect();
 
         assert_ne!(one_time_key_ids, fourth_one_time_key_ids);
         Ok(())

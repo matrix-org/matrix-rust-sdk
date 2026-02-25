@@ -18,8 +18,7 @@ use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UInt,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, TransactionId, UInt, UserId,
     events::{
         AnyMessageLikeEventContent, MessageLikeEventContent as _, RawExt as _,
         room::{MediaSource, message::RoomMessageEventContent},
@@ -109,7 +108,7 @@ pub enum QueuedRequestKind {
         thumbnail_source: Option<MediaSource>,
 
         /// To which media event transaction does this upload relate?
-        related_to: OwnedTransactionId,
+        related_to: TransactionId,
 
         /// Accumulated list of infos for previously uploaded files and
         /// thumbnails if used during a gallery transaction. Otherwise empty.
@@ -132,7 +131,7 @@ pub struct QueuedRequest {
     pub kind: QueuedRequestKind,
 
     /// Unique transaction id for the queued request, acting as a key.
-    pub transaction_id: OwnedTransactionId,
+    pub transaction_id: TransactionId,
 
     /// Error returned when the request couldn't be sent and is stuck in the
     /// unrecoverable state.
@@ -177,7 +176,7 @@ pub enum QueueWedgeError {
     #[error("There are insecure devices in the room")]
     InsecureDevices {
         /// The insecure devices as a Map of userID to deviceID.
-        user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        user_device_map: BTreeMap<UserId, Vec<DeviceId>>,
     },
 
     /// This error occurs when a previously verified user is not anymore, and
@@ -185,7 +184,7 @@ pub enum QueueWedgeError {
     #[error("Some users that were previously verified are not anymore")]
     IdentityViolations {
         /// The users that are expected to be verified but are not.
-        users: Vec<OwnedUserId>,
+        users: Vec<UserId>,
     },
 
     /// It is required to set up cross-signing and properly verify the current
@@ -242,7 +241,7 @@ pub enum DependentQueuedRequestKind {
         cache_key: MediaRequestParameters,
 
         /// To which media transaction id does this upload relate to?
-        related_to: OwnedTransactionId,
+        related_to: TransactionId,
 
         /// Whether the depended upon request was a thumbnail or a file upload.
         #[serde(default = "default_parent_is_thumbnail_upload")]
@@ -258,7 +257,7 @@ pub enum DependentQueuedRequestKind {
         local_echo: Box<RoomMessageEventContent>,
 
         /// Transaction id for the file upload.
-        file_upload: OwnedTransactionId,
+        file_upload: TransactionId,
 
         /// Information about the thumbnail, if present.
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
@@ -289,7 +288,7 @@ fn default_parent_is_thumbnail_upload() -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FinishUploadThumbnailInfo {
     /// Transaction id for the thumbnail upload.
-    pub txn: OwnedTransactionId,
+    pub txn: TransactionId,
     /// Thumbnail's width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<UInt>,
@@ -305,7 +304,7 @@ pub struct FinishUploadThumbnailInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FinishGalleryItemInfo {
     /// Transaction id for the file upload.
-    pub file_upload: OwnedTransactionId,
+    pub file_upload: TransactionId,
     /// Information about the thumbnail, if present.
     pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
 }
@@ -319,7 +318,7 @@ pub struct FinishGalleryItemInfo {
 #[repr(transparent)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ChildTransactionId(OwnedTransactionId);
+pub struct ChildTransactionId(TransactionId);
 
 impl ChildTransactionId {
     /// Returns a new [`ChildTransactionId`].
@@ -343,14 +342,14 @@ impl From<String> for ChildTransactionId {
     }
 }
 
-impl From<ChildTransactionId> for OwnedTransactionId {
+impl From<ChildTransactionId> for TransactionId {
     fn from(val: ChildTransactionId) -> Self {
         val.0
     }
 }
 
-impl From<OwnedTransactionId> for ChildTransactionId {
-    fn from(val: OwnedTransactionId) -> Self {
+impl From<TransactionId> for ChildTransactionId {
+    fn from(val: TransactionId) -> Self {
         Self(val)
     }
 }
@@ -410,7 +409,7 @@ pub enum SentRequestKey {
     /// The parent transaction returned an event when it succeeded.
     Event {
         /// The event ID returned by the server.
-        event_id: OwnedEventId,
+        event_id: EventId,
 
         /// The sent event.
         event: Raw<AnyMessageLikeEventContent>,
@@ -425,7 +424,7 @@ pub enum SentRequestKey {
 
 impl SentRequestKey {
     /// Converts the current parent key into an event id, if possible.
-    pub fn into_event_id(self) -> Option<OwnedEventId> {
+    pub fn into_event_id(self) -> Option<EventId> {
         as_variant!(self, Self::Event { event_id, .. } => event_id)
     }
 
@@ -456,7 +455,7 @@ pub struct DependentQueuedRequest {
     /// Note: this is the transaction id used for the depended-on request, i.e.
     /// the one that was originally sent and that's being modified with this
     /// dependent request.
-    pub parent_transaction_id: OwnedTransactionId,
+    pub parent_transaction_id: TransactionId,
 
     /// If the parent request has been sent, the parent's request identifier
     /// returned by the server once the local echo has been sent out.

@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::Cursor,
     mem::ManuallyDrop,
-    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -43,8 +42,7 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
-    UserId,
+    DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -206,7 +204,7 @@ impl OlmMachine {
         mut passphrase: Option<String>,
     ) -> Result<Arc<Self>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
@@ -216,7 +214,7 @@ impl OlmMachine {
 
         let inner = runtime.block_on(InnerMachine::with_store(
             &user_id,
-            device_id,
+            &device_id,
             Arc::new(store),
             None,
         ))?;
@@ -354,7 +352,7 @@ impl OlmMachine {
 
         Ok(self
             .runtime
-            .block_on(self.inner.get_device(&user_id, device_id.as_str().into(), timeout))?
+            .block_on(self.inner.get_device(&user_id, &device_id.into(), timeout))?
             .map(|d| d.into()))
     }
 
@@ -379,7 +377,7 @@ impl OlmMachine {
         let user_id = UserId::parse(user_id)?;
         let device = self.runtime.block_on(self.inner.get_device(
             &user_id,
-            device_id.as_str().into(),
+            &device_id.clone().into(),
             None,
         ))?;
 
@@ -400,11 +398,8 @@ impl OlmMachine {
     ) -> Result<(), CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
 
-        let device = self.runtime.block_on(self.inner.get_device(
-            &user_id,
-            device_id.as_str().into(),
-            None,
-        ))?;
+        let device =
+            self.runtime.block_on(self.inner.get_device(&user_id, &device_id.into(), None))?;
 
         if let Some(device) = device {
             self.runtime.block_on(device.set_local_trust(trust_state))?;
@@ -474,7 +469,7 @@ impl OlmMachine {
         request_type: RequestType,
         response_body: String,
     ) -> Result<(), CryptoStoreError> {
-        let id: OwnedTransactionId = request_id.into();
+        let id: TransactionId = request_id.into();
 
         let response = response_from_string(&response_body);
 
@@ -586,10 +581,9 @@ impl OlmMachine {
     ///
     /// `users` - The users that should be queued up for a key query.
     pub fn update_tracked_users(&self, users: Vec<String>) -> Result<(), CryptoStoreError> {
-        let users: Vec<OwnedUserId> =
-            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
+        let users: Vec<UserId> = users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
-        self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)))?;
+        self.runtime.block_on(self.inner.update_tracked_users(users.iter()))?;
 
         Ok(())
     }
@@ -621,13 +615,9 @@ impl OlmMachine {
         &self,
         users: Vec<String>,
     ) -> Result<Option<Request>, CryptoStoreError> {
-        let users: Vec<OwnedUserId> =
-            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
+        let users: Vec<UserId> = users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
-        Ok(self
-            .runtime
-            .block_on(self.inner.get_missing_sessions(users.iter().map(Deref::deref)))?
-            .map(|r| r.into()))
+        Ok(self.runtime.block_on(self.inner.get_missing_sessions(users.iter()))?.map(|r| r.into()))
     }
 
     /// Get the stored room settings, such as the encryption algorithm or
@@ -750,15 +740,11 @@ impl OlmMachine {
         users: Vec<String>,
         settings: EncryptionSettings,
     ) -> Result<Vec<Request>, CryptoStoreError> {
-        let users: Vec<OwnedUserId> =
-            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
+        let users: Vec<UserId> = users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;
-        let requests = self.runtime.block_on(self.inner.share_room_key(
-            &room_id,
-            users.iter().map(Deref::deref),
-            settings,
-        ))?;
+        let requests =
+            self.runtime.block_on(self.inner.share_room_key(&room_id, users.iter(), settings))?;
 
         Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
     }
@@ -839,10 +825,10 @@ impl OlmMachine {
         share_strategy: CollectStrategy,
     ) -> Result<Option<Request>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
         let content = serde_json::from_str(&content)?;
 
-        let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?;
+        let device = self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?;
 
         if let Some(device) = device {
             let encrypted_content = self.runtime.block_on(device.encrypt_event_raw(
@@ -852,8 +838,8 @@ impl OlmMachine {
             ))?;
 
             let request = ToDeviceRequest::new(
-                user_id.as_ref(),
-                DeviceIdOrAllDevices::DeviceId(device_id.to_owned()),
+                &user_id,
+                DeviceIdOrAllDevices::DeviceId(device_id),
                 "m.room.encrypted",
                 encrypted_content.cast(),
             );
@@ -1269,13 +1255,13 @@ impl OlmMachine {
         methods: Vec<String>,
     ) -> Result<Option<RequestVerificationResult>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?
             {
                 let (verification, request) = device.request_verification_with_methods(methods);
 
@@ -1361,11 +1347,11 @@ impl OlmMachine {
         device_id: String,
     ) -> Result<Option<StartSasResult>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?
             {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 

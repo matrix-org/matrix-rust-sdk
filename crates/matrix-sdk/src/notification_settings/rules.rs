@@ -321,7 +321,7 @@ pub(crate) mod tests {
         },
     };
     use ruma::{
-        OwnedRoomId, RoomId,
+        RoomId,
         push::{
             Action, NewConditionalPushRule, NewPushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition, RuleKind,
@@ -337,7 +337,7 @@ pub(crate) mod tests {
         },
     };
 
-    fn get_test_room_id() -> OwnedRoomId {
+    fn get_test_room_id() -> RoomId {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
     }
 

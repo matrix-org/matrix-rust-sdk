@@ -33,7 +33,7 @@ use matrix_sdk::{
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -116,7 +116,7 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
-        root_event_id: OwnedEventId,
+        root_event_id: EventId,
     },
 
     PinnedEvents,
@@ -566,7 +566,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let events_in_thread = events.into_iter().filter(|event| {
                             extract_thread_root(event.raw())
                                 .is_some_and(|event_thread_root| event_thread_root == thread_root)
-                                || event.event_id().as_deref() == Some(thread_root)
+                                || event.event_id().as_ref() == Some(thread_root)
                         });
 
                         self.replace_with_initial_remote_events(
@@ -759,7 +759,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     /// The root of the current thread, for a live thread timeline or a
     /// permalink to a thread message.
-    pub(super) fn thread_root(&self) -> Option<OwnedEventId> {
+    pub(super) fn thread_root(&self) -> Option<EventId> {
         self.focus.thread_root().map(ToOwned::to_owned)
     }
 
@@ -1034,7 +1034,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
     }
 
-    pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {
+    pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: EventId) {
         self.state.write().await.handle_fully_read_marker(fully_read_event_id);
     }
 
@@ -1054,7 +1054,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &self,
-        txn_id: OwnedTransactionId,
+        txn_id: TransactionId,
         content: AnyMessageLikeEventContent,
         send_handle: Option<SendHandle>,
     ) {
@@ -1402,7 +1402,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn latest_user_read_receipt(
         &self,
         user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         let receipt_thread = self.focus.receipt_thread();
 
         self.state
@@ -1417,7 +1417,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn latest_user_read_receipt_timeline_event_id(
         &self,
         user_id: &UserId,
-    ) -> Option<OwnedEventId> {
+    ) -> Option<EventId> {
         self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
     }
 
@@ -1469,7 +1469,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         reaction_key: String,
         send_handle: SendReactionHandle,
-        applies_to: OwnedTransactionId,
+        applies_to: TransactionId,
     ) {
         let mut state = self.state.write().await;
         let mut tr = state.transaction();
@@ -1771,7 +1771,7 @@ impl TimelineController {
 
     /// Returns the latest event identifier, even if it's not visible, or if
     /// it's folded into another timeline item.
-    pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
+    pub(crate) async fn latest_event_id(&self) -> Option<EventId> {
         let state = self.state.read().await;
         let filter_out_thread_events = match self.focus() {
             TimelineFocusKind::Thread { .. } => false,

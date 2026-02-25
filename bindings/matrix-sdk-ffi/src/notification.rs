@@ -19,7 +19,7 @@ use matrix_sdk_ui::notification_client::{
     NotificationItem as SdkNotificationItem, NotificationStatus as SdkNotificationStatus,
     RawNotificationEvent as SdkRawNotificationEvent,
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, RoomId};
 
 use crate::{
     client::{Client, JoinRule},
@@ -242,13 +242,13 @@ pub struct NotificationItemsRequest {
 }
 
 impl NotificationItemsRequest {
-    /// The parsed [`OwnedRoomId`] to use with the SDK crates.
-    pub fn room_id(&self) -> Result<OwnedRoomId, ClientError> {
+    /// The parsed [`RoomId`] to use with the SDK crates.
+    pub fn room_id(&self) -> Result<RoomId, ClientError> {
         RoomId::parse(&self.room_id).map_err(ClientError::from)
     }
 
-    /// The parsed [`OwnedEventId`] list to use with the SDK crates.
-    pub fn event_ids(&self) -> Result<Vec<OwnedEventId>, ClientError> {
+    /// The parsed [`EventId`] list to use with the SDK crates.
+    pub fn event_ids(&self) -> Result<Vec<EventId>, ClientError> {
         self.event_ids
             .iter()
             .map(|id| EventId::parse(id).map_err(ClientError::from))

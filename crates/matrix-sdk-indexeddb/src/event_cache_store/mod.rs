@@ -29,9 +29,7 @@ use matrix_sdk_base::{
     },
     timer,
 };
-use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
-};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, RoomId, events::relation::RelationType};
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
@@ -434,8 +432,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        events: Vec<OwnedEventId>,
-    ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
+        events: Vec<EventId>,
+    ) -> Result<Vec<(EventId, Position)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
         if events.is_empty() {

@@ -21,7 +21,7 @@ use std::{
 use bitflags::bitflags;
 use futures_util::future;
 use ruma::{
-    Int, MxcUri, OwnedUserId, UserId,
+    Int, MxcUri, UserId,
     events::{
         MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -276,7 +276,7 @@ impl RoomMember {
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         if let Some(p) = self.profile.as_ref() {
-            p.content.avatar_url.as_deref()
+            p.content.avatar_url.as_ref()
         } else {
             self.event.avatar_url()
         }
@@ -403,8 +403,8 @@ impl RoomMember {
 pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) power_levels: Arc<RoomPowerLevels>,
     pub(crate) max_power_level: i64,
-    pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>,
-    pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
+    pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<UserId>>,
+    pub(crate) ignored_users: Option<BTreeSet<UserId>>,
 }
 
 /// The kind of room member updates that just happened.
@@ -413,7 +413,7 @@ pub enum RoomMembersUpdate {
     /// The whole list room members was reloaded.
     FullReload,
     /// A few members were updated, their user ids are included.
-    Partial(BTreeSet<OwnedUserId>),
+    Partial(BTreeSet<UserId>),
 }
 
 bitflags! {

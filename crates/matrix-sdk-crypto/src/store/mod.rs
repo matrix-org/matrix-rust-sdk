@@ -51,10 +51,7 @@ use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
-use ruma::{
-    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
-    events::secret::request::SecretName,
-};
+use ruma::{DeviceId, RoomId, UserId, encryption::KeyUsage, events::secret::request::SecretName};
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
@@ -338,12 +335,12 @@ impl SyncedKeyQueryManager<'_> {
     /// A pair `(users, sequence_number)`, where `users` is the list of users to
     /// be queried, and `sequence_number` is the current sequence number,
     /// which should be returned in `mark_tracked_users_as_up_to_date`.
-    pub async fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
+    pub async fn users_for_key_query(&self) -> (HashSet<UserId>, SequenceNumber) {
         self.manager.users_for_key_query.lock().await.users_for_key_query()
     }
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
-    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
+    pub fn tracked_users(&self) -> HashSet<UserId> {
         self.cache.tracked_users.read().iter().cloned().collect()
     }
 
@@ -779,7 +776,7 @@ impl Store {
     pub(crate) async fn get_device_data_for_user_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -799,7 +796,7 @@ impl Store {
     pub(crate) async fn get_device_data_for_user(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await
     }
 

@@ -8,7 +8,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory, test_json,
 };
 use ruma::{
-    OwnedRoomOrAliasId,
+    RoomOrAliasId,
     events::direct::{DirectEventContent, DirectUserIdentifier},
     user_id,
 };
@@ -193,7 +193,7 @@ async fn test_forget_direct_room() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
     assert!(room.is_direct().await.unwrap());
-    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from(invited_user_id)));
+    assert!(room.direct_targets().contains(&DirectUserIdentifier::from(invited_user_id)));
 
     let direct_account_data = client
         .account()
@@ -204,7 +204,7 @@ async fn test_forget_direct_room() {
         .deserialize()
         .expect("failed to deserialize m.direct account data");
     assert_matches!(
-        direct_account_data.get(<&DirectUserIdentifier>::from(invited_user_id)),
+        direct_account_data.get(&DirectUserIdentifier::from(invited_user_id)),
         Some(invited_user_dms)
     );
     assert_eq!(invited_user_dms, &[DEFAULT_TEST_ROOM_ID.to_owned()]);
@@ -276,7 +276,7 @@ async fn test_knocking() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
-    let room_id = OwnedRoomOrAliasId::from((*DEFAULT_TEST_ROOM_ID).to_owned());
+    let room_id = RoomOrAliasId::from((*DEFAULT_TEST_ROOM_ID).to_owned());
     let room = client.knock(room_id, None, Vec::new()).await.unwrap();
     assert_eq!(room.state(), RoomState::Knocked);
 }

@@ -181,7 +181,7 @@ async fn test_unchecked_mutual_verification() {
     {
         let alice_olm = alice.olm_machine_for_testing().await;
         let alice_olm = alice_olm.as_ref().unwrap();
-        alice_olm.update_tracked_users([bob_user_id.as_ref()]).await.unwrap();
+        alice_olm.update_tracked_users([&bob_user_id]).await.unwrap();
     }
 
     // Run a sync so we do send outgoing requests, including the /keys/query for

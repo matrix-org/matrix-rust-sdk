@@ -45,8 +45,7 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::T
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, EventId, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         auth_scheme::{AuthScheme, SendAccessToken},
@@ -225,7 +224,7 @@ pub(crate) struct ClientLocks {
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
@@ -233,15 +232,15 @@ pub(crate) struct ClientLocks {
 
     /// Handler to ensure that only one members request is running at a time,
     /// given a room.
-    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
-    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+    pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<RoomId>,
 
     /// Deduplicating handler for sending read receipts. The string is an
     /// internal implementation detail, see [`Self::send_single_receipt`].
-    pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
+    pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, EventId)>,
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
@@ -319,7 +318,7 @@ pub(crate) struct ClientInner {
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
-    pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
+    pub(crate) typing_notice_times: StdRwLock<BTreeMap<RoomId, Instant>>,
 
     /// Event handlers. See `add_event_handler`.
     pub(crate) event_handlers: EventHandlerStore,
@@ -328,7 +327,7 @@ pub(crate) struct ClientInner {
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
 
     /// The sender-side of channels used to receive room updates.
-    pub(crate) room_update_channels: StdMutex<BTreeMap<OwnedRoomId, broadcast::Sender<RoomUpdate>>>,
+    pub(crate) room_update_channels: StdMutex<BTreeMap<RoomId, broadcast::Sender<RoomUpdate>>>,
 
     /// The sender-side of a channel used to observe all the room updates of a
     /// sync response.
@@ -724,12 +723,12 @@ impl Client {
 
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.session_meta().map(|s| s.user_id.as_ref())
+        self.session_meta().map(|s| &s.user_id)
     }
 
     /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.session_meta().map(|s| s.device_id.as_ref())
+        self.session_meta().map(|s| &s.device_id)
     }
 
     /// Get the current access token for this session.
@@ -1086,7 +1085,7 @@ impl Client {
     /// `Client::observe_room_events`.
     fn observe_room_events_impl<Ev, Ctx>(
         &self,
-        room_id: Option<OwnedRoomId>,
+        room_id: Option<RoomId>,
     ) -> ObservableEventHandler<(Ev, Ctx)>
     where
         Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
@@ -1335,11 +1334,11 @@ impl Client {
     pub async fn get_room_preview(
         &self,
         room_or_alias_id: &RoomOrAliasId,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> Result<RoomPreview> {
-        let room_id = match <&RoomId>::try_from(room_or_alias_id) {
-            Ok(room_id) => room_id.to_owned(),
-            Err(alias) => self.resolve_room_alias(alias).await?.room_id,
+        let room_id = match RoomId::try_from(room_or_alias_id) {
+            Ok(room_id) => room_id,
+            Err(alias) => self.resolve_room_alias(&alias).await?.room_id,
         };
 
         if let Some(room) = self.get_room(&room_id) {
@@ -1676,11 +1675,11 @@ impl Client {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
-        server_names: &[OwnedServerName],
+        server_names: &[ServerName],
     ) -> Result<Room> {
         let pre_join_info = {
             match alias.try_into() {
-                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
+                Ok(room_id) => self.prepare_join_room_by_id(&room_id).await,
                 Err(_) => {
                     // The id is a room alias. We assume (possibly incorrectly?) that we are not
                     // responding to an invitation to the room, and therefore don't need to handle
@@ -1717,7 +1716,8 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
     /// # let since = Some("since token");
-    /// # let server = Some("servername.com".try_into().unwrap());
+    /// # let server_name = "servername.com".try_into().unwrap();
+    /// # let server = Some(&server_name);
     /// # async {
     /// let mut client = Client::new(homeserver).await.unwrap();
     ///
@@ -1832,7 +1832,7 @@ impl Client {
         // Find the room we share with the `user_id` and only with `user_id`
         let room = rooms.into_iter().find(|r| {
             let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
+            targets.len() == 1 && targets.contains(&DirectUserIdentifier::from(user_id))
         });
 
         trace!(?user_id, ?room, "Found DM room with user");
@@ -2544,7 +2544,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     pub async fn delete_devices(
         &self,
-        devices: &[OwnedDeviceId],
+        devices: &[DeviceId],
         auth_data: Option<uiaa::AuthData>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
@@ -2581,7 +2581,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `device_id` - The ID of the device to query.
-    pub async fn device_exists(&self, device_id: OwnedDeviceId) -> Result<bool> {
+    pub async fn device_exists(&self, device_id: DeviceId) -> Result<bool> {
         let request = device::get_device::v3::Request::new(device_id);
         match self.send(request).await {
             Ok(_) => Ok(true),
@@ -3173,9 +3173,9 @@ impl Client {
     /// join it.
     pub async fn knock(
         &self,
-        room_id_or_alias: OwnedRoomOrAliasId,
+        room_id_or_alias: RoomOrAliasId,
         reason: Option<String>,
-        server_names: Vec<OwnedServerName>,
+        server_names: Vec<ServerName>,
     ) -> Result<Room> {
         let request =
             assign!(knock_room::v3::Request::new(room_id_or_alias), { reason, via: server_names });
@@ -3518,7 +3518,7 @@ pub(crate) mod tests {
         homeserver.mock_versions().ok().mock_once().named("versions").mount().await;
 
         let client = Client::builder()
-            .insecure_server_name_no_tls(alice.server_name())
+            .insecure_server_name_no_tls(&alice.server_name())
             .build()
             .await
             .unwrap();
@@ -3539,7 +3539,7 @@ pub(crate) mod tests {
 
         assert!(
             Client::builder()
-                .insecure_server_name_no_tls(alice.server_name())
+                .insecure_server_name_no_tls(&alice.server_name())
                 .build()
                 .await
                 .is_err(),
@@ -3865,7 +3865,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let server_name = <&ServerName>::try_from(domain).unwrap();
+        let server_name = ServerName::try_from(domain).unwrap();
         let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
 
         let well_known_mock = server
@@ -3878,7 +3878,7 @@ pub(crate) mod tests {
 
         let memory_store = Arc::new(MemoryStore::new());
         let client = Client::builder()
-            .insecure_server_name_no_tls(server_name)
+            .insecure_server_name_no_tls(&server_name)
             .store_config(
                 StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                     .state_store(memory_store.clone()),
@@ -4155,7 +4155,7 @@ pub(crate) mod tests {
 
         // And we get a preview, the server endpoint was reached
         let preview = client
-            .get_room_preview(room_id.into(), Vec::new())
+            .get_room_preview(&room_id.into(), Vec::new())
             .await
             .expect("Room preview should be retrieved");
 
@@ -4177,7 +4177,7 @@ pub(crate) mod tests {
 
         // And we get a preview, the server endpoint was reached
         let preview = client
-            .get_room_preview(room_id.into(), Vec::new())
+            .get_room_preview(&room_id.into(), Vec::new())
             .await
             .expect("Room preview should be retrieved");
 
@@ -4199,7 +4199,7 @@ pub(crate) mod tests {
 
         // And we get a preview, the server endpoint was reached
         let preview = client
-            .get_room_preview(room_id.into(), Vec::new())
+            .get_room_preview(&room_id.into(), Vec::new())
             .await
             .expect("Room preview should be retrieved");
 
@@ -4221,7 +4221,7 @@ pub(crate) mod tests {
 
         // And we get a preview, no server endpoint was reached
         let preview = client
-            .get_room_preview(room_id.into(), Vec::new())
+            .get_room_preview(&room_id.into(), Vec::new())
             .await
             .expect("Room preview should be retrieved");
 

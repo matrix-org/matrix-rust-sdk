@@ -28,7 +28,7 @@ use ruma::{
     },
     assign,
     events::MessageLikeEventContent,
-    OwnedTransactionId, UserId,
+    TransactionId, UserId,
 };
 use serde_json::json;
 
@@ -181,8 +181,8 @@ impl From<ToDeviceRequest> for Request {
     }
 }
 
-impl From<(OwnedTransactionId, KeysClaimRequest)> for Request {
-    fn from(request_tuple: (OwnedTransactionId, KeysClaimRequest)) -> Self {
+impl From<(TransactionId, KeysClaimRequest)> for Request {
+    fn from(request_tuple: (TransactionId, KeysClaimRequest)) -> Self {
         let (request_id, request) = request_tuple;
 
         Request::KeysClaim {
@@ -201,8 +201,8 @@ impl From<(OwnedTransactionId, KeysClaimRequest)> for Request {
     }
 }
 
-impl From<(OwnedTransactionId, KeysBackupRequest)> for Request {
-    fn from(request_tuple: (OwnedTransactionId, KeysBackupRequest)) -> Self {
+impl From<(TransactionId, KeysBackupRequest)> for Request {
+    fn from(request_tuple: (TransactionId, KeysBackupRequest)) -> Self {
         let (request_id, request) = request_tuple;
 
         Request::KeysBackup {

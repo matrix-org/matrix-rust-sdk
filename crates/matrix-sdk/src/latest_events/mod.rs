@@ -63,7 +63,7 @@ pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEven
 use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, timer};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use room_latest_events::{RoomLatestEvents, RoomLatestEventsWriteGuard};
-use ruma::{EventId, OwnedRoomId, RoomId};
+use ruma::{EventId, RoomId};
 use tokio::{
     select,
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
@@ -231,7 +231,7 @@ impl LatestEvents {
 #[derive(Debug)]
 struct RegisteredRooms {
     /// All the registered [`RoomLatestEvents`].
-    rooms: RwLock<HashMap<OwnedRoomId, RoomLatestEvents>>,
+    rooms: RwLock<HashMap<RoomId, RoomLatestEvents>>,
 
     /// The (weak) client.
     weak_client: WeakClient,
@@ -273,7 +273,7 @@ impl RegisteredRooms {
     ) -> Result<Option<RwLockReadGuard<'_, RoomLatestEvents>>, LatestEventsError> {
         fn create_and_insert_room_latest_events(
             room_id: &RoomId,
-            rooms: &mut HashMap<OwnedRoomId, RoomLatestEvents>,
+            rooms: &mut HashMap<RoomId, RoomLatestEvents>,
             weak_client: &WeakClient,
             event_cache: &EventCache,
             latest_event_queue_sender: &mpsc::UnboundedSender<LatestEventQueueUpdate>,
@@ -428,13 +428,13 @@ enum LatestEventQueueUpdate {
     /// An update from the [`EventCache`] happened.
     EventCache {
         /// The ID of the room that has triggered the update.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
     },
 
     /// An update from the [`SendQueue`] happened.
     SendQueue {
         /// The ID of the room that has triggered the update.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
 
         /// The update itself.
         update: RoomSendQueueUpdate,
@@ -445,7 +445,7 @@ enum LatestEventQueueUpdate {
     /// [`RoomInfo`]: crate::RoomInfo
     RoomInfo {
         /// The ID of the room that has triggered the update.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
 
         /// The notable update reasons.
         reasons: RoomInfoNotableUpdateReasons,
@@ -495,7 +495,7 @@ async fn listen_to_updates_task(
 /// Having this function detached from its task is helpful for testing and for
 /// state isolation.
 async fn listen_to_updates(
-    registered_rooms: &RwLock<HashMap<OwnedRoomId, RoomLatestEvents>>,
+    registered_rooms: &RwLock<HashMap<RoomId, RoomLatestEvents>>,
     event_cache_generic_updates_subscriber: &mut broadcast::Receiver<RoomEventCacheGenericUpdate>,
     send_queue_generic_updates_subscriber: &mut broadcast::Receiver<SendQueueUpdate>,
     room_info_updates_subscriber: &mut broadcast::Receiver<RoomInfoNotableUpdate>,
@@ -590,7 +590,7 @@ async fn compute_latest_events(
 ) {
     async fn room_latest_events_write_guard(
         registered_rooms: &RegisteredRooms,
-        room_id: &OwnedRoomId,
+        room_id: &RoomId,
     ) -> ControlFlow<RoomLatestEventsWriteGuard, ()> {
         let rooms = registered_rooms.rooms.read().await;
 
@@ -675,7 +675,7 @@ mod tests {
         InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
+        MilliSecondsSinceUnixEpoch, TransactionId, event_id,
         events::{
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
             room::member::{MembershipState, SyncRoomMemberEvent},
@@ -945,7 +945,7 @@ mod tests {
                 .send(SendQueueUpdate {
                     room_id: room_id.clone(),
                     update: RoomSendQueueUpdate::SentEvent {
-                        transaction_id: OwnedTransactionId::from("txnid0"),
+                        transaction_id: TransactionId::from("txnid0"),
                         event_id: owned_event_id!("$ev0"),
                     },
                 })
@@ -978,7 +978,7 @@ mod tests {
                 .send(SendQueueUpdate {
                     room_id: room_id.clone(),
                     update: RoomSendQueueUpdate::SentEvent {
-                        transaction_id: OwnedTransactionId::from("txnid1"),
+                        transaction_id: TransactionId::from("txnid1"),
                         event_id: owned_event_id!("$ev1"),
                     },
                 })
@@ -1481,7 +1481,7 @@ mod tests {
                     assert!(event_id.is_none());
                     // It's a stripped state event: they don't have a timestamp (`origin_server_ts`), but `now` is normally used as a fallback.
                     assert!(timestamp.get() >= now);
-                    assert_eq!(inviter.as_deref(), Some(other_user_id));
+                    assert_eq!(inviter.as_ref(), Some(other_user_id));
                 }
             );
 

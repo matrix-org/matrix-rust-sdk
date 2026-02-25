@@ -16,7 +16,7 @@ use std::{collections::HashMap, ops::Deref};
 
 use matrix_sdk_common::BoxFuture;
 use ruma::{
-    OwnedUserId, UserId,
+    UserId,
     events::{
         SyncStateEvent,
         room::member::{MembershipState, SyncRoomMemberEvent},
@@ -140,8 +140,8 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         // redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
             // Ignore invalid user IDs
-            let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
-            if let Ok(user_id) = user_id {
+            let user_id: Result<UserId, _> = event.state_key.as_str().try_into();
+            if let Ok(user_id) = &user_id {
                 // Ignore non-existent users, and changes to our own identity
                 if let Some(user_identity @ UserIdentity::Other(_)) =
                     self.room.user_identity(user_id).await
@@ -239,7 +239,7 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IdentityStatusChange {
     /// The user ID of the user whose identity status changed
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
 
     /// The new state of the identity of the user
     pub changed_to: IdentityState,
@@ -288,7 +288,7 @@ pub enum RoomIdentityChange {
 /// Only stores users who _not_ in the Pinned stated.
 #[derive(Debug)]
 struct KnownStates {
-    known_states: HashMap<OwnedUserId, IdentityState>,
+    known_states: HashMap<UserId, IdentityState>,
 }
 
 impl KnownStates {
@@ -332,10 +332,7 @@ mod tests {
 
     use matrix_sdk_common::BoxFuture;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{
-        OwnedUserId, UserId, device_id, events::room::member::MembershipState, owned_user_id,
-        user_id,
-    };
+    use ruma::{UserId, device_id, events::room::member::MembershipState, owned_user_id, user_id};
 
     use super::{IdentityState, RoomIdentityChange, RoomIdentityProvider, RoomIdentityState};
     use crate::{
@@ -976,7 +973,7 @@ mod tests {
 
     #[derive(Clone, Debug)]
     struct FakeRoom {
-        users: Arc<Mutex<HashMap<OwnedUserId, Membership>>>,
+        users: Arc<Mutex<HashMap<UserId, Membership>>>,
     }
 
     impl FakeRoom {
@@ -1065,7 +1062,7 @@ mod tests {
     }
 
     struct IdentityChangeSpec {
-        user_id: OwnedUserId,
+        user_id: UserId,
         changed_to: IdentityState,
         new: bool,
         own: bool,

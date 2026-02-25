@@ -44,10 +44,9 @@ pub use room_info::{
     RoomInfoNotableUpdateReasons, RoomRecencyStamp, apply_redaction,
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
-    RoomVersionId, UserId,
+    EventId, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
     events::{
-        direct::OwnedDirectUserIdentifier,
+        direct::DirectUserIdentifier,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar,
@@ -80,10 +79,10 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Room {
     /// The room ID.
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
 
     /// Our own user ID.
-    pub(super) own_user_id: OwnedUserId,
+    pub(super) own_user_id: UserId,
 
     pub(super) info: SharedObservable<RoomInfo>,
 
@@ -98,8 +97,7 @@ pub struct Room {
     /// A map for ids of room membership events in the knocking state linked to
     /// the user id of the user affected by the member event, that the current
     /// user has marked as seen so they can be ignored.
-    pub seen_knock_request_ids_map:
-        SharedObservable<Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
+    pub seen_knock_request_ids_map: SharedObservable<Option<BTreeMap<EventId, UserId>>, AsyncLock>,
 
     /// A sender that will notify receivers when room member updates happen.
     pub room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
@@ -141,7 +139,7 @@ impl Room {
     }
 
     /// Get a copy of the room creators.
-    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
+    pub fn creators(&self) -> Option<Vec<UserId>> {
         self.info.read().creators()
     }
 
@@ -221,7 +219,7 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+    pub fn avatar_url(&self) -> Option<MxcUri> {
         self.info.read().avatar_url().map(ToOwned::to_owned)
     }
 
@@ -231,12 +229,12 @@ impl Room {
     }
 
     /// Get the canonical alias of this room.
-    pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
+    pub fn canonical_alias(&self) -> Option<RoomAliasId> {
         self.info.read().canonical_alias().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
-    pub fn alt_aliases(&self) -> Vec<OwnedRoomAliasId> {
+    pub fn alt_aliases(&self) -> Vec<RoomAliasId> {
         self.info.read().alt_aliases().to_owned()
     }
 
@@ -296,7 +294,7 @@ impl Room {
     /// only be considered as guidance. We leave members in this list to allow
     /// us to re-find a DM with a user even if they have left, since we may
     /// want to re-invite them.
-    pub fn direct_targets(&self) -> HashSet<OwnedDirectUserIdentifier> {
+    pub fn direct_targets(&self) -> HashSet<DirectUserIdentifier> {
         self.info.read().base_info.dm_targets.clone()
     }
 
@@ -343,7 +341,7 @@ impl Room {
     }
 
     /// Get the service members in this room, if available.
-    pub fn service_members(&self) -> Option<BTreeSet<OwnedUserId>> {
+    pub fn service_members(&self) -> Option<BTreeSet<UserId>> {
         self.info.read().service_members().cloned()
     }
 
@@ -430,7 +428,7 @@ impl Room {
 
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
-    pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<UserId>> {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
@@ -439,18 +437,18 @@ impl Room {
         self.info.read().heroes().to_vec()
     }
 
-    /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
+    /// Get the receipt as an `EventId` and `Receipt` tuple for the given
     /// `receipt_type`, `thread` and `user_id` in this room.
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
+    ) -> StoreResult<Option<(EventId, Receipt)>> {
         self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
     }
 
-    /// Load from storage the receipts as a list of `OwnedUserId` and `Receipt`
+    /// Load from storage the receipts as a list of `UserId` and `Receipt`
     /// tuples for the given `receipt_type`, `thread` and `event_id` in this
     /// room.
     pub async fn load_event_receipts(
@@ -458,7 +456,7 @@ impl Room {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
+    ) -> StoreResult<Vec<(UserId, Receipt)>> {
         self.store
             .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
             .await
@@ -495,14 +493,14 @@ impl Room {
 
     /// Get a `Stream` of loaded pinned events for this room.
     /// If no pinned events are found a single empty `Vec` will be returned.
-    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
+    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<EventId>> + use<> {
         self.info
             .subscribe()
             .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())
     }
 
     /// Returns the current pinned event ids for this room.
-    pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
+    pub fn pinned_event_ids(&self) -> Option<Vec<EventId>> {
         self.info.read().pinned_event_ids()
     }
 }

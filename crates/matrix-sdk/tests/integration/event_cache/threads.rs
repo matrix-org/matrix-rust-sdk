@@ -15,7 +15,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedEventId, OwnedRoomId, event_id,
+    EventId, RoomId, event_id,
     events::{AnySyncTimelineEvent, Mentions},
     push::{ConditionalPushRule, Ruleset},
     room_id,
@@ -91,7 +91,7 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
     assert_eq!(thread_events.len(), 1);
-    assert_eq!(thread_events.remove(0).event_id().as_deref(), Some(thread_resp_id));
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(thread_resp_id));
 
     // It's possible to paginate the thread, and this will push the thread root
     // because there's no prev-batch token.
@@ -121,7 +121,7 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
     assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value } = &diffs[0]);
-    assert_eq!(value.event_id().as_deref(), Some(thread_root_id));
+    assert_eq!(value.event_id().as_ref(), Some(thread_root_id));
 }
 
 #[async_test]
@@ -458,12 +458,12 @@ struct ThreadSubscriptionTestSetup {
     server: MatrixMockServer,
     client: Client,
     factory: EventFactory,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
     subscriber: RoomEventCacheSubscriber,
     /// 3 events: 1 non-mention, 1 mention, and another non-mention.
     events: Vec<Raw<AnySyncTimelineEvent>>,
-    mention_event_id: OwnedEventId,
-    thread_root: OwnedEventId,
+    mention_event_id: EventId,
+    thread_root: EventId,
 }
 
 /// Create a new setup for a thread subscription test, with enough data so that
@@ -663,7 +663,7 @@ async fn test_auto_subscribe_on_thread_paginate() {
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
     assert_eq!(thread_events.len(), 1);
-    assert_eq!(thread_events.remove(0).event_id().as_deref(), Some(thread_resp_id));
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(thread_resp_id));
 
     assert!(thread_subscriber_updates.is_empty());
 
@@ -748,7 +748,7 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
     // Sanity check: the sync event is added to the thread.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
     assert_eq!(thread_events.len(), 1);
-    assert_eq!(thread_events.remove(0).event_id().as_deref(), Some(thread_resp_id));
+    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(thread_resp_id));
 
     assert!(thread_subscriber_updates.is_empty());
 
@@ -811,8 +811,8 @@ async fn test_redact_touches_threads() {
     event_cache.subscribe().unwrap();
 
     let thread_root_id = s.thread_root;
-    let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
-    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+    let thread_resp1 = s.events[0].get_field::<EventId>("event_id").unwrap().unwrap();
+    let thread_resp2 = s.events[1].get_field::<EventId>("event_id").unwrap().unwrap();
 
     let room = s.server.sync_joined_room(&s.client, &s.room_id).await;
 
@@ -889,7 +889,7 @@ async fn test_redact_touches_threads() {
         // The redaction event is appended to the room cache.
         assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
         assert_eq!(new_events.len(), 1);
-        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp1_redaction));
+        assert_eq!(new_events[0].event_id().as_ref(), Some(thread_resp1_redaction));
 
         // The room event is redacted.
         {
@@ -946,7 +946,7 @@ async fn test_redact_touches_threads() {
         // The redaction event is appended to the room cache.
         assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
         assert_eq!(new_events.len(), 1);
-        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp2_redaction));
+        assert_eq!(new_events[0].event_id().as_ref(), Some(thread_resp2_redaction));
 
         // The room event is redacted.
         {

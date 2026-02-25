@@ -14,17 +14,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ruma::{OwnedRoomId, RoomId};
+use ruma::RoomId;
 
 #[derive(Debug)]
 struct SpaceGraphNode {
-    id: OwnedRoomId,
-    parents: BTreeSet<OwnedRoomId>,
-    children: BTreeSet<OwnedRoomId>,
+    id: RoomId,
+    parents: BTreeSet<RoomId>,
+    children: BTreeSet<RoomId>,
 }
 
 impl SpaceGraphNode {
-    fn new(id: OwnedRoomId) -> Self {
+    fn new(id: RoomId) -> Self {
         Self { id, parents: BTreeSet::new(), children: BTreeSet::new() }
     }
 }
@@ -34,7 +34,7 @@ impl SpaceGraphNode {
 /// retrieving top-level parents/roots.
 #[derive(Debug)]
 pub(super) struct SpaceGraph {
-    nodes: BTreeMap<OwnedRoomId, SpaceGraphNode>,
+    nodes: BTreeMap<RoomId, SpaceGraphNode>,
 }
 
 impl Default for SpaceGraph {
@@ -52,31 +52,23 @@ impl SpaceGraph {
     /// Returns the root nodes of the graph, which are nodes without any
     /// parents.
     pub(super) fn root_nodes(&self) -> Vec<&RoomId> {
-        self.nodes
-            .values()
-            .filter(|node| node.parents.is_empty())
-            .map(|node| node.id.as_ref())
-            .collect()
+        self.nodes.values().filter(|node| node.parents.is_empty()).map(|node| &node.id).collect()
     }
 
     /// Returns the children of a given node. If the node does not exist, it
     /// returns an empty vector.
     pub(super) fn children_of(&self, node_id: &RoomId) -> Vec<&RoomId> {
-        self.nodes
-            .get(node_id)
-            .map_or(vec![], |node| node.children.iter().map(|id| id.as_ref()).collect())
+        self.nodes.get(node_id).map_or(vec![], |node| node.children.iter().collect())
     }
 
     /// Returns the parents of a given node. If the node does not exist, it
     /// returns an empty vector.
     pub(super) fn parents_of(&self, node_id: &RoomId) -> Vec<&RoomId> {
-        self.nodes
-            .get(node_id)
-            .map_or(vec![], |node| node.parents.iter().map(|id| id.as_ref()).collect())
+        self.nodes.get(node_id).map_or(vec![], |node| node.parents.iter().collect())
     }
 
     /// Adds a node to the graph. If the node already exists, it does nothing.
-    pub(super) fn add_node(&mut self, node_id: OwnedRoomId) {
+    pub(super) fn add_node(&mut self, node_id: RoomId) {
         self.nodes.entry(node_id.clone()).or_insert(SpaceGraphNode::new(node_id));
     }
 
@@ -87,7 +79,7 @@ impl SpaceGraph {
 
     /// Adds a directed edge from `parent_id` to `child_id`, creating nodes if
     /// they do not already exist in the graph.
-    pub(super) fn add_edge(&mut self, parent_id: OwnedRoomId, child_id: OwnedRoomId) {
+    pub(super) fn add_edge(&mut self, parent_id: RoomId, child_id: RoomId) {
         let parent_entry =
             self.nodes.entry(parent_id.clone()).or_insert(SpaceGraphNode::new(parent_id.clone()));
         parent_entry.children.insert(child_id.clone());
@@ -101,7 +93,7 @@ impl SpaceGraph {
     ///
     /// Does a BFS starting from the given node tracking the visited nodes
     /// and returning them in the reverse order.
-    pub(super) fn flattened_bottom_up_subtree(&self, node_id: &RoomId) -> Vec<OwnedRoomId> {
+    pub(super) fn flattened_bottom_up_subtree(&self, node_id: &RoomId) -> Vec<RoomId> {
         if !self.has_node(node_id) {
             return Vec::new();
         }
@@ -147,10 +139,10 @@ impl SpaceGraph {
 
     fn dfs_remove_cycles(
         &self,
-        node_id: &OwnedRoomId,
-        visited: &mut BTreeSet<OwnedRoomId>,
-        stack: &mut BTreeSet<OwnedRoomId>,
-        edges_to_remove: &mut Vec<(OwnedRoomId, OwnedRoomId)>,
+        node_id: &RoomId,
+        visited: &mut BTreeSet<RoomId>,
+        stack: &mut BTreeSet<RoomId>,
+        edges_to_remove: &mut Vec<(RoomId, RoomId)>,
     ) {
         if !visited.insert(node_id.clone()) {
             return;
@@ -233,7 +225,7 @@ mod tests {
         let mut roots = graph.root_nodes();
         roots.sort_by_key(|key| key.to_string());
 
-        let expected: Vec<&OwnedRoomId> = vec![&a, &x];
+        let expected: Vec<&RoomId> = vec![&a, &x];
         assert_eq!(roots, expected);
     }
 

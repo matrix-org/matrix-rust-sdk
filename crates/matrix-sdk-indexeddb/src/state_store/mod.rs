@@ -39,8 +39,8 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, MxcUri, RoomId, TransactionId,
+    UserId,
     canonical_json::{RedactedBecause, redact},
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
@@ -411,7 +411,7 @@ impl IndexeddbStateStore {
         room_id: &RoomId,
         memberships: RoomMemberships,
         stripped: bool,
-    ) -> Result<Vec<OwnedUserId>> {
+    ) -> Result<Vec<UserId>> {
         let store_name = if stripped { keys::STRIPPED_USER_IDS } else { keys::USER_IDS };
 
         let tx = self.inner.transaction(store_name).with_mode(TransactionMode::Readonly).build()?;
@@ -514,12 +514,12 @@ impl IndexeddbStateStore {
 #[derive(Serialize, Deserialize)]
 struct PersistedQueuedRequest {
     /// In which room is this event going to be sent.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     // All these fields are the same as in [`QueuedRequest`].
     /// Kind. Optional because it might be missing from previous formats.
     kind: Option<QueuedRequestKind>,
-    transaction_id: OwnedTransactionId,
+    transaction_id: TransactionId,
 
     pub error: Option<QueueWedgeError>,
 
@@ -640,11 +640,11 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::Filter),
             StateStoreDataKey::UserAvatarUrl(_) => value
-                .map(|f| self.deserialize_value::<OwnedMxcUri>(&f))
+                .map(|f| self.deserialize_value::<MxcUri>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UserAvatarUrl),
             StateStoreDataKey::RecentlyVisitedRooms(_) => value
-                .map(|f| self.deserialize_value::<Vec<OwnedRoomId>>(&f))
+                .map(|f| self.deserialize_value::<Vec<RoomId>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
             StateStoreDataKey::UtdHookManagerData => value
@@ -660,7 +660,7 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::ComposerDraft),
             StateStoreDataKey::SeenKnockRequests(_) => value
-                .map(|f| self.deserialize_value::<BTreeMap<OwnedEventId, OwnedUserId>>(&f))
+                .map(|f| self.deserialize_value::<BTreeMap<EventId, UserId>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SeenKnockRequests),
             StateStoreDataKey::ThreadSubscriptionsCatchupTokens => value
@@ -982,10 +982,10 @@ impl_state_store!({
                                 ),
                             };
 
-                            if let Some((old_event, _)) =
-                                room_user_receipts.get(&key).await?.and_then(|f| {
-                                    self.deserialize_value::<(OwnedEventId, Receipt)>(&f).ok()
-                                })
+                            if let Some((old_event, _)) = room_user_receipts
+                                .get(&key)
+                                .await?
+                                .and_then(|f| self.deserialize_value::<(EventId, Receipt)>(&f).ok())
                             {
                                 let key = match receipt.thread.as_str() {
                                     Some(thread_id) => self.encode_key(
@@ -1044,7 +1044,7 @@ impl_state_store!({
                     };
 
                     let raw_evt = self.deserialize_value::<Raw<AnySyncStateEvent>>(&value)?;
-                    if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id")
+                    if let Ok(Some(event_id)) = raw_evt.get_field::<EventId>("event_id")
                         && let Some(redaction) = redactions.get(&event_id)
                     {
                         let redaction_rules = match &redaction_rules {
@@ -1096,10 +1096,7 @@ impl_state_store!({
             .transpose()
     }
 
-    async fn get_presence_events(
-        &self,
-        user_ids: &[OwnedUserId],
-    ) -> Result<Vec<Raw<PresenceEvent>>> {
+    async fn get_presence_events(&self, user_ids: &[UserId]) -> Result<Vec<Raw<PresenceEvent>>> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1258,7 +1255,7 @@ impl_state_store!({
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
-        user_ids: &'a [OwnedUserId],
+        user_ids: &'a [UserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
         if user_ids.is_empty() {
             return Ok(BTreeMap::new());
@@ -1276,7 +1273,7 @@ impl_state_store!({
                 .map(|f| self.deserialize_value(&f))
                 .transpose()?
             {
-                profiles.insert(user_id.as_ref(), profile);
+                profiles.insert(user_id, profile);
             }
         }
 
@@ -1312,7 +1309,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
-    ) -> Result<BTreeSet<OwnedUserId>> {
+    ) -> Result<BTreeSet<UserId>> {
         self.inner
             .transaction(keys::DISPLAY_NAMES)
             .with_mode(TransactionMode::Readonly)
@@ -1326,7 +1323,7 @@ impl_state_store!({
                 ),
             ))
             .await?
-            .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
+            .map(|f| self.deserialize_value::<BTreeSet<UserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
@@ -1334,7 +1331,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
-    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<UserId>>> {
         let mut map = HashMap::new();
 
         if display_names.is_empty() {
@@ -1362,7 +1359,7 @@ impl_state_store!({
                     ),
                 )
                 .await?
-                .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
+                .map(|f| self.deserialize_value::<BTreeSet<UserId>>(&f))
                 .transpose()?
             {
                 map.insert(display_name, user_ids);
@@ -1409,7 +1406,7 @@ impl_state_store!({
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>> {
+    ) -> Result<Option<(EventId, Receipt)>> {
         let key = match thread.as_str() {
             Some(thread_id) => self
                 .encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
@@ -1432,7 +1429,7 @@ impl_state_store!({
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+    ) -> Result<Vec<(UserId, Receipt)>> {
         let range = match thread.as_str() {
             Some(thread_id) => self.encode_to_range(
                 keys::ROOM_EVENT_RECEIPTS,
@@ -1542,7 +1539,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
-    ) -> Result<Vec<OwnedUserId>> {
+    ) -> Result<Vec<UserId>> {
         let ids = self.get_user_ids_inner(room_id, memberships, true).await?;
         if !ids.is_empty() {
             return Ok(ids);
@@ -1553,7 +1550,7 @@ impl_state_store!({
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
@@ -1740,7 +1737,7 @@ impl_state_store!({
         Ok(())
     }
 
-    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>> {
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<RoomId>> {
         let tx = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
@@ -2050,7 +2047,7 @@ impl_state_store!({
 /// A room member.
 #[derive(Debug, Serialize, Deserialize)]
 struct RoomMember {
-    user_id: OwnedUserId,
+    user_id: UserId,
     membership: MembershipState,
 }
 
@@ -2070,19 +2067,16 @@ impl From<&StrippedRoomMemberEvent> for RoomMember {
 mod migration_tests {
     use assert_matches2::assert_matches;
     use matrix_sdk_base::store::{QueuedRequestKind, SerializableEventContent};
-    use ruma::{
-        OwnedRoomId, OwnedTransactionId, TransactionId,
-        events::room::message::RoomMessageEventContent, room_id,
-    };
+    use ruma::{RoomId, TransactionId, events::room::message::RoomMessageEventContent, room_id};
     use serde::{Deserialize, Serialize};
 
     use crate::state_store::PersistedQueuedRequest;
 
     #[derive(Serialize, Deserialize)]
     struct OldPersistedQueuedRequest {
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         event: SerializableEventContent,
-        transaction_id: OwnedTransactionId,
+        transaction_id: TransactionId,
         is_wedged: bool,
     }
 

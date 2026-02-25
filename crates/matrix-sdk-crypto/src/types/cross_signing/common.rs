@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
     encryption::KeyUsage,
     serde::{JsonCastable, Raw},
 };
@@ -38,7 +38,7 @@ use crate::types::{Signatures, SigningKeys};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CrossSigningKey {
     /// The ID of the user the key belongs to.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
 
     /// What the key is used for.
     pub usage: Vec<KeyUsage>,
@@ -46,7 +46,7 @@ pub struct CrossSigningKey {
     /// The public key.
     ///
     /// The object must have exactly one property.
-    pub keys: SigningKeys<OwnedDeviceKeyId>,
+    pub keys: SigningKeys<DeviceKeyId>,
 
     /// Signatures of the key.
     ///
@@ -62,9 +62,9 @@ impl CrossSigningKey {
     /// Creates a new `CrossSigningKey` with the given user ID, usage, keys and
     /// signatures.
     pub fn new(
-        user_id: OwnedUserId,
+        user_id: UserId,
         usage: Vec<KeyUsage>,
-        keys: SigningKeys<OwnedDeviceKeyId>,
+        keys: SigningKeys<DeviceKeyId>,
         signatures: Signatures,
     ) -> Self {
         Self { user_id, usage, keys, signatures, other: BTreeMap::new() }
@@ -83,7 +83,7 @@ impl CrossSigningKey {
     ///
     /// [cross_signing_key_spec]: https//spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysdevice_signingupload
     pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {
-        self.keys.iter().find_map(|(id, key)| Some((id.as_ref(), key.ed25519()?)))
+        self.keys.iter().find_map(|(id, key)| Some((id, key.ed25519()?)))
     }
 }
 

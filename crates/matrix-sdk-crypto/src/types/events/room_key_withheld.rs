@@ -17,9 +17,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{
-    OwnedDeviceId, OwnedRoomId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable,
-};
+use ruma::{DeviceId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -102,10 +100,10 @@ impl RoomKeyWithheldContent {
     pub fn new(
         algorithm: EventEncryptionAlgorithm,
         code: WithheldCode,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         session_id: String,
         sender_key: Curve25519PublicKey,
-        from_device: OwnedDeviceId,
+        from_device: DeviceId,
     ) -> Self {
         let from_device = Some(from_device);
 
@@ -215,7 +213,7 @@ pub enum MegolmV1AesSha2WithheldContent {
 #[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CommonWithheldCodeContent {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The ID of the session.
     pub session_id: String,
@@ -227,7 +225,7 @@ pub struct CommonWithheldCodeContent {
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_device: Option<OwnedDeviceId>,
+    pub from_device: Option<DeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -236,10 +234,10 @@ pub struct CommonWithheldCodeContent {
 impl CommonWithheldCodeContent {
     /// Create a new common withheld code content.
     pub fn new(
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         session_id: String,
         sender_key: Curve25519PublicKey,
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     ) -> Self {
         Self {
             room_id,
@@ -316,7 +314,7 @@ pub struct NoOlmWithheldContent {
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_device: Option<OwnedDeviceId>,
+    pub from_device: Option<DeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,

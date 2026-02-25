@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use eyeball::{AsyncLock, ObservableWriteGuard};
 use ruma::{
-    OwnedEventId, OwnedUserId,
+    EventId, UserId,
     events::{
         StateEventType, SyncStateEvent,
         room::member::{MembershipState, RoomMemberEventContent},
@@ -34,7 +34,7 @@ use crate::{
 impl Room {
     /// Mark a list of requests to join the room as seen, given their state
     /// event ids.
-    pub async fn mark_knock_requests_as_seen(&self, user_ids: &[OwnedUserId]) -> StoreResult<()> {
+    pub async fn mark_knock_requests_as_seen(&self, user_ids: &[UserId]) -> StoreResult<()> {
         let raw_user_ids: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
         let member_raw_events = self
             .store
@@ -82,7 +82,7 @@ impl Room {
         let mut current_seen_events = current_seen_events_guard.clone().unwrap_or_default();
 
         // Get and deserialize the member events for the seen knock requests
-        let keys: Vec<OwnedUserId> = current_seen_events.values().map(|id| id.to_owned()).collect();
+        let keys: Vec<UserId> = current_seen_events.values().map(|id| id.to_owned()).collect();
         let raw_member_events: Vec<RawMemberEvent> =
             self.store.get_state_events_for_keys_static(self.room_id(), &keys).await?;
         let member_events = raw_member_events
@@ -127,14 +127,13 @@ impl Room {
     /// Get the list of seen knock request event ids in this room.
     pub async fn get_seen_knock_request_ids(
         &self,
-    ) -> Result<BTreeMap<OwnedEventId, OwnedUserId>, StoreError> {
+    ) -> Result<BTreeMap<EventId, UserId>, StoreError> {
         Ok(self.get_write_guarded_current_knock_request_ids().await?.clone().unwrap_or_default())
     }
 
     async fn get_write_guarded_current_knock_request_ids(
         &self,
-    ) -> StoreResult<ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>>
-    {
+    ) -> StoreResult<ObservableWriteGuard<'_, Option<BTreeMap<EventId, UserId>>, AsyncLock>> {
         let mut guard = self.seen_knock_request_ids_map.write().await;
         // If there are no loaded request ids yet
         if guard.is_none() {
@@ -153,8 +152,8 @@ impl Room {
 
     async fn update_seen_knock_request_ids(
         &self,
-        mut guard: ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
-        new_value: BTreeMap<OwnedEventId, OwnedUserId>,
+        mut guard: ObservableWriteGuard<'_, Option<BTreeMap<EventId, UserId>>, AsyncLock>,
+        new_value: BTreeMap<EventId, UserId>,
     ) -> StoreResult<()> {
         // Save the new values to the shared observable
         ObservableWriteGuard::set(&mut guard, Some(new_value.clone()));

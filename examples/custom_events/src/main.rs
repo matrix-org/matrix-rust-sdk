@@ -23,7 +23,7 @@ use matrix_sdk::{
     config::SyncSettings,
     event_handler::Ctx,
     ruma::{
-        OwnedEventId,
+        EventId,
         events::{
             macros::EventContent,
             room::{
@@ -47,7 +47,7 @@ pub struct PingEventContent {}
 #[ruma_event(type = "rs.matrix-sdk.example.ack", kind = MessageLike)]
 pub struct AckEventContent {
     // the event ID of the ping.
-    ping_id: OwnedEventId,
+    ping_id: EventId,
 }
 
 // We're going to create a small struct which will count how many times we have

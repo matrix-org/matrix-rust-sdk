@@ -807,7 +807,7 @@ async fn test_is_direct() {
     // The room is direct now.
     let direct_targets = room.direct_targets();
     assert_eq!(direct_targets.len(), 1);
-    assert!(direct_targets.contains(<&DirectUserIdentifier>::from(*BOB)));
+    assert!(direct_targets.contains(&DirectUserIdentifier::from(*BOB)));
     assert!(room.is_direct().await.unwrap());
 
     // Unset the room as direct.
@@ -866,7 +866,7 @@ async fn test_room_avatar() {
     client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
-    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_1));
+    assert_eq!(room.avatar_url().as_ref(), Some(avatar_url_1));
     assert_matches!(room.avatar_info(), None);
 
     // Set the avatar and the info.
@@ -885,7 +885,7 @@ async fn test_room_avatar() {
     client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
-    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_2));
+    assert_eq!(room.avatar_url().as_ref(), Some(avatar_url_2));
     let avatar_info = room.avatar_info().unwrap();
     assert_eq!(avatar_info.height, Some(uint!(200)));
     assert_eq!(avatar_info.width, Some(uint!(200)));

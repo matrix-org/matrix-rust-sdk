@@ -33,7 +33,7 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
-    OwnedServerName, ServerName,
+    ServerName,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
 };
 use thiserror::Error;
@@ -643,7 +643,7 @@ impl ClientBuilder {
 /// Creates a server name from a user supplied string. The string is first
 /// sanitized by removing whitespace, the http(s) scheme and any trailing
 /// slashes before being parsed.
-pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseError> {
+pub fn sanitize_server_name(s: &str) -> crate::Result<ServerName, IdParseError> {
     ServerName::parse(
         s.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'),
     )

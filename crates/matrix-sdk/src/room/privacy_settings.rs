@@ -1,6 +1,6 @@
 use matrix_sdk_base::Room as BaseRoom;
 use ruma::{
-    OwnedRoomAliasId, RoomAliasId,
+    RoomAliasId,
     api::client::{
         directory::{get_room_visibility, set_room_visibility},
         room::Visibility,
@@ -82,8 +82,8 @@ impl<'a> RoomPrivacySettings<'a> {
     /// as the canonical alias.
     pub async fn update_canonical_alias(
         &'a self,
-        alias: Option<OwnedRoomAliasId>,
-        alt_aliases: Vec<OwnedRoomAliasId>,
+        alias: Option<RoomAliasId>,
+        alt_aliases: Vec<RoomAliasId>,
     ) -> Result<()> {
         // Create a new alias event combining both the new and previous values
         let content = assign!(

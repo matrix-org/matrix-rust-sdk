@@ -38,7 +38,7 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     events::{
         self, StateEventType, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
@@ -65,11 +65,11 @@ pub enum Error {
 
     /// The requested room was not found.
     #[error("Room `{0}` not found")]
-    RoomNotFound(OwnedRoomId),
+    RoomNotFound(RoomId),
 
     /// The space parent/child state was missing.
     #[error("Missing `{0}` for `{1}`")]
-    MissingState(StateEventType, OwnedRoomId),
+    MissingState(StateEventType, RoomId),
 
     /// Failed to set either of the m.space.parent or m.space.child state
     /// events.
@@ -326,7 +326,7 @@ impl SpaceService {
     }
 
     /// Returns a `SpaceRoomList` for the given space ID.
-    pub async fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
+    pub async fn space_room_list(&self, space_id: RoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id).await
     }
 
@@ -360,8 +360,8 @@ impl SpaceService {
 
     pub async fn add_child_to_space(
         &self,
-        child_id: OwnedRoomId,
-        space_id: OwnedRoomId,
+        child_id: RoomId,
+        space_id: RoomId,
     ) -> Result<(), Error> {
         let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
         let space_room =
@@ -397,8 +397,8 @@ impl SpaceService {
 
     pub async fn remove_child_from_space(
         &self,
-        child_id: OwnedRoomId,
-        space_id: OwnedRoomId,
+        child_id: RoomId,
+        space_id: RoomId,
     ) -> Result<(), Error> {
         let user_id = self.client.user_id().ok_or(Error::UserIdNotFound)?;
         let space_room =
@@ -499,7 +499,7 @@ impl SpaceService {
         let mut graph = SpaceGraph::new();
 
         // And also store `m.space.child` ordering info for later use
-        let mut space_child_states = HashMap::<OwnedRoomId, SpaceRoomChildState>::new();
+        let mut space_child_states = HashMap::<RoomId, SpaceRoomChildState>::new();
 
         // Iterate over all joined spaces and populate the graph with edges based
         // on `m.space.parent` and `m.space.child` state events.
@@ -616,7 +616,7 @@ impl SpaceService {
         client: &Client,
         graph: &SpaceGraph,
         top_level_space_rooms: Vec<&Room>,
-        space_child_states: HashMap<OwnedRoomId, SpaceRoomChildState>,
+        space_child_states: HashMap<RoomId, SpaceRoomChildState>,
     ) -> Vec<SpaceFilter> {
         let mut filters = Vec::new();
         for top_level_space in top_level_space_rooms {
@@ -674,7 +674,7 @@ pub struct SpaceFilter {
     /// The room identifiers of the descendants of this space.
     /// For top level spaces (level 0) these will be direct descendants while
     /// for first level spaces they will be all other descendants, recursively.
-    pub descendants: Vec<OwnedRoomId>,
+    pub descendants: Vec<RoomId>,
 }
 
 #[cfg(test)]

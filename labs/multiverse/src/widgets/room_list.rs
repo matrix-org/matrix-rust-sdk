@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use imbl::Vector;
-use matrix_sdk::{Client, Room, locks::Mutex, ruma::OwnedRoomId};
+use matrix_sdk::{Client, Room, locks::Mutex, ruma::RoomId};
 use matrix_sdk_ui::sync_service::SyncService;
 use ratatui::{prelude::*, widgets::*};
 
@@ -24,7 +24,7 @@ pub struct ExtraRoomInfo {
 }
 
 pub type Rooms = Arc<Mutex<Vector<matrix_sdk_ui::room_list_service::RoomListItem>>>;
-pub type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
+pub type RoomInfos = Arc<Mutex<HashMap<RoomId, ExtraRoomInfo>>>;
 
 pub struct RoomList {
     pub state: ListState,
@@ -109,13 +109,13 @@ impl RoomList {
         }
     }
 
-    /// Returns the [`OwnedRoomId`] of the `nth` room within the [`RoomList`].
-    pub fn get_room_id_of_entry(&self, nth: usize) -> Option<OwnedRoomId> {
+    /// Returns the [`RoomId`] of the `nth` room within the [`RoomList`].
+    pub fn get_room_id_of_entry(&self, nth: usize) -> Option<RoomId> {
         self.rooms.lock().get(nth).cloned().map(|room| room.room_id().to_owned())
     }
 
-    /// Returns the [`OwnedRoomId`] of the currently selected room, if any.
-    pub fn get_selected_room_id(&self) -> Option<OwnedRoomId> {
+    /// Returns the [`RoomId`] of the currently selected room, if any.
+    pub fn get_selected_room_id(&self) -> Option<RoomId> {
         let selected = self.state.selected()?;
         self.get_room_id_of_entry(selected)
     }

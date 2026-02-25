@@ -14,7 +14,7 @@
 
 use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use ruma::{
-    OwnedUserId, RoomVersionId, assign,
+    RoomVersionId, UserId, assign,
     events::{
         EmptyStateKey, PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
         StateEventContent, StateEventType, StaticEventContent,
@@ -44,7 +44,7 @@ pub struct RoomCreateWithCreatorEventContent {
     ///
     /// While this should be optional since room version 11, we copy the sender
     /// of the event so we can still access it.
-    pub creator: OwnedUserId,
+    pub creator: UserId,
 
     /// Whether or not this room's data should be transferred to other
     /// homeservers.
@@ -75,13 +75,13 @@ pub struct RoomCreateWithCreatorEventContent {
     /// Additional room creators, considered to have "infinite" power level, in
     /// room versions 12 onwards.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub additional_creators: Vec<OwnedUserId>,
+    pub additional_creators: Vec<UserId>,
 }
 
 impl RoomCreateWithCreatorEventContent {
     /// Constructs a `RoomCreateWithCreatorEventContent` with the given original
     /// content and sender.
-    pub fn from_event_content(content: RoomCreateEventContent, sender: OwnedUserId) -> Self {
+    pub fn from_event_content(content: RoomCreateEventContent, sender: UserId) -> Self {
         let RoomCreateEventContent {
             federate,
             room_version,
@@ -100,7 +100,7 @@ impl RoomCreateWithCreatorEventContent {
         }
     }
 
-    fn into_event_content(self) -> (RoomCreateEventContent, OwnedUserId) {
+    fn into_event_content(self) -> (RoomCreateEventContent, UserId) {
         let Self { creator, federate, room_version, predecessor, room_type, additional_creators } =
             self;
 
@@ -119,7 +119,7 @@ impl RoomCreateWithCreatorEventContent {
 
     /// Get the creators of the room from this content, according to the room
     /// version.
-    pub(crate) fn creators(&self) -> Vec<OwnedUserId> {
+    pub(crate) fn creators(&self) -> Vec<UserId> {
         let rules = self.room_version.rules().unwrap_or(ROOM_VERSION_RULES_FALLBACK);
 
         if rules.authorization.explicitly_privilege_room_creators {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk::{Client, ROOM_VERSION_RULES_FALLBACK, RoomState, room::RoomMemberRole};
-use ruma::{Int, OwnedRoomId, events::room::member::MembershipState};
+use ruma::{Int, RoomId, events::room::member::MembershipState};
 use tracing::info;
 
 use crate::spaces::{Error, SpaceRoom};
@@ -44,7 +44,7 @@ pub struct LeaveSpaceHandle {
 }
 
 impl LeaveSpaceHandle {
-    pub(crate) async fn new(client: Client, room_ids: Vec<OwnedRoomId>) -> Self {
+    pub(crate) async fn new(client: Client, room_ids: Vec<RoomId>) -> Self {
         let mut rooms = Vec::new();
 
         for room_id in &room_ids {
@@ -88,7 +88,7 @@ impl LeaveSpaceHandle {
                             == RoomMemberRole::Administrator
                     }
                 })
-                .map(|p: (ruma::OwnedUserId, i64)| p.0)
+                .map(|p: (ruma::UserId, i64)| p.0)
                 .chain(privileged_creator_ids.into_iter());
 
             let mut joined_owner_ids = Vec::new();

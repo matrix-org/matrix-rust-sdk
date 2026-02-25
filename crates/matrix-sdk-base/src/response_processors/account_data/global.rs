@@ -20,9 +20,7 @@ use std::{
 use matrix_sdk_common::timer;
 use ruma::{
     RoomId,
-    events::{
-        AnyGlobalAccountDataEvent, GlobalAccountDataEventType, direct::OwnedDirectUserIdentifier,
-    },
+    events::{AnyGlobalAccountDataEvent, GlobalAccountDataEventType, direct::DirectUserIdentifier},
     serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
@@ -86,7 +84,7 @@ impl Global {
         for event in events {
             let AnyGlobalAccountDataEvent::Direct(direct_event) = event else { continue };
 
-            let mut new_dms = HashMap::<&RoomId, HashSet<OwnedDirectUserIdentifier>>::new();
+            let mut new_dms = HashMap::<&RoomId, HashSet<DirectUserIdentifier>>::new();
 
             for (user_identifier, rooms) in direct_event.content.iter() {
                 for room_id in rooms {

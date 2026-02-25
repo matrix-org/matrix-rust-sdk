@@ -19,12 +19,12 @@ use eyeball_im::{ObservableVector, VectorDiff};
 use futures_core::Stream;
 use imbl::Vector;
 use ruma::{
-    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
+    MxcUri, RoomAliasId, RoomId,
     api::client::directory::get_public_rooms_filtered::v3::Request as PublicRoomsFilterRequest,
     directory::Filter, room::JoinRuleKind,
 };
 
-use crate::{Client, OwnedServerName, Result};
+use crate::{Client, Result, ServerName};
 
 /// This struct represents a single result of a room directory search.
 ///
@@ -32,15 +32,15 @@ use crate::{Client, OwnedServerName, Result};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoomDescription {
     /// The room's ID.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// The name of the room, if any.
     pub name: Option<String>,
     /// The topic of the room, if any.
     pub topic: Option<String>,
     /// The canonical alias of the room, if any.
-    pub alias: Option<OwnedRoomAliasId>,
+    pub alias: Option<RoomAliasId>,
     /// The room's avatar URL, if any.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
     /// The room's join rule.
     pub join_rule: JoinRuleKind,
     /// Whether can be previewed
@@ -114,7 +114,7 @@ impl SearchState {
 pub struct RoomDirectorySearch {
     batch_size: u32,
     filter: Option<String>,
-    server: Option<OwnedServerName>,
+    server: Option<ServerName>,
     search_state: SearchState,
     client: Client,
     results: ObservableVector<RoomDescription>,
@@ -149,7 +149,7 @@ impl RoomDirectorySearch {
         &mut self,
         filter: Option<String>,
         batch_size: u32,
-        via_server: Option<OwnedServerName>,
+        via_server: Option<ServerName>,
     ) -> Result<()> {
         self.filter = filter;
         self.batch_size = batch_size;

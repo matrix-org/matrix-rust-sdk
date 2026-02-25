@@ -24,7 +24,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{RoomInfo, crypto::types::events::CryptoContextInfo};
 use ruma::{
-    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    EventId, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent,
         fully_read::FullyReadEventContent,
@@ -105,17 +105,17 @@ pub(super) trait RoomDataProvider:
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &'a UserId,
-    ) -> impl Future<Output = Option<(OwnedEventId, Receipt)>> + SendOutsideWasm + 'a;
+    ) -> impl Future<Output = Option<(EventId, Receipt)>> + SendOutsideWasm + 'a;
 
     /// Loads read receipts for an event from the storage backend.
     fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
         receipt_thread: ReceiptThread,
-    ) -> impl Future<Output = IndexMap<OwnedUserId, Receipt>> + SendOutsideWasm + 'a;
+    ) -> impl Future<Output = IndexMap<UserId, Receipt>> + SendOutsideWasm + 'a;
 
     /// Load the current fully-read event id, from storage.
-    fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
+    fn load_fully_read_marker(&self) -> impl Future<Output = Option<EventId>> + '_;
 
     /// Send an event to that room.
     fn send(
@@ -128,7 +128,7 @@ pub(super) trait RoomDataProvider:
         &'a self,
         event_id: &'a EventId,
         reason: Option<&'a str>,
-        transaction_id: Option<OwnedTransactionId>,
+        transaction_id: Option<TransactionId>,
     ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + 'a;
 
     fn room_info(&self) -> Subscriber<RoomInfo>;
@@ -187,7 +187,7 @@ impl RoomDataProvider for Room {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &'a UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
             Ok(receipt) => receipt,
             Err(e) => {
@@ -206,7 +206,7 @@ impl RoomDataProvider for Room {
         &'a self,
         event_id: &'a EventId,
         receipt_thread: ReceiptThread,
-    ) -> IndexMap<OwnedUserId, Receipt> {
+    ) -> IndexMap<UserId, Receipt> {
         match self.load_event_receipts(ReceiptType::Read, receipt_thread.clone(), event_id).await {
             Ok(receipts) => receipts.into_iter().collect(),
             Err(e) => {
@@ -216,7 +216,7 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
+    async fn load_fully_read_marker(&self) -> Option<EventId> {
         match self.account_data_static::<FullyReadEventContent>().await {
             Ok(Some(fully_read)) => match fully_read.deserialize() {
                 Ok(fully_read) => Some(fully_read.content.event_id),
@@ -242,7 +242,7 @@ impl RoomDataProvider for Room {
         &'a self,
         event_id: &'a EventId,
         reason: Option<&'a str>,
-        transaction_id: Option<OwnedTransactionId>,
+        transaction_id: Option<TransactionId>,
     ) -> Result<(), super::Error> {
         let _ = self
             .redact(event_id, reason, transaction_id)

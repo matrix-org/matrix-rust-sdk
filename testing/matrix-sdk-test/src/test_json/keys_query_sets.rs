@@ -2,9 +2,9 @@ use std::{collections::BTreeMap, default::Default};
 
 use insta::{assert_json_snapshot, with_settings};
 use ruma::{
-    CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
-    CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKey,
-    OwnedBase64PublicKeyOrDeviceId, OwnedDeviceId, OwnedUserId, SigningKeyAlgorithm, UserId,
+    Base64PublicKey, Base64PublicKeyOrDeviceId, CanonicalJsonValue, CrossSigningKeyId,
+    CrossSigningOrDeviceSignatures, CrossSigningOrDeviceSigningKeyId, DeviceId,
+    SigningKeyAlgorithm, UserId,
     api::client::keys::get_keys::v3::Response as KeyQueryResponse,
     device_id,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
@@ -79,7 +79,7 @@ use crate::{
 /// ```
 pub struct KeyQueryResponseTemplate {
     /// The User ID of the user that this test data is about.
-    user_id: OwnedUserId,
+    user_id: UserId,
 
     /// The user's private master cross-signing key, once it has been set via
     /// [`KeyQueryResponseTemplate::with_cross_signing_keys`].
@@ -104,12 +104,12 @@ pub struct KeyQueryResponseTemplate {
 
     /// The JSON object containing the public, signed, device keys, added via
     /// [`KeyQueryResponseTemplate::with_device`].
-    device_keys: BTreeMap<OwnedDeviceId, Raw<DeviceKeys>>,
+    device_keys: BTreeMap<DeviceId, Raw<DeviceKeys>>,
 }
 
 impl KeyQueryResponseTemplate {
     /// Create a new [`KeyQueryResponseTemplate`] for the given user.
-    pub fn new(user_id: OwnedUserId) -> Self {
+    pub fn new(user_id: UserId) -> Self {
         KeyQueryResponseTemplate {
             user_id,
             master_cross_signing_key: None,
@@ -258,7 +258,7 @@ impl KeyQueryResponseTemplate {
         public_key: &Ed25519PublicKey,
         key_usage: KeyUsage,
     ) -> CrossSigningKey {
-        let public_key_base64 = OwnedBase64PublicKey::with_bytes(public_key.as_bytes());
+        let public_key_base64 = Base64PublicKey::with_bytes(public_key.as_bytes());
         let mut key = CrossSigningKey::new(
             self.user_id.clone(),
             vec![key_usage],
@@ -810,7 +810,7 @@ impl VerificationViolationTestData {
     }
 
     /// Device ID of the device returned by [`Self::own_unsigned_device_keys`].
-    pub fn own_unsigned_device_id() -> OwnedDeviceId {
+    pub fn own_unsigned_device_id() -> DeviceId {
         Self::own_unsigned_device_keys().0
     }
 
@@ -820,7 +820,7 @@ impl VerificationViolationTestData {
     ///
     /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
     /// device id is also returned by [`Self::own_unsigned_device_id`].
-    pub fn own_unsigned_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+    pub fn own_unsigned_device_keys() -> (DeviceId, Raw<DeviceKeys>) {
         let json = json!({
              "algorithms": [
                  "m.olm.v1.curve25519-aes-sha2",
@@ -845,7 +845,7 @@ impl VerificationViolationTestData {
     }
 
     /// Device ID of the device returned by [`Self::own_signed_device_keys`].
-    pub fn own_signed_device_id() -> OwnedDeviceId {
+    pub fn own_signed_device_id() -> DeviceId {
         Self::own_signed_device_keys().0
     }
 
@@ -855,7 +855,7 @@ impl VerificationViolationTestData {
     ///
     /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
     /// device id is also returned by [`Self::own_signed_device_id`].
-    pub fn own_signed_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+    pub fn own_signed_device_keys() -> (DeviceId, Raw<DeviceKeys>) {
         let json = json!({
             "algorithms": [
                 "m.olm.v1.curve25519-aes-sha2",
@@ -1484,8 +1484,8 @@ fn sign_cross_signing_key(
     let signature = calculate_json_signature(key_json, signing_key);
 
     // Poke the signature into the struct
-    let signing_key_id: OwnedBase64PublicKeyOrDeviceId =
-        OwnedBase64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
+    let signing_key_id: Base64PublicKeyOrDeviceId =
+        Base64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
 
     value.signatures.insert_signature(
         user_id.to_owned(),

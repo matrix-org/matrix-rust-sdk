@@ -20,8 +20,8 @@ use std::{
 
 use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
+    DeviceId, OneTimeKeyAlgorithm, OneTimeKeyId, SecondsSinceUnixEpoch, ServerName, TransactionId,
+    UserId,
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
@@ -55,24 +55,24 @@ pub(crate) struct SessionManager {
     /// According to the doc on [`crate::OlmMachine::get_missing_sessions`],
     /// there should only be one such request active at a time, so we only need
     /// to keep a record of the most recent.
-    current_key_claim_request: Arc<StdRwLock<Option<(OwnedTransactionId, KeysClaimRequest)>>>,
+    current_key_claim_request: Arc<StdRwLock<Option<(TransactionId, KeysClaimRequest)>>>,
 
     /// A map of user/devices that we need to automatically claim keys for.
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
-    wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
+    wedged_devices: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>>,
+    outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<TransactionId, OutgoingRequest>>>,
 
     /// Servers that have previously appeared in the `failures` section of a
     /// `/keys/claim` response.
     ///
     /// See also [`crate::identities::IdentityManager::failures`].
-    failures: FailuresCache<OwnedServerName>,
+    failures: FailuresCache<ServerName>,
 
-    failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<OwnedDeviceId>>>>,
+    failed_devices: Arc<StdRwLock<BTreeMap<UserId, FailuresCache<DeviceId>>>>,
 }
 
 impl SessionManager {
@@ -80,7 +80,7 @@ impl SessionManager {
     const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
     pub fn new(
-        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -204,11 +204,11 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(TransactionId, KeysClaimRequest)>> {
         let mut missing_session_devices_by_user: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
         let mut timed_out_devices_by_user: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
-        let unfailed_users = users.filter(|u| !self.failures.contains(u.server_name()));
+        let unfailed_users = users.filter(|u| !self.failures.contains(&u.server_name()));
 
         // Get the current list of devices for each user.
         let devices_by_user = Box::pin(
@@ -220,8 +220,8 @@ impl SessionManager {
 
         #[derive(Debug, Default)]
         struct UserFailedDeviceInfo {
-            non_olm_devices: BTreeMap<OwnedDeviceId, Vec<EventEncryptionAlgorithm>>,
-            bad_key_devices: BTreeSet<OwnedDeviceId>,
+            non_olm_devices: BTreeMap<DeviceId, Vec<EventEncryptionAlgorithm>>,
+            bad_key_devices: BTreeSet<DeviceId>,
         }
 
         let mut failed_devices_by_user: BTreeMap<_, UserFailedDeviceInfo> = BTreeMap::new();
@@ -336,16 +336,13 @@ impl SessionManager {
     fn handle_otk_exhaustion_failure(
         &self,
         request_id: &TransactionId,
-        failed_servers: &BTreeSet<OwnedServerName>,
-        one_time_keys: &BTreeMap<
-            &OwnedUserId,
-            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedOneTimeKeyId>>,
-        >,
+        failed_servers: &BTreeSet<ServerName>,
+        one_time_keys: &BTreeMap<&UserId, BTreeMap<&DeviceId, BTreeSet<&OneTimeKeyId>>>,
     ) {
         // First check that the response is for the request we were expecting.
         let request = {
             let mut guard = self.current_key_claim_request.write();
-            let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
+            let expected_request_id = guard.as_ref().map(|e| &e.0);
 
             if Some(request_id) == expected_request_id {
                 // We have a confirmed match. Clear the expectation, but hang onto the details
@@ -390,7 +387,7 @@ impl SessionManager {
                 .filter(|(user_id, _)| {
                     // Skip over users whose homeservers were in the "failed servers" list: we don't
                     // want to mark individual devices as broken *as well as* the server.
-                    !failed_servers.contains(user_id.server_name())
+                    !failed_servers.contains(&user_id.server_name())
                 })
                 .collect();
 
@@ -456,7 +453,8 @@ impl SessionManager {
             .filter_map(|s| ServerName::parse(s).ok())
             .filter(|s| s != self.store.static_account().user_id.server_name())
             .collect();
-        let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
+        let successful_servers =
+            response.one_time_keys.keys().map(|u| u.server_name()).collect::<Vec<_>>();
 
         // Add the user/device pairs that don't have any one-time keys to the failures
         // cache.
@@ -464,7 +462,7 @@ impl SessionManager {
         // Add the failed servers to the failures cache.
         self.failures.extend(failed_servers);
         // Remove the servers we successfully contacted from the failures cache.
-        self.failures.remove(successful_servers);
+        self.failures.remove(successful_servers.iter());
 
         // Finally, create some 1-to-1 sessions.
         self.create_sessions(response).await
@@ -586,14 +584,13 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc, time::Duration};
+    use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
     use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
-        DeviceId, OwnedUserId, UserId,
-        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
-        owned_server_name, user_id,
+        DeviceId, UserId, api::client::keys::claim_keys::v3::Response as KeyClaimResponse,
+        device_id, owned_server_name, user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -749,9 +746,7 @@ mod tests {
             let bob_user_id = bob.user_id().to_owned();
 
             #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-            spawn(
-                async move { manager.get_missing_sessions(iter::once(bob_user_id.deref())).await },
-            )
+            spawn(async move { manager.get_missing_sessions(iter::once(&bob_user_id)).await })
         };
 
         // the initial `/keys/query` completes, and we start another
@@ -784,7 +779,7 @@ mod tests {
         let (manager, identity_manager) = session_manager_test_helper().await;
 
         // We start tracking Bob's devices.
-        let other_user_id = OwnedUserId::try_from("@bob:example.com").unwrap();
+        let other_user_id = UserId::try_from("@bob:example.com").unwrap();
         {
             let cache = manager.store.cache().await.unwrap();
             identity_manager
@@ -792,7 +787,7 @@ mod tests {
                 .synced(&cache)
                 .await
                 .unwrap()
-                .update_tracked_users(iter::once(other_user_id.as_ref()))
+                .update_tracked_users(iter::once(&other_user_id))
                 .await
                 .unwrap();
         }
@@ -809,7 +804,7 @@ mod tests {
         // timeout so that we can detect the call blocking.
         let result = tokio::time::timeout(
             Duration::from_millis(10),
-            manager.get_missing_sessions(iter::once(other_user_id.as_ref())),
+            manager.get_missing_sessions(iter::once(&other_user_id)),
         )
         .await
         .expect("get_missing_sessions blocked rather than completing quickly")
@@ -886,7 +881,7 @@ mod tests {
     #[async_test]
     async fn test_failure_handling() {
         let alice = user_id!("@alice:example.org");
-        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
@@ -969,7 +964,7 @@ mod tests {
         let response = ruma_response_from_json(&response_json);
 
         let alice = user_id!("@alice:example.org");
-        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let mut alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;

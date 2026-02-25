@@ -19,7 +19,7 @@
 use std::{fmt::Formatter, future::Future, sync::Mutex};
 
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
-use ruma::{EventId, OwnedEventId, UInt, api::Direction};
+use ruma::{EventId, UInt, api::Direction};
 
 use crate::{
     Error, Room,
@@ -32,27 +32,27 @@ pub trait PaginableThread: SendOutsideWasm + SyncOutsideWasm {
     /// Runs a /relations query for the given thread, with the given options.
     fn relations(
         &self,
-        thread_root: OwnedEventId,
+        thread_root: EventId,
         opts: RelationsOptions,
     ) -> impl Future<Output = Result<Relations, Error>> + SendOutsideWasm;
 
     /// Load an event, given its event ID.
     fn load_event(
         &self,
-        event_id: &OwnedEventId,
+        event_id: &EventId,
     ) -> impl Future<Output = Result<TimelineEvent, Error>> + SendOutsideWasm;
 }
 
 impl PaginableThread for Room {
     async fn relations(
         &self,
-        thread_root: OwnedEventId,
+        thread_root: EventId,
         opts: RelationsOptions,
     ) -> Result<Relations, Error> {
         self.relations(thread_root, opts).await
     }
 
-    async fn load_event(&self, event_id: &OwnedEventId) -> Result<TimelineEvent, Error> {
+    async fn load_event(&self, event_id: &EventId) -> Result<TimelineEvent, Error> {
         self.event(event_id, None).await
     }
 }
@@ -63,7 +63,7 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
     room: P,
 
     /// The thread root event ID (the event that started the thread).
-    root_event_id: OwnedEventId,
+    root_event_id: EventId,
 
     /// The current pagination tokens, which are used to keep track of the
     /// pagination state.
@@ -72,7 +72,7 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
 
 impl<P: PaginableThread> ThreadedEventsLoader<P> {
     /// Create a new [`ThreadedEventsLoader`], given a room implementation.
-    pub fn new(room: P, root_event_id: OwnedEventId, tokens: PaginationTokens) -> Self {
+    pub fn new(room: P, root_event_id: EventId, tokens: PaginationTokens) -> Self {
         Self { room, root_event_id, tokens: Mutex::new(tokens) }
     }
 

@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     event_cache::store::extract_event_relation,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{OwnedEventId, RoomId};
+use ruma::{EventId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire
@@ -101,8 +101,8 @@ impl Event {
         }
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<EventId> {
         match self {
             Event::InBand(e) => e.event_id(),
             Event::OutOfBand(e) => e.event_id(),
@@ -117,10 +117,10 @@ impl Event {
         }
     }
 
-    /// The [`OwnedEventId`] and
+    /// The [`EventId`] and
     /// [`RelationType`](ruma::events::relation::RelationType) of the underlying
     /// event as a [`String`].
-    pub fn relation(&self) -> Option<(OwnedEventId, String)> {
+    pub fn relation(&self) -> Option<(EventId, String)> {
         match self {
             Event::InBand(e) => e.relation(),
             Event::OutOfBand(e) => e.relation(),
@@ -160,16 +160,16 @@ impl<P> GenericEvent<P> {
         self.linked_chunk_id.room_id()
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<EventId> {
         self.content.event_id()
     }
 
     /// The event that the underlying event relates to, if any.
     ///
-    /// Returns the related [`OwnedEventId`] and the
+    /// Returns the related [`EventId`] and the
     /// [`RelationType`](ruma::events::relation::RelationType) as a [`String`].
-    pub fn relation(&self) -> Option<(OwnedEventId, String)> {
+    pub fn relation(&self) -> Option<(EventId, String)> {
         extract_event_relation(self.content.raw())
     }
 }

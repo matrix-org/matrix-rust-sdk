@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_once_cell::OnceCell;
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
-use ruma::{EventId, OwnedEventId};
+use ruma::EventId;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::error;
 
@@ -82,7 +82,7 @@ struct RoomLatestEventsState {
     for_the_room: LatestEvent,
 
     /// The latest events for each thread.
-    per_thread: HashMap<OwnedEventId, LatestEvent>,
+    per_thread: HashMap<EventId, LatestEvent>,
 
     /// The event cache.
     event_cache: EventCache,
@@ -114,7 +114,7 @@ impl RoomLatestEventsReadGuard {
     }
 
     #[cfg(test)]
-    pub fn per_thread(&self) -> &HashMap<OwnedEventId, LatestEvent> {
+    pub fn per_thread(&self) -> &HashMap<EventId, LatestEvent> {
         &self.inner.per_thread
     }
 }

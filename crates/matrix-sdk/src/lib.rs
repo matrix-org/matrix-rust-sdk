@@ -86,7 +86,7 @@ pub use matrix_sdk_sqlite::{
 pub use media::Media;
 pub use pusher::Pusher;
 pub use room::Room;
-pub use ruma::{IdParseError, OwnedServerName, ServerName};
+pub use ruma::{IdParseError, ServerName};
 pub use sliding_sync::{
     SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
     SlidingSyncListLoadingState, SlidingSyncMode, UpdateSummary,

@@ -16,10 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{
-    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnyToDeviceEventContent,
-    serde::JsonCastable,
-};
+use ruma::{DeviceId, RoomId, TransactionId, events::AnyToDeviceEventContent, serde::JsonCastable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -47,11 +44,11 @@ pub struct RoomKeyRequestContent {
     #[serde(flatten)]
     pub action: Action,
     /// The ID of the device that is requesting the room key.
-    pub requesting_device_id: OwnedDeviceId,
+    pub requesting_device_id: DeviceId,
     /// A random string uniquely identifying the request for a key. If the key
     /// is requested multiple times, it should be reused. It should also reused
     /// in order to cancel a request.
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
 }
 
 impl RoomKeyRequestContent {
@@ -59,8 +56,8 @@ impl RoomKeyRequestContent {
     /// set to request a room key with the given `RequestedKeyInfo`.
     pub fn new_request(
         info: RequestedKeyInfo,
-        requesting_device_id: OwnedDeviceId,
-        request_id: OwnedTransactionId,
+        requesting_device_id: DeviceId,
+        request_id: TransactionId,
     ) -> Self {
         Self { action: Action::Request(info), requesting_device_id, request_id }
     }
@@ -206,7 +203,7 @@ impl From<MegolmV2AesSha2Content> for SupportedKeyInfo {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct MegolmV1AesSha2Content {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
     #[serde(default, with = "serde_curve_key_option", skip_serializing_if = "Option::is_none")]
@@ -221,7 +218,7 @@ pub struct MegolmV1AesSha2Content {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct MegolmV2AesSha2Content {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The ID of the session that the key is for.
     pub session_id: String,

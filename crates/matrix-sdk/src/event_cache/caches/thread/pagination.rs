@@ -17,7 +17,7 @@ use std::sync::Arc;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::event_cache::Event;
-use ruma::{OwnedEventId, api::Direction};
+use ruma::{EventId, api::Direction};
 
 use super::super::super::{
     EventCacheError, Result,
@@ -33,7 +33,7 @@ use crate::room::{IncludeRelations, RelationsOptions};
 /// `RoomEventCache`.
 struct ThreadEventCacheWrapper {
     cache: Arc<RoomEventCacheInner>,
-    thread_id: OwnedEventId,
+    thread_id: EventId,
     // Threads do not support pagination status for the moment but we need one, so let's use a
     // dummy one for now.
     dummy_pagination_status: SharedObservable<PaginationStatus>,
@@ -47,7 +47,7 @@ impl ThreadPagination {
     /// Construct a new [`ThreadPagination`].
     pub(in super::super::super) fn new(
         cache: Arc<RoomEventCacheInner>,
-        thread_id: OwnedEventId,
+        thread_id: EventId,
     ) -> Self {
         Self(Pagination::new(ThreadEventCacheWrapper {
             cache,

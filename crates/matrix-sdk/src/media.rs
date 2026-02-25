@@ -27,7 +27,7 @@ use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
 pub use matrix_sdk_base::media::{store::MediaRetentionPolicy, *};
 use mime::Mime;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
+    MilliSecondsSinceUnixEpoch, MxcUri, TransactionId, UInt,
     api::{
         Metadata,
         client::{authenticated_media, error::ErrorKind, media},
@@ -123,7 +123,7 @@ impl fmt::Display for PersistError {
 #[derive(Debug)]
 pub struct PreallocatedMxcUri {
     /// The URI for the media URI.
-    pub uri: OwnedMxcUri,
+    pub uri: MxcUri,
     /// The expiration date for the media URI.
     expire_date: Option<MilliSecondsSinceUnixEpoch>,
 }
@@ -755,12 +755,12 @@ impl Media {
         Ok(Some((MediaSource::Plain(url), thumbnail_info)))
     }
 
-    /// Create an [`OwnedMxcUri`] for a file or thumbnail we want to store
+    /// Create an [`MxcUri`] for a file or thumbnail we want to store
     /// locally before sending it.
     ///
     /// This uses a MXC ID that is only locally valid.
-    pub(crate) fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
-        OwnedMxcUri::from(format!("mxc://{LOCAL_MXC_SERVER_NAME}/{txn_id}"))
+    pub(crate) fn make_local_uri(txn_id: &TransactionId) -> MxcUri {
+        MxcUri::from(format!("mxc://{LOCAL_MXC_SERVER_NAME}/{txn_id}"))
     }
 
     /// Create a [`MediaRequest`] for a file we want to store locally before
@@ -828,17 +828,17 @@ mod tests {
         let txn_id = "abcdef";
 
         // Request generated with `make_local_file_media_request`.
-        let request = Media::make_local_file_media_request(txn_id.into());
+        let request = Media::make_local_file_media_request(&txn_id.into());
         assert_matches!(Media::as_local_uri(&request.source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 
         // Local plain source.
-        let source = MediaSource::Plain(Media::make_local_uri(txn_id.into()));
+        let source = MediaSource::Plain(Media::make_local_uri(&txn_id.into()));
         assert_matches!(Media::as_local_uri(&source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 
         // Local encrypted source.
-        let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(txn_id.into())));
+        let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(&txn_id.into())));
         assert_matches!(Media::as_local_uri(&source), Some(uri));
         assert_eq!(uri.media_id(), Ok(txn_id));
 

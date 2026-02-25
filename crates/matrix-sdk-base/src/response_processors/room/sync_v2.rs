@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
-    OwnedRoomId, OwnedUserId, RoomId, UserId,
+    RoomId, UserId,
     api::client::sync::sync_events::v3::{
         InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, State as RumaState,
     },
@@ -39,7 +39,7 @@ pub async fn update_joined_room(
     context: &mut Context,
     room_creation_data: RoomCreationData<'_>,
     joined_room: JoinedRoom,
-    updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
+    updated_members_in_room: &mut BTreeMap<RoomId, BTreeSet<UserId>>,
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {

@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     crypto::{CryptoStoreError, UserIdentity as CryptoUserIdentity, types::MasterPubkey},
 };
 use ruma::{
-    OwnedUserId, UserId,
+    UserId,
     events::{key::verification::VerificationMethod, room::message::RoomMessageEventContent},
 };
 
@@ -35,9 +35,9 @@ pub struct IdentityUpdates {
     /// A identity being in this list does not necessarily mean that the
     /// identity was just created, it just means that it's the first time
     /// we're seeing this identity.
-    pub new: BTreeMap<OwnedUserId, UserIdentity>,
+    pub new: BTreeMap<UserId, UserIdentity>,
     /// The list of changed identities.
-    pub changed: BTreeMap<OwnedUserId, UserIdentity>,
+    pub changed: BTreeMap<UserId, UserIdentity>,
 }
 
 impl IdentityUpdates {

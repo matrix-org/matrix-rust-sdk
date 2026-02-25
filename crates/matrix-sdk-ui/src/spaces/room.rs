@@ -16,8 +16,7 @@ use std::cmp::Ordering;
 
 use matrix_sdk::{Room, RoomHero, RoomState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName,
-    OwnedSpaceChildOrder,
+    MilliSecondsSinceUnixEpoch, MxcUri, RoomAliasId, RoomId, ServerName, SpaceChildOrder,
     events::{
         room::{guest_access::GuestAccess, history_visibility::HistoryVisibility},
         space::child::HierarchySpaceChildEvent,
@@ -30,9 +29,9 @@ use ruma::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpaceRoom {
     /// The ID of the room.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// The canonical alias of the room, if any.
-    pub canonical_alias: Option<OwnedRoomAliasId>,
+    pub canonical_alias: Option<RoomAliasId>,
     /// The name of the room, if any.
     pub name: Option<String>,
     /// Calculated display name based on the room's name, aliases, and members.
@@ -40,7 +39,7 @@ pub struct SpaceRoom {
     /// The topic of the room, if any.
     pub topic: Option<String>,
     /// The URL for the room's avatar, if one is set.
-    pub avatar_url: Option<OwnedMxcUri>,
+    pub avatar_url: Option<MxcUri>,
     /// The type of room from `m.room.create`, if any.
     pub room_type: Option<RoomType>,
     /// The number of members joined to the room.
@@ -64,7 +63,7 @@ pub struct SpaceRoom {
     /// A list of room members considered to be heroes.
     pub heroes: Option<Vec<RoomHero>>,
     /// The via parameters of the room.
-    pub via: Vec<OwnedServerName>,
+    pub via: Vec<ServerName>,
 }
 
 impl SpaceRoom {
@@ -74,11 +73,11 @@ impl SpaceRoom {
         summary: &RoomSummary,
         known_room: Option<Room>,
         children_count: u64,
-        via: Vec<OwnedServerName>,
+        via: Vec<ServerName>,
     ) -> Self {
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             summary.name.clone(),
-            summary.canonical_alias.as_deref(),
+            summary.canonical_alias.as_ref(),
             known_room.as_ref().map(|r| r.heroes().to_vec()).unwrap_or_default(),
             summary.num_joined_members.into(),
         )
@@ -167,7 +166,7 @@ impl SpaceRoom {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SpaceRoomChildState {
-    pub(crate) order: Option<OwnedSpaceChildOrder>,
+    pub(crate) order: Option<SpaceChildOrder>,
     pub(crate) origin_server_ts: MilliSecondsSinceUnixEpoch,
 }
 
@@ -185,7 +184,7 @@ mod tests {
     use std::cmp::Ordering;
 
     use matrix_sdk_test::async_test;
-    use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId, SpaceChildOrder, owned_room_id, uint};
+    use ruma::{MilliSecondsSinceUnixEpoch, RoomId, SpaceChildOrder, owned_room_id, uint};
 
     use crate::spaces::{SpaceRoom, room::SpaceRoomChildState};
 
@@ -317,7 +316,7 @@ mod tests {
         );
     }
 
-    fn make_space_room(room_id: OwnedRoomId) -> SpaceRoom {
+    fn make_space_room(room_id: RoomId) -> SpaceRoom {
         SpaceRoom {
             room_id,
             canonical_alias: None,

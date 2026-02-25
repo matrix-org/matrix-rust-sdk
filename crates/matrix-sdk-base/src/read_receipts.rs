@@ -127,7 +127,7 @@ use matrix_sdk_common::{
     serde_helpers::extract_thread_root,
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
+    EventId, RoomId, UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
         SyncMessageLikeEvent,
@@ -146,7 +146,7 @@ use crate::ThreadingSupport;
 struct LatestReadReceipt {
     /// The id of the event the read receipt is referring to. (Not the read
     /// receipt event id.)
-    event_id: OwnedEventId,
+    event_id: EventId,
 }
 
 /// Public data about read receipts collected during processing of that room.
@@ -179,7 +179,7 @@ pub struct RoomReadReceipts {
     /// Note: this contains event ids of the event *targets* of the receipts,
     /// not the event ids of the receipt events themselves.
     #[serde(default = "new_nonempty_ring_buffer")]
-    pending: RingBuffer<OwnedEventId>,
+    pending: RingBuffer<EventId>,
 }
 
 impl Default for RoomReadReceipts {
@@ -194,7 +194,7 @@ impl Default for RoomReadReceipts {
     }
 }
 
-fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
+fn new_nonempty_ring_buffer() -> RingBuffer<EventId> {
     // 10 pending read receipts per room should be enough for everyone.
     // SAFETY: `unwrap` is safe because 10 is not zero.
     RingBuffer::new(NonZeroUsize::new(10).unwrap())
@@ -288,10 +288,10 @@ impl RoomReadReceipts {
 /// order).
 struct ReceiptSelector {
     /// Mapping of known event IDs to their sync order.
-    event_id_to_pos: BTreeMap<OwnedEventId, usize>,
+    event_id_to_pos: BTreeMap<EventId, usize>,
     /// The event with the greatest sync order, for which we had a read-receipt,
     /// so far.
-    latest_event_with_receipt: Option<OwnedEventId>,
+    latest_event_with_receipt: Option<EventId>,
     /// The biggest sync order attached to the `best_receipt`.
     latest_event_pos: Option<usize>,
 }
@@ -314,7 +314,7 @@ impl ReceiptSelector {
     /// `event_id`.
     fn create_sync_index<'a>(
         events: impl Iterator<Item = &'a TimelineEvent> + 'a,
-    ) -> BTreeMap<OwnedEventId, usize> {
+    ) -> BTreeMap<EventId, usize> {
         // TODO: this should be cached and incrementally updated.
         BTreeMap::from_iter(
             events
@@ -350,7 +350,7 @@ impl ReceiptSelector {
 
     /// Try to match pending receipts against new events.
     #[instrument(skip_all)]
-    fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<OwnedEventId>) {
+    fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<EventId>) {
         // Try to match stashed receipts against the new events.
         pending.retain(|event_id| {
             if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
@@ -382,7 +382,7 @@ impl ReceiptSelector {
         &mut self,
         user_id: &UserId,
         receipt_event: &ReceiptEventContent,
-    ) -> Vec<OwnedEventId> {
+    ) -> Vec<EventId> {
         let mut pending = Vec::new();
         // Now consider new receipts.
         for (event_id, receipts) in &receipt_event.0 {
@@ -411,7 +411,7 @@ impl ReceiptSelector {
     fn try_match_implicit(&mut self, user_id: &UserId, new_events: &[TimelineEvent]) {
         for ev in new_events {
             // Get the `sender` field, if any, or skip this event.
-            let Ok(Some(sender)) = ev.raw().get_field::<OwnedUserId>("sender") else { continue };
+            let Ok(Some(sender)) = ev.raw().get_field::<UserId>("sender") else { continue };
             if sender == user_id {
                 // Get the event id, if any, or skip this event.
                 let Some(event_id) = ev.event_id() else { continue };
@@ -479,7 +479,7 @@ pub(crate) fn compute_unread_counts(
     let new_receipt = {
         let mut selector = ReceiptSelector::new(
             &all_events,
-            read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id),
+            read_receipts.latest_active.as_ref().map(|receipt| &receipt.event_id),
         );
 
         selector.try_match_implicit(user_id, new_events);

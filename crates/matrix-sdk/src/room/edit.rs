@@ -290,7 +290,7 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedEventId, event_id,
+        EventId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
             room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
@@ -303,7 +303,7 @@ mod tests {
 
     #[derive(Default)]
     struct TestEventCache {
-        events: BTreeMap<OwnedEventId, TimelineEvent>,
+        events: BTreeMap<EventId, TimelineEvent>,
     }
 
     impl EventSource for TestEventCache {

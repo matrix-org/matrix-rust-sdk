@@ -19,7 +19,7 @@ pub mod thread;
 
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 pub use room::*;
-use ruma::OwnedEventId;
+use ruma::EventId;
 
 /// Pagination token data, indicating in which state is the current pagination.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,7 +71,7 @@ pub struct PaginationResult {
 pub enum PaginatorError {
     /// The target event could not be found.
     #[error("target event with id {0} could not be found")]
-    EventNotFound(OwnedEventId),
+    EventNotFound(EventId),
 
     /// We're trying to manipulate the paginator in the wrong state.
     #[error("expected paginator state {expected:?}, observed {actual:?}")]

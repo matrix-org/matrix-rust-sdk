@@ -21,8 +21,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_qrcode::QrVerificationData;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
@@ -153,11 +152,11 @@ pub struct VerificationRequest {
     verification_cache: VerificationCache,
     account: StaticAccountData,
     flow_id: Arc<FlowId>,
-    other_user_id: OwnedUserId,
+    other_user_id: UserId,
     inner: SharedObservable<InnerRequest>,
     creation_time: Arc<Instant>,
     we_started: bool,
-    recipient_devices: Arc<Vec<OwnedDeviceId>>,
+    recipient_devices: Arc<Vec<DeviceId>>,
 }
 
 /// A handle to a request so child verification flows can cancel the request.
@@ -199,7 +198,7 @@ impl VerificationRequest {
         store: VerificationStore,
         flow_id: FlowId,
         other_user: &UserId,
-        recipient_devices: Vec<OwnedDeviceId>,
+        recipient_devices: Vec<DeviceId>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
         let account = store.account.clone();
@@ -285,7 +284,7 @@ impl VerificationRequest {
     }
 
     /// The id of the other device that is participating in this verification.
-    pub fn other_device_id(&self) -> Option<OwnedDeviceId> {
+    pub fn other_device_id(&self) -> Option<DeviceId> {
         match &*self.inner.read() {
             InnerRequest::Requested(r) => Some(r.state.other_device_data.device_id().to_owned()),
             InnerRequest::Ready(r) => Some(r.state.other_device_data.device_id().to_owned()),
@@ -655,10 +654,10 @@ impl VerificationRequest {
         let cancel_content = cancelled.as_content(self.flow_id());
 
         let OutgoingContent::ToDevice(c) = cancel_content else { return None };
-        let recip_devices: Vec<OwnedDeviceId> = self
+        let recip_devices: Vec<DeviceId> = self
             .recipient_devices
             .iter()
-            .filter(|&d| filter_device.is_none_or(|device| **d != *device))
+            .filter(|&d| filter_device.is_none_or(|device| *d != *device))
             .cloned()
             .collect();
 
@@ -1004,7 +1003,7 @@ struct RequestState<S: Clone> {
     flow_id: Arc<FlowId>,
 
     /// The id of the user which is participating in this verification request.
-    pub other_user_id: OwnedUserId,
+    pub other_user_id: UserId,
 
     /// The verification request state we are in.
     state: S,
@@ -1615,7 +1614,7 @@ impl RequestState<Transitioned> {
 struct Passive {
     /// The device ID of the device that responded to the verification request.
     #[allow(dead_code)]
-    pub other_device_id: OwnedDeviceId,
+    pub other_device_id: DeviceId,
 }
 
 #[derive(Clone, Debug)]

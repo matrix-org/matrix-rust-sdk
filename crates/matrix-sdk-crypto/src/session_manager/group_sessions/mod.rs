@@ -30,8 +30,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    DeviceId, RoomId, TransactionId, UserId,
     events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -68,10 +67,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct GroupSessionCache {
     store: Store,
-    sessions: Arc<StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>>,
+    sessions: Arc<StdRwLock<BTreeMap<RoomId, OutboundGroupSession>>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
-    sessions_being_shared: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutboundGroupSession>>>,
+    sessions_being_shared: Arc<StdRwLock<BTreeMap<TransactionId, OutboundGroupSession>>>,
 }
 
 impl GroupSessionCache {
@@ -136,7 +135,7 @@ impl GroupSessionCache {
         self.sessions_being_shared.write().remove(id)
     }
 
-    fn mark_as_being_shared(&self, id: OwnedTransactionId, session: OutboundGroupSession) {
+    fn mark_as_being_shared(&self, id: TransactionId, session: OutboundGroupSession) {
         self.sessions_being_shared.write().insert(id, session);
     }
 }
@@ -326,10 +325,7 @@ impl GroupSessionManager {
         store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
         devices: Vec<DeviceData>,
-    ) -> OlmResult<(
-        EncryptForDevicesResult,
-        BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
-    )> {
+    ) -> OlmResult<(EncryptForDevicesResult, BTreeMap<UserId, BTreeMap<DeviceId, ShareInfo>>)> {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
             device: DeviceData,
@@ -1005,7 +1001,7 @@ struct EncryptForDevicesResult {
 #[derive(Debug, Default)]
 struct EncryptForDevicesResultBuilder {
     /// The payloads of the to-device messages
-    messages: BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+    messages: BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 
     /// The devices which lack an Olm session and therefore need a withheld code
     no_olm_devices: Vec<(DeviceData, WithheldCode)>,
@@ -1083,7 +1079,6 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         iter,
-        ops::Deref,
         sync::Arc,
     };
 
@@ -1091,7 +1086,7 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
-        DeviceId, OneTimeKeyAlgorithm, OwnedMxcUri, TransactionId, UInt, UserId,
+        DeviceId, MxcUri, OneTimeKeyAlgorithm, TransactionId, UInt, UserId,
         api::client::{
             keys::{claim_keys, get_keys, upload_keys},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
@@ -1237,7 +1232,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
 
@@ -1264,7 +1259,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
 
         let requests =
             machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
@@ -1317,7 +1312,7 @@ mod tests {
         let machine = machine().await;
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
 
         let first_room_id = room_id!("!test:localhost");
 
@@ -1348,7 +1343,7 @@ mod tests {
         // The fact that an olm was sent should be remembered even if sharing another
         // session in an other room.
         let second_room_id = room_id!("!other:localhost");
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let requests = machine
             .share_room_key(second_room_id, users, EncryptionSettings::default())
             .await
@@ -1369,7 +1364,7 @@ mod tests {
         let late_joiner = user_id!("@bob:localhost");
         let keys_claim = keys_claim_response();
 
-        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        let mut users: BTreeSet<_> = keys_claim.one_time_keys.keys().collect();
         users.insert(late_joiner);
 
         let requests = machine
@@ -1395,7 +1390,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let outbound =
             machine.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
@@ -1494,7 +1489,7 @@ mod tests {
         assert!(recipients[user_id].is_empty());
 
         let device_id = "AFGUOBTZWM".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
@@ -1539,7 +1534,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let users = keys_claim.one_time_keys.keys();
         let settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::OnlyTrustedDevices,
             ..Default::default()
@@ -1548,10 +1543,10 @@ mod tests {
         // Trust only one
         let user_id = user_id!("@example:localhost");
         let device_id = "MWFXPINOAO".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         machine
-            .get_device(user_id, "MWVTUXDNNM".into(), None)
+            .get_device(user_id, &"MWVTUXDNNM".into(), None)
             .await
             .unwrap()
             .unwrap()
@@ -1640,7 +1635,7 @@ mod tests {
 
         let response = ToDeviceResponse::new();
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         // The device should be marked as having the `m.no_olm` code received only after
         // the request has been marked as sent.
@@ -1650,7 +1645,7 @@ mod tests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         assert!(device.was_withheld_code_sent());
     }
@@ -1841,7 +1836,7 @@ mod tests {
         let content = RoomKeyBundleContent {
             room_id: owned_room_id!("!room:id"),
             file: (EncryptedFileInit {
-                url: OwnedMxcUri::from("test"),
+                url: MxcUri::from("test"),
                 key: JsonWebKey::from(JsonWebKeyInit {
                     kty: "oct".to_owned(),
                     key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],

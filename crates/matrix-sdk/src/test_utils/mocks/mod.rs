@@ -32,8 +32,8 @@ use matrix_sdk_test::{
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
-    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OneTimeKeyId, RoomId, ServerName,
+    UserId,
     api::client::{
         profile::{ProfileFieldName, ProfileFieldValue},
         receipt::create_receipt::v3::ReceiptType,
@@ -72,20 +72,17 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{Client, OwnedServerName, Room, SlidingSyncBuilder, room::IncludeRelations};
+use crate::{Client, Room, SlidingSyncBuilder, room::IncludeRelations};
 
 /// Structure used to store the crypto keys uploaded to the server.
 /// They will be served back to clients when requested.
 #[derive(Debug, Default)]
 struct Keys {
-    device: BTreeMap<OwnedUserId, BTreeMap<String, Raw<DeviceKeys>>>,
-    master: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    self_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    user_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    one_time_keys: BTreeMap<
-        OwnedUserId,
-        BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
-    >,
+    device: BTreeMap<UserId, BTreeMap<String, Raw<DeviceKeys>>>,
+    master: BTreeMap<UserId, Raw<CrossSigningKey>>,
+    self_signing: BTreeMap<UserId, Raw<CrossSigningKey>>,
+    user_signing: BTreeMap<UserId, Raw<CrossSigningKey>>,
+    one_time_keys: BTreeMap<UserId, BTreeMap<DeviceId, BTreeMap<OneTimeKeyId, Raw<OneTimeKey>>>>,
 }
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
@@ -164,7 +161,7 @@ pub struct MatrixMockServer {
 
     /// For crypto API end-points to work we need to be able to recognise
     /// what client is doing the request by mapping the token to the user_id
-    token_to_user_id_map: Arc<Mutex<BTreeMap<String, OwnedUserId>>>,
+    token_to_user_id_map: Arc<Mutex<BTreeMap<String, UserId>>>,
     token_counter: AtomicU32,
 }
 
@@ -2014,7 +2011,7 @@ impl<'a, T> MockEndpoint<'a, T> {
 
     /// Internal helper to return an `{ event_id }` JSON struct along with a 200
     /// ok response.
-    fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+    fn ok_with_event_id(self, event_id: EventId) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
     }
 
@@ -2311,7 +2308,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(self, returned_event_id: impl Into<EventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 
@@ -2370,8 +2367,8 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// ```
     pub fn ok_with_capture(
         self,
-        returned_event_id: impl Into<OwnedEventId>,
-        event_sender: impl Into<OwnedUserId>,
+        returned_event_id: impl Into<EventId>,
+        event_sender: impl Into<UserId>,
     ) -> (Receiver<Raw<AnySyncTimelineEvent>>, MatrixMock<'a>) {
         let event_id = returned_event_id.into();
         let event_sender = event_sender.into();
@@ -2703,7 +2700,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(self, returned_event_id: impl Into<EventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 }
@@ -2871,7 +2868,7 @@ pub struct SetEncryptionStateEndpoint;
 
 impl<'a> MockEndpoint<'a, SetEncryptionStateEndpoint> {
     /// Returns a mock for a successful setting of the encryption state event.
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(self, returned_event_id: impl Into<EventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 }
@@ -2882,20 +2879,20 @@ pub struct RoomRedactEndpoint;
 impl<'a> MockEndpoint<'a, RoomRedactEndpoint> {
     /// Returns a redact endpoint that emulates success, i.e. the redaction
     /// event has been sent with the given event id.
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(self, returned_event_id: impl Into<EventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 }
 
 /// A prebuilt mock for getting a single event in a room.
 pub struct RoomEventEndpoint {
-    room: Option<OwnedRoomId>,
+    room: Option<RoomId>,
     match_event_id: bool,
 }
 
 impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     /// Limits the scope of this mock to a specific room.
-    pub fn room(mut self, room: impl Into<OwnedRoomId>) -> Self {
+    pub fn room(mut self, room: impl Into<RoomId>) -> Self {
         self.endpoint.room = Some(room.into());
         self
     }
@@ -2986,13 +2983,13 @@ impl RoomContextResponseTemplate {
 
 /// A prebuilt mock for getting a single event with its context in a room.
 pub struct RoomEventContextEndpoint {
-    room: Option<OwnedRoomId>,
+    room: Option<RoomId>,
     match_event_id: bool,
 }
 
 impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
     /// Limits the scope of this mock to a specific room.
-    pub fn room(mut self, room: impl Into<OwnedRoomId>) -> Self {
+    pub fn room(mut self, room: impl Into<RoomId>) -> Self {
         self.endpoint.room = Some(room.into());
         self
     }
@@ -3264,12 +3261,12 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
     /// fail.
     pub fn ok_with_via_params(
         self,
-        server_map: BTreeMap<OwnedServerName, Vec<PublicRoomsChunk>>,
+        server_map: BTreeMap<ServerName, Vec<PublicRoomsChunk>>,
     ) -> MatrixMock<'a> {
         self.respond_with(move |req: &Request| {
             #[derive(Deserialize)]
             struct PartialRequest {
-                server: Option<OwnedServerName>,
+                server: Option<ServerName>,
             }
 
             let (_, server) = req
@@ -3505,7 +3502,7 @@ pub struct SetRoomPinnedEventsEndpoint;
 impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
     /// Returns a successful response with a given event id.
     /// id.
-    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+    pub fn ok(self, event_id: EventId) -> MatrixMock<'a> {
         self.ok_with_event_id(event_id)
     }
 
@@ -3747,7 +3744,7 @@ impl<'a> MockEndpoint<'a, RoomThreadsEndpoint> {
 /// requests.
 #[derive(Default)]
 pub struct RoomRelationsEndpoint {
-    event_id: Option<OwnedEventId>,
+    event_id: Option<EventId>,
     spec: Option<IncludeRelations>,
 }
 
@@ -3769,7 +3766,7 @@ impl<'a> MockEndpoint<'a, RoomRelationsEndpoint> {
     }
 
     /// Expects the request to match a specific event id.
-    pub fn match_target_event(mut self, event_id: OwnedEventId) -> Self {
+    pub fn match_target_event(mut self, event_id: EventId) -> Self {
         self.endpoint.event_id = Some(event_id);
         self
     }
@@ -4209,7 +4206,7 @@ pub struct LoginResponseTemplate200 {
 
     /// Required: ID of the logged-in device. Will be the same as the
     /// corresponding parameter in the request, if one was specified.
-    device_id: Option<OwnedDeviceId>,
+    device_id: Option<DeviceId>,
 
     /// The lifetime of the access token, in milliseconds. Once the access token
     /// has expired a new access token can be obtained by using the provided
@@ -4223,7 +4220,7 @@ pub struct LoginResponseTemplate200 {
     refresh_token: Option<String>,
 
     /// Required: The fully-qualified Matrix ID for the account.
-    user_id: Option<OwnedUserId>,
+    user_id: Option<UserId>,
 
     /// Optional client configuration provided by the server.
     well_known: Option<LoginResponseWellKnown>,
@@ -4231,7 +4228,7 @@ pub struct LoginResponseTemplate200 {
 
 impl LoginResponseTemplate200 {
     /// Constructor for empty response
-    pub fn new<T1: Into<OwnedDeviceId>, T2: Into<OwnedUserId>>(
+    pub fn new<T1: Into<DeviceId>, T2: Into<UserId>>(
         access_token: &str,
         device_id: T1,
         user_id: T2,
@@ -4412,7 +4409,7 @@ impl<'a> MockEndpoint<'a, AuthedMediaThumbnailEndpoint> {
 
 /// A prebuilt mock for `GET /client/v3/rooms/{room_id}/join` requests.
 pub struct JoinRoomEndpoint {
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
@@ -4429,20 +4426,20 @@ impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
 #[derive(Default)]
 struct ThreadSubscriptionMatchers {
     /// Optional room id to match in the query.
-    room_id: Option<OwnedRoomId>,
+    room_id: Option<RoomId>,
     /// Optional thread root event id to match in the query.
-    thread_root: Option<OwnedEventId>,
+    thread_root: Option<EventId>,
 }
 
 impl ThreadSubscriptionMatchers {
     /// Match the request parameter against a specific room id.
-    fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+    fn match_room_id(mut self, room_id: RoomId) -> Self {
         self.room_id = Some(room_id);
         self
     }
 
     /// Match the request parameter against a specific thread root event id.
-    fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+    fn match_thread_id(mut self, thread_root: EventId) -> Self {
         self.thread_root = Some(thread_root);
         self
     }
@@ -4452,8 +4449,8 @@ impl ThreadSubscriptionMatchers {
         if self.room_id.is_some() || self.thread_root.is_some() {
             format!(
                 "^/_matrix/client/unstable/io.element.msc4306/rooms/{}/thread/{}/subscription$",
-                self.room_id.as_deref().map(|s| s.as_str()).unwrap_or(".*"),
-                self.thread_root.as_deref().map(|s| s.as_str()).unwrap_or(".*").replace("$", "\\$")
+                self.room_id.as_ref().map(|s| s.as_str()).unwrap_or(".*"),
+                self.thread_root.as_ref().map(|s| s.as_str()).unwrap_or(".*").replace("$", "\\$")
             )
         } else {
             "^/_matrix/client/unstable/io.element.msc4306/rooms/.*/thread/.*/subscription$"
@@ -4479,12 +4476,12 @@ impl<'a> MockEndpoint<'a, RoomGetThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+    pub fn match_room_id(mut self, room_id: RoomId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
         self
     }
     /// Match the request parameter against a specific thread root event id.
-    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+    pub fn match_thread_id(mut self, thread_root: EventId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
     }
@@ -4517,12 +4514,12 @@ impl<'a> MockEndpoint<'a, RoomPutThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+    pub fn match_room_id(mut self, room_id: RoomId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
         self
     }
     /// Match the request parameter against a specific thread root event id.
-    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+    pub fn match_thread_id(mut self, thread_root: EventId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
     }
@@ -4551,12 +4548,12 @@ impl<'a> MockEndpoint<'a, RoomDeleteThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+    pub fn match_room_id(mut self, room_id: RoomId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
         self
     }
     /// Match the request parameter against a specific thread root event id.
-    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+    pub fn match_thread_id(mut self, thread_root: EventId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
     }
@@ -4632,9 +4629,9 @@ impl<'a> MockEndpoint<'a, FederationVersionEndpoint> {
 #[derive(Default)]
 pub struct GetThreadSubscriptionsEndpoint {
     /// New thread subscriptions per (room id, thread root event id).
-    subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+    subscribed: BTreeMap<RoomId, BTreeMap<EventId, ThreadSubscription>>,
     /// New thread unsubscriptions per (room id, thread root event id).
-    unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+    unsubscribed: BTreeMap<RoomId, BTreeMap<EventId, ThreadUnsubscription>>,
     /// Optional delay to respond to the query.
     delay: Option<Duration>,
 }
@@ -4643,8 +4640,8 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
     /// Add a single thread subscription to the response.
     pub fn add_subscription(
         mut self,
-        room_id: OwnedRoomId,
-        thread_root: OwnedEventId,
+        room_id: RoomId,
+        thread_root: EventId,
         subscription: ThreadSubscription,
     ) -> Self {
         self.endpoint.subscribed.entry(room_id).or_default().insert(thread_root, subscription);
@@ -4654,8 +4651,8 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
     /// Add a single thread unsubscription to the response.
     pub fn add_unsubscription(
         mut self,
-        room_id: OwnedRoomId,
-        thread_root: OwnedEventId,
+        room_id: RoomId,
+        thread_root: EventId,
         unsubscription: ThreadUnsubscription,
     ) -> Self {
         self.endpoint.unsubscribed.entry(room_id).or_default().insert(thread_root, unsubscription);
@@ -4774,7 +4771,7 @@ pub struct SetSpaceChildEndpoint;
 
 impl<'a> MockEndpoint<'a, SetSpaceChildEndpoint> {
     /// Returns a successful response with a given event id.
-    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+    pub fn ok(self, event_id: EventId) -> MatrixMock<'a> {
         self.ok_with_event_id(event_id)
     }
 
@@ -4791,7 +4788,7 @@ pub struct SetSpaceParentEndpoint;
 
 impl<'a> MockEndpoint<'a, SetSpaceParentEndpoint> {
     /// Returns a successful response with a given event id.
-    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+    pub fn ok(self, event_id: EventId) -> MatrixMock<'a> {
         self.ok_with_event_id(event_id)
     }
 

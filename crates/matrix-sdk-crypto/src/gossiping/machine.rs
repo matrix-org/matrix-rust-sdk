@@ -31,8 +31,7 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    DeviceId, OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::secret::request::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
@@ -72,10 +71,10 @@ pub(crate) struct GossipMachineInner {
     store: Store,
     #[cfg(feature = "automatic-room-key-forwarding")]
     outbound_group_sessions: GroupSessionCache,
-    outgoing_requests: StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>,
+    outgoing_requests: StdRwLock<BTreeMap<TransactionId, OutgoingRequest>>,
     incoming_key_requests: StdRwLock<BTreeMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
-    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
 
     /// Whether we should respond to incoming `m.room_key_request` messages.
     room_key_forwarding_enabled: AtomicBool,
@@ -91,7 +90,7 @@ impl GossipMachine {
         store: Store,
         identity_manager: IdentityManager,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
-        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<UserId, BTreeSet<DeviceId>>>>,
     ) -> Self {
         let room_key_forwarding_enabled =
             AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding"));

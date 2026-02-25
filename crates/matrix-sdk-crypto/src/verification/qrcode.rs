@@ -24,7 +24,7 @@ use matrix_sdk_qrcode::{
 };
 use rand::{RngCore, thread_rng};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, RoomId, TransactionId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
@@ -76,11 +76,11 @@ pub enum ScanError {
     /// One of the users that is participating in this verification doesn't have
     /// a valid cross signing identity.
     #[error("The user {0} is missing a valid cross signing identity")]
-    MissingCrossSigningIdentity(OwnedUserId),
+    MissingCrossSigningIdentity(UserId),
     /// The device of the user that is participating in this verification
     /// doesn't have a valid device key.
     #[error("The user's {0} device {1} is not E2E capable")]
-    MissingDeviceKeys(OwnedUserId, OwnedDeviceId),
+    MissingDeviceKeys(UserId, DeviceId),
     /// The ID uniquely identifying this verification flow didn't match to the
     /// one that has been scanned.
     #[error("The unique verification flow id did not match (expected {expected}, found {found})")]
@@ -566,8 +566,8 @@ impl QrVerification {
 
     pub(crate) async fn from_scan(
         store: VerificationStore,
-        other_user_id: OwnedUserId,
-        other_device_id: OwnedDeviceId,
+        other_user_id: UserId,
+        other_device_id: DeviceId,
         flow_id: FlowId,
         qr_code: QrVerificationData,
         we_started: bool,
@@ -752,7 +752,7 @@ struct Confirmed {}
 
 #[derive(Clone, Debug)]
 struct Reciprocated {
-    own_device_id: OwnedDeviceId,
+    own_device_id: DeviceId,
     secret: Base64,
 }
 

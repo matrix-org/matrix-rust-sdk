@@ -25,7 +25,7 @@ use matrix_sdk_search::{
     index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, RoomId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         room::{
@@ -57,7 +57,7 @@ pub enum SearchIndexStoreKind {
 #[derive(Clone, Debug)]
 pub struct SearchIndex {
     /// HashMap that links each joined room to its RoomIndex
-    room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>>,
+    room_indexes: Arc<Mutex<HashMap<RoomId, RoomIndex>>>,
 
     /// Base directory that stores the directories for each RoomIndex
     search_index_store_kind: SearchIndexStoreKind,
@@ -66,7 +66,7 @@ pub struct SearchIndex {
 impl SearchIndex {
     /// Create a new [`SearchIndex`]
     pub fn new(
-        room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>>,
+        room_indexes: Arc<Mutex<HashMap<RoomId, RoomIndex>>>,
         search_index_store_kind: SearchIndexStoreKind,
     ) -> Self {
         Self { room_indexes, search_index_store_kind }
@@ -85,7 +85,7 @@ impl SearchIndex {
 #[derive(Debug)]
 pub struct SearchIndexGuard<'a> {
     /// Guard around the [`RoomIndex`] map
-    index_map: MutexGuard<'a, HashMap<OwnedRoomId, RoomIndex>>,
+    index_map: MutexGuard<'a, HashMap<RoomId, RoomIndex>>,
 
     /// Base directory that stores the directories for each RoomIndex
     search_index_store_kind: &'a SearchIndexStoreKind,
@@ -157,7 +157,7 @@ impl SearchIndexGuard<'_> {
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
         room_id: &RoomId,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<EventId>, IndexError> {
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
             self.index_map.insert(room_id.to_owned(), index);

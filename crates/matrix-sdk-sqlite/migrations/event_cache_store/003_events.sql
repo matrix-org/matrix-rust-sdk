@@ -34,7 +34,7 @@ CREATE TABLE "events" (
     -- Which room does this event belong to? (hashed key shared with linked_chunks)
     "room_id" BLOB NOT NULL,
 
-    -- `OwnedEventId` for events, can be null if malformed.
+    -- `EventId` for events, can be null if malformed.
     "event_id" TEXT,
     -- JSON serialized `TimelineEvent` (encrypted value).
     "content" BLOB NOT NULL,

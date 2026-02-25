@@ -11,7 +11,7 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     room::power_levels::RoomPowerLevelChanges,
     ruma::{
-        EventId, OwnedEventId, OwnedRoomId,
+        EventId, RoomId,
         api::client::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
             uiaa::Password,
@@ -135,7 +135,7 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(Some(&info.sender), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
     let bob_room = bob
@@ -780,7 +780,7 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(Some(&info.sender), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
     let bob_room = bob
@@ -861,8 +861,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
     let (alice_a, alice_b, room_id, event_id): (
         SyncTokenAwareClient,
         SyncTokenAwareClient,
-        OwnedRoomId,
-        OwnedEventId,
+        RoomId,
+        EventId,
     ) = assert_can_perform_interactive_verification("alice", BackupDownloadStrategy::Manual, true)
         .instrument(alice_span)
         .await?;
@@ -966,7 +966,7 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
         .flatten()
         .expect("We should be notified about the received bundle");
 
-    assert_eq!(Some(info.sender.deref()), alice_b.user_id());
+    assert_eq!(Some(&info.sender), alice_b.user_id());
     assert_eq!(info.room_id, room_id);
 
     // We now check that Bob can access the event.

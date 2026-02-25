@@ -28,7 +28,7 @@ use matrix_sdk_common::{
         RawChunk, Update, relational::RelationalLinkedChunk,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, RoomId, events::relation::RelationType};
 use tracing::error;
 
 use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
@@ -51,7 +51,7 @@ pub struct MemoryStore {
 #[derive(Debug)]
 struct MemoryStoreInner {
     leases: HashMap<String, Lease>,
-    events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
+    events: RelationalLinkedChunk<EventId, Event, Gap>,
 }
 
 impl Default for MemoryStore {
@@ -155,8 +155,8 @@ impl EventCacheStore for MemoryStore {
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        mut events: Vec<OwnedEventId>,
-    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+        mut events: Vec<EventId>,
+    ) -> Result<Vec<(EventId, Position)>, Self::Error> {
         if events.is_empty() {
             return Ok(Vec::new());
         }
@@ -171,7 +171,7 @@ impl EventCacheStore for MemoryStore {
             if let Some(known_event_id) = event.event_id() {
                 // This event is a duplicate!
                 if let Some(index) =
-                    events.iter().position(|new_event_id| &known_event_id == new_event_id)
+                    events.iter().position(|new_event_id| known_event_id == new_event_id)
                 {
                     duplicated_events.push((events.remove(index), position));
                 }

@@ -1,6 +1,6 @@
 use std::collections::btree_map::Iter;
 
-use ruma::{OwnedDeviceKeyId, UserId, encryption::KeyUsage};
+use ruma::{DeviceKeyId, UserId, encryption::KeyUsage};
 use serde::{Deserialize, Serialize};
 use vodozemac::Ed25519PublicKey;
 
@@ -25,7 +25,7 @@ impl SelfSigningPubkey {
     }
 
     /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
+    pub fn keys(&self) -> &SigningKeys<DeviceKeyId> {
         &self.0.keys
     }
 
@@ -66,8 +66,8 @@ impl SelfSigningPubkey {
 }
 
 impl<'a> IntoIterator for &'a SelfSigningPubkey {
-    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
-    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
+    type Item = (&'a DeviceKeyId, &'a SigningKey);
+    type IntoIter = Iter<'a, DeviceKeyId, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()

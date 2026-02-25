@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use ruma::{OwnedTransactionId, TransactionId};
+use ruma::TransactionId;
 
 mod enums;
 mod keys_backup;
@@ -40,7 +40,7 @@ pub use verification::*;
 pub struct OutgoingRequest {
     /// The unique id of a request, needs to be passed when receiving a
     /// response.
-    pub(crate) request_id: OwnedTransactionId,
+    pub(crate) request_id: TransactionId,
     /// The underlying outgoing request.
     pub(crate) request: Arc<AnyOutgoingRequest>,
 }

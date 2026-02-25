@@ -23,7 +23,7 @@ use std::{
 };
 
 use ruma::{
-    DeviceKeyAlgorithm, OwnedRoomId, RoomId, events::room::history_visibility::HistoryVisibility,
+    DeviceKeyAlgorithm, RoomId, events::room::history_visibility::HistoryVisibility,
     serde::JsonObject,
 };
 use serde::{Deserialize, Serialize};
@@ -196,7 +196,7 @@ pub struct InboundGroupSession {
     pub forwarder_data: Option<ForwarderData>,
 
     /// The Room this GroupSession belongs to
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// A flag recording whether the `InboundGroupSession` was received directly
     /// as a `m.room_key` event or indirectly via a forward or file import.
@@ -637,7 +637,7 @@ impl InboundGroupSession {
 
         // Check that we have a room id and that the event wasn't forwarded from
         // another room.
-        if room_id.as_deref() != Some(self.room_id()) {
+        if room_id.as_ref() != Some(self.room_id()) {
             return Err(EventError::MismatchedRoom(self.room_id().to_owned(), room_id).into());
         }
 
@@ -714,7 +714,7 @@ pub struct PickledInboundGroupSession {
     #[serde(default)]
     pub forwarder_data: Option<ForwarderData>,
     /// The id of the room that the session is used in.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
     /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,

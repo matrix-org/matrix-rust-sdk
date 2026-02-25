@@ -1435,7 +1435,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Now let's find the event.
         let event = self
-            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .find_event(room_id, &event_comte.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
@@ -1444,7 +1444,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Now let's try to find an event that exists, but not in the expected room.
         assert!(
-            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            self.find_event(room_id, &event_gruyere.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -1453,7 +1453,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Clearing the rooms also clears the event's storage.
         self.clear_all_linked_chunks().await.expect("failed to clear all rooms chunks");
         assert!(
-            self.find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            self.find_event(room_id, &event_comte.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -1507,12 +1507,12 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert!(
             relations
                 .iter()
-                .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none())
+                .any(|(ev, pos)| ev.event_id().as_ref() == Some(edit_eid1) && pos.is_none())
         );
         assert!(
             relations
                 .iter()
-                .any(|(ev, pos)| ev.event_id().as_deref() == Some(reaction_eid1) && pos.is_none())
+                .any(|(ev, pos)| ev.event_id().as_ref() == Some(reaction_eid1) && pos.is_none())
         );
 
         // Finding relations with a filter only returns a subset.
@@ -1521,7 +1521,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 1);
-        assert_eq!(relations[0].0.event_id().as_deref(), Some(edit_eid1));
+        assert_eq!(relations[0].0.event_id().as_ref(), Some(edit_eid1));
 
         let relations = self
             .find_event_relations(
@@ -1532,8 +1532,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 2);
-        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(edit_eid1)));
-        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(reaction_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_ref() == Some(edit_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_ref() == Some(reaction_eid1)));
 
         // We can't find relations using the wrong room.
         let relations = self
@@ -1562,7 +1562,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // The position is set for `reaction_eid1` now.
         assert!(relations.iter().any(|(ev, pos)| {
-            ev.event_id().as_deref() == Some(reaction_eid1)
+            ev.event_id().as_ref() == Some(reaction_eid1)
                 && *pos == Some(Position::new(CId::new(0), 0))
         }));
 
@@ -1570,7 +1570,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert!(
             relations
                 .iter()
-                .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none())
+                .any(|(ev, pos)| ev.event_id().as_ref() == Some(edit_eid1) && pos.is_none())
         );
     }
 
@@ -1718,14 +1718,14 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Events can be found, when searched in their own rooms.
         let event = self
-            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .find_event(room_id, &event_comte.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
         assert_eq!(event.event_id(), event_comte.event_id());
 
         let event = self
-            .find_event(another_room_id, event_gruyere.event_id().unwrap().as_ref())
+            .find_event(another_room_id, &event_gruyere.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
@@ -1733,13 +1733,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // But they won't be returned when searching in the wrong room.
         assert!(
-            self.find_event(another_room_id, event_comte.event_id().unwrap().as_ref())
+            self.find_event(another_room_id, &event_comte.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
         );
         assert!(
-            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            self.find_event(room_id, &event_gruyere.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -1761,7 +1761,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add one event in a thread linked chunk.
         self.handle_linked_chunk_updates(
-            LinkedChunkId::Thread(room_id, thread_root1.event_id().unwrap().as_ref()),
+            LinkedChunkId::Thread(room_id, &thread_root1.event_id().unwrap()),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -1775,7 +1775,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add one event in another thread linked chunk (same room).
         self.handle_linked_chunk_updates(
-            LinkedChunkId::Thread(room_id, thread_root2.event_id().unwrap().as_ref()),
+            LinkedChunkId::Thread(room_id, &thread_root2.event_id().unwrap()),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -1802,22 +1802,22 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // All the events can be found with `find_event()` for the room.
-        self.find_event(room_id, thread2_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, &thread2_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread1_ev");
 
-        self.find_event(room_id, thread2_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, &thread2_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread2_ev");
 
-        self.find_event(room_id, thread2_ev2.event_id().unwrap().as_ref())
+        self.find_event(room_id, &thread2_ev2.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread2_ev2");
 
-        self.find_event(room_id, room_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, &room_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find room_ev");
@@ -1825,7 +1825,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Finding duplicates operates based on the linked chunk id.
         let dups = self
             .filter_duplicated_events(
-                LinkedChunkId::Thread(room_id, thread_root1.event_id().unwrap().as_ref()),
+                LinkedChunkId::Thread(room_id, &thread_root1.event_id().unwrap()),
                 vec![thread1_ev.event_id().unwrap(), room_ev.event_id().unwrap()],
             )
             .await
@@ -1835,10 +1835,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Loading all chunks operates based on the linked chunk id.
         let all_chunks = self
-            .load_all_chunks(LinkedChunkId::Thread(
-                room_id,
-                thread_root2.event_id().unwrap().as_ref(),
-            ))
+            .load_all_chunks(LinkedChunkId::Thread(room_id, &thread_root2.event_id().unwrap()))
             .await
             .unwrap();
         assert_eq!(all_chunks.len(), 1);
@@ -1853,7 +1850,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let metas = self
             .load_all_chunks_metadata(LinkedChunkId::Thread(
                 room_id,
-                thread_root2.event_id().unwrap().as_ref(),
+                &thread_root2.event_id().unwrap(),
             ))
             .await
             .unwrap();
@@ -1863,10 +1860,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Loading the last chunk operates based on the linked chunk id.
         let (last_chunk, _chunk_identifier_generator) = self
-            .load_last_chunk(LinkedChunkId::Thread(
-                room_id,
-                thread_root1.event_id().unwrap().as_ref(),
-            ))
+            .load_last_chunk(LinkedChunkId::Thread(room_id, &thread_root1.event_id().unwrap()))
             .await
             .unwrap();
         let last_chunk = last_chunk.unwrap();

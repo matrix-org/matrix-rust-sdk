@@ -18,7 +18,7 @@ use std::{
 };
 
 use ruma::{
-    OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    EventId, RoomId, UserId,
     events::room::member::{MembershipState, SyncRoomMemberEvent},
 };
 use tracing::{instrument, trace};
@@ -33,13 +33,13 @@ use crate::{
 #[derive(Debug, Clone)]
 struct DisplayNameUsers {
     display_name: DisplayName,
-    users: BTreeSet<OwnedUserId>,
+    users: BTreeSet<UserId>,
 }
 
 impl DisplayNameUsers {
     /// Remove the given [`UserId`] from the map, marking that the [`UserId`]
     /// doesn't use the display name anymore.
-    fn remove(&mut self, user_id: &UserId) -> Option<OwnedUserId> {
+    fn remove(&mut self, user_id: &UserId) -> Option<UserId> {
         self.users.remove(user_id);
 
         if self.user_count() == 1 { self.users.iter().next().cloned() } else { None }
@@ -47,7 +47,7 @@ impl DisplayNameUsers {
 
     /// Add the given [`UserId`] from the map, marking that the [`UserId`]
     /// is using the display name.
-    fn add(&mut self, user_id: OwnedUserId) -> Option<OwnedUserId> {
+    fn add(&mut self, user_id: UserId) -> Option<UserId> {
         let ambiguous_user =
             if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
 
@@ -75,14 +75,14 @@ fn is_member_active(membership: &MembershipState) -> bool {
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {
     pub store: Arc<DynStateStore>,
-    pub cache: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
-    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
+    pub cache: BTreeMap<RoomId, HashMap<DisplayName, BTreeSet<UserId>>>,
+    pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
 }
 
 #[instrument(ret(level = "trace"))]
 pub(crate) fn is_display_name_ambiguous(
     display_name: &DisplayName,
-    users_with_display_name: &BTreeSet<OwnedUserId>,
+    users_with_display_name: &BTreeSet<UserId>,
 ) -> bool {
     trace!("Checking if a display name is ambiguous");
     display_name.is_inherently_ambiguous() || users_with_display_name.len() > 1

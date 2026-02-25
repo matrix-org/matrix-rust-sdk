@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, btree_map},
 };
 
-use ruma::{OwnedRoomId, RoomId};
+use ruma::RoomId;
 
 use super::{
     EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, HandlerKind, StaticEventTypePart,
@@ -265,7 +265,7 @@ struct KindType<'a> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct KindRoomId {
     ev_kind: HandlerKind,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -275,7 +275,7 @@ struct KindTypeRoomIdWrap(KindTypeRoomId<'static>);
 struct KindTypeRoomId<'a> {
     ev_kind: HandlerKind,
     ev_type: &'a str,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 // These lifetime-generic impls are what makes it possible to obtain a

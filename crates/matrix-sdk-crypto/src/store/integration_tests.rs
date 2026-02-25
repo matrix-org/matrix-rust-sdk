@@ -789,13 +789,13 @@ macro_rules! cryptostore_integration_tests {
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
                 let alice_device_1 = DeviceData::from_account(&Account::with_device_id(
-                    "@alice:localhost".try_into().unwrap(),
-                    "FIRSTDEVICE".into(),
+                    &"@alice:localhost".try_into().unwrap(),
+                    &"FIRSTDEVICE".into(),
                 ));
 
                 let alice_device_2 = DeviceData::from_account(&Account::with_device_id(
-                    "@alice:localhost".try_into().unwrap(),
-                    "SECONDDEVICE".into(),
+                    &"@alice:localhost".try_into().unwrap(),
+                    &"SECONDDEVICE".into(),
                 ));
 
                 let json = json!({
@@ -895,11 +895,11 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "user_saving";
 
                 let user_id = user_id!("@example:localhost");
-                let device_id: &DeviceId = "WSKKLTJZCL".into();
+                let device_id: DeviceId = "WSKKLTJZCL".into();
 
                 let store = get_store(dir, None, true).await;
 
-                let account = Account::with_device_id(&user_id, device_id);
+                let account = Account::with_device_id(&user_id, &device_id);
 
                 store.save_pending_changes(PendingChanges { account: Some(account), })
                     .await
@@ -1364,7 +1364,7 @@ macro_rules! cryptostore_integration_tests {
                     }.into();
 
                     let file = ruma::events::room::EncryptedFileInit {
-                        url: ruma::OwnedMxcUri::from(bundle_uri),
+                        url: ruma::MxcUri::from(bundle_uri),
                         key: jwk,
                         iv: ruma::serde::Base64::new(vec![0u8; 0]),
                         hashes: Default::default(),

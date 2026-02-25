@@ -218,7 +218,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
-        assert_eq!(alice_room.avatar_url().as_deref(), Some(group_avatar_uri));
+        assert_eq!(alice_room.avatar_url().as_ref(), Some(group_avatar_uri));
 
         // Force a new server response.
         alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
@@ -1002,7 +1002,7 @@ async fn test_room_preview() -> Result<()> {
         // Dummy test for `Client::get_room_preview` which may call one or the other
         // methods.
         info!("Alice gets a preview of the public room using any method");
-        let preview = alice.get_room_preview(room_id.into(), Vec::new()).await?;
+        let preview = alice.get_room_preview(&room_id.into(), Vec::new()).await?;
         assert_room_preview(&preview, &room_alias);
         assert_eq!(preview.state, Some(RoomState::Joined));
         assert!(preview.heroes.is_some());
@@ -1041,7 +1041,7 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only() {
 
     // The room preview is found
     let preview = client
-        .get_room_preview(room_alias.into(), Vec::new())
+        .get_room_preview(&room_alias.into(), Vec::new())
         .await
         .expect("room preview couldn't be retrieved");
     assert_eq!(preview.room_id, expected_room_id);
@@ -1106,7 +1106,7 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_sev
 
     // The room preview is found in the first response
     let preview = client
-        .get_room_preview(room_alias.into(), vec![via_1, via_2])
+        .get_room_preview(&room_alias.into(), vec![via_1, via_2])
         .await
         .expect("room preview couldn't be retrieved");
     assert_eq!(preview.room_id, expected_room_id);
@@ -1163,7 +1163,7 @@ async fn get_room_preview_with_room_summary(
     // Alice has joined the room, so they get the full details.
     info!("Alice gets a preview of the public room from msc3266 using the room id");
     let preview =
-        RoomPreview::from_room_summary(alice, room_id.to_owned(), room_id.into(), Vec::new())
+        RoomPreview::from_room_summary(alice, room_id.to_owned(), &room_id.into(), Vec::new())
             .await
             .unwrap();
 
@@ -1177,7 +1177,7 @@ async fn get_room_preview_with_room_summary(
     let preview = RoomPreview::from_room_summary(
         alice,
         room_id.to_owned(),
-        <_>::try_from(full_alias.as_str()).unwrap(),
+        &<_>::try_from(full_alias).unwrap(),
         Vec::new(),
     )
     .await
@@ -1191,7 +1191,7 @@ async fn get_room_preview_with_room_summary(
     // room too.
     info!("Bob gets a preview of the public room from msc3266 using the room id");
     let preview =
-        RoomPreview::from_room_summary(bob, room_id.to_owned(), room_id.into(), Vec::new())
+        RoomPreview::from_room_summary(bob, room_id.to_owned(), &room_id.into(), Vec::new())
             .await
             .unwrap();
     assert_room_preview(&preview, room_alias);
@@ -1204,7 +1204,7 @@ async fn get_room_preview_with_room_summary(
     let preview = RoomPreview::from_room_summary(
         bob,
         public_no_history_room_id.to_owned(),
-        public_no_history_room_id.into(),
+        &public_no_history_room_id.into(),
         Vec::new(),
     )
     .await

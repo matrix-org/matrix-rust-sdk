@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::ExportedSessionKey};
@@ -89,7 +89,7 @@ impl EventType for ForwardedRoomKeyContent {
 #[derive(Deserialize, Serialize)]
 pub struct ForwardedMegolmV1AesSha2Content {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The ID of the session that the key is for.
     pub session_id: String,
@@ -141,7 +141,7 @@ pub struct ForwardedMegolmV1AesSha2Content {
 #[derive(Deserialize, Serialize)]
 pub struct ForwardedMegolmV2AesSha2Content {
     /// The room where the key is used.
-    pub room_id: OwnedRoomId,
+    pub room_id: RoomId,
 
     /// The ID of the session that the key is for.
     pub session_id: String,

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
 use ruma::{
-    OwnedUserId, UserId,
+    UserId,
     events::{
         ToDeviceEventContent, ToDeviceEventType,
         key::verification::{
@@ -242,7 +242,7 @@ impl JsonCastable<ruma::events::AnyToDeviceEvent> for ToDeviceEvents {}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceCustomEvent {
     /// The sender of the to-device event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The content of the to-device event.
     pub content: BTreeMap<String, Value>,
     /// The type of the to-device event.
@@ -260,7 +260,7 @@ where
     C: EventType + Debug + Sized + Serialize,
 {
     /// The sender of the to-device event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The content of the to-device event.
     pub content: C,
     /// Any other unknown data of the to-device event.
@@ -269,7 +269,7 @@ where
 
 impl<C: EventType + Debug + Sized + Serialize> ToDeviceEvent<C> {
     /// Create a new `ToDeviceEvent`.
-    pub fn new(sender: OwnedUserId, content: C) -> ToDeviceEvent<C> {
+    pub fn new(sender: UserId, content: C) -> ToDeviceEvent<C> {
         ToDeviceEvent { sender, content, other: Default::default() }
     }
 }
@@ -311,7 +311,7 @@ where
     {
         #[derive(Deserialize)]
         struct Helper<C> {
-            sender: OwnedUserId,
+            sender: UserId,
             content: C,
             // We're deserializing the `type` field here so it doesn't end up in `other`.
             #[allow(dead_code)]

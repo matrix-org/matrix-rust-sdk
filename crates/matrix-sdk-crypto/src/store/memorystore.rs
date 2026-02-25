@@ -26,10 +26,7 @@ use matrix_sdk_common::{
     },
     locks::RwLock as StdRwLock,
 };
-use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId, events::secret::request::SecretName,
-};
+use ruma::{DeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName};
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 use vodozemac::Curve25519PublicKey;
@@ -85,33 +82,32 @@ pub struct MemoryStore {
     account: StdRwLock<Option<String>>,
     // Map of sender_key to map of session_id to serialized pickle
     sessions: StdRwLock<BTreeMap<String, BTreeMap<String, String>>>,
-    inbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, HashMap<String, String>>>,
+    inbound_group_sessions: StdRwLock<BTreeMap<RoomId, HashMap<String, String>>>,
 
     /// Map room id -> session id -> backup order number
     /// The latest backup in which this session is stored. Equivalent to
     /// `backed_up_to` in [`IndexedDbCryptoStore`]
     inbound_group_sessions_backed_up_to:
-        StdRwLock<HashMap<OwnedRoomId, HashMap<SessionId, BackupVersion>>>,
+        StdRwLock<HashMap<RoomId, HashMap<SessionId, BackupVersion>>>,
 
-    outbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, OutboundGroupSession>>,
+    outbound_group_sessions: StdRwLock<BTreeMap<RoomId, OutboundGroupSession>>,
     private_identity: StdRwLock<Option<PrivateCrossSigningIdentity>>,
-    tracked_users: StdRwLock<HashMap<OwnedUserId, TrackedUser>>,
+    tracked_users: StdRwLock<HashMap<UserId, TrackedUser>>,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
-    identities: StdRwLock<HashMap<OwnedUserId, String>>,
-    outgoing_key_requests: StdRwLock<HashMap<OwnedTransactionId, GossipRequest>>,
-    key_requests_by_info: StdRwLock<HashMap<String, OwnedTransactionId>>,
-    direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEntry>>>,
+    identities: StdRwLock<HashMap<UserId, String>>,
+    outgoing_key_requests: StdRwLock<HashMap<TransactionId, GossipRequest>>,
+    key_requests_by_info: StdRwLock<HashMap<String, TransactionId>>,
+    direct_withheld_info: StdRwLock<HashMap<RoomId, HashMap<String, RoomKeyWithheldEntry>>>,
     custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
     leases: StdRwLock<HashMap<String, Lease>>,
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
-    room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
-    room_key_bundles:
-        StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
-    room_key_backups_fully_downloaded: StdRwLock<HashSet<OwnedRoomId>>,
+    room_settings: StdRwLock<HashMap<RoomId, RoomSettings>>,
+    room_key_bundles: StdRwLock<HashMap<RoomId, HashMap<UserId, StoredRoomKeyBundleData>>>,
+    room_key_backups_fully_downloaded: StdRwLock<HashSet<RoomId>>,
 
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -642,7 +638,7 @@ impl CryptoStore for MemoryStore {
 
     async fn save_tracked_users(&self, tracked_users: &[(&UserId, bool)]) -> Result<()> {
         self.tracked_users.write().extend(tracked_users.iter().map(|(user_id, dirty)| {
-            let user_id: OwnedUserId = user_id.to_owned().into();
+            let user_id: UserId = user_id.to_owned().into();
             (user_id.clone(), TrackedUser { user_id, dirty: *dirty })
         }));
         Ok(())
@@ -656,10 +652,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceId, DeviceData>> {
         Ok(self.devices.user_devices(user_id))
     }
 
@@ -1114,7 +1107,7 @@ mod tests {
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
 
-        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
         assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
@@ -1295,9 +1288,7 @@ mod integration_tests {
 
     use async_trait::async_trait;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockGeneration;
-    use ruma::{
-        DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
-    };
+    use ruma::{DeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName};
     use vodozemac::Curve25519PublicKey;
 
     use super::MemoryStore;
@@ -1519,7 +1510,7 @@ mod integration_tests {
         async fn get_user_devices(
             &self,
             user_id: &UserId,
-        ) -> Result<HashMap<OwnedDeviceId, DeviceData>, Self::Error> {
+        ) -> Result<HashMap<DeviceId, DeviceData>, Self::Error> {
             self.0.get_user_devices(user_id).await
         }
 

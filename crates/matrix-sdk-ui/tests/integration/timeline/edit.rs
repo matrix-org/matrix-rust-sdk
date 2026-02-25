@@ -33,7 +33,7 @@ use matrix_sdk_ui::{
     },
 };
 use ruma::{
-    OwnedRoomId, event_id,
+    RoomId, event_id,
     events::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         poll::unstable_start::{
@@ -743,7 +743,7 @@ struct PendingEditHelper {
     client: Client,
     server: MatrixMockServer,
     timeline: Timeline,
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 impl PendingEditHelper {

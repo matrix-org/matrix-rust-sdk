@@ -37,8 +37,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UInt, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UInt, UserId,
     events::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
@@ -168,7 +167,7 @@ impl TestTimeline {
             .await;
     }
 
-    async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
+    async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> TransactionId {
         let txn_id = TransactionId::new();
         self.controller.handle_local_event(txn_id.clone(), content, None).await;
         txn_id
@@ -186,7 +185,7 @@ impl TestTimeline {
 
     async fn handle_read_receipts(
         &self,
-        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+        receipts: impl IntoIterator<Item = (EventId, ReceiptType, UserId, ReceiptThread)>,
     ) {
         let mut read_receipt = self.factory.read_receipts();
         for (event_id, tyype, user_id, thread) in receipts {
@@ -231,12 +230,12 @@ impl TestTimeline {
 }
 
 type ReadReceiptMap =
-    HashMap<ReceiptType, HashMap<ReceiptThread, HashMap<OwnedUserId, (OwnedEventId, Receipt)>>>;
+    HashMap<ReceiptType, HashMap<ReceiptThread, HashMap<UserId, (EventId, Receipt)>>>;
 
 #[derive(Clone, Debug, Default)]
 struct TestRoomDataProvider {
     /// The ID of our own user.
-    own_user_id: Option<OwnedUserId>,
+    own_user_id: Option<UserId>,
 
     /// The initial list of user receipts for that room.
     ///
@@ -246,13 +245,13 @@ struct TestRoomDataProvider {
     /// Event id of the event pointed to by the fully read marker.
     ///
     /// Configurable at construction, static for the lifetime of the provider.
-    fully_read_marker: Option<OwnedEventId>,
+    fully_read_marker: Option<EventId>,
 
     /// Events sent with that room data provider.
     pub sent_events: Arc<RwLock<Vec<AnyMessageLikeEventContent>>>,
 
     /// Events redacted with that room data providier.
-    pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
+    pub redacted: Arc<RwLock<Vec<EventId>>>,
 }
 
 impl TestRoomDataProvider {
@@ -261,7 +260,7 @@ impl TestRoomDataProvider {
         self
     }
 
-    fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
+    fn with_fully_read_marker(mut self, event_id: EventId) -> Self {
         self.fully_read_marker = Some(event_id);
         self
     }
@@ -285,23 +284,20 @@ impl PaginableRoom for TestRoomDataProvider {
 impl PaginableThread for TestRoomDataProvider {
     async fn relations(
         &self,
-        _thread_root: OwnedEventId,
+        _thread_root: EventId,
         _opts: matrix_sdk::room::RelationsOptions,
     ) -> Result<Relations, matrix_sdk::Error> {
         unimplemented!();
     }
 
-    async fn load_event(
-        &self,
-        _event_id: &OwnedEventId,
-    ) -> Result<TimelineEvent, matrix_sdk::Error> {
+    async fn load_event(&self, _event_id: &EventId) -> Result<TimelineEvent, matrix_sdk::Error> {
         unimplemented!();
     }
 }
 
 impl RoomDataProvider for TestRoomDataProvider {
     fn own_user_id(&self) -> &UserId {
-        self.own_user_id.as_deref().unwrap_or(&ALICE)
+        self.own_user_id.as_ref().unwrap_or(&ALICE)
     }
 
     fn room_version_rules(&self) -> RoomVersionRules {
@@ -329,7 +325,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &'a UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
+    ) -> Option<(EventId, Receipt)> {
         self.initial_user_receipts
             .get(&receipt_type)
             .and_then(|thread_map| thread_map.get(&thread))
@@ -341,7 +337,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         &'a self,
         event_id: &'a EventId,
         _receipt_thread: ReceiptThread,
-    ) -> IndexMap<OwnedUserId, Receipt> {
+    ) -> IndexMap<UserId, Receipt> {
         let mut map = IndexMap::new();
 
         for (user_id, (receipt_event_id, receipt)) in
@@ -355,7 +351,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         map
     }
 
-    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
+    async fn load_fully_read_marker(&self) -> Option<EventId> {
         self.fully_read_marker.clone()
     }
 
@@ -368,7 +364,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         &'a self,
         event_id: &'a EventId,
         _reason: Option<&'a str>,
-        _transaction_id: Option<OwnedTransactionId>,
+        _transaction_id: Option<TransactionId>,
     ) -> Result<(), super::Error> {
         self.redacted.write().await.push(event_id.to_owned());
         Ok(())

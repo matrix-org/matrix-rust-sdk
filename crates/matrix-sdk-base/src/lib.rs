@@ -19,7 +19,7 @@
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
-use ruma::{OwnedDeviceId, OwnedUserId};
+use ruma::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
 pub use crate::error::{Error, Result};
@@ -76,7 +76,7 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct SessionMeta {
     /// The ID of the session's user.
-    pub user_id: OwnedUserId,
+    pub user_id: UserId,
     /// The ID of the client device.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
 }

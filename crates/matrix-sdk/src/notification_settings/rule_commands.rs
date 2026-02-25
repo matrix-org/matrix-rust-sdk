@@ -224,7 +224,7 @@ mod tests {
         },
     };
     use ruma::{
-        OwnedRoomId, RoomId,
+        RoomId,
         push::{
             Action, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RemovePushRuleError, RuleKind,
@@ -235,7 +235,7 @@ mod tests {
     use super::RuleCommands;
     use crate::{error::NotificationSettingsError, notification_settings::command::Command};
 
-    fn get_test_room_id() -> OwnedRoomId {
+    fn get_test_room_id() -> RoomId {
         RoomId::parse("!AAAaAAAAAaaAAaaaaa:matrix.org").unwrap()
     }
 

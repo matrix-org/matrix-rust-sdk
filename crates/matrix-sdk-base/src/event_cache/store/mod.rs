@@ -32,7 +32,7 @@ use matrix_sdk_common::cross_process_lock::{
     CrossProcessLockGuard, MappedCrossProcessLockState, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
-use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
+use ruma::{EventId, events::AnySyncTimelineEvent, serde::Raw};
 use tracing::trace;
 
 #[cfg(any(test, feature = "testing"))]
@@ -224,10 +224,10 @@ impl TryLock for LockableEventCacheStore {
 /// If the event isn't in relation to another event, then this will return
 /// `None`. Otherwise, returns both the event id this event relates to, and the
 /// kind of relation as a string (e.g. `m.replace`).
-pub fn extract_event_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(OwnedEventId, String)> {
+pub fn extract_event_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(EventId, String)> {
     #[derive(serde::Deserialize)]
     struct RelatesTo {
-        event_id: OwnedEventId,
+        event_id: EventId,
         rel_type: String,
     }
 

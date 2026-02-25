@@ -123,7 +123,7 @@ mod tests {
     use matrix_sdk::deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState};
     use matrix_sdk_base::crypto::types::events::UtdCause;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        MilliSecondsSinceUnixEpoch, TransactionId,
         events::room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit,
@@ -227,7 +227,7 @@ mod tests {
     fn local_event() -> Arc<TimelineItem> {
         let event_kind = EventTimelineItemKind::Local(LocalEventTimelineItem {
             send_state: EventSendState::NotSentYet { progress: None },
-            transaction_id: OwnedTransactionId::from("trans"),
+            transaction_id: TransactionId::from("trans"),
             send_handle: None,
         });
 

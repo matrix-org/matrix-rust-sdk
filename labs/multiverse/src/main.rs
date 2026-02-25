@@ -27,9 +27,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{
-        OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
-    },
+    ruma::{EventId, RoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
     search_index::{SearchIndexGuard, SearchIndexStoreKind},
 };
 use matrix_sdk_base::{RoomStateFilter, event_cache::store::EventCacheStoreLockGuard};
@@ -73,7 +71,7 @@ const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
-type Timelines = Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>;
+type Timelines = Arc<Mutex<HashMap<RoomId, Timeline>>>;
 
 #[derive(Debug, Parser)]
 struct Cli {
@@ -961,7 +959,7 @@ async fn login_with_password(client: &Client) -> Result<()> {
 async fn get_events_from_event_ids(
     client: &Client,
     room: &Room,
-    event_ids: Vec<OwnedEventId>,
+    event_ids: Vec<EventId>,
 ) -> Vec<TimelineEvent> {
     if let Ok(cache_lock) = client.event_cache_store().lock().await {
         let cache_lock =

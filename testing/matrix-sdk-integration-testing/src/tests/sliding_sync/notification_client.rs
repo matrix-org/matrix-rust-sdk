@@ -10,7 +10,7 @@ use matrix_sdk::{
     RoomState,
     config::SyncSettings,
     ruma::{
-        OwnedEventId,
+        EventId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign,
         events::{
@@ -81,7 +81,7 @@ async fn test_notification() -> Result<()> {
             return None;
         }
 
-        let Ok(Some(event_id)) = event.get_field::<OwnedEventId>("event_id") else {
+        let Ok(Some(event_id)) = event.get_field::<EventId>("event_id") else {
             return None;
         };
 

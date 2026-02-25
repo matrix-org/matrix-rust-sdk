@@ -47,7 +47,7 @@ async fn test_room_preview_leave_invited() {
     .await;
     mock_leave(room_id, &server).await;
 
-    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    let room_preview = client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Invited);
 
     client.get_room(room_id).unwrap().leave().await.unwrap();
@@ -65,7 +65,7 @@ async fn test_room_preview_invite_leave_room_summary_msc3266_disabled() {
 
     // A preview should be built from the sync data above
     let preview = client
-        .get_room_preview(room_id.into(), Vec::new())
+        .get_room_preview(&room_id.into(), Vec::new())
         .await
         .expect("Room preview should be retrieved");
 
@@ -78,7 +78,7 @@ async fn test_room_preview_invite_leave_room_summary_msc3266_disabled() {
 
     assert_matches!(client.get_room(room_id).unwrap().state(), RoomState::Left);
     assert_matches!(
-        client.get_room_preview(room_id.into(), Vec::new()).await.unwrap().state.unwrap(),
+        client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap().state.unwrap(),
         RoomState::Left
     );
 }
@@ -99,7 +99,7 @@ async fn test_room_preview_leave_knocked() {
         .await;
     mock_leave(room_id, &server).await;
 
-    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    let room_preview = client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Knocked);
 
     let room = client.get_room(room_id).unwrap();
@@ -122,7 +122,7 @@ async fn test_room_preview_leave_joined() {
 
     mock_leave(room_id, &server).await;
 
-    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    let room_preview = client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Joined);
 
     let room = client.get_room(room_id).unwrap();
@@ -138,7 +138,7 @@ async fn test_room_preview_leave_unknown_room_fails() {
 
     mock_unknown_summary(room_id, None, JoinRuleKind::Knock, None, &server).await;
 
-    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    let room_preview = client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap();
     assert!(room_preview.state.is_none());
 
     assert!(client.get_room(room_id).is_none());
@@ -168,7 +168,7 @@ async fn test_room_preview_computes_name_if_room_is_known() {
         .expect("Failed to process sync");
 
     // When we get its preview
-    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    let room_preview = client.get_room_preview(&room_id.into(), Vec::new()).await.unwrap();
 
     // Its name is computed from its heroes
     assert_eq!(room_preview.name.unwrap(), "Alice");

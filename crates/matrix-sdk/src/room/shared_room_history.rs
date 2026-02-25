@@ -18,7 +18,7 @@ use matrix_sdk_base::{
     crypto::{store::types::Changes, types::events::room_key_bundle::RoomKeyBundleContent},
     media::{MediaFormat, MediaRequestParameters},
 };
-use ruma::{OwnedUserId, UserId, events::room::MediaSource};
+use ruma::{UserId, events::room::MediaSource};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{Error, Result, Room};
@@ -28,7 +28,7 @@ use crate::{Error, Result, Room};
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id()))]
-pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
+pub(super) async fn share_room_history(room: &Room, user_id: UserId) -> Result<()> {
     let client = &room.client;
 
     // 0. We can only share room history if our user has set up cross signing
@@ -80,14 +80,14 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
     );
 
     // 4. Ensure that we get a fresh list of devices for the invited user.
-    let (req_id, request) = olm_machine.query_keys_for_users(iter::once(user_id.as_ref()));
+    let (req_id, request) = olm_machine.query_keys_for_users(iter::once(&user_id));
 
     if !request.device_keys.is_empty() {
         room.client.keys_query(&req_id, request.device_keys).await?;
     }
 
     // 5. Establish Olm sessions with all of the recipient's devices.
-    client.claim_one_time_keys(iter::once(user_id.as_ref())).await?;
+    client.claim_one_time_keys(iter::once(&user_id)).await?;
 
     // 6. Send to-device messages to the recipient to share the keys.
     let content = RoomKeyBundleContent { room_id: room.room_id().to_owned(), file: upload };
@@ -152,8 +152,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
     // XXX: is this necessary, given (with exclude-insecure-devices), we should have
     // checked that the inviter device was cross-signed when we received the
     // to-device message?
-    let (req_id, request) =
-        olm_machine.query_keys_for_users(iter::once(bundle_info.sender_user.as_ref()));
+    let (req_id, request) = olm_machine.query_keys_for_users(iter::once(&bundle_info.sender_user));
 
     if !request.device_keys.is_empty() {
         room.client.keys_query(&req_id, request.device_keys).await?;

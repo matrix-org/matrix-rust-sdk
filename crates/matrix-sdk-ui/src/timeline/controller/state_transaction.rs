@@ -21,7 +21,7 @@ use matrix_sdk::deserialized_responses::{
     UnsignedEventLocation,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnySyncTimelineEvent,
         receipt::{ReceiptThread, ReceiptType},
@@ -100,7 +100,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let mut date_divider_adjuster =
             DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
-        let mut cached_profiles: HashMap<OwnedUserId, Option<Profile>> = HashMap::new();
+        let mut cached_profiles: HashMap<UserId, Option<Profile>> = HashMap::new();
 
         for diff in diffs {
             match diff {
@@ -556,12 +556,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         deserialization_error: serde_json::Error,
         settings: &TimelineSettings,
     ) -> Option<(
-        OwnedEventId,
-        OwnedUserId,
+        EventId,
+        UserId,
         MilliSecondsSinceUnixEpoch,
-        Option<OwnedTransactionId>,
+        Option<TransactionId>,
         Option<TimelineAction>,
-        Option<OwnedEventId>,
+        Option<EventId>,
         bool,
         bool,
     )> {
@@ -582,7 +582,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             raw.get_field("type").ok().flatten().map(FailedToParseEvent::MsgLike)
         };
 
-        let event_id: Option<OwnedEventId> = raw.get_field("event_id").ok().flatten();
+        let event_id: Option<EventId> = raw.get_field("event_id").ok().flatten();
         let Some(event_id) = event_id else {
             // If the event doesn't even have an event ID, we can't do anything with it.
             warn!(
@@ -592,7 +592,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             return None;
         };
 
-        let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
+        let sender: Option<UserId> = raw.get_field("sender").ok().flatten();
         let origin_server_ts: Option<MilliSecondsSinceUnixEpoch> =
             raw.get_field("origin_server_ts").ok().flatten();
 
@@ -604,10 +604,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 // been requested to show it, let's do it.
                 #[derive(serde::Deserialize)]
                 struct Unsigned {
-                    transaction_id: Option<OwnedTransactionId>,
+                    transaction_id: Option<TransactionId>,
                 }
 
-                let transaction_id: Option<OwnedTransactionId> = raw
+                let transaction_id: Option<TransactionId> = raw
                     .get_field::<Unsigned>("unsigned")
                     .ok()
                     .flatten()
@@ -640,7 +640,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 // See [`ObservableItems::all_remote_events`].
                 self.add_or_update_remote_event(
                     EventMeta::new(event_id, false, false, None),
-                    sender.as_deref(),
+                    sender.as_ref(),
                     origin_server_ts,
                     position,
                     room_data_provider,
@@ -685,7 +685,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         summary: &SdkThreadSummary,
         room_data_provider: &P,
         settings: &TimelineSettings,
-    ) -> (Option<OwnedEventId>, Option<OwnedEventId>) {
+    ) -> (Option<EventId>, Option<EventId>) {
         if !settings.track_read_receipts.is_enabled() {
             return (None, None);
         }
@@ -706,7 +706,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 })
             {
                 // Parse the sender.
-                if let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender")
+                if let Ok(Some(sender)) = event.raw().get_field::<UserId>("sender")
                     && sender == self.meta.own_user_id
                 {
                     let latest = Some(latest_reply.clone());
@@ -755,7 +755,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
-        profiles: &mut HashMap<OwnedUserId, Option<Profile>>,
+        profiles: &mut HashMap<UserId, Option<Profile>>,
     ) -> RemovedItem {
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
@@ -818,7 +818,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     room_data_provider,
                     settings,
                     &event,
-                    thread_root.as_deref(),
+                    thread_root.as_ref(),
                     position,
                 );
 
@@ -1005,7 +1005,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
+    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: EventId) {
         // A similar event has been handled already. We can ignore it.
         if self.meta.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
@@ -1131,12 +1131,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 /// # Returns
 ///
 /// A tuple containing:
-/// - `Option<OwnedUserId>`: The user ID of the forwarder, if available.
+/// - `Option<UserId>`: The user ID of the forwarder, if available.
 /// - `Option<Profile>`: The profile of the forwarder, if available.
 async fn get_forwarder_info<P: RoomDataProvider>(
     event: &TimelineEvent,
     room_data_provider: &P,
-) -> (Option<OwnedUserId>, Option<Profile>) {
+) -> (Option<UserId>, Option<Profile>) {
     let forwarder = event
         .kind
         .encryption_info()

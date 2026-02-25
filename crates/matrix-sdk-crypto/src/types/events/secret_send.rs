@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedTransactionId, events::secret::request::SecretName};
+use ruma::{TransactionId, events::secret::request::SecretName};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::Zeroize;
@@ -34,7 +34,7 @@ pub type SecretSendEvent = ToDeviceEvent<SecretSendContent>;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretSendContent {
     /// The ID of the request that this a response to.
-    pub request_id: OwnedTransactionId,
+    pub request_id: TransactionId,
     /// The contents of the secret.
     pub secret: String,
     /// The name of the secret, typically not part of the event but can be
@@ -49,7 +49,7 @@ pub struct SecretSendContent {
 
 impl SecretSendContent {
     /// Create a new `m.secret.send` content.
-    pub fn new(request_id: OwnedTransactionId, secret: String) -> Self {
+    pub fn new(request_id: TransactionId, secret: String) -> Self {
         Self { request_id, secret, secret_name: None, other: Default::default() }
     }
 }

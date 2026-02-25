@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     ruma::{
-        OwnedUserId,
+        UserId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             room::message::{MessageType, SyncRoomMessageEvent},
@@ -30,7 +30,7 @@ const MESSAGE_PADDING_BOTTOM: u16 = 0;
 #[derive(Default)]
 pub struct SearchingView {
     input: PopupInput,
-    results: Option<Vec<(OwnedUserId, String, String)>>,
+    results: Option<Vec<(UserId, String, String)>>,
     pub(crate) list_state: ListState,
 }
 
@@ -52,7 +52,7 @@ impl SearchingView {
     }
 
     pub fn results(&mut self, values: Vec<TimelineEvent>) {
-        let values: Vec<(OwnedUserId, String, String)> =
+        let values: Vec<(UserId, String, String)> =
             values.iter().filter_map(get_message_from_timeline_event).collect();
 
         self.results = Some(values);
@@ -135,7 +135,7 @@ impl Widget for &mut SearchingView {
     }
 }
 
-fn get_message_from_timeline_event(ev: &TimelineEvent) -> Option<(OwnedUserId, String, String)> {
+fn get_message_from_timeline_event(ev: &TimelineEvent) -> Option<(UserId, String, String)> {
     if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
         SyncRoomMessageEvent::Original(ev),
     ))) = ev.raw().deserialize()

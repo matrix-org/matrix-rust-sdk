@@ -17,7 +17,7 @@ use std::sync::Arc;
 use as_variant::as_variant;
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
+    DeviceId, EventId, MxcUri, UserId,
     events::{
         AnyFullStateEventContent, FullStateEventContent, Mentions, MessageLikeEventType,
         StateEventType,
@@ -195,7 +195,7 @@ impl TimelineItemContent {
         msgtype: MessageType,
         mentions: Option<Mentions>,
         reactions: ReactionsByKeyBySender,
-        thread_root: Option<OwnedEventId>,
+        thread_root: Option<EventId>,
         in_reply_to: Option<InReplyToDetails>,
         thread_summary: Option<ThreadSummary>,
     ) -> Self {
@@ -231,9 +231,9 @@ impl TimelineItemContent {
     }
 
     pub(crate) fn room_member(
-        user_id: OwnedUserId,
+        user_id: UserId,
         full_content: FullStateEventContent<RoomMemberEventContent>,
-        sender: OwnedUserId,
+        sender: UserId,
     ) -> Self {
         use ruma::events::room::member::MembershipChange as MChange;
         match &full_content {
@@ -308,7 +308,7 @@ impl TimelineItemContent {
     }
 
     /// Event ID of the thread root, if this is a message in a thread.
-    pub fn thread_root(&self) -> Option<OwnedEventId> {
+    pub fn thread_root(&self) -> Option<EventId> {
         as_variant!(self, Self::MsgLike)?.thread_root.clone()
     }
 
@@ -389,7 +389,7 @@ pub enum EncryptedMessage {
         /// The ID of the sending device.
         #[deprecated = "this field should still be sent but should not be used when received"]
         #[doc(hidden)] // Included for Debug formatting only
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
 
         /// The ID of the session used to encrypt the message.
         session_id: String,
@@ -445,7 +445,7 @@ impl Sticker {
 /// An event changing a room membership.
 #[derive(Clone, Debug)]
 pub struct RoomMembershipChange {
-    pub(in crate::timeline) user_id: OwnedUserId,
+    pub(in crate::timeline) user_id: UserId,
     pub(in crate::timeline) content: FullStateEventContent<RoomMemberEventContent>,
     pub(in crate::timeline) change: Option<MembershipChange>,
 }
@@ -479,7 +479,7 @@ impl RoomMembershipChange {
 
     /// Retrieve the avatar URL from the current event, or, if missing, from the
     /// one it replaced.
-    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+    pub fn avatar_url(&self) -> Option<MxcUri> {
         if let FullStateEventContent::Original { content, prev_content } = &self.content {
             content
                 .avatar_url
@@ -574,9 +574,9 @@ pub enum MembershipChange {
 /// membership is already `join`.
 #[derive(Clone, Debug)]
 pub struct MemberProfileChange {
-    pub(in crate::timeline) user_id: OwnedUserId,
+    pub(in crate::timeline) user_id: UserId,
     pub(in crate::timeline) displayname_change: Option<Change<Option<String>>>,
-    pub(in crate::timeline) avatar_url_change: Option<Change<Option<OwnedMxcUri>>>,
+    pub(in crate::timeline) avatar_url_change: Option<Change<Option<MxcUri>>>,
 }
 
 impl MemberProfileChange {
@@ -591,7 +591,7 @@ impl MemberProfileChange {
     }
 
     /// The avatar URL change induced by this event.
-    pub fn avatar_url_change(&self) -> Option<&Change<Option<OwnedMxcUri>>> {
+    pub fn avatar_url_change(&self) -> Option<&Change<Option<MxcUri>>> {
         self.avatar_url_change.as_ref()
     }
 

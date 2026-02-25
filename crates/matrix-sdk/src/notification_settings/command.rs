@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     push::{
         Action, NewConditionalPushRule, NewPatternedPushRule, NewPushRule, NewSimplePushRule,
         PushCondition, RuleKind, Tweak,
@@ -14,9 +14,9 @@ use crate::NotificationSettingsError;
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
     /// Set a new `Room` push rule
-    SetRoomPushRule { room_id: OwnedRoomId, notify: bool },
+    SetRoomPushRule { room_id: RoomId, notify: bool },
     /// Set a new `Override` push rule matching a `RoomId`
-    SetOverridePushRule { rule_id: String, room_id: OwnedRoomId, notify: bool },
+    SetOverridePushRule { rule_id: String, room_id: RoomId, notify: bool },
     /// Set a new push rule for a keyword.
     SetKeywordPushRule { keyword: String },
     /// Set whether a push rule is enabled

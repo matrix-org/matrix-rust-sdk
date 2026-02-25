@@ -61,7 +61,7 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
     assert_matches!(
         latest_event_stream.next_now().await,
         LatestEventValue::Remote(event) => {
-            assert_eq!(event.event_id().as_deref(), Some(event_bob));
+            assert_eq!(event.event_id().as_ref(), Some(event_bob));
         }
     );
 

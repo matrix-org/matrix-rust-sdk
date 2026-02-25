@@ -28,7 +28,7 @@ use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
-use ruma::{OwnedEventId, OwnedRoomId, serde::Raw};
+use ruma::{EventId, RoomId, serde::Raw};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -107,10 +107,10 @@ impl BackupUploadingTask {
 #[derive(Debug)]
 struct RoomKeyDownloadRequest {
     /// The room in which the event was sent.
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// The ID of the event we could not decrypt.
-    event_id: OwnedEventId,
+    event_id: EventId,
 
     /// The event we could not decrypt.
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -130,7 +130,7 @@ impl RoomKeyDownloadRequest {
     }
 }
 
-pub type RoomKeyInfo = (OwnedRoomId, String);
+pub type RoomKeyInfo = (RoomId, String);
 
 pub(crate) struct BackupDownloadTask {
     sender: mpsc::UnboundedSender<RoomKeyDownloadRequest>,
@@ -167,7 +167,7 @@ impl BackupDownloadTask {
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub(crate) fn trigger_download_for_utd_event(
         &self,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         event: Raw<OriginalSyncRoomEncryptedEvent>,
     ) {
         if let Ok(deserialized_event) = event.deserialize()
@@ -190,7 +190,7 @@ impl BackupDownloadTask {
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub(crate) fn trigger_download_for_utd_event<T: JsonCastable<EncryptedEvent>>(
         &self,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         event: Raw<T>,
     ) {
         if let Ok(deserialized_event) = event.deserialize_as::<EncryptedEvent>() {
@@ -325,7 +325,7 @@ struct BackupDownloadTaskListenerState {
     failures_cache: FailuresCache<RoomKeyInfo>,
 
     /// Map from event ID to download task
-    active_tasks: BTreeMap<OwnedEventId, JoinHandle<()>>,
+    active_tasks: BTreeMap<EventId, JoinHandle<()>>,
 
     /// A list of room keys that we have already downloaded, or are about to
     /// download.
@@ -502,7 +502,7 @@ impl BundleReceiverTask {
 
         match (state, elapsed_since_join) {
             (RoomState::Joined, Some(elapsed_since_join)) => {
-                elapsed_since_join < DAY && bundle_sender == &inviter
+                elapsed_since_join < DAY && bundle_sender == inviter
             }
             (RoomState::Joined, None) => false,
             (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => {

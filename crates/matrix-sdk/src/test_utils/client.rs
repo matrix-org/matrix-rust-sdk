@@ -15,7 +15,7 @@
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
+use ruma::{DeviceId, UserId, api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
     Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
@@ -90,8 +90,8 @@ impl MockClientBuilder {
     pub fn logged_in_with_token(
         mut self,
         token: String,
-        user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
+        user_id: UserId,
+        device_id: DeviceId,
     ) -> Self {
         self.auth_state = AuthState::LoggedInWithMatrixAuth {
             token: Some(token),
@@ -148,8 +148,8 @@ enum AuthState {
     /// The client is logged in with the native Matrix API.
     LoggedInWithMatrixAuth {
         token: Option<String>,
-        user_id: Option<OwnedUserId>,
-        device_id: Option<OwnedDeviceId>,
+        user_id: Option<UserId>,
+        device_id: Option<DeviceId>,
     },
     /// The client is registered with the OAuth 2.0 API.
     RegisteredWithOAuth,

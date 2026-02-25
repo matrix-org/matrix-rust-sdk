@@ -330,7 +330,7 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{DeviceId, OwnedUserId, RoomId, UserId, device_id, room_id, user_id};
+    use ruma::{DeviceId, RoomId, UserId, device_id, room_id, user_id};
     use tokio::sync::Mutex;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::SessionKey};
 
@@ -897,7 +897,7 @@ mod tests {
     }
 
     struct TestUser {
-        user_id: OwnedUserId,
+        user_id: UserId,
         account: Account,
         private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         user_identity: UserIdentityData,

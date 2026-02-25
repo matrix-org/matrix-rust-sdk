@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+    MilliSecondsSinceUnixEpoch, UserId,
     events::poll::{
         PollResponseData, compile_unstable_poll_results,
         start::PollKind,
@@ -47,7 +47,7 @@ pub struct PollState {
 
 #[derive(Clone, Debug)]
 pub(in crate::timeline) struct ResponseData {
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     pub timestamp: MilliSecondsSinceUnixEpoch,
     pub answers: Vec<String>,
 }
@@ -86,7 +86,7 @@ impl PollState {
     /// Add a response to a poll.
     pub(crate) fn add_response(
         &mut self,
-        sender: OwnedUserId,
+        sender: UserId,
         timestamp: MilliSecondsSinceUnixEpoch,
         answers: Vec<String>,
     ) {

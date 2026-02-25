@@ -6,7 +6,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     api::{
         FeatureFlag, SupportedVersions,
         client::sync::sync_events::v5::{self as http, response},
@@ -256,7 +256,7 @@ impl SlidingSyncResponseProcessor {
 /// This will only fill the in-memory caches, not save the info on disk.
 async fn update_in_memory_caches(
     client: &Client,
-    previously_joined_rooms: &BTreeSet<OwnedRoomId>,
+    previously_joined_rooms: &BTreeSet<RoomId>,
     response: &SyncResponse,
 ) {
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");

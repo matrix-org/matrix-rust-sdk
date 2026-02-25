@@ -15,7 +15,7 @@
 //!  Facilities to handle incoming calls.
 
 use ruma::{
-    EventId, OwnedUserId, UserId,
+    EventId, UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         rtc::decline::{RtcDeclineEventContent, SyncRtcDeclineEvent},
@@ -115,7 +115,7 @@ impl Room {
     pub fn subscribe_to_call_decline_events(
         &self,
         notification_event_id: &EventId,
-    ) -> (EventHandlerDropGuard, broadcast::Receiver<OwnedUserId>) {
+    ) -> (EventHandlerDropGuard, broadcast::Receiver<UserId>) {
         let (sender, receiver) = broadcast::channel(16);
 
         let decline_call_event_handler_handle =

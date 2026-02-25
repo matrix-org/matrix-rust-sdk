@@ -3,7 +3,7 @@ use std::{future, ops::Deref, sync::Arc};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::cross_process_lock::{CrossProcessLock, CrossProcessLockConfig};
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, UserId};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
@@ -25,8 +25,8 @@ use crate::{
 /// [`crate::verification::VerificationStore`].
 #[derive(Debug)]
 pub(crate) struct CryptoStoreWrapper {
-    user_id: OwnedUserId,
-    device_id: OwnedDeviceId,
+    user_id: UserId,
+    device_id: DeviceId,
 
     store: Arc<DynCryptoStore>,
 
@@ -107,7 +107,7 @@ impl CryptoStoreWrapper {
         // processing the changes
         let own_identity_was_verified_before_change = self
             .store
-            .get_user_identity(self.user_id.as_ref())
+            .get_user_identity(&self.user_id)
             .await?
             .as_ref()
             .and_then(|i| i.own())
@@ -223,7 +223,7 @@ impl CryptoStoreWrapper {
         for tracked_user in tracked_users {
             if let Some(other_identity) = self
                 .store
-                .get_user_identity(tracked_user.user_id.as_ref())
+                .get_user_identity(&tracked_user.user_id)
                 .await?
                 .as_ref()
                 .and_then(|i| i.other())

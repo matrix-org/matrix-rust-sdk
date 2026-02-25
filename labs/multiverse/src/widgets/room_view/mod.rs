@@ -9,8 +9,7 @@ use matrix_sdk::{
     Client, Room, RoomState,
     locks::Mutex,
     ruma::{
-        OwnedEventId, OwnedRoomId, RoomId, UserId,
-        api::client::receipt::create_receipt::v3::ReceiptType,
+        EventId, RoomId, UserId, api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent,
     },
 };
@@ -48,12 +47,12 @@ enum Mode {
 
 enum TimelineKind {
     Room {
-        room: Option<OwnedRoomId>,
+        room: Option<RoomId>,
     },
 
     Thread {
-        room: OwnedRoomId,
-        thread_root: OwnedEventId,
+        room: RoomId,
+        thread_root: EventId,
         /// The threaded-focused timeline for this thread.
         timeline: Arc<OnceCell<Arc<Timeline>>>,
         /// Items in the thread timeline (to avoid recomputing them every single
@@ -97,7 +96,7 @@ impl RoomView {
         }
     }
 
-    fn switch_to_room_timeline(&mut self, room: Option<OwnedRoomId>) {
+    fn switch_to_room_timeline(&mut self, room: Option<RoomId>) {
         match &mut self.kind {
             TimelineKind::Room { room: prev_room } => {
                 self.kind = TimelineKind::Room { room: room.or(prev_room.take()) };
@@ -184,7 +183,7 @@ impl RoomView {
 
     fn room_id(&self) -> Option<&RoomId> {
         match &self.kind {
-            TimelineKind::Room { room } => room.as_deref(),
+            TimelineKind::Room { room } => room.as_ref(),
             TimelineKind::Thread { room, .. } => Some(room),
         }
     }
@@ -342,8 +341,8 @@ impl RoomView {
         }
     }
 
-    pub fn set_selected_room(&mut self, room_id: Option<OwnedRoomId>) {
-        if let Some(room_id) = room_id.as_deref() {
+    pub fn set_selected_room(&mut self, room_id: Option<RoomId>) {
+        if let Some(room_id) = room_id.as_ref() {
             let maybe_room = self.client.get_room(room_id);
 
             if let Some(room) = maybe_room {
@@ -369,7 +368,7 @@ impl RoomView {
     fn get_selected_timeline(&self) -> Option<Arc<Timeline>> {
         match &self.kind {
             TimelineKind::Room { room } => room
-                .as_deref()
+                .as_ref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone())),
             TimelineKind::Thread { timeline, .. } => timeline.get().cloned(),
         }
@@ -378,7 +377,7 @@ impl RoomView {
     fn get_selected_timeline_items(&self) -> Option<Vector<Arc<TimelineItem>>> {
         match &self.kind {
             TimelineKind::Room { room } => room
-                .as_deref()
+                .as_ref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.items.lock().clone())),
             TimelineKind::Thread { items, .. } => Some(items.lock().clone()),
         }
@@ -451,7 +450,7 @@ impl RoomView {
         self.call_with_room(async move |room, status_handle| {
             let user_id = match UserId::parse_with_server_name(
                 user_id,
-                room.client().user_id().unwrap().server_name(),
+                &room.client().user_id().unwrap().server_name(),
             ) {
                 Ok(user_id) => user_id,
                 Err(e) => {

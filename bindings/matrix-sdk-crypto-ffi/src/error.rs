@@ -6,7 +6,7 @@ use matrix_sdk_crypto::{
     SignatureError as InnerSignatureError,
 };
 use matrix_sdk_sqlite::OpenStoreError;
-use ruma::{IdParseError, OwnedUserId};
+use ruma::{IdParseError, UserId};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -38,7 +38,7 @@ pub enum SignatureError {
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
     #[error("Unknown device {0} {1}")]
-    UnknownDevice(OwnedUserId, String),
+    UnknownDevice(UserId, String),
     #[error("Unknown user identity {0}")]
     UnknownUserIdentity(String),
 }

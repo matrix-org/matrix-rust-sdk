@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId,
+    EventId, MilliSecondsSinceUnixEpoch,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         relation::{BundledThread, RelationType},
@@ -32,7 +32,7 @@ struct RelatesTo {
     #[serde(rename = "rel_type")]
     rel_type: RelationType,
     #[serde(rename = "event_id")]
-    event_id: Option<OwnedEventId>,
+    event_id: Option<EventId>,
 }
 
 #[allow(missing_debug_implementations)]
@@ -51,7 +51,7 @@ struct SimplifiedContent {
 /// during deserialization.
 pub fn extract_thread_root_from_content(
     content: Raw<AnyMessageLikeEventContent>,
-) -> Option<OwnedEventId> {
+) -> Option<EventId> {
     let relates_to = content.deserialize_as_unchecked::<SimplifiedContent>().ok()?.relates_to?;
     match relates_to.rel_type {
         RelationType::Thread => relates_to.event_id,
@@ -66,7 +66,7 @@ pub fn extract_thread_root_from_content(
 ///
 /// Returns `None` if we couldn't find a thread root, or if there was an issue
 /// during deserialization.
-pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
+pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<EventId> {
     extract_thread_root_from_content(event.get_field("content").ok().flatten()?)
 }
 
@@ -79,7 +79,7 @@ pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
 ///
 /// Returns `None` if we couldn't find it, or if there was an issue
 /// during deserialization.
-pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
+pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<EventId> {
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     match relates_to.rel_type {
         RelationType::Replacement => relates_to.event_id,
@@ -89,7 +89,7 @@ pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
 
 /// Try to extract the type and target of a relation, from a raw timeline event,
 /// if provided.
-pub fn extract_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(RelationType, OwnedEventId)> {
+pub fn extract_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(RelationType, EventId)> {
     let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
     Some((relates_to.rel_type, relates_to.event_id?))
 }
@@ -120,7 +120,7 @@ pub fn extract_bundled_thread_summary(
             let count = bundled_thread.count.try_into().unwrap_or(u32::MAX);
 
             let latest_reply =
-                bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
+                bundled_thread.latest_event.get_field::<EventId>("event_id").ok().flatten();
 
             (
                 ThreadSummaryStatus::Some(ThreadSummary { num_replies: count, latest_reply }),
@@ -189,7 +189,7 @@ mod tests {
         .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
-        assert_eq!(observed_thread_root.as_deref(), Some(thread_root));
+        assert_eq!(observed_thread_root.as_ref(), Some(thread_root));
         let observed_relation = extract_relation(&event).unwrap();
         assert_eq!(observed_relation, (RelationType::Thread, thread_root.to_owned()));
 

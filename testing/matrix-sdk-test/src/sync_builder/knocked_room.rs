@@ -1,12 +1,12 @@
 use ruma::{
-    OwnedRoomId, RoomId, api::client::sync::sync_events::v3::KnockedRoom,
-    events::AnyStrippedStateEvent, serde::Raw,
+    RoomId, api::client::sync::sync_events::v3::KnockedRoom, events::AnyStrippedStateEvent,
+    serde::Raw,
 };
 
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct KnockedRoomBuilder {
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
     pub(super) inner: KnockedRoom,
 }
 

@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -23,8 +22,8 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 use ruma::{
-    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
-    UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
+    DeviceId, ServerName, TransactionId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
 };
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
@@ -69,7 +68,7 @@ pub(crate) struct IdentityManager {
     /// `/keys/query` response.
     ///
     /// See also [`crate::session_manager::SessionManager::failures`].
-    failures: FailuresCache<OwnedServerName>,
+    failures: FailuresCache<ServerName>,
     store: Store,
 
     pub(crate) key_query_manager: Arc<KeyQueryManager>,
@@ -88,12 +87,12 @@ struct KeysQueryRequestDetails {
     /// A single batch of queries returned by the Store is broken up into one or
     /// more actual KeysQueryRequests, each with their own request id. We
     /// record the outstanding request ids here.
-    request_ids: HashSet<OwnedTransactionId>,
+    request_ids: HashSet<TransactionId>,
 }
 
 // Helper type to handle key query response
 struct KeySetInfo {
-    user_id: OwnedUserId,
+    user_id: UserId,
     master_key: MasterPubkey,
     self_signing: SelfSigningPubkey,
 }
@@ -147,14 +146,15 @@ impl IdentityManager {
             .keys()
             .filter_map(|k| ServerName::parse(k).ok())
             .filter(|s| s != self.user_id().server_name());
-        let successful_servers = response.device_keys.keys().map(|u| u.server_name());
+        let successful_servers =
+            response.device_keys.keys().map(|u| u.server_name()).collect::<Vec<_>>();
 
         // Append the new failed servers and remove any successful servers. We
         // need to explicitly remove the successful servers because the cache
         // doesn't automatically remove entries that elapse. Instead, the effect
         // is that elapsed servers will be retried and their delays incremented.
         self.failures.extend(failed_servers);
-        self.failures.remove(successful_servers);
+        self.failures.remove(successful_servers.iter());
 
         let devices = self.handle_devices_from_key_query(response.device_keys.clone()).await?;
         let (identities, cross_signing_identity) = self.handle_cross_signing_keys(response).await?;
@@ -206,10 +206,7 @@ impl IdentityManager {
             self.key_query_manager
                 .synced(&cache)
                 .await?
-                .mark_tracked_users_as_up_to_date(
-                    response.device_keys.keys().map(Deref::deref),
-                    sequence_number,
-                )
+                .mark_tracked_users_as_up_to_date(response.device_keys.keys(), sequence_number)
                 .await?;
         }
 
@@ -292,14 +289,14 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
-        user_id: OwnedUserId,
-        device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
+        user_id: UserId,
+        device_map: BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = store.static_account().device_id().to_owned();
 
         let mut changes = DeviceChanges::default();
 
-        let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
+        let current_devices: HashSet<DeviceId> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
@@ -339,14 +336,14 @@ impl IdentityManager {
             }
         }
 
-        let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
+        let current_devices: HashSet<&DeviceId> = current_devices.iter().collect();
         let stored_devices = store.get_device_data_for_user(&user_id).await?;
-        let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
+        let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         let own_user_id = store.static_account().user_id();
         for device_id in deleted_devices_set {
-            if user_id == *own_user_id && *device_id == &own_device_id {
+            if user_id == *own_user_id && *device_id == own_device_id {
                 let identity_keys = store.static_account().identity_keys();
 
                 warn!(
@@ -376,10 +373,7 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<
-            OwnedUserId,
-            BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
-        >,
+        device_keys_map: BTreeMap<UserId, BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>>,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
@@ -804,7 +798,7 @@ impl IdentityManager {
     pub(crate) fn build_key_query_for_users<'a>(
         &self,
         users: impl IntoIterator<Item = &'a UserId>,
-    ) -> (OwnedTransactionId, KeysQueryRequest) {
+    ) -> (TransactionId, KeysQueryRequest) {
         // Since this is an "out-of-band" request, we just make up a transaction ID and
         // do not store the details in `self.keys_query_request_details`.
         //
@@ -828,7 +822,7 @@ impl IdentityManager {
     /// [`receive_keys_query_response`]: Self::receive_keys_query_response
     pub async fn users_for_key_query(
         &self,
-    ) -> StoreResult<BTreeMap<OwnedTransactionId, KeysQueryRequest>> {
+    ) -> StoreResult<BTreeMap<TransactionId, KeysQueryRequest>> {
         // Forget about any previous key queries in flight.
         *self.keys_query_request_details.lock().await = None;
 
@@ -858,7 +852,7 @@ impl IdentityManager {
             // a TTL cache, remembers users for which a previous `/key/query` request has
             // failed. We don't retry a `/keys/query` for such users for a
             // certain amount of time.
-            let users = users.into_iter().filter(|u| !self.failures.contains(u.server_name()));
+            let users = users.into_iter().filter(|u| !self.failures.contains(&u.server_name()));
 
             // We don't want to create a single `/keys/query` request with an infinite
             // amount of users. Some servers will likely bail out after a
@@ -926,7 +920,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
+    ) -> StoreResult<HashMap<UserId, HashMap<DeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -971,7 +965,7 @@ impl IdentityManager {
             // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
             // which might not be for 30 seconds or so. (And by then, it might be `failed`
             // again.)
-            if self.failures.contains(user_id.server_name()) {
+            if self.failures.contains(&user_id.server_name()) {
                 users_with_no_devices_on_failed_servers.push(user_id);
                 continue;
             }
@@ -992,7 +986,7 @@ impl IdentityManager {
             //
             // We don't actually update the `devices_by_user` map here since that could
             // require concurrent access to it. Instead each task returns a
-            // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
+            // `(UserId, HashMap)` pair (or rather, an `Option` of one) so that we can
             // add the results to the map.
             let results = join_all(
                 users_with_no_devices_on_unfailed_servers
@@ -1032,7 +1026,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
+    ) -> Result<Option<(&'a UserId, HashMap<DeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager
@@ -1165,7 +1159,7 @@ impl IdentityManager {
             .synced(&store_cache)
             .await?
             .mark_tracked_users_as_changed(
-                tracked_users.iter().map(|tracked_user| tracked_user.user_id.as_ref()),
+                tracked_users.iter().map(|tracked_user| &tracked_user.user_id),
             )
             .await?;
 
@@ -1647,8 +1641,7 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(our_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        let device =
-            manager.store.get_device_data(our_user, device_id!(device_id())).await.unwrap();
+        let device = manager.store.get_device_data(our_user, device_id()).await.unwrap();
 
         assert!(device.is_some());
     }
@@ -1656,7 +1649,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_private_identity_invalidation_after_public_keys_change() {
         let user_id = user_id!("@example1:localhost");
-        let manager = manager_test_helper(user_id, "DEVICEID".into()).await;
+        let manager = manager_test_helper(user_id, &"DEVICEID".into()).await;
 
         let identity_request = {
             let private_identity = manager.store.private_identity();
@@ -1821,7 +1814,7 @@ pub(crate) mod tests {
         // a failure should stop us querying for the user's keys.
         let response = key_query_with_failures();
         manager.receive_keys_query_response(&reqid, &response).await.unwrap();
-        assert!(manager.failures.contains(alice.server_name()));
+        assert!(manager.failures.contains(&alice.server_name()));
         assert!(
             !manager
                 .users_for_key_query()
@@ -1832,7 +1825,7 @@ pub(crate) mod tests {
         );
 
         // clearing the failure flag should make the user reappear in the query list.
-        manager.failures.remove([alice.server_name().to_owned()].iter());
+        manager.failures.remove([alice.server_name()].iter());
         assert!(
             manager
                 .users_for_key_query()

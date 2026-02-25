@@ -33,7 +33,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, RoomId,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
@@ -87,7 +87,7 @@ pub struct RoomEventCacheSubscriber {
     recv: Receiver<RoomEventCacheUpdate>,
 
     /// To which room are we listening?
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 
     /// Sender to the auto-shrink channel.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
@@ -163,7 +163,7 @@ impl RoomEventCache {
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
@@ -226,7 +226,7 @@ impl RoomEventCache {
     /// initially known list of events for that thread.
     pub async fn subscribe_to_thread(
         &self,
-        thread_root: OwnedEventId,
+        thread_root: EventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let mut state = self.inner.state.write().await?;
         Ok(state.subscribe_to_thread(thread_root))
@@ -258,7 +258,7 @@ impl RoomEventCache {
 
     /// Return a `ThreadPagination` API object useful for running
     /// back-pagination queries in the `thread_id` thread.
-    pub fn thread_pagination(&self, thread_id: OwnedEventId) -> ThreadPagination {
+    pub fn thread_pagination(&self, thread_id: EventId) -> ThreadPagination {
         ThreadPagination::new(self.inner.clone(), thread_id)
     }
 
@@ -407,7 +407,7 @@ impl RoomEventCache {
 /// The (non-cloneable) details of the `RoomEventCache`.
 pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
 
     pub weak_room: WeakRoom,
 
@@ -443,7 +443,7 @@ impl RoomEventCacheInner {
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
+        room_id: RoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: Sender<RoomEventCacheUpdate>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
@@ -527,7 +527,7 @@ impl RoomEventCacheInner {
         &self,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        ambiguity_changes: BTreeMap<EventId, AmbiguityChange>,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
@@ -604,7 +604,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
-        EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+        EventId, RoomId, UserId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -638,10 +638,10 @@ mod private {
         enabled_thread_support: bool,
 
         /// The room this state relates to.
-        room_id: OwnedRoomId,
+        room_id: RoomId,
 
         /// The user's own user id.
-        own_user_id: OwnedUserId,
+        own_user_id: UserId,
 
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
@@ -653,7 +653,7 @@ mod private {
         /// Threads present in this room.
         ///
         /// Keyed by the thread root event ID.
-        threads: HashMap<OwnedEventId, ThreadEventCache>,
+        threads: HashMap<EventId, ThreadEventCache>,
 
         /// Cache for pinned events in this room, initialized on-demand.
         pinned_event_cache: OnceLock<PinnedEventCache>,
@@ -715,8 +715,8 @@ mod private {
         /// [`RoomPagination`]: super::RoomPagination
         #[allow(clippy::too_many_arguments)]
         pub async fn new(
-            own_user_id: OwnedUserId,
-            room_id: OwnedRoomId,
+            own_user_id: UserId,
+            room_id: RoomId,
             room_version_rules: RoomVersionRules,
             enabled_thread_support: bool,
             update_sender: Sender<RoomEventCacheUpdate>,
@@ -1221,8 +1221,8 @@ mod private {
         #[instrument(skip_all)]
         pub async fn remove_events(
             &mut self,
-            in_memory_events: Vec<(OwnedEventId, Position)>,
-            in_store_events: Vec<(OwnedEventId, Position)>,
+            in_memory_events: Vec<(EventId, Position)>,
+            in_store_events: Vec<(EventId, Position)>,
         ) -> Result<(), EventCacheError> {
             // In-store events.
             if !in_store_events.is_empty() {
@@ -1554,7 +1554,7 @@ mod private {
         /// initially known list of events for that thread.
         pub fn subscribe_to_thread(
             &mut self,
-            root: OwnedEventId,
+            root: EventId,
         ) -> (Vec<Event>, Receiver<TimelineVectorDiffs>) {
             self.get_or_reload_thread(root).subscribe()
         }
@@ -1651,7 +1651,7 @@ mod private {
 
         pub(in super::super) fn get_or_reload_thread(
             &mut self,
-            root_event_id: OwnedEventId,
+            root_event_id: EventId,
         ) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
@@ -1666,7 +1666,7 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
-            new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
+            new_events_by_thread: BTreeMap<EventId, Vec<Event>>,
             post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
@@ -1701,8 +1701,8 @@ mod private {
         /// Update a thread summary on the given thread root, if needs be.
         async fn maybe_update_thread_summary(
             &mut self,
-            thread_root: OwnedEventId,
-            latest_event_id: Option<OwnedEventId>,
+            thread_root: EventId,
+            latest_event_id: Option<EventId>,
             _post_processing_origin: PostProcessingOrigin,
         ) -> Result<(), EventCacheError> {
             // Add a thread summary to the (room) event which has the thread root, if we
@@ -2058,7 +2058,7 @@ mod private {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
         for (position, event) in room_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
+            if event.event_id().as_ref() == Some(event_id) {
                 return Ok(Some((EventLocation::Memory(position), event.clone())));
             }
         }
@@ -2478,7 +2478,7 @@ mod timed_tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedUserId, event_id,
+        EventId, UserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id, user_id,
     };
@@ -3225,7 +3225,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id().as_ref(), Some(evid2));
         assert!(stream.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -3233,7 +3233,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store.
@@ -3243,7 +3243,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id().as_ref(), Some(evid1));
         });
 
         assert!(stream.is_empty());
@@ -3275,7 +3275,7 @@ mod timed_tests {
         assert_matches!(&diffs[0], VectorDiff::Clear);
         assert_matches!(&diffs[1], VectorDiff::Append { values} => {
             assert_eq!(values.len(), 1);
-            assert_eq!(values[0].event_id().as_deref(), Some(evid2));
+            assert_eq!(values[0].event_id().as_ref(), Some(evid2));
         });
 
         assert!(stream.is_empty());
@@ -3287,13 +3287,13 @@ mod timed_tests {
         // When reading the events, we do get only the last one.
         let events = room_event_cache.events().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id().as_ref(), Some(evid2));
 
         // But if we back-paginate, we don't need access to network to find out about
         // the previous event.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
     }
 
@@ -3378,7 +3378,7 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
             let (pos, ev) = events.next().unwrap();
             assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id().as_ref(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             // No other loaded events.
@@ -3426,11 +3426,11 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id().as_ref(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid4));
+            assert_eq!(ev.event_id().as_ref(), Some(evid4));
             assert_eq!(room_linked_chunk.event_order(pos), Some(3));
 
             // No other loaded events.
@@ -3515,7 +3515,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events1.len(), 1);
-        assert_eq!(events1[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events1[0].event_id().as_ref(), Some(evid2));
         assert!(stream1.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -3523,7 +3523,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id().as_ref(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store. Ignore it, for this
@@ -3534,7 +3534,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id().as_ref(), Some(evid1));
         });
 
         assert!(stream1.is_empty());
@@ -3550,8 +3550,8 @@ mod timed_tests {
         // the second subscribers sees them all.
         let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
-        assert_eq!(events2[0].event_id().as_deref(), Some(evid1));
-        assert_eq!(events2[1].event_id().as_deref(), Some(evid2));
+        assert_eq!(events2[0].event_id().as_ref(), Some(evid1));
+        assert_eq!(events2[1].event_id().as_ref(), Some(evid2));
         assert!(stream2.is_empty());
 
         // Drop the first stream, and wait a bit.
@@ -3576,7 +3576,7 @@ mod timed_tests {
         // Getting the events will only give us the latest chunk.
         let events3 = room_event_cache.events().await.unwrap();
         assert_eq!(events3.len(), 1);
-        assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events3[0].event_id().as_ref(), Some(evid2));
     }
 
     #[async_test]
@@ -3648,11 +3648,11 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
-                assert_eq!(event_id.as_deref(), Some(event_id_0));
+                assert_eq!(event_id.as_ref(), Some(event_id_0));
             }
         );
 
@@ -3661,11 +3661,11 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
-                assert_eq!(event_id.as_deref(), Some(event_id_2));
+                assert_eq!(event_id.as_ref(), Some(event_id_2));
             }
         );
 
@@ -3673,9 +3673,8 @@ mod timed_tests {
         assert!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
-                        == Some(user_id))
-                    .then(|| event.event_id())
+                    (event.raw().get_field::<UserId>("sender").unwrap().as_ref() == Some(user_id))
+                        .then(|| event.event_id())
                 })
                 .await
                 .unwrap()
@@ -3791,7 +3790,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id().as_ref(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -3811,7 +3810,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                         }
                     );
                 }
@@ -3831,7 +3830,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id().as_ref(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -3851,7 +3850,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                         }
                     );
                 }
@@ -3889,7 +3888,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -3909,7 +3908,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -3940,7 +3939,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -3960,7 +3959,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -3994,7 +3993,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4021,7 +4020,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4050,7 +4049,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4077,7 +4076,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4106,7 +4105,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4130,7 +4129,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4156,7 +4155,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id().as_ref(), Some(ev_id_1));
                             }
                         );
                     }
@@ -4180,7 +4179,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id().as_ref(), Some(ev_id_0));
                             }
                         );
                     }
@@ -4274,7 +4273,7 @@ mod timed_tests {
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
         room_event_cache
             .rfind_map_event_in_memory_by(|event| {
-                (event.event_id().as_deref() == Some(event_id)).then_some(())
+                (event.event_id().as_ref() == Some(event_id)).then_some(())
             })
             .await
             .unwrap()

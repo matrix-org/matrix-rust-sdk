@@ -37,8 +37,8 @@ use matrix_sdk_common::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+    RoomId, TransactionId, UInt, UserId,
     api::client::{
         dehydrated_device::DehydratedDeviceData,
         keys::{
@@ -134,9 +134,9 @@ pub struct OlmMachine {
 
 pub struct OlmMachineInner {
     /// The unique user id that owns this account.
-    user_id: OwnedUserId,
+    user_id: UserId,
     /// The unique device ID of the device that holds this account.
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
     /// device bootstrapped cross signing or cross signing isn't bootstrapped at
@@ -477,7 +477,7 @@ impl OlmMachine {
     ///
     /// See [`update_tracked_users`](#method.update_tracked_users) for more
     /// information.
-    pub async fn tracked_users(&self) -> StoreResult<HashSet<OwnedUserId>> {
+    pub async fn tracked_users(&self) -> StoreResult<HashSet<UserId>> {
         let cache = self.store().cache().await?;
         Ok(self.inner.identity_manager.key_query_manager.synced(&cache).await?.tracked_users())
     }
@@ -584,7 +584,7 @@ impl OlmMachine {
     pub fn query_keys_for_users<'a>(
         &self,
         users: impl IntoIterator<Item = &'a UserId>,
-    ) -> (OwnedTransactionId, KeysQueryRequest) {
+    ) -> (TransactionId, KeysQueryRequest) {
         self.inner.identity_manager.build_key_query_for_users(users)
     }
 
@@ -737,7 +737,7 @@ impl OlmMachine {
     /// need to be uploaded. Otherwise, returns `None`.
     pub async fn upload_device_keys(
         &self,
-    ) -> StoreResult<Option<(OwnedTransactionId, UploadKeysRequest)>> {
+    ) -> StoreResult<Option<(TransactionId, UploadKeysRequest)>> {
         let cache = self.store().cache().await?;
         let account = cache.account().await?;
 
@@ -792,7 +792,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(TransactionId, KeysClaimRequest)>> {
         self.inner.session_manager.get_missing_sessions(users).await
     }
 
@@ -1790,7 +1790,7 @@ impl OlmMachine {
             .identity_manager
             .receive_device_changes(
                 transaction.cache(),
-                sync_changes.changed_devices.changed.iter().map(|u| u.as_ref()),
+                sync_changes.changed_devices.changed.iter(),
             )
             .await
         {
@@ -1864,7 +1864,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<(VerificationState, Option<DeviceId>)> {
         let sender_data = self.get_or_update_sender_data(session, sender).await?;
 
         // If the user ID in the sender data doesn't match that in the event envelope,
@@ -2778,7 +2778,7 @@ impl OlmMachine {
     async fn sign_with_master_key(
         &self,
         message: &str,
-    ) -> Result<(OwnedDeviceKeyId, Ed25519Signature), SignatureError> {
+    ) -> Result<(DeviceKeyId, Ed25519Signature), SignatureError> {
         let identity = &*self.inner.user_identity.lock().await;
         let key_id = identity.master_key_id().await.ok_or(SignatureError::MissingSigningKey)?;
 
@@ -3064,7 +3064,7 @@ impl OlmMachine {
 fn sender_data_to_verification_state(
     sender_data: SenderData,
     session_has_been_imported: bool,
-) -> (VerificationState, Option<OwnedDeviceId>) {
+) -> (VerificationState, Option<DeviceId>) {
     match sender_data {
         SenderData::UnknownDevice { owner_check_failed: false, .. } => {
             let device_link_problem = if session_has_been_imported {

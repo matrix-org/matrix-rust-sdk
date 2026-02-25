@@ -1,5 +1,5 @@
 use ruma::{
-    OwnedRoomId, RoomId,
+    RoomId,
     api::client::sync::sync_events::v3::LeftRoom,
     events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
@@ -9,7 +9,7 @@ use super::StateMutExt;
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct LeftRoomBuilder {
-    pub(super) room_id: OwnedRoomId,
+    pub(super) room_id: RoomId,
     pub(super) inner: LeftRoom,
 }
 

@@ -48,8 +48,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
-    ServerName, UserId,
+    DeviceId, EventId, Int, RoomAliasId, RoomOrAliasId, ServerName, UserId,
 };
 use tracing::{error, warn};
 
@@ -595,9 +594,8 @@ impl Room {
     }
 
     pub async fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
-        let user =
-            <&UserId>::try_from(user_id.as_str()).context("Could not create user from string")?;
-        self.inner.invite_user_by_id(user).await?;
+        let user = UserId::try_from(user_id).context("Could not create user from string")?;
+        self.inner.invite_user_by_id(&user).await?;
         Ok(())
     }
 
@@ -729,13 +727,17 @@ impl Room {
         updates: Vec<UserPowerLevelUpdate>,
     ) -> Result<(), ClientError> {
         let updates = updates
-            .iter()
+            .into_iter()
             .map(|update| {
-                let user_id: &UserId = update.user_id.as_str().try_into()?;
+                let user_id: UserId = update.user_id.try_into()?;
                 let power_level = Int::new(update.power_level).context("Invalid power level")?;
                 Ok((user_id, power_level))
             })
             .collect::<Result<Vec<_>>>()?;
+        let updates = updates
+            .iter()
+            .map(|(user_id, power_level)| (user_id, *power_level))
+            .collect::<Vec<_>>();
 
         self.inner.update_power_levels(updates).await.map_err(ClientError::from_err)?;
         Ok(())
@@ -815,7 +817,7 @@ impl Room {
         thread_root: Option<String>,
     ) -> Result<(), ClientError> {
         let thread_root = thread_root.map(EventId::parse).transpose()?;
-        Ok(self.inner.save_composer_draft(draft.try_into()?, thread_root.as_deref()).await?)
+        Ok(self.inner.save_composer_draft(draft.try_into()?, thread_root.as_ref()).await?)
     }
 
     /// Retrieve the `ComposerDraft` stored in the state store for this room.
@@ -824,7 +826,7 @@ impl Room {
         thread_root: Option<String>,
     ) -> Result<Option<ComposerDraft>, ClientError> {
         let thread_root = thread_root.map(EventId::parse).transpose()?;
-        Ok(self.inner.load_composer_draft(thread_root.as_deref()).await?.map(Into::into))
+        Ok(self.inner.load_composer_draft(thread_root.as_ref()).await?.map(Into::into))
     }
 
     /// Remove the `ComposerDraft` stored in the state store for this room.
@@ -833,7 +835,7 @@ impl Room {
         thread_root: Option<String>,
     ) -> Result<(), ClientError> {
         let thread_root = thread_root.map(EventId::parse).transpose()?;
-        Ok(self.inner.clear_composer_draft(thread_root.as_deref()).await?)
+        Ok(self.inner.clear_composer_draft(thread_root.as_ref()).await?)
     }
 
     /// Edit an event given its event id.
@@ -871,8 +873,7 @@ impl Room {
         user_ids: Vec<String>,
         send_handle: Arc<SendHandle>,
     ) -> Result<(), ClientError> {
-        let user_ids: Vec<OwnedUserId> =
-            user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
+        let user_ids: Vec<UserId> = user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
 
         let encryption = self.inner.client().encryption();
 
@@ -908,7 +909,7 @@ impl Room {
             let user_id = UserId::parse(user_id)?;
 
             for device_id in device_ids {
-                let device_id: OwnedDeviceId = device_id.as_str().into();
+                let device_id: DeviceId = device_id.as_str().into();
 
                 if let Some(device) = encryption.get_device(&user_id, &device_id).await? {
                     device.set_local_trust(LocalTrust::Ignored).await?;
@@ -1176,7 +1177,7 @@ impl Room {
     /// invited, knocked or banned rooms.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
         // Validate parameters first.
-        let server_names: Vec<OwnedServerName> = via
+        let server_names: Vec<ServerName> = via
             .into_iter()
             .map(|server| ServerName::parse(server).map_err(ClientError::from))
             .collect::<Result<_, ClientError>>()?;
@@ -1185,10 +1186,10 @@ impl Room {
         let client = self.inner.client();
         let (room_or_alias_id, mut server_names) = if let Some(alias) = self.inner.canonical_alias()
         {
-            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
+            let room_or_alias_id: RoomOrAliasId = alias.into();
             (room_or_alias_id, Vec::new())
         } else {
-            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.room_id().to_owned().into();
+            let room_or_alias_id: RoomOrAliasId = self.inner.room_id().to_owned().into();
             (room_or_alias_id, server_names)
         };
 
@@ -1197,7 +1198,7 @@ impl Room {
         if server_names.is_empty() {
             if let Ok(invite_details) = self.inner.invite_details().await {
                 if let Some(inviter) = invite_details.inviter {
-                    server_names.push(inviter.user_id().server_name().to_owned());
+                    server_names.push(inviter.user_id().server_name());
                 }
             }
         }

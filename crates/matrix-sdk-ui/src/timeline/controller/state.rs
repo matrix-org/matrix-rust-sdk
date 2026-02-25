@@ -19,7 +19,7 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, TransactionId, UserId,
     events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
     room_version_rules::RoomVersionRules,
     serde::Raw,
@@ -51,7 +51,7 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
 impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
         focus: Arc<TimelineFocusKind<P>>,
-        own_user_id: OwnedUserId,
+        own_user_id: UserId,
         room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
@@ -106,7 +106,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
     /// Marks the given event as fully read, using the read marker received from
     /// sync.
-    pub(super) fn handle_fully_read_marker(&mut self, fully_read_event_id: OwnedEventId) {
+    pub(super) fn handle_fully_read_marker(&mut self, fully_read_event_id: EventId) {
         let mut txn = self.transaction();
         txn.set_fully_read_event(fully_read_event_id);
         txn.commit();
@@ -147,10 +147,10 @@ impl<P: RoomDataProvider> TimelineState<P> {
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &mut self,
-        own_user_id: OwnedUserId,
+        own_user_id: UserId,
         own_profile: Option<Profile>,
         date_divider_mode: DateDividerMode,
-        txn_id: OwnedTransactionId,
+        txn_id: TransactionId,
         send_handle: Option<SendHandle>,
         content: AnyMessageLikeEventContent,
     ) {
@@ -203,7 +203,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn handle_read_receipts(
         &mut self,
         receipt_event_content: ReceiptEventContent,
-        own_user_id: &ruma::UserId,
+        own_user_id: &UserId,
     ) {
         let mut txn = self.transaction();
         txn.handle_explicit_read_receipts(receipt_event_content, own_user_id);

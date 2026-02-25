@@ -27,11 +27,11 @@ pub mod verification;
 
 use std::collections::BTreeMap;
 
-use ruma::OwnedRoomId;
+use ruma::RoomId;
 
 use crate::{RoomInfoNotableUpdateReasons, StateChanges};
 
-type RoomInfoNotableUpdates = BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>;
+type RoomInfoNotableUpdates = BTreeMap<RoomId, RoomInfoNotableUpdateReasons>;
 
 #[cfg_attr(test, derive(Clone))]
 #[derive(Default)]

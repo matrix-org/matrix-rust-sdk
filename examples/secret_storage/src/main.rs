@@ -4,7 +4,7 @@ use matrix_sdk::{
     AuthSession, Client, SessionMeta, SessionTokens,
     authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStore,
-    ruma::{OwnedDeviceId, OwnedUserId, events::secret::request::SecretName},
+    ruma::{DeviceId, UserId, events::secret::request::SecretName},
 };
 use url::Url;
 
@@ -21,11 +21,11 @@ struct Cli {
 
     /// The user ID that should be used to restore the session.
     #[clap(value_parser)]
-    user_id: OwnedUserId,
+    user_id: UserId,
 
     /// The user name that should be used for the login.
     #[clap(value_parser)]
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
 
     /// The password that should be used for the login.
     #[clap(value_parser)]

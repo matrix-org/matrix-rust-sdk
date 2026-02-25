@@ -105,7 +105,7 @@ use ruma::{
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    DeviceId, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -606,7 +606,7 @@ impl Client {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let device_id = device_id.map(OwnedDeviceId::from);
+        let device_id = device_id.map(DeviceId::from);
 
         let additional_scopes =
             additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
@@ -1592,8 +1592,8 @@ impl Client {
     }
 
     pub async fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
-        let user_id = <&UserId>::try_from(user_id.as_str())?;
-        UserProfile::fetch(&self.inner.account(), user_id).await
+        let user_id = UserId::try_from(user_id)?;
+        UserProfile::fetch(&self.inner.account(), &user_id).await
     }
 
     pub async fn notification_client(
@@ -1678,8 +1678,8 @@ impl Client {
     /// Otherwise use `join_room_by_id_or_alias` so you can pass a list of
     /// server names for the homeserver to find the room.
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
-        let room_id = RoomId::parse(room_id)?;
-        let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
+        let room_id = RoomId::try_from(room_id)?;
+        let room = self.inner.join_room_by_id(&room_id).await?;
         Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
@@ -1694,13 +1694,12 @@ impl Client {
         room_id_or_alias: String,
         server_names: Vec<String>,
     ) -> Result<Arc<Room>, ClientError> {
-        let room_id = RoomOrAliasId::parse(&room_id_or_alias)?;
+        let room_id = RoomOrAliasId::try_from(room_id_or_alias)?;
         let server_names = server_names
             .iter()
-            .map(|name| OwnedServerName::try_from(name.as_str()))
+            .map(|name| ServerName::try_from(name.as_str()))
             .collect::<Result<Vec<_>, _>>()?;
-        let room =
-            self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;
+        let room = self.inner.join_room_by_id_or_alias(&room_id, server_names.as_ref()).await?;
         Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
@@ -1768,7 +1767,7 @@ impl Client {
         room_id: String,
         via_servers: Vec<String>,
     ) -> Result<Arc<RoomPreview>, ClientError> {
-        let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
+        let room_id = RoomId::try_from(room_id).context("room_id is not a valid room id")?;
 
         let via_servers = via_servers
             .into_iter()
@@ -1776,11 +1775,7 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()
             .context("at least one `via` server name is invalid")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
-        let room_id: &RoomId = &room_id;
-
-        let room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
+        let room_preview = self.inner.get_room_preview(&room_id.into(), via_servers).await?;
 
         Ok(Arc::new(RoomPreview::new(self.inner.clone(), room_preview)))
     }
@@ -1791,13 +1786,9 @@ impl Client {
         room_alias: String,
     ) -> Result<Arc<RoomPreview>, ClientError> {
         let room_alias =
-            RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
+            RoomAliasId::try_from(room_alias).context("room_alias is not a valid room alias")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
-        let room_alias: &RoomAliasId = &room_alias;
-
-        let room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
+        let room_preview = self.inner.get_room_preview(&room_alias.into(), Vec::new()).await?;
 
         Ok(Arc::new(RoomPreview::new(self.inner.clone(), room_preview)))
     }

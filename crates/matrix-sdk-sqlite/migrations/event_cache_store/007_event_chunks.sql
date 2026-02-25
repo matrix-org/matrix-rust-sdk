@@ -14,7 +14,7 @@ CREATE TABLE "events" (
     -- The room in which the event is located.
     "room_id" BLOB NOT NULL,
 
-    -- The `OwnedEventId` of this event.
+    -- The `EventId` of this event.
     "event_id" BLOB NOT NULL,
 
     -- JSON serialized `TimelineEvent` (encrypted value).
@@ -41,7 +41,7 @@ CREATE TABLE "event_chunks" (
     -- Which chunk does this event refer to? Corresponds to a `ChunkIdentifier`.
     "chunk_id" INTEGER NOT NULL,
 
-    -- `OwnedEventId` for events.
+    -- `EventId` for events.
     "event_id" BLOB NOT NULL,
     -- Position (index) in the chunk.
     "position" INTEGER NOT NULL,

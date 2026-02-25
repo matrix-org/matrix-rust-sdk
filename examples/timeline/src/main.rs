@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use futures_util::StreamExt;
-use matrix_sdk::{Client, config::SyncSettings, ruma::OwnedRoomId};
+use matrix_sdk::{Client, config::SyncSettings, ruma::RoomId};
 use matrix_sdk_ui::timeline::RoomExt;
 use url::Url;
 
@@ -29,7 +29,7 @@ struct Cli {
 
     /// The room id that we should listen for the,
     #[clap(value_parser)]
-    room_id: OwnedRoomId,
+    room_id: RoomId,
 }
 
 async fn login(cli: Cli) -> Result<Client> {

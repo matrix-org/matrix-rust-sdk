@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use as_variant::as_variant;
-use ruma::OwnedEventId;
+use ruma::EventId;
 
 use super::{EmbeddedEvent, EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
 use crate::timeline::{
@@ -55,11 +55,11 @@ pub struct ThreadSummary {
     pub num_replies: u32,
 
     /// The user's own public read receipt event id, for this particular thread.
-    pub public_read_receipt_event_id: Option<OwnedEventId>,
+    pub public_read_receipt_event_id: Option<EventId>,
 
     /// The user's own private read receipt event id, for this particular
     /// thread.
-    pub private_read_receipt_event_id: Option<OwnedEventId>,
+    pub private_read_receipt_event_id: Option<EventId>,
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
@@ -72,7 +72,7 @@ pub struct MsgLikeContent {
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<InReplyToDetails>,
     /// Event ID of the thread root, if this is a message in a thread.
-    pub thread_root: Option<OwnedEventId>,
+    pub thread_root: Option<EventId>,
     /// Information about the thread this message is the root of, if any.
     pub thread_summary: Option<ThreadSummary>,
 }

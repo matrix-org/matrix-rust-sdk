@@ -37,7 +37,7 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId,
+    RoomId,
     api::client::to_device::send_event_to_device::v3::Messages,
     device_id, event_id,
     events::{
@@ -68,7 +68,7 @@ macro_rules! json_string {
 type HandledDeviceEventMutex = Arc<Mutex<(Option<Raw<AnyToDeviceEvent>>, Option<EncryptionInfo>)>>;
 
 const WIDGET_ID: &str = "test-widget";
-static ROOM_ID: LazyLock<OwnedRoomId> = LazyLock::new(|| owned_room_id!("!a98sd12bjh:example.org"));
+static ROOM_ID: LazyLock<RoomId> = LazyLock::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
 struct DummyCapabilitiesProvider;
 

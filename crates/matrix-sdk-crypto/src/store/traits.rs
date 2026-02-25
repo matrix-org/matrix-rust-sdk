@@ -16,9 +16,7 @@ use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration};
-use ruma::{
-    DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
-};
+use ruma::{DeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName};
 use vodozemac::Curve25519PublicKey;
 
 use super::{
@@ -267,7 +265,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>, Self::Error>;
+    ) -> Result<HashMap<DeviceId, DeviceData>, Self::Error>;
 
     /// Get the device for the current client.
     ///
@@ -552,10 +550,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_device(user_id, device_id).await.map_err(Into::into)
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceId, DeviceData>> {
         self.0.get_user_devices(user_id).await.map_err(Into::into)
     }
 

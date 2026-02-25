@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, UserId};
 use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
@@ -33,7 +33,7 @@ use crate::timeline::{
 #[derive(Clone, Debug)]
 pub struct InReplyToDetails {
     /// The ID of the event.
-    pub event_id: OwnedEventId,
+    pub event_id: EventId,
 
     /// The details of the event.
     ///
@@ -45,14 +45,11 @@ pub struct InReplyToDetails {
 }
 
 impl InReplyToDetails {
-    pub fn new(
-        event_id: OwnedEventId,
-        timeline_items: &Vector<Arc<TimelineItem>>,
-    ) -> InReplyToDetails {
+    pub fn new(event_id: EventId, timeline_items: &Vector<Arc<TimelineItem>>) -> InReplyToDetails {
         let event = timeline_items
             .iter()
             .filter_map(|it| it.as_event())
-            .find(|it| it.event_id() == Some(&*event_id))
+            .find(|it| it.event_id() == Some(&event_id))
             .map(|item| Box::new(EmbeddedEvent::from_timeline_item(item)));
 
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
@@ -66,7 +63,7 @@ pub struct EmbeddedEvent {
     /// The content of the embedded item.
     pub content: TimelineItemContent,
     /// The user ID of the sender of the related embedded event.
-    pub sender: OwnedUserId,
+    pub sender: UserId,
     /// The profile of the sender of the related embedded event.
     pub sender_profile: TimelineDetails<Profile>,
     /// The timestamp of the event.
