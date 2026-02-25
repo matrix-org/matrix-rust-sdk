@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Store::{store,clear}_room_pending_key_bundle` and
+  `CryptoStore::get_pending_key_bundle_details_for_room`, which can be used by
+  applications to track whether they are expecting an
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key bundle.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
+
 - Add MSC4388 support to the QrcodeData struct.
   ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
 

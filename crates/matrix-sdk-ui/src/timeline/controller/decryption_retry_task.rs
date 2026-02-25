@@ -17,10 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
-use matrix_sdk::{
-    event_cache::RedecryptorReport,
-    executor::{JoinHandle, spawn},
-};
+use matrix_sdk::{event_cache::RedecryptorReport, task_monitor::BackgroundTaskHandle};
 use tokio_stream::StreamExt as _;
 
 use crate::timeline::{TimelineController, TimelineItem};
@@ -29,15 +26,8 @@ use crate::timeline::{TimelineController, TimelineItem};
 /// re-decryption, in the timeline.
 #[derive(Debug)]
 pub(in crate::timeline) struct CryptoDropHandles {
-    redecryption_report_join_handle: JoinHandle<()>,
-    encryption_changes_handle: JoinHandle<()>,
-}
-
-impl Drop for CryptoDropHandles {
-    fn drop(&mut self) {
-        self.redecryption_report_join_handle.abort();
-        self.encryption_changes_handle.abort();
-    }
+    _redecryption_report_join_handle: BackgroundTaskHandle,
+    _encryption_changes_handle: BackgroundTaskHandle,
 }
 
 /// Decide which events should be retried, either for re-decryption, or, if they
@@ -106,13 +96,22 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
 pub(in crate::timeline) async fn spawn_crypto_tasks(
     controller: TimelineController,
 ) -> CryptoDropHandles {
-    let redecryption_report_join_handle = spawn(redecryption_report_task(controller.clone()));
+    let client = controller.room().client();
+    let task_monitor = client.task_monitor();
+    let redecryption_report_join_handle = task_monitor
+        .spawn_background_task(
+            "timeline::redecryption_report",
+            redecryption_report_task(controller.clone()),
+        )
+        .abort_on_drop();
 
     CryptoDropHandles {
-        redecryption_report_join_handle,
-        encryption_changes_handle: spawn(async move {
-            controller.handle_encryption_state_changes().await
-        }),
+        _redecryption_report_join_handle: redecryption_report_join_handle,
+        _encryption_changes_handle: task_monitor
+            .spawn_background_task("timeline::encryption_state_changes", async move {
+                controller.handle_encryption_state_changes().await
+            })
+            .abort_on_drop(),
     }
 }
 

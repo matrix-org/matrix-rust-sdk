@@ -10,11 +10,14 @@ All notable changes to this project will be documented in this file.
 
 - Add support in the implementation of `EventCacheStore` for
   having duplicate events in a room, where each duplicate is in a different
-  `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
+  `LinkedChunk`. This is useful, e.g., when an event is in a room and a
   thread in that room. The change involves a database migration where
-  the `EVENTS` object store is cleared and then modified so that the 
+  the `EVENTS` object store is cleared and then modified so that the
   `ROOM` index no longer requires keys to be unique.
   ([#6200](https://github.com/matrix-org/matrix-rust-sdk/pull/6200))
+- Implement `CryptoStore::get_pending_key_bundle_details_for_room` and process `rooms_pending_key_bundle` field in
+  `Changes`.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
 - Expose implementations of `EventCacheStore` and `MediaStore` and add a
   composite type for initializing all stores with a single function - i.e.,
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the

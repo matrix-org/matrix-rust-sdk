@@ -68,6 +68,22 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- The `RoomEventCache::paginate_thread_backwards` method is replaced by `RoomEventCache::thread_pagination` which returns a new `ThreadPagination` type, similar to `RoomPagination`.
+  ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174))
+
+  Before:
+
+  ```rust
+  room_event_cache.paginate_thread_backwards(thread_id, 42).await
+  ```
+
+  After:
+
+  ```rust
+  room_event_cache.thread_pagination(thread_id).run_backwards_once(42).await
+  ```
+- `RoomPaginationStatus` is renamed to `PaginationStatus`.
+  ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174/))
 - [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with 
   `ClientBuilder::cross_process_store_config` to allow specifying the configuration for the cross-process lock and 
   whether it should act as a no-op (client used in a single process) or we should keep the previous behavior (client 

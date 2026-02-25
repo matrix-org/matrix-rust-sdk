@@ -28,7 +28,9 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
+use matrix_sdk_base::crypto::{
+    DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
+};
 use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
@@ -1628,6 +1630,12 @@ impl Client {
             room.set_is_direct(true).await?;
         }
 
+        // If we joined following an invite, check if we had previously received a key
+        // bundle from the inviter, and import it if so.
+        //
+        // It's important that we only do this once `BaseClient::room_joined` has
+        // completed: see the notes on `BundleReceiverTask::handle_bundle` on avoiding a
+        // race.
         #[cfg(feature = "e2e-encryption")]
         if self.inner.enable_share_history_on_invite
             && let Some(inviter) =
@@ -3339,6 +3347,18 @@ impl Client {
         &self,
     ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
         self.inner.duplicate_key_upload_error_sender.subscribe()
+    }
+
+    /// Check the record of whether we are waiting for an [MSC4268] key bundle
+    /// for the given room.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        Ok(self.base_client().get_pending_key_bundle_details_for_room(room_id).await?)
     }
 }
 

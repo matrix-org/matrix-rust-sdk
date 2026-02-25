@@ -94,6 +94,15 @@ pub async fn update_any_room(
         room_id,
     );
 
+    // If we are not joined to the room, we cannot be waiting for a key bundle:
+    // clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    if room_info.state() != RoomState::Joined
+        && let Some(olm) = e2ee.olm_machine
+    {
+        olm.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+    }
+
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
@@ -111,7 +120,7 @@ pub async fn update_any_room(
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        &e2ee,
     )
     .await?;
 
@@ -141,7 +150,7 @@ pub async fn update_any_room(
         timeline::builder::Timeline::from(room_response),
         notification,
         #[cfg(feature = "e2e-encryption")]
-        e2ee.clone(),
+        &e2ee,
     )
     .await?;
 
