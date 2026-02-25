@@ -54,7 +54,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
     )
     .ignore_whitespace(true)
     .build()
-    .expect("Failed to build the `find_sync_start regex`");
+    .expect("Failed to build the `find_sync` regex");
 
     let log_file = fs::File::open(&log_path)?;
     let mut output_file = fs::File::create(&output_path)?;
