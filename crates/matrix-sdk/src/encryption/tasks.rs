@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use futures_core::Stream;
 use futures_util::{StreamExt, pin_mut};
-use matrix_sdk_base::crypto::store::types::RoomKeyBundleInfo;
+use matrix_sdk_base::crypto::store::types::{RoomKeyBundleInfo, RoomPendingKeyBundleDetails};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
@@ -446,6 +446,10 @@ impl BundleReceiverTask {
     async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
         pin_mut!(stream);
 
+        // Before we listen for new bundles, we check if we have existing ones
+        // unimported.
+        Self::try_import_stored_bundles(&client).await;
+
         // TODO: Listening to this stream is not enough for iOS due to the NSE killing
         // our OlmMachine and thus also this stream. We need to add an event handler
         // that will listen for the bundle event. To be able to add an event handler,
@@ -463,6 +467,36 @@ impl BundleReceiverTask {
             };
 
             Self::handle_bundle(&room, &bundle_info).await;
+        }
+    }
+
+    /// Retrieves a list of all rooms pending key bundles, then cross-references
+    /// this with bundles held in the crypto store. If all conditions outlined
+    /// in [`shared_room_history::maybe_accept_key_bundle`], then the bundle
+    /// will be imported.
+    async fn try_import_stored_bundles(client: &WeakClient) {
+        let Some(client) = client.get() else {
+            return;
+        };
+
+        let olm_machine = client.olm_machine().await;
+        let Some(olm_machine) = olm_machine.as_ref() else {
+            return;
+        };
+        let Ok(room_details) = olm_machine.store().get_all_rooms_pending_key_bundles().await else {
+            return;
+        };
+
+        for RoomPendingKeyBundleDetails { room_id, inviter, .. } in &room_details {
+            let Some(room) = client.get_room(room_id) else {
+                continue;
+            };
+            let Ok(Some(bundle)) =
+                olm_machine.store().get_received_room_key_bundle_data(room_id, inviter).await
+            else {
+                continue;
+            };
+            Self::handle_bundle(&room, &(&bundle).into()).await;
         }
     }
 

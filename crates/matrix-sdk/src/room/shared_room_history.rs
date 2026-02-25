@@ -238,6 +238,10 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
     // olm_machine.store().clear_received_room_key_bundle_data(room.room_id(),
     // user_id).await?;
 
+    // If we have reached this point, the bundle was successfully imported, so
+    // we can clear its pending state.
+    olm_machine.store().clear_room_pending_key_bundle(room.room_id()).await?;
+
     Ok(())
 }
 
