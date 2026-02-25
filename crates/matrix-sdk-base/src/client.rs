@@ -28,14 +28,15 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    TrustRequirement, store::DynCryptoStore, types::requests::ToDeviceRequest,
+    TrustRequirement, store::DynCryptoStore, store::types::RoomPendingKeyBundleDetails,
+    types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -54,7 +55,7 @@ use tracing::{Level, debug, enabled, info, instrument, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    InviteAcceptanceDetails, RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
@@ -398,6 +399,14 @@ impl BaseClient {
             room_info.mark_as_knocked();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
+
+            // We are no longer joined to the room, so the invite acceptance details are no
+            // longer relevant.
+            #[cfg(feature = "e2e-encryption")]
+            if let Some(olm_machine) = self.olm_machine().await.as_ref() {
+                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+            }
+
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.state_store.save_changes(&changes).await?; // Update the store
@@ -426,7 +435,7 @@ impl BaseClient {
     /// * `inviter` - When joining this room in response to an invitation, the
     ///   inviter should be recorded before sending the join request to the
     ///   server. Providing the inviter here ensures that the
-    ///   [`InviteAcceptanceDetails`] are stored for this room.
+    ///   [`RoomPendingKeyBundleDetails`] are stored for this room.
     ///
     /// # Examples
     ///
@@ -459,30 +468,35 @@ impl BaseClient {
             let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
-            let previous_state = room.state();
 
             room_info.mark_as_joined();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
 
-            // If our previous state was an invite and we're now in the joined state, this
-            // means that the user has explicitly accepted an invite. Let's
-            // remember some details about the invite.
-            //
-            // This is somewhat of a workaround for our lack of cryptographic membership.
-            // Later on we will decide if historic room keys should be accepted
-            // based on this info. If a user has accepted an invite and we receive a room
-            // key bundle shortly after, we might accept it. If we don't do
-            // this, the homeserver could trick us into accepting any historic room key
-            // bundle.
-            if previous_state == RoomState::Invited
-                && let Some(inviter) = inviter
+            #[cfg(feature = "e2e-encryption")]
             {
-                let details = InviteAcceptanceDetails {
-                    invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
-                    inviter,
-                };
-                room_info.set_invite_acceptance_details(details);
+                // If our previous state was an invite and we're now in the joined state, this
+                // means that the user has explicitly accepted an invite. Let's
+                // remember some details about the invite.
+                //
+                // This is somewhat of a workaround for our lack of cryptographic membership.
+                // Later on we will decide if historic room keys should be accepted
+                // based on this info. If a user has accepted an invite and we receive a room
+                // key bundle shortly after, we might accept it. If we don't do
+                // this, the homeserver could trick us into accepting any historic room key
+                // bundle.
+                let previous_state = room.state();
+                if previous_state == RoomState::Invited
+                    && let Some(inviter) = inviter
+                    && let Some(olm_machine) = self.olm_machine().await.as_ref()
+                {
+                    olm_machine.store().store_room_pending_key_bundle(room_id, &inviter).await?
+                }
+            }
+            #[cfg(not(feature = "e2e-encryption"))]
+            {
+                // suppress unused argument warning
+                let _ = inviter;
             }
 
             let mut changes = StateChanges::default();
@@ -509,6 +523,14 @@ impl BaseClient {
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
+
+            // We are no longer joined to the room, so the invite acceptance details are no
+            // longer relevant.
+            #[cfg(feature = "e2e-encryption")]
+            if let Some(olm_machine) = self.olm_machine().await.as_ref() {
+                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+            }
+
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.state_store.save_changes(&changes).await?; // Update the store
@@ -690,6 +712,8 @@ impl BaseClient {
                     &mut notifications,
                     &self.state_store,
                 ),
+                #[cfg(feature = "e2e-encryption")]
+                &e2ee_context,
             )
             .await?;
 
@@ -707,6 +731,8 @@ impl BaseClient {
                     &mut notifications,
                     &self.state_store,
                 ),
+                #[cfg(feature = "e2e-encryption")]
+                &e2ee_context,
             )
             .await?;
 
@@ -1085,6 +1111,24 @@ impl BaseClient {
             }
         }
     }
+
+    /// Check the record of whether we are waiting for an [MSC4268] key bundle
+    /// for the given room.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        let result = match self.olm_machine().await.as_ref() {
+            Some(machine) => {
+                machine.store().get_pending_key_bundle_details_for_room(room_id).await?
+            }
+            None => None,
+        };
+        Ok(result)
+    }
 }
 
 /// Represent the `required_state` values sent by a sync request.
@@ -1148,7 +1192,9 @@ impl From<&v5::Request> for RequestedRequiredStates {
 mod tests {
     use std::collections::HashMap;
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
+    #[cfg(feature = "e2e-encryption")]
+    use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
@@ -1709,37 +1755,43 @@ mod tests {
         assert!(client.is_user_ignored(ignored_user_id).await);
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_invite_details_are_set() {
         let user_id = user_id!("@alice:localhost");
         let client = logged_in_base_client(Some(user_id)).await;
-        let invited_room_id = room_id!("!invited:localhost");
+        let known_room_id = room_id!("!invited:localhost");
         let unknown_room_id = room_id!("!unknown:localhost");
 
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_invited_room(InvitedRoomBuilder::new(invited_room_id))
+            .add_invited_room(InvitedRoomBuilder::new(known_room_id))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         // Let us first check the initial state, we should have a room in the invite
         // state.
         let invited_room = client
-            .get_room(invited_room_id)
+            .get_room(known_room_id)
             .expect("The sync should have created a room in the invited state");
 
         assert_eq!(invited_room.state(), RoomState::Invited);
-        assert!(invited_room.invite_acceptance_details().is_none());
+        assert!(
+            client.get_pending_key_bundle_details_for_room(known_room_id).await.unwrap().is_none()
+        );
 
         // Now we join the room.
         let joined_room = client
-            .room_joined(invited_room_id, Some(user_id.to_owned()))
+            .room_joined(known_room_id, Some(user_id.to_owned()))
             .await
             .expect("We should be able to mark a room as joined");
 
         // Yup, we now have some invite details.
         assert_eq!(joined_room.state(), RoomState::Joined);
-        assert_matches!(joined_room.invite_acceptance_details(), Some(details));
+        assert_matches!(
+            client.get_pending_key_bundle_details_for_room(known_room_id).await,
+            Ok(Some(details))
+        );
         assert_eq!(details.inviter, user_id);
 
         // If we didn't know about the room before the join, we assume that there wasn't
@@ -1751,19 +1803,27 @@ mod tests {
             .expect("We should be able to mark a room as joined");
 
         assert_eq!(unknown_room.state(), RoomState::Joined);
-        assert!(unknown_room.invite_acceptance_details().is_none());
+        assert!(
+            client
+                .get_pending_key_bundle_details_for_room(unknown_room_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         sync_builder.clear();
         let response =
-            sync_builder.add_left_room(LeftRoomBuilder::new(invited_room_id)).build_sync_response();
+            sync_builder.add_left_room(LeftRoomBuilder::new(known_room_id)).build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         // Now that we left the room, we shouldn't have any details anymore.
         let left_room = client
-            .get_room(invited_room_id)
+            .get_room(known_room_id)
             .expect("The sync should have created a room in the invited state");
 
         assert_eq!(left_room.state(), RoomState::Left);
-        assert!(left_room.invite_acceptance_details().is_none());
+        assert!(
+            client.get_pending_key_bundle_details_for_room(known_room_id).await.unwrap().is_none()
+        );
     }
 }

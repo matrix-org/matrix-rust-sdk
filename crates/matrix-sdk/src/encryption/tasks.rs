@@ -21,7 +21,8 @@ use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
 };
 use matrix_sdk_base::{
-    InviteAcceptanceDetails, RoomState, crypto::store::types::RoomKeyBundleInfo,
+    RoomState,
+    crypto::store::types::{RoomKeyBundleInfo, RoomPendingKeyBundleDetails},
 };
 use matrix_sdk_common::failures_cache::FailuresCache;
 #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -468,9 +469,26 @@ impl BundleReceiverTask {
         }
     }
 
+    /// We have received a key bundle for a given room: check if we recently
+    /// accepted an invite from the sender of the bundle, and if so, join
+    /// the room.
+    ///
+    /// Note that there is a potential race with the room-join logic
+    /// ([`Client::finish_join_room`]), which, having joined a room after an
+    /// invite, checks if we already have a bundle, and accepts it if so.
+    /// However, here we have already recorded the receipt of a bundle, and are
+    /// now checking if we have accepted an invite, whereas in
+    /// `finish_join_room`, we first record the acceptance of an invite
+    /// and then check for a bundle.
+    ///
+    /// In theory then, it is possible for both threads to decide to process the
+    /// bundle at once; however this is (a) unlikely and (b) harmless. On the
+    /// other hand, it is **not** possible for a race to mean that we end up
+    /// processing the bundle zero times: we can be sure that at least one
+    /// thread will process it.
     #[instrument(skip(room), fields(room_id = %room.room_id()))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
-        if Self::should_accept_bundle(room, bundle_info) {
+        if Self::should_accept_bundle(room, bundle_info).await {
             info!("Accepting a late key bundle.");
 
             if let Err(e) =
@@ -483,16 +501,17 @@ impl BundleReceiverTask {
         }
     }
 
-    fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
+    async fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
         // We accept historic room key bundles up to one day after we have accepted an
         // invite.
         const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
         // If we don't have any invite acceptance details, then this client wasn't the
         // one that accepted the invite.
-        let Some(InviteAcceptanceDetails { invite_accepted_at, inviter }) =
-            room.invite_acceptance_details()
+        let Ok(Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter, .. })) =
+            room.client.base_client().get_pending_key_bundle_details_for_room(room.room_id()).await
         else {
+            debug!("Not accepting key bundle as there are no recorded invite acceptance details");
             return false;
         };
 
@@ -624,7 +643,12 @@ mod test {
             client.get_room(joined_room_id).expect("We should have access to our joined room now");
 
         assert!(
-            room.invite_acceptance_details().is_none(),
+            client
+                .base_client()
+                .get_pending_key_bundle_details_for_room(room.room_id())
+                .await
+                .unwrap()
+                .is_none(),
             "We shouldn't have any invite acceptance details if we didn't join the room on this Client"
         );
 
@@ -635,7 +659,7 @@ mod test {
         };
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should not accept a bundle if we did not join the room from this Client"
         );
 
@@ -643,7 +667,7 @@ mod test {
             client.get_room(invited_rom_id).expect("We should have access to our invited room now");
 
         assert!(
-            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info),
+            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info).await,
             "We should not accept a bundle if we didn't join the room."
         );
 
@@ -654,13 +678,16 @@ mod test {
             .await
             .expect("We should be able to join the invited room");
 
-        let details = room
-            .invite_acceptance_details()
+        let details = client
+            .base_client()
+            .get_pending_key_bundle_details_for_room(room.room_id())
+            .await
+            .unwrap()
             .expect("We should have stored the invite acceptance details");
         assert_eq!(details.inviter, bob_user_id, "We should have recorded that Bob has invited us");
 
         assert!(
-            BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            BundleReceiverTask::should_accept_bundle(&room, &bundle_info).await,
             "We should accept a bundle if we just joined the room and did so from this very Client object"
         );
     }
