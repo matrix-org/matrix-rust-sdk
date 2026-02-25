@@ -27,11 +27,9 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, trace};
 
 use super::{
-    super::{
-        RoomEventCacheLinkedChunkUpdate, deduplicator::DeduplicationOutcome,
-        room::events::EventLinkedChunk,
-    },
+    super::{RoomEventCacheLinkedChunkUpdate, deduplicator::DeduplicationOutcome},
     EventsOrigin, TimelineVectorDiffs,
+    event_linked_chunk::EventLinkedChunk,
     pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
 };
 

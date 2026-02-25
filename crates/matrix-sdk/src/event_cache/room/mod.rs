@@ -24,7 +24,6 @@ use std::{
     },
 };
 
-use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
@@ -47,11 +46,12 @@ use tracing::{instrument, trace, warn};
 use super::{
     AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
     RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
-    caches::{TimelineVectorDiffs, thread::pagination::ThreadPagination},
+    caches::{
+        TimelineVectorDiffs, event_linked_chunk::sort_positions_descending,
+        thread::pagination::ThreadPagination,
+    },
 };
 use crate::{client::WeakClient, room::WeakRoom};
-
-pub(super) mod events;
 
 /// A subset of an event cache, for a room.
 ///
@@ -613,7 +613,9 @@ mod private {
         super::{
             EventCacheError, PaginationStatus, RoomEventCacheLinkedChunkUpdate,
             caches::{
-                TimelineVectorDiffs, lock,
+                TimelineVectorDiffs,
+                event_linked_chunk::EventLinkedChunk,
+                lock,
                 pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
                 pinned_events::PinnedEventCache,
                 thread::ThreadEventCache,
@@ -622,9 +624,7 @@ mod private {
             persistence::send_updates_to_store,
         },
         EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
-        RoomEventCacheUpdate,
-        events::EventLinkedChunk,
-        sort_positions_descending,
+        RoomEventCacheUpdate, sort_positions_descending,
     };
     use crate::Room;
 

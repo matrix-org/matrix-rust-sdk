@@ -38,9 +38,12 @@ use tracing::{debug, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
-use super::super::{
-    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, caches::lock,
-    persistence::send_updates_to_store, room::events::EventLinkedChunk,
+use super::{
+    super::{
+        EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, caches::lock,
+        persistence::send_updates_to_store,
+    },
+    event_linked_chunk::EventLinkedChunk,
 };
 use crate::{
     Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorDiffs,

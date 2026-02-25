@@ -25,7 +25,7 @@ use ruma::{OwnedEventId, OwnedUserId, UserId};
 
 use super::{
     EventCacheError,
-    room::events::{Event, EventLinkedChunk},
+    caches::event_linked_chunk::{Event, EventLinkedChunk},
 };
 
 /// Find duplicates in the given collection of new events, and return relevant
