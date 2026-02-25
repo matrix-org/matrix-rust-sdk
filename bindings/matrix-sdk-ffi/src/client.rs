@@ -203,6 +203,26 @@ impl From<PushFormat> for RumaPushFormat {
     }
 }
 
+#[derive(uniffi::Object)]
+pub struct SecretsBundle {
+    inner: matrix_sdk_base::crypto::types::SecretsBundle,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SecretsBundle {
+    #[uniffi::constructor]
+    pub fn from_str(bundle: &str) -> Result<Arc<Self>, ClientError> {
+        let bundle = serde_json::from_str(bundle)?;
+
+        Ok(Self { inner: bundle }.into())
+    }
+
+    #[uniffi::constructor]
+    pub fn from_database(database_path: &str) -> Result<Arc<Self>, ClientError> {
+        todo!()
+    }
+}
+
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
     /// A callback invoked whenever the SDK runs into an unknown token error.
@@ -418,6 +438,24 @@ impl Client {
 
         Ok(client)
     }
+
+    pub(crate) async fn import_secrets_bundle(
+        &self,
+        secrets_bundle: &SecretsBundle,
+    ) -> Result<(), ClientError> {
+        self.inner
+            .encryption()
+            .import_secrets_bundle(&secrets_bundle.inner)
+            .await
+            .map_err(|e| ClientError::from_err(e))?;
+
+        // Upload the device keys, this will ensure that other devices see us as a fully
+        // verified device ass soon as this method returns.
+        self.inner.encryption().ensure_device_keys_upload().await?;
+        self.inner.encryption().wait_for_e2ee_initialization_tasks().await;
+
+        Ok(())
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -486,15 +524,24 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
         }
+
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
+
         Ok(())
     }
 
@@ -506,6 +553,7 @@ impl Client {
         jwt: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let data = json!({ "token": jwt }).as_object().unwrap().clone();
 
@@ -520,6 +568,11 @@ impl Client {
         }
 
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
+
         Ok(())
     }
 
@@ -530,6 +583,7 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let mut builder = self
             .inner
@@ -545,6 +599,10 @@ impl Client {
         }
 
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
 
         Ok(())
     }
@@ -637,7 +695,11 @@ impl Client {
     }
 
     /// Completes the OIDC login process.
-    pub async fn login_with_oidc_callback(&self, callback_url: String) -> Result<(), OidcError> {
+    pub async fn login_with_oidc_callback(
+        &self,
+        callback_url: String,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
+    ) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
         self.inner.oauth().finish_login(url.into()).await?;

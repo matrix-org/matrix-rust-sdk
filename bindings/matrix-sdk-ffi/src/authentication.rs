@@ -29,7 +29,7 @@ use matrix_sdk::{
 use ruma::serde::Raw;
 use url::Url;
 
-use crate::client::{Client, OidcPrompt, SlidingSyncVersion};
+use crate::client::{Client, OidcPrompt, SecretsBundle, SlidingSyncVersion};
 
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
@@ -95,12 +95,24 @@ impl SsoHandler {
     }
 
     /// Completes the SSO login process.
-    pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
+    pub async fn finish(
+        &self,
+        callback_url: String,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
+    ) -> Result<(), SsoError> {
         let auth = self.client.inner.matrix_auth();
         let url = Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
         let builder =
             auth.login_with_sso_callback(url).map_err(|_| SsoError::CallbackUrlInvalid)?;
         builder.await.map_err(|_| SsoError::LoginWithTokenFailed)?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.client
+                .import_secrets_bundle(&bundle)
+                .await
+                .map_err(|e| SsoError::Generic { message: e.to_string() })?;
+        }
+
         Ok(())
     }
 }
