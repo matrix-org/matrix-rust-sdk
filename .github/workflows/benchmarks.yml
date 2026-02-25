@@ -91,9 +91,17 @@ jobs:
       - name: Build the benchmark target(s)
         run: cargo codspeed build -p benchmarks --bench ${{ matrix.benchmark }} --features codspeed
 
-      - name: Run the benchmarks
+      - name: Run the benchmarks in simulation mode
         uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
         with:
           run: cargo codspeed run
-          mode: "instrumentation"
+          mode: simulation
+          token: ${{ secrets.CODSPEED_TOKEN }}
+
+      - name: Run the benchmarks in memory mode
+        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
+        if: ${{ matrix.benchmark != 'timeline' }} # The benchmark fails an assertion, maybe due to it being slower?
+        with:
+          run: cargo codspeed run
+          mode: memory
           token: ${{ secrets.CODSPEED_TOKEN }}
