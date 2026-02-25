@@ -756,6 +756,12 @@ async fn main() -> anyhow::Result<()> {
         "`e2ee-per-participant` feature is disabled; this device will not send io.element.call.encryption_keys to-device messages"
     );
     let connector = LiveKitSdkConnector::new(token_provider, room_options_provider);
+    let resolved_room_options = connector.room_options_provider().room_options();
+    info!(
+        room_options_provider_type = std::any::type_name_of_val(connector.room_options_provider()),
+        room_options = ?resolved_room_options,
+        "configured LiveKit room options provider"
+    );
 
     let service_url = ensure_access_token_query(&service_url, &livekit_token)
         .context("attach access_token to LiveKit service url")?;
