@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2023, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,6 +30,8 @@ use super::{
 };
 #[cfg(doc)]
 use crate::olm::SenderData;
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, UserIdentityData,
     olm::{
@@ -337,6 +339,22 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// stored.
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<(), Self::Error>;
 
+    /// Get all the pushed secrets with the given [`SecretName`] we have
+    /// currently stored.
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<SecretPushContent>, Self::Error>;
+
+    /// Delete all the pushed secrets with the given [`SecretName`] we have
+    /// currently stored.
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<(), Self::Error>;
+
     /// Get the room settings, such as the encryption algorithm or whether to
     /// encrypt only for trusted devices.
     ///
@@ -602,6 +620,19 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         self.0.delete_secrets_from_inbox(secret_name).await.map_err(Into::into)
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<SecretPushContent>> {
+        self.0.get_pushed_secrets_from_inbox(secret_name).await.map_err(Into::into)
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        self.0.delete_pushed_secrets_from_inbox(secret_name).await.map_err(Into::into)
     }
 
     async fn get_withheld_info(

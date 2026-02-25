@@ -1,4 +1,4 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2022, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_base::cross_process_lock::CrossProcessLockGeneration;
+#[cfg(feature = "experimental-push-secrets")]
+use matrix_sdk_crypto::types::events::secret_push::SecretPushContent;
 use matrix_sdk_crypto::{
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
@@ -194,7 +196,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 14;
+const DATABASE_VERSION: u8 = 15;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -340,6 +342,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 15 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/015_pushed_secret_inbox.sql"
+            ))?;
+            txn.set_db_version(15)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -387,6 +399,9 @@ trait SqliteConnectionExt {
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 
     fn set_secret(&self, request_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+
+    #[cfg(feature = "experimental-push-secrets")]
+    fn set_pushed_secret(&self, request_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 
     fn set_received_room_key_bundle(
         &self,
@@ -518,6 +533,17 @@ impl SqliteConnectionExt for rusqlite::Connection {
     fn set_secret(&self, secret_name: &[u8], data: &[u8]) -> rusqlite::Result<()> {
         self.execute(
             "INSERT INTO secrets (secret_name, data)
+            VALUES (?1, ?2)",
+            (secret_name, data),
+        )?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    fn set_pushed_secret(&self, secret_name: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO pushed_secrets (secret_name, data)
             VALUES (?1, ?2)",
             (secret_name, data),
         )?;
@@ -810,6 +836,21 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(&self, secret_name: Key) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM pushed_secrets WHERE secret_name = ?", |mut stmt| {
+                stmt.query((secret_name,))?.mapped(|row| row.get(0)).collect()
+            })
+            .await?)
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(&self, secret_name: Key) -> Result<()> {
+        self.execute("DELETE FROM pushed_secrets WHERE secret_name = ?", (secret_name,)).await?;
+        Ok(())
+    }
+
     async fn get_direct_withheld_info(
         &self,
         session_id: Key,
@@ -1067,6 +1108,14 @@ impl CryptoStore for SqliteCryptoStore {
                     let secret_name = this.encode_key("secrets", secret.secret_name.to_string());
                     let value = this.serialize_json(&secret)?;
                     txn.set_secret(&secret_name, &value)?;
+                }
+
+                #[cfg(feature = "experimental-push-secrets")]
+                for pushed_secret in changes.pushed_secrets {
+                    let secret_name =
+                        this.encode_key("pushed_secrets", pushed_secret.name.to_string());
+                    let value = this.serialize_json(&pushed_secret)?;
+                    txn.set_pushed_secret(&secret_name, &value)?;
                 }
 
                 for bundle in changes.received_room_key_bundles {
@@ -1449,6 +1498,28 @@ impl CryptoStore for SqliteCryptoStore {
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         let secret_name = self.encode_key("secrets", secret_name.to_string());
         self.write().await.delete_secrets_from_inbox(secret_name).await
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn get_pushed_secrets_from_inbox(
+        &self,
+        secret_name: &SecretName,
+    ) -> Result<Vec<SecretPushContent>> {
+        let secret_name = self.encode_key("pushed_secrets", secret_name.to_string());
+
+        self.acquire()
+            .await?
+            .get_pushed_secrets_from_inbox(secret_name)
+            .await?
+            .into_iter()
+            .map(|value| self.deserialize_json(value.as_ref()))
+            .collect()
+    }
+
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn delete_pushed_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
+        let secret_name = self.encode_key("pushed_secrets", secret_name.to_string());
+        self.acquire().await?.delete_pushed_secrets_from_inbox(secret_name).await
     }
 
     async fn get_withheld_info(

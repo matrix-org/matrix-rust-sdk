@@ -444,3 +444,15 @@ pub enum SessionRecipientCollectionError {
     #[error("Encryption failed because your device is not verified")]
     SendingFromUnverifiedDevice,
 }
+
+/// Error representing a problem when pushing a secret
+#[derive(Error, Debug)]
+#[cfg(feature = "experimental-push-secrets")]
+pub enum SecretPushError {
+    #[error("The requested secret is not available")]
+    MissingSecret,
+
+    /// The storage layer returned an error.
+    #[error(transparent)]
+    StoreError(#[from] CryptoStoreError),
+}
