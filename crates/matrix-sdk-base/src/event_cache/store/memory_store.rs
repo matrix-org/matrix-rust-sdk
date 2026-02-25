@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -257,7 +257,7 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event: Vec<_> = inner
+        let (_, event): (_, Vec<_>) = inner
             .events
             .items(room_id)
             .map(|(_, (event, _pos))| event.clone())
@@ -271,10 +271,15 @@ impl EventCacheStore for MemoryStore {
                     .map(|id| (id, e))
                     .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })
             })
-            .collect::<Result<HashMap<_, _>, _>>()?
-            .into_values()
-            .collect();
-
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .fold((HashSet::new(), Vec::new()), |(mut ids, mut es), (id, e)| {
+                if !ids.contains(&id) {
+                    ids.insert(id);
+                    es.push(e);
+                }
+                (ids, es)
+            });
         Ok(event)
     }
 
