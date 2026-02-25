@@ -782,6 +782,10 @@ impl CryptoStore for MemoryStore {
         Ok(self.rooms_pending_key_bundle.read().get(room_id).cloned())
     }
 
+    async fn get_all_rooms_pending_key_bundles(&self) -> Result<Vec<RoomPendingKeyBundleDetails>> {
+        Ok(self.rooms_pending_key_bundle.read().values().cloned().collect())
+    }
+
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
         let guard = self.room_key_backups_fully_downloaded.read();
         Ok(guard.contains(room_id))
@@ -1627,6 +1631,12 @@ mod integration_tests {
             room_id: &RoomId,
         ) -> Result<Option<RoomPendingKeyBundleDetails>, Self::Error> {
             self.0.get_pending_key_bundle_details_for_room(room_id).await
+        }
+
+        async fn get_all_rooms_pending_key_bundles(
+            &self,
+        ) -> Result<Vec<RoomPendingKeyBundleDetails>, Self::Error> {
+            self.0.get_all_rooms_pending_key_bundles().await
         }
 
         async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
