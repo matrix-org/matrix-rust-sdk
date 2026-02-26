@@ -1053,7 +1053,7 @@ impl EventCacheInner {
                 continue;
             };
 
-            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+            if let Err(err) = room.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }

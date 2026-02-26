@@ -273,6 +273,16 @@ impl RoomEventCache {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id()))]
+    pub(in super::super) async fn handle_left_room_update(
+        &self,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+
+        Ok(())
+    }
+
     /// Handle a single event from the `SendQueue`.
     pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
         self.inner
@@ -423,16 +433,6 @@ impl RoomEventCacheInner {
         )
         .await?;
         self.handle_account_data(updates.account_data);
-
-        Ok(())
-    }
-
-    #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(in super::super) async fn handle_left_room_update(
-        &self,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
     }
