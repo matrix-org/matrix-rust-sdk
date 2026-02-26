@@ -43,7 +43,7 @@ use crate::{
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
-    utils::RawSyncStateEventWithKeys,
+    utils::RawStateEventWithKeys,
 };
 
 /// Represent any kind of room updates.
@@ -224,7 +224,7 @@ pub async fn update_any_room(
 /// or knocked room, depending of the membership event (if any).
 fn membership(
     context: &mut Context,
-    state_events: &mut [RawSyncStateEventWithKeys],
+    state_events: &mut [RawStateEventWithKeys<AnySyncStateEvent>],
     invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
     store: &BaseStateStore,
     user_id: &UserId,

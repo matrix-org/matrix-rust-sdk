@@ -997,11 +997,13 @@ impl BaseClient {
 
                 let members = self.state_store.get_user_ids(room_id, filter).await?;
 
-                let settings = EncryptionSettings::new(
+                let Some(settings) = EncryptionSettings::from_possibly_redacted(
                     room_encryption_event,
                     history_visibility,
                     self.room_key_recipient_strategy.clone(),
-                );
+                ) else {
+                    return Err(Error::EncryptionNotEnabled);
+                };
 
                 Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
             }

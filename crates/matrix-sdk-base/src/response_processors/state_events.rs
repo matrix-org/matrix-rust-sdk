@@ -26,7 +26,7 @@ use tracing::{error, warn};
 use super::Context;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use super::e2ee;
-use crate::{store::BaseStateStore, utils::RawSyncStateEventWithKeys};
+use crate::{store::BaseStateStore, utils::RawStateEventWithKeys};
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
@@ -48,7 +48,7 @@ pub mod sync {
         RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
-        utils::RawSyncStateEventWithKeys,
+        utils::RawStateEventWithKeys,
     };
 
     impl State {
@@ -59,22 +59,22 @@ pub mod sync {
         pub(crate) fn collect(
             &self,
             timeline: &[Raw<AnySyncTimelineEvent>],
-        ) -> Vec<RawSyncStateEventWithKeys> {
+        ) -> Vec<RawStateEventWithKeys<AnySyncStateEvent>> {
             match self {
                 Self::Before(events) => events
                     .iter()
                     .cloned()
-                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
                     .chain(
                         timeline
                             .iter()
-                            .filter_map(RawSyncStateEventWithKeys::try_from_raw_timeline_event),
+                            .filter_map(RawStateEventWithKeys::try_from_raw_timeline_event),
                     )
                     .collect(),
                 Self::After(events) => events
                     .iter()
                     .cloned()
-                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
                     .collect(),
             }
         }
@@ -92,7 +92,7 @@ pub mod sync {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub async fn dispatch<U>(
         context: &mut Context,
-        raw_events: Vec<RawSyncStateEventWithKeys>,
+        raw_events: Vec<RawStateEventWithKeys<AnySyncStateEvent>>,
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
@@ -176,7 +176,7 @@ pub mod sync {
     async fn dispatch_room_member<U>(
         context: &mut Context,
         room_id: &RoomId,
-        raw_event: &mut RawSyncStateEventWithKeys,
+        raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
     ) -> StoreResult<()>
@@ -225,7 +225,7 @@ pub mod sync {
     pub fn own_membership_and_update_room_state(
         context: &mut Context,
         user_id: &UserId,
-        state_events: &mut [RawSyncStateEventWithKeys],
+        state_events: &mut [RawStateEventWithKeys<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
     ) {
         // Start from the last event; the first membership event we see in that order is
@@ -398,7 +398,7 @@ where
 pub fn validate_create_event_predecessor(
     context: &mut Context,
     room_id: &RoomId,
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     state_store: &BaseStateStore,
 ) {
     let mut already_seen = BTreeSet::new();
@@ -469,7 +469,7 @@ pub fn validate_create_event_predecessor(
 pub fn is_tombstone_event_valid(
     context: &mut Context,
     room_id: &RoomId,
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     state_store: &BaseStateStore,
 ) -> bool {
     let mut already_seen = BTreeSet::new();
@@ -524,10 +524,10 @@ pub fn is_tombstone_event_valid(
 /// its keys were deserialized.
 #[cfg(feature = "experimental-encrypted-state-events")]
 async fn decrypt_state_event(
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     room_id: &RoomId,
     e2ee: &e2ee::E2EE<'_>,
-) -> Option<RawSyncStateEventWithKeys> {
+) -> Option<RawStateEventWithKeys<AnySyncStateEvent>> {
     use matrix_sdk_crypto::RoomEventDecryptionResult;
     use ruma::OwnedEventId;
     use tracing::{trace, warn};
@@ -565,9 +565,7 @@ async fn decrypt_state_event(
 
     // Cast to `AnySync*Event`, safe since this is a supertype of
     // `AnyTimelineEvent`.
-    match RawSyncStateEventWithKeys::try_from_raw_state_event(
-        decrypted_event.event.cast_unchecked(),
-    ) {
+    match RawStateEventWithKeys::try_from_raw_state_event(decrypted_event.event.cast_unchecked()) {
         Some(event) => {
             trace!(?event_id, "Decrypted state event successfully.");
             Some(event)
