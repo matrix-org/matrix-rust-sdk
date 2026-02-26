@@ -707,6 +707,12 @@ impl Client {
 
         self.inner.oauth().finish_login(url.into()).await?;
 
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle)
+                .await
+                .map_err(|e| OidcError::Generic { message: e.to_string() })?;
+        }
+
         Ok(())
     }
 
