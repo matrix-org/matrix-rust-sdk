@@ -134,7 +134,7 @@ impl MatrixDriver {
             // update local event array
             events = ev_cache.events().await?;
         }
-        let token = events.first().and_then(|e| e.event_id());
+        let token = events.last().and_then(|e| e.event_id().map(|id| id.to_string()));
 
         let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
             e.get_field::<String>("type")
@@ -160,7 +160,7 @@ impl MatrixDriver {
 
         return Ok(ReadEventsResponse {
             events: filtered_events,
-            pagination_token: token.map(|id| id.to_string()),
+            pagination_token: token,
             reached_start,
         });
     }
