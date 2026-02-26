@@ -104,8 +104,8 @@ impl MatrixDriver {
         let mut events = ev_cache.events().await?;
         let mut reached_start = false;
 
-        let mut pagination_limit_exceeded = false;
-        const LIMIT_ITERATIONS: usize = 10;
+        let mut allow_to_look_for_more_events = true;
+        const LIMIT_ITERATIONS: usize = 2;
         let mut iterations = 0;
 
         let compute_index_of_token = |from: &Option<String>, events: &Vec<TimelineEvent>| match from
@@ -122,16 +122,16 @@ impl MatrixDriver {
             None => Ok(if events.len() > 0 { events.len() - 1 } else { 0 }),
         };
         let mut index_of_token = compute_index_of_token(&from, &events)?;
-        while index_of_token <= limit || pagination_limit_exceeded {
+        while index_of_token <= limit && allow_to_look_for_more_events {
             // Fetch more events from the server
             let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
             if outcome.reached_start {
-                pagination_limit_exceeded = true;
+                allow_to_look_for_more_events = false;
                 reached_start = true;
             }
             iterations += 1;
-            if iterations >= LIMIT_ITERATIONS {
-                pagination_limit_exceeded = true;
+            if iterations > LIMIT_ITERATIONS {
+                allow_to_look_for_more_events = false;
             }
             // update local event array
             events = ev_cache.events().await?;
@@ -140,6 +140,7 @@ impl MatrixDriver {
             index_of_token = compute_index_of_token(&from, &events)?;
         }
 
+        // TODO use checked_sign_diff
         let lower_bound_index = std::cmp::max((index_of_token as i32) - (limit as i32), 0) as usize;
         let token = events[lower_bound_index].event_id().map(|id| id.to_string());
 
