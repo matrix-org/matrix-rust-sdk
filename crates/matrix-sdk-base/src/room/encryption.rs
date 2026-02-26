@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::room::encryption::RoomEncryptionEventContent;
+use ruma::events::room::encryption::PossiblyRedactedRoomEncryptionEventContent;
 
 use super::Room;
 
@@ -24,7 +24,7 @@ impl Room {
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
     /// in the room.
-    pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
+    pub fn encryption_settings(&self) -> Option<PossiblyRedactedRoomEncryptionEventContent> {
         self.info.read().base_info.encryption.clone()
     }
 }
@@ -96,7 +96,7 @@ mod tests {
     };
 
     use super::{EncryptionState, Room};
-    use crate::{RoomState, store::MemoryStore, utils::RawSyncStateEventWithKeys};
+    use crate::{RoomState, store::MemoryStore, utils::RawStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -119,7 +119,7 @@ mod tests {
             let mut res = false;
             for ev in events {
                 res |= info.handle_state_event(
-                    &mut RawSyncStateEventWithKeys::try_from_raw_state_event(ev)
+                    &mut RawStateEventWithKeys::try_from_raw_state_event(ev)
                         .expect("generated state event should be valid"),
                 );
             }

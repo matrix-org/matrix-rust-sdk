@@ -114,7 +114,7 @@ use ruma::{
         room::{
             ImageInfo, MediaSource, ThumbnailInfo,
             avatar::{self, RoomAvatarEventContent},
-            encryption::RoomEncryptionEventContent,
+            encryption::PossiblyRedactedRoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
             member::{MembershipChange, RoomMemberEventContent, SyncRoomMemberEvent},
             message::{
@@ -1075,7 +1075,8 @@ impl Room {
                     Ok(response) => Some(
                         response
                             .into_content()
-                            .deserialize_as_unchecked::<RoomEncryptionEventContent>()?,
+                            .deserialize_as_unchecked::<PossiblyRedactedRoomEncryptionEventContent>(
+                            )?,
                     ),
                     Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                     Err(err) => return Err(err.into()),
@@ -1087,7 +1088,7 @@ impl Room {
                 // `RoomInfo`.
                 let mut room_info = self.clone_info();
                 room_info.mark_encryption_state_synced();
-                room_info.set_encryption_event(response.clone());
+                room_info.set_encryption_event(response);
                 let mut changes = StateChanges::default();
                 changes.add_room(room_info.clone());
 

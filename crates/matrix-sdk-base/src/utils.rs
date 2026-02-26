@@ -1,9 +1,10 @@
 use ruma::{
-    OwnedEventId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     events::{
-        AnySyncStateEvent, AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
-        RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        AnyPossiblyRedactedStateEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
+        StateEventType, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
+        SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             member::PossiblyRedactedRoomMemberEventContent,
@@ -12,7 +13,7 @@ use ruma::{
     room_version_rules::RedactionRules,
     serde::Raw,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, warn};
 
 use crate::room::RoomCreateWithCreatorEventContent;
@@ -199,29 +200,29 @@ impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorE
     }
 }
 
-/// A raw sync state event and its `(type, state_key)` tuple that identifies it
+/// A raw state event and its `(type, state_key)` tuple that identifies it
 /// in the state map of the room.
 ///
 /// This type can also cache the deserialized event lazily when using
-/// [`RawSyncStateEventWithKeys::deserialize_as()`].
+/// [`RawStateEventWithKeys::deserialize_as()`].
 #[derive(Debug, Clone)]
-pub struct RawSyncStateEventWithKeys {
+pub struct RawStateEventWithKeys<T: AnyStateEventEnum> {
     /// The raw state event.
-    pub raw: Raw<AnySyncStateEvent>,
+    pub raw: Raw<T>,
     /// The type of the state event.
     pub event_type: StateEventType,
     /// The state key of the state event.
     pub state_key: String,
     /// The cached deserialized event.
-    cached_event: Option<Result<AnySyncStateEvent, ()>>,
+    cached_event: Option<Result<T, ()>>,
 }
 
-impl RawSyncStateEventWithKeys {
-    /// Try to construct a `RawSyncStateEventWithKeys` from the given raw state
+impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
+    /// Try to construct a `RawStateEventWithKeys` from the given raw state
     /// event.
     ///
     /// Returns `None` if extracting the `type` or `state_key` fails.
-    pub fn try_from_raw_state_event(raw: Raw<AnySyncStateEvent>) -> Option<Self> {
+    pub fn try_from_raw_state_event(raw: Raw<T>) -> Option<Self> {
         let StateEventWithKeysDeHelper { event_type, state_key } =
             match raw.deserialize_as_unchecked() {
                 Ok(fields) => fields,
@@ -243,7 +244,77 @@ impl RawSyncStateEventWithKeys {
         Some(Self { raw, event_type, state_key, cached_event: None })
     }
 
-    /// Try to construct a `RawSyncStateEventWithKeys` from the given raw
+    /// Try to deserialize the raw event.
+    ///
+    /// The result of the event deserialization is cached for future calls to
+    /// this method.
+    ///
+    /// Returns `None` if the deserialization failed.
+    pub fn deserialize(&mut self) -> Option<&T> {
+        self.cached_event
+            .get_or_insert_with(|| {
+                self.raw.deserialize().map_err(|error| {
+                    warn!(?error, "Couldn't deserialize state event");
+                })
+            })
+            .as_ref()
+            .ok()
+    }
+
+    /// Try to deserialize the raw event and return it as a
+    /// [`MinimalStateEvent`] using the selected variant of
+    /// [`AnyPossiblyRedactedStateEventContent`].
+    ///
+    /// This method should only be called if the variant is already known. It is
+    /// considered a developer error for `as_variant_fn` to return `None`, but
+    /// this API was chosen to simplify closures that use the
+    /// [`as_variant!`](as_variant::as_variant) macro.
+    ///
+    /// The result of the event deserialization is cached for future calls to
+    /// this method.
+    ///
+    /// Returns `None` if the deserialization failed or if `as_variant_fn`
+    /// returns `None`.
+    pub fn deserialize_as_minimal_event<F, C>(
+        &mut self,
+        as_variant_fn: F,
+    ) -> Option<MinimalStateEvent<C>>
+    where
+        F: FnOnce(AnyPossiblyRedactedStateEventContent) -> Option<C>,
+        C: StaticEventContent + PossiblyRedactedStateEventContent + RedactContent,
+    {
+        let any_event = self.deserialize()?;
+        let any_content = any_event.get_content();
+
+        let Some(content) = as_variant_fn(any_content) else {
+            // This should be a developer error, or an upstream error.
+            error!(
+                expected_event_type = ?C::TYPE,
+                actual_event_type = ?any_event.get_event_type().to_string(),
+                "Couldn't deserialize state event content: unexpected type",
+            );
+            return None;
+        };
+
+        Some(MinimalStateEvent {
+            content,
+            event_id: any_event.get_event_id().map(ToOwned::to_owned),
+        })
+    }
+
+    /// Override the event cached by
+    /// [`RawStateEventWithKeys::deserialize_as()`].
+    ///
+    /// When validating the content of the deserialized event, this can be used
+    /// to edit the parts that fail validation and pass the edited event down
+    /// the chain.
+    pub(crate) fn set_cached_event(&mut self, event: T) {
+        self.cached_event = Some(Ok(event));
+    }
+}
+
+impl RawStateEventWithKeys<AnySyncStateEvent> {
+    /// Try to construct a `RawStateEventWithKeys` from the given raw
     /// timeline event.
     ///
     /// Returns `None` if deserializing the `type` or `state_key` fails, or if
@@ -269,7 +340,7 @@ impl RawSyncStateEventWithKeys {
     }
 
     /// Try to deserialize the raw event and return the selected variant of
-    /// `AnySyncStateEvent`.
+    /// [`AnySyncStateEvent`].
     ///
     /// This method should only be called if the variant is already known. It is
     /// considered a developer error for `as_variant_fn` to return `None`, but
@@ -287,16 +358,7 @@ impl RawSyncStateEventWithKeys {
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        let any_event = self
-            .cached_event
-            .get_or_insert_with(|| {
-                self.raw.deserialize().map_err(|error| {
-                    warn!(event_type = ?C::TYPE, ?error, "Couldn't deserialize state event");
-                })
-            })
-            .as_ref()
-            .ok()?;
-
+        let any_event = self.deserialize()?;
         let event = as_variant_fn(any_event);
 
         if event.is_none() {
@@ -310,19 +372,9 @@ impl RawSyncStateEventWithKeys {
 
         event
     }
-
-    /// Override the event cached by
-    /// [`RawSyncStateEventWithKeys::deserialize_as()`].
-    ///
-    /// When validating the content of the deserialized event, this can be used
-    /// to edit the parts that fail validation and pass the edited event down
-    /// the chain.
-    pub(crate) fn set_cached_event(&mut self, event: AnySyncStateEvent) {
-        self.cached_event = Some(Ok(event));
-    }
 }
 
-/// Helper type to deserialize a [`RawSyncStateEventWithKeys`].
+/// Helper type to deserialize a [`RawStateEventWithKeys`].
 #[derive(Deserialize)]
 struct StateEventWithKeysDeHelper {
     #[serde(rename = "type")]
@@ -330,6 +382,47 @@ struct StateEventWithKeysDeHelper {
     /// The state key is optional to be able to differentiate state events from
     /// other messages in the timeline.
     state_key: Option<String>,
+}
+
+/// Helper trait to use common methods of `Any*StateEvent` enums.
+pub trait AnyStateEventEnum: DeserializeOwned {
+    /// Get the type of the state event.
+    fn get_event_type(&self) -> StateEventType;
+
+    /// Get the content of the state event.
+    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent;
+
+    /// Get the ID of the state event, if any.
+    fn get_event_id(&self) -> Option<&EventId>;
+
+    /// Get the sender of the state event.
+    fn get_sender(&self) -> &UserId;
+
+    /// Get the timestamp of the state event, if any.
+    fn get_origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch>;
+}
+
+impl AnyStateEventEnum for AnySyncStateEvent {
+    /// Get the type of the state event.
+    fn get_event_type(&self) -> StateEventType {
+        self.event_type()
+    }
+
+    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+        self.content()
+    }
+
+    fn get_event_id(&self) -> Option<&EventId> {
+        Some(self.event_id())
+    }
+
+    fn get_sender(&self) -> &UserId {
+        self.sender()
+    }
+
+    fn get_origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        Some(self.origin_server_ts())
+    }
 }
 
 #[cfg(test)]

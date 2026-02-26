@@ -32,7 +32,10 @@ use ruma::{
     SecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent,
-        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+        room::{
+            encryption::{PossiblyRedactedRoomEncryptionEventContent, RoomEncryptionEventContent},
+            history_visibility::HistoryVisibility,
+        },
     },
     serde::Raw,
 };
@@ -148,6 +151,32 @@ impl EncryptionSettings {
             history_visibility,
             sharing_strategy,
         }
+    }
+
+    /// Create new encryption settings using a
+    /// `PossiblyRedactedRoomEncryptionEventContent`, a history visibility,
+    /// and key sharing strategy.
+    ///
+    /// Returns `None` if the `content` was redacted.
+    pub fn from_possibly_redacted(
+        content: PossiblyRedactedRoomEncryptionEventContent,
+        history_visibility: HistoryVisibility,
+        sharing_strategy: CollectStrategy,
+    ) -> Option<Self> {
+        let rotation_period: Duration =
+            content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
+        let rotation_period_msgs: u64 =
+            content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
+
+        Some(Self {
+            algorithm: EventEncryptionAlgorithm::from(content.algorithm?.as_str()),
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            encrypt_state_events: false,
+            rotation_period,
+            rotation_period_msgs,
+            history_visibility,
+            sharing_strategy,
+        })
     }
 }
 

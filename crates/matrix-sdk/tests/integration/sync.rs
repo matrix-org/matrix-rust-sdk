@@ -74,7 +74,7 @@ async fn test_receive_room_encryption_event_via_sync() {
     // The room info is set and the valid state event is in the store.
     assert_eq!(
         room.encryption_settings().unwrap().algorithm,
-        EventEncryptionAlgorithm::MegolmV1AesSha2
+        Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
     assert_matches!(
         room.get_state_event_static::<RoomEncryptionEventContent>().await,
@@ -118,7 +118,7 @@ async fn test_receive_room_encryption_event_via_sync() {
     // The room info didn't change but the invalid state event is in the store.
     assert_eq!(
         room.encryption_settings().unwrap().algorithm,
-        EventEncryptionAlgorithm::MegolmV1AesSha2
+        Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
     assert_matches!(
         room.get_state_event_static::<RoomEncryptionEventContent>().await,
@@ -158,7 +158,7 @@ async fn test_receive_room_encryption_event_via_sync() {
     // Nothing has changed.
     assert_eq!(
         room.encryption_settings().unwrap().algorithm,
-        EventEncryptionAlgorithm::MegolmV1AesSha2
+        Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
     assert_matches!(
         room.get_state_event_static::<RoomEncryptionEventContent>().await,
