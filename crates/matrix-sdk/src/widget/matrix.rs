@@ -122,8 +122,7 @@ impl MatrixDriver {
         let mut iterations = 0;
         while events.len() <= from_index + limit || pagination_limit_exceeded {
             // Fetch more events from the server
-            let outcome =
-                ev_cache.pagination().run_backwards_until((from_index + limit) as u16).await?;
+            let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
             if outcome.reached_start {
                 pagination_limit_exceeded = true;
                 reached_start = true;
@@ -135,6 +134,7 @@ impl MatrixDriver {
             // update local event array
             events = ev_cache.events().await?;
         }
+        let token = events.first().and_then(|e| e.event_id());
 
         let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
             e.get_field::<String>("type")
@@ -157,7 +157,6 @@ impl MatrixDriver {
             .filter(filter_event_type)
             .filter(filter_state_key)
             .collect();
-        let token = events.last().and_then(|e| e.event_id());
 
         return Ok(ReadEventsResponse {
             events: filtered_events,
