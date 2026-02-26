@@ -13,15 +13,12 @@
 // limitations under the License.
 
 pub mod pagination;
+mod subscriber;
 
 use std::{
     collections::BTreeMap,
     fmt,
-    ops::{Deref, DerefMut},
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
 };
 
 use eyeball::SharedObservable;
@@ -36,6 +33,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
+pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{
     Notify,
     broadcast::{Receiver, Sender},
@@ -65,91 +63,6 @@ pub struct RoomEventCache {
 impl fmt::Debug for RoomEventCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RoomEventCache").finish_non_exhaustive()
-    }
-}
-
-/// Thin wrapper for a room event cache subscriber, so as to trigger
-/// side-effects when all subscribers are gone.
-///
-/// The current side-effect is: auto-shrinking the [`RoomEventCache`] when no
-/// more subscribers are active. This is an optimisation to reduce the number of
-/// data held in memory by a [`RoomEventCache`]: when no more subscribers are
-/// active, all data are reduced to the minimum.
-///
-/// The side-effect takes effect on `Drop`.
-#[allow(missing_debug_implementations)]
-pub struct RoomEventCacheSubscriber {
-    /// Underlying receiver of the room event cache's updates.
-    recv: Receiver<RoomEventCacheUpdate>,
-
-    /// To which room are we listening?
-    room_id: OwnedRoomId,
-
-    /// Sender to the auto-shrink channel.
-    auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-
-    /// Shared instance of the auto-shrinker.
-    subscriber_count: Arc<AtomicUsize>,
-}
-
-impl Drop for RoomEventCacheSubscriber {
-    fn drop(&mut self) {
-        let previous_subscriber_count = self.subscriber_count.fetch_sub(1, Ordering::SeqCst);
-
-        trace!(
-            "dropping a room event cache subscriber; previous count: {previous_subscriber_count}"
-        );
-
-        if previous_subscriber_count == 1 {
-            // We were the last instance of the subscriber; let the auto-shrinker know by
-            // notifying it of our room id.
-
-            let mut room_id = self.room_id.clone();
-
-            // Try to send without waiting for channel capacity, and restart in a spin-loop
-            // if it failed (until a maximum number of attempts is reached, or
-            // the send was successful). The channel shouldn't be super busy in
-            // general, so this should resolve quickly enough.
-
-            let mut num_attempts = 0;
-
-            while let Err(err) = self.auto_shrink_sender.try_send(room_id) {
-                num_attempts += 1;
-
-                if num_attempts > 1024 {
-                    // If we've tried too many times, just give up with a warning; after all, this
-                    // is only an optimization.
-                    warn!(
-                        "couldn't send notification to the auto-shrink channel \
-                         after 1024 attempts; giving up"
-                    );
-                    return;
-                }
-
-                match err {
-                    mpsc::error::TrySendError::Full(stolen_room_id) => {
-                        room_id = stolen_room_id;
-                    }
-                    mpsc::error::TrySendError::Closed(_) => return,
-                }
-            }
-
-            trace!("sent notification to the parent channel that we were the last subscriber");
-        }
-    }
-}
-
-impl Deref for RoomEventCacheSubscriber {
-    type Target = Receiver<RoomEventCacheUpdate>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.recv
-    }
-}
-
-impl DerefMut for RoomEventCacheSubscriber {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.recv
     }
 }
 
@@ -207,13 +120,12 @@ impl RoomEventCache {
         let previous_subscriber_count = subscriber_count.fetch_add(1, Ordering::SeqCst);
         trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
 
-        let recv = self.inner.update_sender.subscribe();
-        let subscriber = RoomEventCacheSubscriber {
-            recv,
-            room_id: self.inner.room_id.clone(),
-            auto_shrink_sender: self.inner.auto_shrink_sender.clone(),
-            subscriber_count: subscriber_count.clone(),
-        };
+        let subscriber = RoomEventCacheSubscriber::new(
+            self.inner.update_sender.subscribe(),
+            self.inner.room_id.clone(),
+            self.inner.auto_shrink_sender.clone(),
+            subscriber_count.clone(),
+        );
 
         Ok((events, subscriber))
     }
