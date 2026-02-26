@@ -785,6 +785,14 @@ impl Client {
     pub async fn olm_machine_for_testing(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
         self.olm_machine().await
     }
+
+    /// Aborts the client's bundle receiver task, for testing purposes only.
+    pub fn abort_bundle_receiver_task(&self) {
+        let tasks = self.inner.e2ee.tasks.lock();
+        if let Some(task) = tasks.receive_historic_room_key_bundles.as_ref() {
+            task.abort()
+        }
+    }
 }
 
 /// A high-level API to manage the client's encryption.

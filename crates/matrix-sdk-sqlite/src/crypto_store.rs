@@ -903,6 +903,12 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .optional()?)
     }
 
+    async fn get_all_rooms_pending_key_bundle(&self) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .query_many("SELECT data FROM rooms_pending_key_bundle", (), |row| row.get(0))
+            .await?)
+    }
+
     async fn has_downloaded_all_room_keys(&self, room_id: Key) -> Result<bool> {
         Ok(self
             .query_row(
@@ -1579,6 +1585,15 @@ impl CryptoStore for SqliteCryptoStore {
 
         let details = self.deserialize_value(&value)?;
         Ok(Some(details))
+    }
+
+    async fn get_all_rooms_pending_key_bundles(&self) -> Result<Vec<RoomPendingKeyBundleDetails>> {
+        let details = self.read().await?.get_all_rooms_pending_key_bundle().await?;
+        let room_ids = details
+            .into_iter()
+            .map(|value| self.deserialize_value(&value))
+            .collect::<Result<_, _>>()?;
+        Ok(room_ids)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {

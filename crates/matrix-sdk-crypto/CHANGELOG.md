@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `CryptoStore::get_all_rooms_pending_key_bundle` which can be used by applications
+  to enumerate the details of all rooms for which the client is expecting an
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key bundle.
+  ([#6215](https://github.com/matrix-org/matrix-rust-sdk/pull/6215))
+
 - Add `Store::{store,clear}_room_pending_key_bundle` and
   `CryptoStore::get_pending_key_bundle_details_for_room`, which can be used by
   applications to track whether they are expecting an
