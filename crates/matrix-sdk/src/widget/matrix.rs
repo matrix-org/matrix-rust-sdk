@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use as_variant::as_variant;
 use matrix_sdk_base::{
     crypto::CollectStrategy,
-    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState, TimelineEvent},
     sync::State,
 };
 use ruma::{
@@ -104,23 +104,26 @@ impl MatrixDriver {
         let mut events = ev_cache.events().await?;
         let mut reached_start = false;
 
-        let from_index = match from {
-            Some(from) => match events
+        let mut pagination_limit_exceeded = false;
+        const LIMIT_ITERATIONS: usize = 10;
+        let mut iterations = 0;
+
+        let compute_index_of_token = |from: Option<String>, events: &Vec<TimelineEvent>| match from
+            .clone()
+        {
+            Some(f) => match events
                 .iter()
-                .position(|e| e.event_id().is_some_and(|id| id.to_string() == from))
+                .position(|e| e.event_id().is_some_and(|id| id.to_string() == f))
             {
-                Some(index) => index,
+                Some(index) => Ok(index),
                 None => {
                     return Err(Error::UnknownError(Box::new(ReadEventsError::InvalidFromEventId)));
                 }
             },
-            None => 0,
+            None => Ok(0),
         };
-
-        let mut pagination_limit_exceeded = false;
-        const LIMIT_ITERATIONS: usize = 10;
-        let mut iterations = 0;
-        while events.len() <= from_index + limit || pagination_limit_exceeded {
+        let mut index_of_token = compute_index_of_token(from, &events)?;
+        while index_of_token >= limit || pagination_limit_exceeded {
             // Fetch more events from the server
             let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
             if outcome.reached_start {
@@ -133,8 +136,11 @@ impl MatrixDriver {
             }
             // update local event array
             events = ev_cache.events().await?;
+
+            // update the index where we can find our pagination token
+            index_of_token = compute_index_of_token(from, &events)?;
         }
-        let token = events.last().and_then(|e| e.event_id().map(|id| id.to_string()));
+        let token = events.first().and_then(|e| e.event_id().map(|id| id.to_string()));
 
         let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
             e.get_field::<String>("type")
@@ -151,7 +157,8 @@ impl MatrixDriver {
             }),
         };
 
-        let filtered_events = events[(from_index + 1)..(limit + from_index + 1)]
+        let lower_bound_index = std::cmp::max(index_of_token - limit, 0);
+        let filtered_events = events[lower_bound_index..index_of_token]
             .into_iter()
             .map(|e| attach_room_id(e.raw(), self.room.room_id()))
             .filter(filter_event_type)
