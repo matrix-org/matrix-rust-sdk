@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     path::PathBuf,
+    str::FromStr,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -72,7 +73,7 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedServerName, OwnedUserId, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
         client::{
             alias::get_alias,
@@ -210,22 +211,29 @@ impl From<PushFormat> for RumaPushFormat {
 
 #[derive(uniffi::Object)]
 pub struct SecretsBundle {
+    user_id: OwnedUserId,
     inner: matrix_sdk_base::crypto::types::SecretsBundle,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl SecretsBundle {
     #[uniffi::constructor]
-    pub fn from_str(bundle: &str) -> Result<Arc<Self>, ClientError> {
+    pub fn from_str(user_id: &str, bundle: &str) -> Result<Arc<Self>, ClientError> {
+        let user_id = OwnedUserId::from_str(user_id)?;
         let bundle = serde_json::from_str(bundle)?;
 
-        Ok(Self { inner: bundle }.into())
+        Ok(Self { user_id, inner: bundle }.into())
     }
 
     #[uniffi::constructor]
     pub fn from_database(database_path: &str) -> Result<Arc<Self>, ClientError> {
         todo!()
     }
+}
+
+#[matrix_sdk_ffi_macros::export]
+pub fn database_contains_secrets_bundle(database_path: &str) -> Result<bool, ClientError> {
+    todo!()
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -446,18 +454,29 @@ impl Client {
         &self,
         secrets_bundle: &SecretsBundle,
     ) -> Result<(), ClientError> {
-        self.inner
-            .encryption()
-            .import_secrets_bundle(&secrets_bundle.inner)
-            .await
-            .map_err(|e| ClientError::from_err(e))?;
+        let user_id = self.inner.user_id().expect(
+            "We should have a user ID available now, this is only called once we're logged in",
+        );
 
-        // Upload the device keys, this will ensure that other devices see us as a fully
-        // verified device as soon as this method returns.
-        self.inner.encryption().ensure_device_keys_upload().await?;
-        self.inner.encryption().wait_for_e2ee_initialization_tasks().await;
+        if user_id == secrets_bundle.user_id {
+            self.inner
+                .encryption()
+                .import_secrets_bundle(&secrets_bundle.inner)
+                .await
+                .map_err(|e| ClientError::from_err(e))?;
 
-        Ok(())
+            // Upload the device keys, this will ensure that other devices see us as a fully
+            // verified device as soon as this method returns.
+            self.inner.encryption().ensure_device_keys_upload().await?;
+            self.inner.encryption().wait_for_e2ee_initialization_tasks().await;
+
+            Ok(())
+        } else {
+            Err(ClientError::Generic {
+                msg: "Secrets bundle does not belong to the user which was logged in".to_owned(),
+                details: None,
+            })
+        }
     }
 }
 
