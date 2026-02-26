@@ -27,9 +27,7 @@ use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
 use matrix_sdk::{
-    authentication::oauth::{
-        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
-    },
+    authentication::oauth::{ClientId, OAuthAuthorizationData, OAuthError, OAuthSession},
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
@@ -75,6 +73,9 @@ use oauth2::Scope;
 use ruma::{
     api::client::{
         alias::get_alias,
+        discovery::get_authorization_server_metadata::v1::{
+            AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+        },
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
         room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
@@ -1312,20 +1313,20 @@ impl Client {
             return Ok(None);
         }
 
-        let mut url_builder = match self.inner.oauth().account_management_url().await {
-            Ok(Some(url_builder)) => url_builder,
-            Ok(None) => return Ok(None),
+        let server_metadata = match self.inner.oauth().cached_server_metadata().await {
+            Ok(server_metadata) => server_metadata,
             Err(e) => {
-                error!("Failed retrieving account management URL: {e}");
-                return Err(e.into());
+                error!("Failed retrieving cached server metadata: {e}");
+                return Err(OAuthError::from(e).into());
             }
         };
 
-        if let Some(action) = action {
-            url_builder = url_builder.action(action.into());
+        Ok(if let Some(action) = &action {
+            server_metadata.account_management_url_with_action(action.into())
+        } else {
+            server_metadata.account_management_uri
         }
-
-        Ok(Some(url_builder.build().to_string()))
+        .map(Into::into))
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
@@ -2661,23 +2662,23 @@ pub(crate) struct OidcSessionData {
 #[derive(uniffi::Enum)]
 pub enum AccountManagementAction {
     Profile,
-    SessionsList,
-    SessionView { device_id: String },
-    SessionEnd { device_id: String },
+    DevicesList,
+    DeviceView { device_id: String },
+    DeviceDelete { device_id: String },
     AccountDeactivate,
     CrossSigningReset,
 }
 
-impl From<AccountManagementAction> for AccountManagementActionFull {
-    fn from(value: AccountManagementAction) -> Self {
+impl<'a> From<&'a AccountManagementAction> for AccountManagementActionData<'a> {
+    fn from(value: &'a AccountManagementAction) -> Self {
         match value {
             AccountManagementAction::Profile => Self::Profile,
-            AccountManagementAction::SessionsList => Self::SessionsList,
-            AccountManagementAction::SessionView { device_id } => {
-                Self::SessionView { device_id: device_id.into() }
+            AccountManagementAction::DevicesList => Self::DevicesList,
+            AccountManagementAction::DeviceView { device_id } => {
+                Self::DeviceView(DeviceViewData::new(device_id.as_str().into()))
             }
-            AccountManagementAction::SessionEnd { device_id } => {
-                Self::SessionEnd { device_id: device_id.into() }
+            AccountManagementAction::DeviceDelete { device_id } => {
+                Self::DeviceDelete(DeviceDeleteData::new(device_id.as_str().into()))
             }
             AccountManagementAction::AccountDeactivate => Self::AccountDeactivate,
             AccountManagementAction::CrossSigningReset => Self::CrossSigningReset,

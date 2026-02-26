@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `OAuth::cached_server_metadata()` that caches the authorization server
+  metadata for a while.
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
 - Add `QRCodeGrantLoginError::SecureChannel` for secure channel errors
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `QRCodeGrantLoginError::UnexpectedMessage` for protocol message errors
@@ -79,6 +82,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The functions on the `OAuth` API to access the account
+  management URL and its actions were removed. The methods available on the
+  `AuthorizationServerMetadata` should be used instead.
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
 - [**breaking**] `QRCodeGrantLoginError::UnableToCreateDevice` has been removed
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - The `RoomEventCache::paginate_thread_backwards` method is replaced by `RoomEventCache::thread_pagination` which returns a new `ThreadPagination` type, similar to `RoomPagination`.
