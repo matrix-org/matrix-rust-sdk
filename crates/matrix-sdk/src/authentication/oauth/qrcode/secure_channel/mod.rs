@@ -1,4 +1,4 @@
-// Copyright 2024 The Matrix.org Foundation C.I.C.
+// Copyright 2024, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,15 +19,23 @@ use matrix_sdk_base::crypto::types::qr_login::{
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
-use vodozemac::ecies::{
-    CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult,
+use vodozemac::{
+    ecies::{CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult},
+    hpke::{
+        BidirectionalCreationResult, HpkeSenderChannel, InitialResponse, RecipientCreationResult,
+        SenderCreationResult, UnidirectionalSenderChannel,
+    },
 };
 
 use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
-use crate::{config::RequestConfig, http_client::HttpClient};
+use crate::{
+    authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
+    config::RequestConfig,
+    http_client::HttpClient,
+};
 mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
@@ -44,8 +52,10 @@ impl SecureChannel {
     pub(super) async fn login(
         http_client: HttpClient,
         homeserver_url: &Url,
+        msc_4388: bool,
     ) -> Result<Self, Error> {
-        let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
+        let channel =
+            RendezvousChannel::create_outbound(http_client, homeserver_url, msc_4388).await?;
 
         let (crypto_channel, qr_code_data) = match channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -60,6 +70,18 @@ impl SecureChannel {
 
                 (crypto_channel, qr_code_data)
             }
+            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
+                let crypto_channel = CryptoChannel::new_hpke();
+
+                let qr_code_data = QrCodeData::new_msc4388(
+                    crypto_channel.public_key(),
+                    rendezvous_id.to_owned(),
+                    homeserver_url.clone(),
+                    QrCodeIntent::Login,
+                );
+
+                (crypto_channel, qr_code_data)
+            }
         };
 
         Ok(Self { channel, qr_code_data, crypto_channel })
@@ -69,8 +91,9 @@ impl SecureChannel {
     pub(super) async fn reciprocate(
         http_client: HttpClient,
         homeserver_url: &Url,
+        msc_4388: bool,
     ) -> Result<Self, Error> {
-        let mut channel = SecureChannel::login(http_client, homeserver_url).await?;
+        let mut channel = SecureChannel::login(http_client, homeserver_url, msc_4388).await?;
 
         match channel.channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -81,6 +104,14 @@ impl SecureChannel {
                     channel.crypto_channel.public_key(),
                     rendezvous_url.clone(),
                     mode_data,
+                );
+            }
+            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
+                channel.qr_code_data = QrCodeData::new_msc4388(
+                    channel.crypto_channel.public_key(),
+                    rendezvous_id.to_owned(),
+                    homeserver_url.clone(),
+                    QrCodeIntent::Reciprocate,
                 );
             }
         }
@@ -96,10 +127,11 @@ impl SecureChannel {
     pub(super) async fn connect(mut self) -> Result<AlmostEstablishedSecureChannel, Error> {
         trace!("Trying to connect the secure channel.");
 
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
         let message = self.channel.receive().await?;
-        let result = self.crypto_channel.establish_inbound_channel(&message)?;
+        let result = self.crypto_channel.establish_inbound_channel(&message, &aad)?;
 
-        let message = std::str::from_utf8(result.plaintext())?;
+        let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
         trace!("Received the initial secure channel message");
 
@@ -115,6 +147,17 @@ impl SecureChannel {
 
                     secure_channel.send(LOGIN_OK_MESSAGE).await?;
                     secure_channel
+                }
+                CryptoChannelCreationResult::Hpke(RecipientCreationResult { channel, .. }) => {
+                    let aad = self.channel.additional_authenticated_data().unwrap_or_default();
+                    let BidirectionalCreationResult { channel, message } =
+                        channel.establish_bidirectional_channel(LOGIN_OK_MESSAGE.as_bytes(), &aad);
+
+                    self.channel.send(message.encode()).await?;
+
+                    let crypto_channel = EstablishedCryptoChannel::Hpke(channel);
+
+                    EstablishedSecureChannel { channel: self.channel, crypto_channel }
                 }
             };
 
@@ -163,6 +206,7 @@ impl EstablishedSecureChannel {
     ) -> Result<Self, Error> {
         enum ChannelType {
             Ecies(EstablishedEcies),
+            Hpke(UnidirectionalSenderChannel),
         }
 
         if qr_code_data.intent() == expected_mode {
@@ -171,20 +215,6 @@ impl EstablishedSecureChannel {
             trace!("Attempting to create a new inbound secure channel from a QR code.");
 
             let client = HttpClient::new(client, RequestConfig::short_retry());
-
-            // Let's establish an outbound ECIES channel, the other side won't know that
-            // it's talking to us, the device that scanned the QR code, until it
-            // receives and successfully decrypts the initial message. We're here encrypting
-            // the `LOGIN_INITIATE_MESSAGE`.
-            let (crypto_channel, encoded_message) = {
-                let ecies = Ecies::new();
-
-                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key(),
-                    LOGIN_INITIATE_MESSAGE.as_bytes(),
-                )?;
-                (ChannelType::Ecies(ecies), message.encode())
-            };
 
             // The other side has crated a rendezvous channel, we're going to connect to it
             // and send this initial encrypted message through it. The initial message on
@@ -196,9 +226,41 @@ impl EstablishedSecureChannel {
                         RendezvousChannel::create_inbound(client, rendezvous_url).await?;
                     channel
                 }
-                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
-                // channel when we encounter this QR code variant.
-                QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
+                QrCodeIntentData::Msc4388 { rendezvous_id, base_url } => {
+                    let InboundChannelCreationResult { channel, .. } =
+                        RendezvousChannel::create_inbound_msc4388(client, base_url, rendezvous_id)
+                            .await?;
+                    channel
+                }
+            };
+
+            // Let's establish an outbound crypto channel, the other side won't know that
+            // it's talking to us, the device that scanned the QR code, until it
+            // receives and successfully decrypts the initial message. We're here encrypting
+            // the `LOGIN_INITIATE_MESSAGE`.
+            let (crypto_channel, encoded_message) = match qr_code_data.intent_data() {
+                QrCodeIntentData::Msc4108 { .. } => {
+                    let ecies = Ecies::new();
+
+                    let OutboundCreationResult { ecies, message } = ecies
+                        .establish_outbound_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                        )
+                        .map_err(DecryptionError::from)?;
+                    (ChannelType::Ecies(ecies), message.encode())
+                }
+                QrCodeIntentData::Msc4388 { .. } => {
+                    let aad = channel.additional_authenticated_data().unwrap_or_default();
+
+                    let SenderCreationResult { channel, message } = HpkeSenderChannel::new()
+                        .establish_channel(
+                            qr_code_data.public_key(),
+                            LOGIN_INITIATE_MESSAGE.as_bytes(),
+                            &aad,
+                        );
+                    (ChannelType::Hpke(channel), message.encode())
+                }
             };
 
             trace!(
@@ -213,13 +275,35 @@ impl EstablishedSecureChannel {
             trace!("Waiting for the LOGIN OK message");
 
             let (response, channel) = match crypto_channel {
-                ChannelType::Ecies(ecies) => {
+                ChannelType::Ecies(crypto_channel) => {
                     // We can create our EstablishedSecureChannel struct now and use the
                     // convenient helpers which transparently decrypt on receival.
-                    let crypto_channel = EstablishedCryptoChannel::Ecies(ecies);
+                    let crypto_channel = EstablishedCryptoChannel::Ecies(crypto_channel);
                     let mut channel = Self { channel, crypto_channel };
 
                     let response = channel.receive().await?;
+                    (response, channel)
+                }
+                ChannelType::Hpke(crypto_channel) => {
+                    let aad = channel.additional_authenticated_data().unwrap_or_default();
+                    let response = channel.receive().await?;
+                    let response =
+                        InitialResponse::decode(&response).map_err(MessageDecodeError::from)?;
+
+                    let BidirectionalCreationResult { channel: crypto_channel, message } =
+                        crypto_channel
+                            .establish_bidirectional_channel(&response, &aad)
+                            .map_err(DecryptionError::from)?;
+                    let response = String::from_utf8(message)
+                        .map_err(|e| MessageDecodeError::from(e.utf8_error()))?;
+                    let crypto_channel = EstablishedCryptoChannel::Hpke(crypto_channel);
+
+                    // We can create our EstablishedSecureChannel struct now and use the
+                    // convenient helpers which transparently decrypt on receival.
+                    let channel = Self { channel, crypto_channel };
+
+                    // We can create our EstablishedSecureChannel struct now and use the
+                    // convenient helpers which transparently decrypt on receival.
                     (response, channel)
                 }
             };
@@ -246,7 +330,7 @@ impl EstablishedSecureChannel {
     /// The message will be encrypted before it is sent over the rendezvous
     /// channel.
     pub(super) async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
-        let message = serde_json::to_string(&message)?;
+        let message = serde_json::to_string(&message).map_err(MessageDecodeError::from)?;
         self.send(&message).await
     }
 
@@ -256,18 +340,23 @@ impl EstablishedSecureChannel {
     /// rendezvous channel.
     pub(super) async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let message = self.receive().await?;
-        Ok(serde_json::from_str(&message)?)
+        Ok(serde_json::from_str(&message).map_err(MessageDecodeError::from)?)
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {
-        let message = self.crypto_channel.seal(message);
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
 
+        let message = self.crypto_channel.seal(message, &aad);
         Ok(self.channel.send(message).await?)
     }
 
     async fn receive(&mut self) -> Result<String, Error> {
+        let aad = self.channel.additional_authenticated_data().unwrap_or_default();
+
         let message = self.channel.receive().await?;
-        self.crypto_channel.open(&message)
+        let decrypted = self.crypto_channel.open(&message, &aad)?;
+
+        Ok(decrypted)
     }
 }
 
@@ -285,8 +374,10 @@ pub(super) mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use ruma::time::Instant;
+    use serde::Deserialize;
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use tracing::trace;
     use url::Url;
     use wiremock::{
         Mock, MockGuard, MockServer, ResponseTemplate,
@@ -310,7 +401,24 @@ pub(super) mod test {
     }
 
     impl MockedRendezvousServer {
-        pub async fn new(server: &MockServer, location: &str, expiration: Duration) -> Self {
+        pub async fn new(
+            server: &MockServer,
+            location: &str,
+            expiration: Duration,
+            msc_4388: bool,
+        ) -> Self {
+            if msc_4388 {
+                Self::new_msc4388(server, expiration).await
+            } else {
+                Self::new_msc4108(server, location, expiration).await
+            }
+        }
+
+        pub async fn new_msc4108(
+            server: &MockServer,
+            location: &str,
+            expiration: Duration,
+        ) -> Self {
             let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
             let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
             let etag = Arc::new(AtomicU8::new(0));
@@ -427,16 +535,140 @@ pub(super) mod test {
                 rendezvous_url,
             }
         }
+
+        pub async fn new_msc4388(server: &MockServer, expiration: Duration) -> Self {
+            #[derive(Debug, Deserialize)]
+            struct PutContent {
+                #[allow(dead_code)]
+                sequence_token: String,
+                data: String,
+            }
+
+            const RENDEZVOUS_ID: &str = "abcdEFG12345";
+
+            let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
+            let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
+            let sequence_token = Arc::new(AtomicU8::new(0));
+
+            let homeserver_url = Url::parse(&server.uri())
+                .expect("We should be able to parse the example homeserver");
+
+            let rendezvous_url = homeserver_url
+                .join(RENDEZVOUS_ID)
+                .expect("We should be able to create a rendezvous URL");
+
+            let post_guard = server
+                .register_as_scoped(
+                    Mock::given(method("POST"))
+                        .and(path("/_matrix/client/unstable/io.element.msc4388/rendezvous"))
+                        .respond_with({
+                            *created.lock().unwrap() = Some(Instant::now());
+
+                            trace!("Creating a new rendezvous channel ID: {RENDEZVOUS_ID}");
+
+                            ResponseTemplate::new(200).set_body_json(json!({
+                                "id": RENDEZVOUS_ID,
+                                "sequence_token": "0",
+                                "expires_in_ms": 100_000,
+                            }))
+                        }),
+                )
+                .await;
+
+            let put_guard = server
+                .register_as_scoped(
+                    Mock::given(method("PUT"))
+                        .and(path(format!(
+                            "/_matrix/client/unstable/io.element.msc4388/rendezvous/{RENDEZVOUS_ID}"
+                        )))
+                        .respond_with({
+                            let content = content.clone();
+                            let created = created.clone();
+                            let sequence_token = sequence_token.clone();
+
+
+                            move |request: &wiremock::Request| {
+                                // Fail the request if the session has expired.
+                                if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                    return ResponseTemplate::new(404).set_body_json(json!({
+                                        "errcode": "M_NOT_FOUND",
+                                        "error": "This rendezvous session does not exist.",
+                                    }));
+                                }
+
+                                let request_content: PutContent = request.body_json().unwrap();
+                                *content.lock().unwrap() = Some(request_content.data);
+
+                                let prev_token =
+                                    sequence_token.fetch_add(1, Ordering::SeqCst);
+
+                                trace!("Putting new content into the rendezvous channel ID: {RENDEZVOUS_ID}");
+
+                                ResponseTemplate::new(200).set_body_json(json!({
+                                    "sequence_token": (prev_token + 1 ).to_string(),
+
+                                }))
+                            }
+                        }),
+                )
+                .await;
+
+            let get_guard = server
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(format!(
+                            "/_matrix/client/unstable/io.element.msc4388/rendezvous/{RENDEZVOUS_ID}"
+                        )))
+                        .respond_with({
+                            let content = content.clone();
+                            let created = created.clone();
+                            let sequence_token = sequence_token.clone();
+
+                            move |_: &wiremock::Request| {
+                                // Fail the request if the session has expired.
+                                if created.lock().unwrap().unwrap().elapsed() > expiration {
+                                    return ResponseTemplate::new(404).set_body_json(json!({
+                                        "errcode": "M_NOT_FOUND",
+                                        "error": "This rendezvous session does not exist.",
+                                    }));
+                                }
+
+                                let content = content.lock().unwrap();
+                                let current_sequence_token = sequence_token.load(Ordering::SeqCst);
+
+                                let content = content.clone();
+
+                                ResponseTemplate::new(200).set_body_json(json!({
+                                    "data": content.unwrap_or_default(),
+                                    "sequence_token": current_sequence_token.to_string(),
+                                    "expires_in_ms": 100_000,
+                                }))
+                            }
+                        }),
+                )
+                .await;
+
+            Self {
+                expiration,
+                content,
+                created,
+                etag: sequence_token,
+                post_guard,
+                put_guard,
+                get_guard,
+                homeserver_url,
+                rendezvous_url,
+            }
+        }
     }
 
-    #[async_test]
-    async fn test_creation() {
+    async fn test_creation(msc_4388: bool) {
         let server = MockServer::start().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX).await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url)
+        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, msc_4388)
             .await
             .expect("Alice should be able to create a secure channel.");
 
@@ -469,5 +701,15 @@ pub(super) mod test {
             .expect("Alice should be able to confirm the established secure channel.");
 
         assert_eq!(bob.channel.rendezvous_info(), alice.channel.rendezvous_info());
+    }
+
+    #[async_test]
+    async fn test_creation_msc4388() {
+        test_creation(true).await;
+    }
+
+    #[async_test]
+    async fn test_creation_msc4108() {
+        test_creation(false).await;
     }
 }

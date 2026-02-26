@@ -38,7 +38,10 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
 use vodozemac::ecies::CheckCode;
-pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
+pub use vodozemac::{
+    ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError},
+    hpke::{Error as HpkeError, MessageDecodeError as HpkeMessageDecodeError},
+};
 
 mod grant;
 mod login;
@@ -233,26 +236,47 @@ impl DeviceAuthorizationOAuthError {
     }
 }
 
-/// Error type for failures in when receiving or sending messages over the
-/// secure channel.
+/// Error type which describes failures when messages which are received over
+/// the secure channel fail to be decoded.
 #[derive(Debug, Error)]
-pub enum SecureChannelError {
+pub enum MessageDecodeError {
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Ecies(#[from] EciesMessageDecodeError),
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Hpke(#[from] HpkeMessageDecodeError),
     /// A message we received over the secure channel was not a valid UTF-8
     /// encoded string.
     #[error(transparent)]
     Utf8(#[from] std::str::Utf8Error),
+    /// A message couldn't be deserialized from JSON.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
 
-    /// A message has failed to be decrypted.
+/// Error type for decryption failures of the secure channel.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// A ECIES message failed to be decrypted.
     #[error(transparent)]
     Ecies(#[from] EciesError),
+    /// A HPKE message failed to be decrypted.
+    #[error(transparent)]
+    Hpke(#[from] HpkeError),
+}
+
+/// Error type for failures in when receiving or sending messages over the
+/// secure channel.
+#[derive(Debug, Error)]
+pub enum SecureChannelError {
+    /// A message has failed to be decrypted.
+    #[error(transparent)]
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]
     MessageDecode(#[from] MessageDecodeError),
-
-    /// A message couldn't be deserialized from JSON.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
 
     /// The secure channel failed to be established because it received an
     /// unexpected message.
