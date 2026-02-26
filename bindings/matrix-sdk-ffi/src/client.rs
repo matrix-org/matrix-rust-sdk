@@ -450,7 +450,7 @@ impl Client {
             .map_err(|e| ClientError::from_err(e))?;
 
         // Upload the device keys, this will ensure that other devices see us as a fully
-        // verified device ass soon as this method returns.
+        // verified device as soon as this method returns.
         self.inner.encryption().ensure_device_keys_upload().await?;
         self.inner.encryption().wait_for_e2ee_initialization_tasks().await;
 
