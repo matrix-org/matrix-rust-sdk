@@ -24,15 +24,19 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::event_cache::Event;
 use ruma::api::Direction;
 
-use super::super::super::{
-    EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-    TimelineVectorDiffs,
-    caches::pagination::{
-        BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
-    },
-    room::RoomEventCacheInner,
-};
 pub use super::super::pagination::PaginationStatus;
+use super::{
+    super::{
+        super::{
+            EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate,
+            RoomEventCacheUpdate, TimelineVectorDiffs,
+        },
+        pagination::{
+            BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+        },
+    },
+    RoomEventCacheInner,
+};
 use crate::room::MessagesOptions;
 
 /// An API object to run pagination queries on a [`RoomEventCache`].
