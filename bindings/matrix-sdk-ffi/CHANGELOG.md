@@ -90,6 +90,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The following variants of `AccountManagementAction` were
+  renamed to match their new names after being merge in the Matrix specification:
+  - `SessionsList` is renamed to `DevicesList`
+  - `SessionView` is renamed to `DeviceView`
+  - `SessionEnd` is renamed to `DeviceDelete`
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
 - [**breaking**] `HumanQrGrantLoginError::UnableToCreateDevice` has been removed
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - [**breaking**] Removed `ClientBuilder::enable_oidc_refresh_lock` in favour of using `ClientBuilder::cross_process_lock_config`

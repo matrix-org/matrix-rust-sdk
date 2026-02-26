@@ -134,11 +134,10 @@
 //! account. It can be used to replace most of the Matrix APIs requiring
 //! User-Interactive Authentication.
 //!
-//! An [`AccountManagementUrlBuilder`] can be obtained with
-//! [`OAuth::account_management_url()`]. Then the action that the user wants to
-//! perform can be customized with [`AccountManagementUrlBuilder::action()`].
-//! Finally you can obtain the final URL to present to the user with
-//! [`AccountManagementUrlBuilder::build()`].
+//! The account management URL is available as `account_management_uri` on
+//! [`AuthorizationServerMetadata`]. To build a full account management URL that
+//! includes the action that the user wants to perform, use
+//! [`AuthorizationServerMetadata::account_management_url_with_action()`].
 //!
 //! # Logout
 //!
@@ -164,12 +163,7 @@
 use std::sync::OnceLock;
 #[cfg(feature = "e2e-encryption")]
 use std::time::Duration;
-use std::{
-    borrow::Cow,
-    collections::{BTreeSet, HashMap},
-    fmt,
-    sync::Arc,
-};
+use std::{borrow::Cow, collections::HashMap, fmt, sync::Arc};
 
 use as_variant::as_variant;
 #[cfg(feature = "e2e-encryption")]
@@ -192,8 +186,7 @@ pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
     DeviceId, OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::{
-        self,
-        v1::{AccountManagementAction, AuthorizationServerMetadata},
+        self, v1::AuthorizationServerMetadata,
     },
     serde::Raw,
 };
@@ -203,7 +196,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
-mod account_management_url;
 mod auth_code_builder;
 #[cfg(feature = "e2e-encryption")]
 mod cross_process;
@@ -223,7 +215,6 @@ use self::qrcode::{
     LoginWithQrCode,
 };
 pub use self::{
-    account_management_url::{AccountManagementActionFull, AccountManagementUrlBuilder},
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
     error::OAuthError,
 };
@@ -431,61 +422,24 @@ impl OAuth {
         Ok(())
     }
 
-    /// The account management actions supported by the authorization server's
-    /// account management URL.
+    /// Get the cached OAuth 2.0 authorization server metadata of the
+    /// homeserver.
     ///
-    /// Returns an error if the request to get the server metadata fails.
-    pub async fn account_management_actions_supported(
-        &self,
-    ) -> Result<BTreeSet<AccountManagementAction>, OAuthError> {
-        let server_metadata = self.server_metadata().await?;
-
-        Ok(server_metadata.account_management_actions_supported)
-    }
-
-    /// Get the account management URL where the user can manage their
-    /// identity-related settings.
-    ///
-    /// This will always request the latest server metadata to get the account
-    /// management URL.
-    ///
-    /// To avoid making a request each time, you can use
-    /// [`OAuth::account_management_url()`].
-    ///
-    /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
-    /// optional action to perform can be added with `.action()`, and the final
-    /// URL is obtained with `.build()`.
-    ///
-    /// Returns `Ok(None)` if the URL was not found.
-    ///
-    /// Returns an error if the request to get the server metadata fails or the
-    /// URL could not be parsed.
-    pub async fn fetch_account_management_url(
-        &self,
-    ) -> Result<Option<AccountManagementUrlBuilder>, OAuthError> {
-        let server_metadata = self.server_metadata().await?;
-        Ok(server_metadata.account_management_uri.map(AccountManagementUrlBuilder::new))
-    }
-
-    /// Get the account management URL where the user can manage their
-    /// identity-related settings.
-    ///
-    /// This method will cache the URL for a while, if the cache is not
+    /// This method will cache the metadata for a while. If the cache is not
     /// populated it will request the server metadata, like a call to
-    /// [`OAuth::fetch_account_management_url()`], and cache the resulting URL
-    /// before returning it.
+    /// [`OAuth::server_metadata()`], and cache the response before returning
+    /// it.
     ///
-    /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
-    /// optional action to perform can be added with `.action()`, and the final
-    /// URL is obtained with `.build()`.
+    /// In most cases during the authentication process, it is better to always
+    /// fetch the metadata from the server. This is provided for convenience for
+    /// cases where the client doesn't want to incur the extra time necessary to
+    /// make the request.
     ///
-    /// Returns `Ok(None)` if the URL was not found.
-    ///
-    /// Returns an error if the request to get the server metadata fails or the
-    /// URL could not be parsed.
-    pub async fn account_management_url(
+    /// Returns an error if a problem occurred when fetching or validating the
+    /// metadata.
+    pub async fn cached_server_metadata(
         &self,
-    ) -> Result<Option<AccountManagementUrlBuilder>, OAuthError> {
+    ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
         const CACHE_KEY: &str = "SERVER_METADATA";
 
         let mut cache = self.client.inner.caches.server_metadata.lock().await;
@@ -498,10 +452,15 @@ impl OAuth {
             server_metadata
         };
 
-        Ok(metadata.account_management_uri.map(AccountManagementUrlBuilder::new))
+        Ok(metadata)
     }
 
     /// Fetch the OAuth 2.0 authorization server metadata of the homeserver.
+    ///
+    /// This will always request the latest server metadata from the homeserver.
+    ///
+    /// To avoid making a request each time, you can use
+    /// [`OAuth::cached_server_metadata()`].
     ///
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
