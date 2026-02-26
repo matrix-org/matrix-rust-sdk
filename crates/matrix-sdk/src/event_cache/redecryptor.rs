@@ -154,16 +154,12 @@ use tracing::{info, instrument, trace, warn};
 
 #[cfg(doc)]
 use super::RoomEventCache;
-use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{
-    Client, Result, Room,
-    encryption::backups::BackupState,
-    event_cache::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorDiffs,
-        room::PostProcessingOrigin,
-    },
-    room::PushContext,
+use super::{
+    EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
+    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs,
+    caches::room::PostProcessingOrigin,
 };
+use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;

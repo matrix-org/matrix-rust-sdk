@@ -67,7 +67,6 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
-    event_cache::room::RoomEventCacheStateLock,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
@@ -76,16 +75,15 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
-mod room;
 
+use caches::room::RoomEventCacheStateLock;
 pub use caches::{
     TimelineVectorDiffs,
     pagination::{BackPaginationOutcome, PaginationStatus},
-    room::pagination::RoomPagination,
+    room::{RoomEventCache, RoomEventCacheSubscriber, pagination::RoomPagination},
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
