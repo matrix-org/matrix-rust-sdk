@@ -273,11 +273,20 @@ impl RoomEventCache {
         Ok(())
     }
 
+    /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(in super::super) async fn handle_left_room_update(
-        &self,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
+    pub async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        self.inner
+            .handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.ambiguity_changes)
+            .await?;
+        self.inner.handle_account_data(updates.account_data);
+
+        Ok(())
+    }
+
+    /// Handle a [`LeftRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.room_id()))]
+    pub async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
@@ -419,22 +428,6 @@ impl RoomEventCacheInner {
                 }
             }
         }
-    }
-
-    #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(in super::super) async fn handle_joined_room_update(
-        &self,
-        updates: JoinedRoomUpdate,
-    ) -> Result<()> {
-        self.handle_timeline(
-            updates.timeline,
-            updates.ephemeral.clone(),
-            updates.ambiguity_changes,
-        )
-        .await?;
-        self.handle_account_data(updates.account_data);
-
-        Ok(())
     }
 
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
@@ -853,7 +846,6 @@ mod timed_tests {
         };
 
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
@@ -933,7 +925,6 @@ mod timed_tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
@@ -1275,7 +1266,6 @@ mod timed_tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
 
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
@@ -1382,7 +1372,6 @@ mod timed_tests {
         // Propagate an update including a limited timeline with one message and a
         // prev-batch token.
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate {
                 timeline: Timeline {
                     limited: true,
@@ -1444,7 +1433,6 @@ mod timed_tests {
         // Now, propagate an update for another message, but the timeline isn't limited
         // this time.
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate {
                 timeline: Timeline {
                     limited: false,
@@ -1728,7 +1716,6 @@ mod timed_tests {
         // events.
         let evid4 = event_id!("$4");
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate {
                 timeline: Timeline {
                     limited: true,

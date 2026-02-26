@@ -1068,7 +1068,7 @@ impl EventCacheInner {
                 continue;
             };
 
-            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+            if let Err(err) = room.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!(%room_id, "handling joined room update: {err}");
             }
@@ -1332,7 +1332,6 @@ mod tests {
         let account_data = vec![read_marker_event; 100];
 
         room_event_cache
-            .inner
             .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
             .await
             .unwrap();
