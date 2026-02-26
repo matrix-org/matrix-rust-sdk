@@ -67,7 +67,7 @@ use super::{
 };
 use crate::Room;
 
-pub(in super::super::super) struct RoomEventCacheState {
+pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
     enabled_thread_support: bool,
 
@@ -979,7 +979,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// linked chunk.
     ///
     /// Flushes updates to disk first.
-    pub(in super::super::super) async fn post_process_new_events(
+    pub async fn post_process_new_events(
         &mut self,
         events: Vec<Event>,
         post_processing_origin: PostProcessingOrigin,
@@ -1055,10 +1055,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    pub(in super::super) fn get_or_reload_thread(
-        &mut self,
-        root_event_id: OwnedEventId,
-    ) -> &mut ThreadEventCache {
+    pub fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
         // TODO: when there's persistent storage, try to lazily reload from disk, if
         // missing from memory.
         let room_id = self.state.room_id.clone();
@@ -1169,7 +1166,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// observers that a single item has been replaced. Otherwise,
     /// such a notification is not emitted, because observers are
     /// unlikely to observe the store updates directly.
-    pub(crate) async fn replace_event_at(
+    pub async fn replace_event_at(
         &mut self,
         location: EventLocation,
         event: Event,
