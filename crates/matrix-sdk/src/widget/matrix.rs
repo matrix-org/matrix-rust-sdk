@@ -119,10 +119,10 @@ impl MatrixDriver {
                     return Err(Error::UnknownError(Box::new(ReadEventsError::InvalidFromEventId)));
                 }
             },
-            None => Ok(0),
+            None => Ok(events.len() - 1),
         };
         let mut index_of_token = compute_index_of_token(&from, &events)?;
-        while index_of_token >= limit || pagination_limit_exceeded {
+        while index_of_token <= limit || pagination_limit_exceeded {
             // Fetch more events from the server
             let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
             if outcome.reached_start {
@@ -139,7 +139,8 @@ impl MatrixDriver {
             // update the index where we can find our pagination token
             index_of_token = compute_index_of_token(&from, &events)?;
         }
-        let token = events.first().and_then(|e| e.event_id().map(|id| id.to_string()));
+        let lower_bound_index = std::cmp::max(index_of_token - limit, 0);
+        let token = events[lower_bound_index].event_id().map(|id| id.to_string());
 
         let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
             e.get_field::<String>("type")
@@ -156,13 +157,16 @@ impl MatrixDriver {
             }),
         };
 
-        let lower_bound_index = std::cmp::max(index_of_token - limit, 0);
-        let filtered_events = events[lower_bound_index..index_of_token]
-            .into_iter()
-            .map(|e| attach_room_id(e.raw(), self.room.room_id()))
-            .filter(filter_event_type)
-            .filter(filter_state_key)
-            .collect();
+        let filtered_events = if index_of_token - lower_bound_index > 0 {
+            events[lower_bound_index..index_of_token]
+                .into_iter()
+                .map(|e| attach_room_id(e.raw(), self.room.room_id()))
+                .filter(filter_event_type)
+                .filter(filter_state_key)
+                .collect()
+        } else {
+            vec![]
+        };
 
         return Ok(ReadEventsResponse {
             events: filtered_events,
