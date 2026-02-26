@@ -119,7 +119,7 @@ impl MatrixDriver {
                     return Err(Error::UnknownError(Box::new(ReadEventsError::InvalidFromEventId)));
                 }
             },
-            None => Ok(events.len() - 1),
+            None => Ok(if events.len() > 0 { events.len() - 1 } else { 0 }),
         };
         let mut index_of_token = compute_index_of_token(&from, &events)?;
         while index_of_token <= limit || pagination_limit_exceeded {
@@ -139,7 +139,8 @@ impl MatrixDriver {
             // update the index where we can find our pagination token
             index_of_token = compute_index_of_token(&from, &events)?;
         }
-        let lower_bound_index = std::cmp::max(index_of_token - limit, 0);
+
+        let lower_bound_index = std::cmp::max((index_of_token as i32) - (limit as i32), 0) as usize;
         let token = events[lower_bound_index].event_id().map(|id| id.to_string());
 
         let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
@@ -157,7 +158,7 @@ impl MatrixDriver {
             }),
         };
 
-        let filtered_events = if index_of_token - lower_bound_index > 0 {
+        let filtered_events = if index_of_token as i32 - lower_bound_index as i32 > 0 {
             events[lower_bound_index..index_of_token]
                 .into_iter()
                 .map(|e| attach_room_id(e.raw(), self.room.room_id()))
