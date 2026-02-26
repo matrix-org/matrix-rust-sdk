@@ -214,7 +214,12 @@ impl WidgetDriver {
                     }
 
                     MatrixDriverRequestData::ReadEvents(cmd) => matrix_driver
-                        .read_events(cmd.event_type.into(), cmd.state_key, cmd.limit)
+                        .read_events(
+                            cmd.event_type.into(),
+                            cmd.state_key,
+                            cmd.limit as usize,
+                            cmd.from,
+                        )
                         .await
                         .map(MatrixDriverResponse::EventsRead),
 

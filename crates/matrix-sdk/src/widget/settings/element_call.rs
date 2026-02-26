@@ -487,7 +487,7 @@ mod tests {
                 &lang=$org.matrix.msc2873.client_language\
                 &theme=$org.matrix.msc2873.client_theme\
                 &clientId=$org.matrix.msc2873.client_id\
-                &deviceId=$org.matrix.msc2873.matrix_device_id\
+                &deviceId=$org.matrix.msc3819.matrix_device_id\
                 &baseUrl=$org.matrix.msc4039.matrix_base_url\
                 &parentUrl=https%3A%2F%2Fcall.element.io\
                 &confineToRoom=true\

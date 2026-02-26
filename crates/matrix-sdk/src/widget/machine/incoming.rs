@@ -28,7 +28,7 @@ use super::{
     from_widget::{FromWidgetRequest, SendEventResponse},
     to_widget::ToWidgetResponse,
 };
-use crate::widget::Capabilities;
+use crate::widget::{Capabilities, machine::ReadEventsResponse};
 
 /// Incoming message for the widget client side module that it must process.
 pub(crate) enum IncomingMessage {
@@ -75,7 +75,7 @@ pub(crate) enum MatrixDriverResponse {
     OpenIdReceived(request_openid_token::v3::Response),
     /// Client read some Matrix event(s).
     /// A response to a [`MatrixDriverRequestData::ReadEvents`] command.
-    EventsRead(Vec<Raw<AnyTimelineEvent>>),
+    EventsRead(ReadEventsResponse),
     /// Client read some Matrix room state entries.
     /// A response to a [`MatrixDriverRequestData::ReadState`] command.
     StateRead(Vec<Raw<AnyStateEvent>>),

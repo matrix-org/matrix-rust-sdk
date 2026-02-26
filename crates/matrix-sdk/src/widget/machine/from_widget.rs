@@ -200,11 +200,14 @@ pub(super) struct ReadEventsRequest {
     pub(super) event_type: String,
     pub(super) state_key: Option<StateKeySelector>,
     pub(super) limit: Option<u32>,
+    pub(super) from: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct ReadEventsResponse {
-    pub(super) events: Vec<Raw<AnyTimelineEvent>>,
+pub(crate) struct ReadEventsResponse {
+    pub(crate) events: Vec<Raw<AnyTimelineEvent>>,
+    pub(crate) pagination_token: Option<String>,
+    pub(crate) reached_start: bool,
 }
 
 #[derive(Serialize, Debug)]

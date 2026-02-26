@@ -28,10 +28,8 @@ use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
-        filter::RoomEventFilter,
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
-    assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -48,10 +46,13 @@ use tokio::sync::{
 };
 use tracing::{error, trace, warn};
 
-use super::{StateKeySelector, machine::SendEventResponse};
+use super::{
+    StateKeySelector,
+    machine::{ReadEventsResponse, SendEventResponse},
+};
 use crate::{
-    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
-    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
+    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, sync::RoomUpdate,
+    widget::machine::SendToDeviceEventResponse,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -59,7 +60,16 @@ use crate::{
 pub(crate) struct MatrixDriver {
     room: Room,
 }
-
+/// Internal representation of errors.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+enum ReadEventsError {
+    #[error(
+        "There provided `from` (EventId) value was not found in the current event_cache.
+        Make sure you only use from values you have received from a previous call to read_events."
+    )]
+    InvalidFromEventId,
+}
 impl MatrixDriver {
     /// Creates a new `MatrixDriver` for a given `room`.
     pub(crate) fn new(room: Room) -> Self {
@@ -78,37 +88,82 @@ impl MatrixDriver {
 
     /// Reads the latest `limit` events of a given `event_type` from the room's
     /// timeline.
+    ///
+    /// # Arguments
+    ///
+    ///  * `from` - The token to start reading from. This is just the ev id of
+    ///    the last event in the cache that was sent to the widget.
     pub(crate) async fn read_events(
         &self,
         event_type: TimelineEventType,
         state_key: Option<StateKeySelector>,
-        limit: u32,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
-        let options = assign!(MessagesOptions::backward(), {
-            limit: limit.into(),
-            filter: assign!(RoomEventFilter::default(), {
-                types: Some(vec![event_type.to_string()])
-            }),
-        });
+        limit: usize,
+        from: Option<String>,
+    ) -> Result<ReadEventsResponse> {
+        let ev_cache = self.room.event_cache().await?.0;
+        let mut events = ev_cache.events().await?;
+        let mut reached_start = false;
 
-        let messages = self.room.messages(options).await?;
-
-        Ok(messages
-            .chunk
-            .into_iter()
-            .map(|ev| ev.into_raw().cast_unchecked())
-            .filter(|ev| match &state_key {
-                Some(state_key) => {
-                    ev.get_field::<String>("state_key").is_ok_and(|key| match state_key {
-                        StateKeySelector::Key(state_key) => {
-                            key.is_some_and(|key| &key == state_key)
-                        }
-                        StateKeySelector::Any => key.is_some(),
-                    })
+        let from_index = match from {
+            Some(from) => match events
+                .iter()
+                .position(|e| e.event_id().is_some_and(|id| id.to_string() == from))
+            {
+                Some(index) => index,
+                None => {
+                    return Err(Error::UnknownError(Box::new(ReadEventsError::InvalidFromEventId)));
                 }
-                None => true,
-            })
-            .collect())
+            },
+            None => 0,
+        };
+
+        let mut pagination_limit_exceeded = false;
+        const LIMIT_ITERATIONS: usize = 10;
+        let mut iterations = 0;
+        while events.len() <= from_index + limit || pagination_limit_exceeded {
+            // Fetch more events from the server
+            let outcome =
+                ev_cache.pagination().run_backwards_until((from_index + limit) as u16).await?;
+            if outcome.reached_start {
+                pagination_limit_exceeded = true;
+                reached_start = true;
+            }
+            iterations += 1;
+            if iterations >= LIMIT_ITERATIONS {
+                pagination_limit_exceeded = true;
+            }
+            // update local event array
+            events = ev_cache.events().await?;
+        }
+
+        let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
+            e.get_field::<String>("type")
+                .is_ok_and(|ev_ty| ev_ty.is_some_and(|ty| ty == event_type.to_string()))
+        };
+
+        let filter_state_key = |e: &Raw<AnyTimelineEvent>| match &state_key {
+            None => true,
+            Some(state_key) => e.get_field::<String>("state_key").is_ok_and(|key| {
+                key.is_some_and(|k| match state_key {
+                    StateKeySelector::Any => true,
+                    StateKeySelector::Key(request_key) => request_key == &k,
+                })
+            }),
+        };
+
+        let filtered_events = events[(from_index + 1)..(limit + from_index + 1)]
+            .into_iter()
+            .map(|e| attach_room_id(e.raw(), self.room.room_id()))
+            .filter(filter_event_type)
+            .filter(filter_state_key)
+            .collect();
+        let token = events.last().and_then(|e| e.event_id());
+
+        return Ok(ReadEventsResponse {
+            events: filtered_events,
+            pagination_token: token.map(|id| id.to_string()),
+            reached_start,
+        });
     }
 
     /// Reads the current values of the room state entries matching the given
