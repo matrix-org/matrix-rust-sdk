@@ -108,12 +108,11 @@ impl MatrixDriver {
         const LIMIT_ITERATIONS: usize = 10;
         let mut iterations = 0;
 
-        let compute_index_of_token = |from: Option<String>, events: &Vec<TimelineEvent>| match from
-            .clone()
+        let compute_index_of_token = |from: &Option<String>, events: &Vec<TimelineEvent>| match from
         {
             Some(f) => match events
                 .iter()
-                .position(|e| e.event_id().is_some_and(|id| id.to_string() == f))
+                .position(|e| e.event_id().is_some_and(|id| &id.to_string() == f))
             {
                 Some(index) => Ok(index),
                 None => {
@@ -122,7 +121,7 @@ impl MatrixDriver {
             },
             None => Ok(0),
         };
-        let mut index_of_token = compute_index_of_token(from, &events)?;
+        let mut index_of_token = compute_index_of_token(&from, &events)?;
         while index_of_token >= limit || pagination_limit_exceeded {
             // Fetch more events from the server
             let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
@@ -138,7 +137,7 @@ impl MatrixDriver {
             events = ev_cache.events().await?;
 
             // update the index where we can find our pagination token
-            index_of_token = compute_index_of_token(from, &events)?;
+            index_of_token = compute_index_of_token(&from, &events)?;
         }
         let token = events.first().and_then(|e| e.event_id().map(|id| id.to_string()));
 
