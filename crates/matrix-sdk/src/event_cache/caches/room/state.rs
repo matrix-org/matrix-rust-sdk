@@ -241,8 +241,14 @@ impl RoomEventCacheStateLock {
     }
 }
 
+/// The read-lock guard around [`RoomEventCacheState`].
+///
+/// See [`RoomEventCacheStateLock::read`] to acquire it.
 pub type RoomEventCacheStateLockReadGuard<'a> = lock::StateLockReadGuard<'a, RoomEventCacheState>;
 
+/// The write-lock guard around [`RoomEventCacheState`].
+///
+/// See [`RoomEventCacheStateLock::write`] to acquire it.
 pub type RoomEventCacheStateLockWriteGuard<'a> = lock::StateLockWriteGuard<'a, RoomEventCacheState>;
 
 impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
@@ -268,11 +274,12 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
 }
 
 impl<'a> RoomEventCacheStateLockReadGuard<'a> {
-    /// Returns a read-only reference to the underlying room linked chunk.
+    /// Return a read-only reference to the underlying room linked chunk.
     pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.room_linked_chunk
     }
 
+    /// Return the subscriber count.
     pub fn subscriber_count(&self) -> &Arc<AtomicUsize> {
         &self.state.subscriber_count
     }
@@ -389,7 +396,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
 }
 
 impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
-    /// Returns a write reference to the underlying room linked chunk.
+    /// Return a write reference to the underlying room linked chunk.
     #[cfg(any(feature = "e2e-encryption", test))]
     pub fn room_linked_chunk(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
