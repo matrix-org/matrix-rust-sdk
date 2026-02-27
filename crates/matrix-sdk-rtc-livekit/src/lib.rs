@@ -6,6 +6,7 @@ use matrix_sdk_rtc::{LiveKitConnection, LiveKitConnector, LiveKitError, LiveKitR
 
 pub use livekit;
 pub use livekit::e2ee;
+use livekit::id::ParticipantIdentity;
 use livekit::RoomEvent;
 pub use livekit::{ConnectionState, Room, RoomOptions};
 use tokio::sync::Mutex;
@@ -227,6 +228,23 @@ where
         let mut room_options = self.room_options_provider().room_options();
         if room_options.encryption.is_none() {
             room_options.encryption = room_options.e2ee.clone();
+        }
+
+        if let Some(encryption) = room_options.encryption.as_ref() {
+            let key_provider = &encryption.key_provider;
+            let key_index = key_provider.get_latest_key_index();
+            let maybe_local_key = room
+                .client()
+                .user_id()
+                .zip(room.client().device_id())
+                .map(|(user_id, device_id)| ParticipantIdentity(format!("{user_id}:{device_id}")))
+                .and_then(|identity| key_provider.get_key(&identity, key_index));
+            info!(
+                room_id = ?room.room_id(),
+                key_index,
+                key_provider_key = ?maybe_local_key,
+                "resolved LiveKit encryption key_provider key before connect"
+            );
         }
         info!(
             room_id = ?room.room_id(),
