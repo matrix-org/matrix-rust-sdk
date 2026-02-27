@@ -51,7 +51,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use super::{
     super::{
         super::{
-            EventCacheError, PaginationStatus, RoomEventCacheLinkedChunkUpdate,
+            EventCacheError, PaginationStatus,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
         },
@@ -63,7 +63,7 @@ use super::{
         thread::ThreadEventCache,
     },
     EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, sort_positions_descending,
+    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, sort_positions_descending,
 };
 use crate::Room;
 
