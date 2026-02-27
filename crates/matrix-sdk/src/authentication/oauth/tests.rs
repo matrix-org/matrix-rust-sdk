@@ -12,7 +12,7 @@ use url::Url;
 
 use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
-    OAuthError, RedirectUriQueryParseError, UrlOrQuery,
+    OAuthError, RedirectUriQueryParseError,
 };
 use crate::{
     Client, Error, SessionChange,
@@ -28,6 +28,7 @@ use crate::{
         },
         mocks::MatrixMockServer,
     },
+    utils::UrlOrQuery,
 };
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oauth/callback";
