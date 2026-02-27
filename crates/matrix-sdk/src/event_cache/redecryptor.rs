@@ -400,11 +400,9 @@ impl EventCache {
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
-        let diffs = state.room_linked_chunk().updates_as_vector_diffs();
-
-        let _ = room_cache.send_updates(
+        room_cache.update_sender().send(
             RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs,
+                diffs: state.room_linked_chunk().updates_as_vector_diffs(),
                 origin: EventsOrigin::Cache,
             }),
             Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),

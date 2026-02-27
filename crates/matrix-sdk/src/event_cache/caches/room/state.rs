@@ -63,7 +63,8 @@ use super::{
         thread::ThreadEventCache,
     },
     EventLocation, EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, sort_positions_descending,
+    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
+    sort_positions_descending,
 };
 use crate::Room;
 
@@ -98,13 +99,7 @@ pub struct RoomEventCacheState {
     ///
     /// This is used only by the [`RoomEventCacheStateLock::read`] and
     /// [`RoomEventCacheStateLock::write`] when the state must be reset.
-    update_sender: Sender<RoomEventCacheUpdate>,
-
-    /// A clone of [`super::super::EventCacheInner::generic_update_sender`].
-    ///
-    /// This is used only by the [`RoomEventCacheStateLock::read`] and
-    /// [`RoomEventCacheStateLock::write`] when the state must be reset.
-    generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+    update_sender: RoomEventCacheUpdateSender,
 
     /// A clone of
     /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
@@ -153,8 +148,7 @@ impl RoomEventCacheStateLock {
         room_id: OwnedRoomId,
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
-        update_sender: Sender<RoomEventCacheUpdate>,
-        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+        update_sender: RoomEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<PaginationStatus>,
@@ -231,7 +225,6 @@ impl RoomEventCacheStateLock {
             threads: HashMap::new(),
             pagination_status,
             update_sender,
-            generic_update_sender,
             linked_chunk_update_sender,
             room_version_rules,
             waited_for_initial_prev_token: false,
@@ -259,15 +252,13 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
         let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
         // Notify observers about the update.
-        let _ = self.state.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-            TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-        ));
-
-        // Notify observers about the generic update.
-        let _ = self
-            .state
-            .generic_update_sender
-            .send(RoomEventCacheGenericUpdate { room_id: self.state.room_id.clone() });
+        self.state.update_sender.send(
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs,
+                origin: EventsOrigin::Cache,
+            }),
+            Some(RoomEventCacheGenericUpdate { room_id: self.state.room_id.clone() }),
+        );
 
         Ok(())
     }

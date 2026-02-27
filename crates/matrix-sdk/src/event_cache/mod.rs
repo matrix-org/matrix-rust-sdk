@@ -450,7 +450,7 @@ impl EventCache {
                         // However, better safe than sorry, and it's cheap to send an update here,
                         // so let's do it!
                         if !diffs.is_empty() {
-                            let _ = room.send_updates(
+                            room.update_sender().send(
                                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                                     diffs,
                                     origin: EventsOrigin::Cache,
@@ -1011,7 +1011,7 @@ impl EventCacheInner {
             let mut state_guard = state_guard?;
             let updates_as_vector_diffs = state_guard.reset().await?;
 
-            let _ = room.send_updates(
+            room.update_sender().send(
                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
@@ -1112,7 +1112,9 @@ impl EventCacheInner {
                     ThreadingSupport::Enabled { .. }
                 );
 
-                let update_sender = Sender::new(32);
+                let update_sender = caches::room::RoomEventCacheUpdateSender::new(
+                    self.generic_update_sender.clone(),
+                );
 
                 let own_user_id =
                     client.user_id().expect("the user must be logged in, at this point").to_owned();
@@ -1122,7 +1124,6 @@ impl EventCacheInner {
                     room_version_rules,
                     enabled_thread_support,
                     update_sender.clone(),
-                    self.generic_update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
@@ -1146,7 +1147,6 @@ impl EventCacheInner {
                     room_id.to_owned(),
                     auto_shrink_sender,
                     update_sender,
-                    self.generic_update_sender.clone(),
                 );
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
