@@ -314,6 +314,55 @@ impl SupportedPathBuilder for path_builder::SinglePath {
     }
 }
 
+/// Functions for configuring the default [`CryptoProvider`] when using
+/// `reqwest` with `rustls`'s implementation of TLS.
+#[cfg(feature = "rustls-tls")]
+pub mod rustls {
+    use rustls::crypto::CryptoProvider;
+
+    /// The default [`CryptoProvider`] preferred by this crate.
+    ///
+    /// Typically, the default [`CryptoProvider`] for `rustls`
+    /// is `aws-lc-rs`, but due to licensing issues this crate
+    /// prefers `ring`.
+    pub fn default_crypto_provider() -> CryptoProvider {
+        rustls::crypto::ring::default_provider()
+    }
+
+    /// The `rustls-tls` flag enables the `rustls` implementation of TLS for
+    /// `reqwest`, but without a [`CryptoProvider`]. This means that no
+    /// default provider is installed, which will cause `reqwest::Client::new()`
+    /// to panic.
+    ///
+    /// This functions installs the preferred default provider given by
+    /// [`default_crypto_provider`], if no default has previously been
+    /// installed.
+    pub fn install_default_crypto_provider_if_none_installed() {
+        if default_crypto_provider().install_default().is_ok() {
+            // This log message seems to cause `nextest` to get confused,
+            // so it won't be printed when running tests.
+            #[cfg(not(test))]
+            tracing::info!("No rustls crypto provider set, setting default provider to ring.");
+        }
+    }
+
+    /// Install a default [`CryptoProvider`] for `rustls`, if one isn't already
+    /// installed. This uses [`ctor`] to run before any tests.
+    #[cfg(test)]
+    macro_rules! install_default_crypto_provider_for_tests {
+        () => {
+            #[cfg(not(target_family = "wasm"))]
+            #[ctor::ctor]
+            fn install_default_crypto_provider_for_tests() {
+                $crate::http_client::rustls::install_default_crypto_provider_if_none_installed();
+            }
+        };
+    }
+
+    #[cfg(test)]
+    pub(crate) use install_default_crypto_provider_for_tests;
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{

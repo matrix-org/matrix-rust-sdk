@@ -29,11 +29,6 @@ allow = [
     "Zlib",
 ]
 
-[[licenses.clarify]]
-crate = "aws-lc-sys"
-expression = "ISC AND Apache-2.0"
-license-files = [{ path = "LICENSE", hash = 0xf308ccd7 }]
-
 [bans]
 # We should disallow this, but it's currently a PITA.
 multiple-versions = "allow"
