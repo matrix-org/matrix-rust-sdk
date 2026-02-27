@@ -2,11 +2,11 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{
     deserialized_responses::RawSyncOrStrippedState, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, async_test};
+use matrix_sdk_test::{InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test};
 use ruma::{
     EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, RoomVersionId, event_id,
     events::{
-        AnySyncStateEvent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -255,7 +255,7 @@ async fn test_receive_room_avatar_event_via_sync() {
         .await;
 
     // The room info is unset and the invalid state event is in the store.
-    assert_eq!(room.name(), None);
+    assert_eq!(room.avatar_url(), None);
     assert_matches!(
         room.get_state_event_static::<RoomAvatarEventContent>().await,
         Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
@@ -292,7 +292,7 @@ async fn test_receive_room_avatar_event_via_sync() {
         .await;
 
     // Nothing has changed.
-    assert_eq!(room.name(), None);
+    assert_eq!(room.avatar_url(), None);
     assert_matches!(
         room.get_state_event_static::<RoomAvatarEventContent>().await,
         Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
@@ -1692,4 +1692,685 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
+}
+
+#[async_test]
+async fn test_receive_stripped_room_encryption_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "algorithm": "m.megolm.v1.aes-sha2",
+        },
+        "type": "m.room.encryption",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithvalidencryption"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(
+        room.encryption_settings().unwrap().algorithm,
+        Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
+    );
+    assert_matches!(
+        room.get_state_event_static::<RoomEncryptionEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Then we receive a redacted event.
+    let redacted_raw_event = Raw::new(&json!({
+        "content": {},
+        "type": "m.room.encryption",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithredactedencryption"))
+                .add_state_bulk(vec![redacted_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is empty but the state event is in the store.
+    assert_matches!(room.encryption_settings(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomEncryptionEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), redacted_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "algorithm": true,
+        },
+        "type": "m.room.encryption",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidencryptioncontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is empty but the state event is in the store.
+    assert_matches!(room.encryption_settings(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomEncryptionEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "algorithm": "m.megolm.v1.aes-sha2",
+        },
+        "type": "m.room.encryption",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidencryptionstatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is empty and the state event is not in the store.
+    assert_matches!(room.encryption_settings(), None);
+    assert_matches!(room.get_state_event_static::<RoomEncryptionEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_receive_stripped_room_avatar_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let avatar_url = mxc_uri!("mxc://localhost/1234");
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "url": avatar_url,
+        },
+        "type": "m.room.avatar",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithvalidname"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url));
+    assert_matches!(
+        room.get_state_event_static::<RoomAvatarEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "url": true,
+        },
+        "type": "m.room.avatar",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidavatarcontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_eq!(room.avatar_url(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomAvatarEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "url": "mxc://localhost/zyxw",
+        },
+        "type": "m.room.avatar",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidavatarstatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_eq!(room.avatar_url(), None);
+    assert_matches!(room.get_state_event_static::<RoomAvatarEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_receive_stripped_room_name_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let room_name = "My room";
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "name": room_name,
+        },
+        "type": "m.room.name",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithvalidname"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.name().as_deref(), Some(room_name));
+    assert_matches!(
+        room.get_state_event_static::<RoomNameEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "name": true,
+        },
+        "type": "m.room.name",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidnamecontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_eq!(room.name(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomNameEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "name": room_name,
+        },
+        "type": "m.room.name",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidnamestatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_eq!(room.name(), None);
+    assert_matches!(room.get_state_event_static::<RoomNameEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_receive_stripped_room_create_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "room_version": "12",
+        },
+        "type": "m.room.create",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithvalidcreate"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.create_content().unwrap().room_version, RoomVersionId::V12);
+    assert_matches!(
+        room.get_state_event_static::<RoomCreateEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "room_version": true,
+        },
+        "type": "m.room.create",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidcreatecontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_matches!(room.create_content(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomCreateEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "room_version": "12",
+        },
+        "type": "m.room.create",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidcreatestatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_matches!(room.create_content(), None);
+    assert_matches!(room.get_state_event_static::<RoomCreateEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_receive_stripped_room_join_rules_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "join_rule": "public",
+        },
+        "type": "m.room.join_rules",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithvalidjoinrules"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.join_rule(), Some(JoinRule::Public));
+    assert_matches!(
+        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "join_rule": true,
+        },
+        "type": "m.room.join_rules",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidjoinrulescontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_eq!(room.join_rule(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "join_rule": "public",
+        },
+        "type": "m.room.join_rules",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidjoinrulesstatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_eq!(room.join_rule(), None);
+    assert_matches!(room.get_state_event_static::<RoomJoinRulesEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_receive_stripped_room_canonical_alias_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let room_alias = room_alias_id!("#myroom:localhost");
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "alias": room_alias,
+        },
+        "type": "m.room.canonical_alias",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithvalidcanonicalalias"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.canonical_alias().as_deref(), Some(room_alias));
+    assert_matches!(
+        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "alias": true,
+        },
+        "type": "m.room.canonical_alias",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidcanonicalaliascontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_eq!(room.canonical_alias(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "alias": room_alias,
+        },
+        "type": "m.room.canonical_alias",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id!("!roomwithinvalidcanonicalaliasstatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_eq!(room.canonical_alias(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
+        Ok(None)
+    );
+}
+
+#[async_test]
+async fn test_receive_stripped_room_topic_event_via_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // First we receive a valid event.
+    let room_topic = "A room about me, myself, and I!";
+    let valid_raw_event = Raw::new(&json!({
+        "content": {
+            "topic": room_topic,
+        },
+        "type": "m.room.topic",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithvalidtopic"))
+                .add_state_bulk(vec![valid_raw_event.clone()]),
+        )
+        .await;
+
+    // The room info is set and the valid state event is in the store.
+    assert_eq!(room.topic().as_deref(), Some(room_topic));
+    assert_matches!(
+        room.get_state_event_static::<RoomTopicEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
+    assert_matches!(raw_event.deserialize(), Ok(_));
+
+    // Now we receive an event with an invalid content but a valid type
+    // and state key.
+    let raw_event_with_invalid_content = Raw::new(&json!({
+        "content": {
+            // It's a boolean!
+            "topic": true,
+        },
+        "type": "m.room.topic",
+        "state_key": "",
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidtopiccontent"))
+                .add_state_bulk(vec![raw_event_with_invalid_content.clone()]),
+        )
+        .await;
+
+    // The room info is not set but the invalid state event is in the store.
+    assert_eq!(room.topic(), None);
+    assert_matches!(
+        room.get_state_event_static::<RoomTopicEventContent>().await,
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    );
+    assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
+    assert_matches!(raw_event.deserialize(), Err(_));
+
+    // Finally we receive an event with an invalid state key.
+    let raw_event_with_invalid_state_key = Raw::new(&json!({
+        "content": {
+            "topic": room_topic,
+        },
+        "type": "m.room.topic",
+        // It's a number!
+        "state_key": 1,
+        "sender": user_id,
+    }))
+    .unwrap()
+    .cast_unchecked::<AnyStrippedStateEvent>();
+
+    let room = server
+        .sync_room(
+            &client,
+            KnockedRoomBuilder::new(room_id!("!roomwithinvalidtopicstatekey"))
+                .add_state_bulk(vec![raw_event_with_invalid_state_key.clone()]),
+        )
+        .await;
+
+    // The room info is not set and the invalid state event is not in the store.
+    assert_eq!(room.topic(), None);
+    assert_matches!(room.get_state_event_static::<RoomTopicEventContent>().await, Ok(None));
 }
