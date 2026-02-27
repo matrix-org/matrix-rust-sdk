@@ -99,7 +99,7 @@ impl SsoHandler {
         let auth = self.client.inner.matrix_auth();
         let url = Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
         let builder =
-            auth.login_with_sso_callback(url).map_err(|_| SsoError::CallbackUrlInvalid)?;
+            auth.login_with_sso_callback(url.into()).map_err(|_| SsoError::CallbackUrlInvalid)?;
         builder.await.map_err(|_| SsoError::LoginWithTokenFailed)?;
         Ok(())
     }

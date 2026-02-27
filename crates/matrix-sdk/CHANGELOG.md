@@ -94,6 +94,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
   module to the `utils` module. It can also be converted from a `QueryString`.
   ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
+- [**breaking**] `MatrixAuth::login_with_sso_callback()` takes a `UrlOrQuery`
+  instead of a `Url`, to make it more convenient to use with
+  `LocalServerBuilder` / `LocalServerRedirectHandle`.
+  ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
 - [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
   removed from the Matrix specification. The `ReportedContentScore` type was removed too.
   ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
