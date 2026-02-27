@@ -14,6 +14,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use eyeball::Subscriber;
 use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
@@ -23,7 +24,7 @@ use tokio::{
     select,
     sync::broadcast::{Receiver, Sender, error::RecvError},
 };
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use super::{EventCacheError, EventCacheInner, RoomEventCacheLinkedChunkUpdate};
 use crate::{
@@ -76,6 +77,31 @@ pub(super) async fn room_updates_task(
             }
         }
     }
+}
+
+/// Listen to _ignore user list update changes_ to clear the rooms when a user
+/// is ignored or unignored.
+#[instrument(skip_all)]
+pub(super) async fn ignore_user_list_update_task(
+    inner: Arc<EventCacheInner>,
+    mut ignore_user_list_stream: Subscriber<Vec<String>>,
+) {
+    let span = info_span!(parent: Span::none(), "ignore_user_list_update_task");
+    span.follows_from(Span::current());
+
+    async move {
+        while ignore_user_list_stream.next().await.is_some() {
+            info!("Received an ignore user list change");
+
+            if let Err(err) = inner.clear_all_rooms().await {
+                error!("when clearing room storage after ignore user list change: {err}");
+            }
+        }
+
+        info!("Ignore user list stream has closed");
+    }
+    .instrument(span)
+    .await;
 }
 
 /// Handle [`SendQueueUpdate`] and [`RoomEventCacheLinkedChunkUpdate`] to update

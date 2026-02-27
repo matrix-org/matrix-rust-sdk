@@ -34,7 +34,7 @@ use std::{
     sync::{Arc, OnceLock, Weak},
 };
 
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::SharedObservable;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     ThreadingSupport,
@@ -51,7 +51,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     Client,
@@ -283,7 +283,7 @@ impl EventCache {
                 client.subscribe_to_all_room_updates(),
             ));
 
-            let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", Self::ignore_user_list_update_task(
+            let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
             ));
@@ -322,27 +322,6 @@ impl EventCache {
         });
 
         Ok(())
-    }
-
-    #[instrument(skip_all)]
-    async fn ignore_user_list_update_task(
-        inner: Arc<EventCacheInner>,
-        mut ignore_user_list_stream: Subscriber<Vec<String>>,
-    ) {
-        let span = info_span!(parent: Span::none(), "ignore_user_list_update_task");
-        span.follows_from(Span::current());
-
-        async move {
-            while ignore_user_list_stream.next().await.is_some() {
-                info!("Received an ignore user list change");
-                if let Err(err) = inner.clear_all_rooms().await {
-                    error!("when clearing room storage after ignore user list change: {err}");
-                }
-            }
-            info!("Ignore user list stream has closed");
-        }
-        .instrument(span)
-        .await;
     }
 
     /// For benchmarking purposes only.
