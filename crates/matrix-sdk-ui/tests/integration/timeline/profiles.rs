@@ -22,7 +22,8 @@ use matrix_sdk::{
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, mocks::mock_encryption_state,
+    event_factory::{EventFactory, PreviousMembership},
+    mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::events::room::member::MembershipState;
@@ -33,6 +34,199 @@ use wiremock::{
 };
 
 use crate::mock_sync;
+
+#[async_test]
+async fn test_user_profile_after_being_banned() {
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+
+    let f = EventFactory::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    // Previous content of Alice's leave event
+    let prev_content_alice = PreviousMembership::new(MembershipState::Join)
+        .display_name("*profanities*")
+        .avatar_url("mxc://456".into());
+
+    // Same, but for Carol.
+    let prev_content_carol = PreviousMembership::new(MembershipState::Join)
+        .display_name("Carol")
+        .avatar_url("mxc://789".into());
+
+    // Build a simple timeline with Bob creating the room, Alice accepting an invite
+    // and sending a message, Bob sending a message, and Alice leaving
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            // Bob create the room
+            .add_timeline_event(
+                f.member(&BOB)
+                    .display_name("Bob")
+                    .avatar_url("mxc://123".into())
+                    .membership(MembershipState::Join),
+            )
+            // Alice accepts an invite into the room
+            .add_timeline_event(
+                f.member(&ALICE)
+                    .display_name("*profanities*")
+                    .avatar_url("mxc://456".into())
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
+            // Bob sends a text message
+            .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+            // Alice send some insults and gets banned
+            .add_timeline_event(f.text_msg("*insults*").sender(&ALICE))
+            .add_timeline_event(f.text_msg("Nope. You are out.").sender(&BOB))
+            .add_timeline_event(
+                f.member(&ALICE).membership(MembershipState::Ban).previous(prev_content_alice),
+            )
+            // Carol accepts an invite into the room
+            .add_timeline_event(
+                f.member(&CAROL)
+                    .display_name("Carol")
+                    .avatar_url("mxc://789".into())
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
+            // Carol sends a text message
+            .add_timeline_event(f.text_msg("hi!").sender(&CAROL))
+            // Carol leaves the room
+            .add_timeline_event(
+                f.member(&CAROL).membership(MembershipState::Leave).previous(prev_content_carol),
+            ),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    let timeline_items = timeline.items().await;
+    // Date divider + 9 events
+    assert_eq!(timeline_items.len(), 10);
+
+    // Bob is still in the room, his profile should be available.
+    let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
+    match bob_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Bob".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://123".into()));
+        }
+        _ => panic!("Expected Bob's profile to be ready"),
+    }
+
+    // Carol has left the room, but her profile should still be available.
+    let carol_profile = timeline_items[8].as_event().unwrap().sender_profile();
+    match carol_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Carol".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://789".into()));
+        }
+        _ => panic!("Expected Carol's profile to be ready"),
+    }
+
+    // Alice's profile, and therefore display name, should be empty,
+    // as she has been banned. The SDK **should** return an empty
+    // profile for banned users.
+    let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
+    match alice_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, None);
+            assert_eq!(profile.avatar_url, None);
+        }
+        _ => panic!("Expected Alice's profile to be ready"),
+    }
+}
+
+#[async_test]
+async fn test_user_profile_after_leaving() {
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+
+    let f = EventFactory::new();
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    // Previous content of Alice's leave event
+    let prev_content = PreviousMembership::new(MembershipState::Join)
+        .display_name("Alice")
+        .avatar_url("mxc://...".into());
+
+    // Build a simple timeline with Bob creating the room, Alice accepting an invite
+    // and sending a message, Bob sending a message, and Alice leaving
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            // Bob create the room
+            .add_timeline_event(
+                f.member(&BOB)
+                    .display_name("Bob")
+                    .avatar_url("mxc://...".into())
+                    .membership(MembershipState::Join),
+            )
+            // Alice accepts an invite into the room
+            .add_timeline_event(
+                f.member(&ALICE)
+                    .display_name("Alice")
+                    .avatar_url("mxc://...".into())
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
+            // Bob sends a text message
+            .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+            // Alice send a message and leaves the room
+            .add_timeline_event(f.text_msg("bye now").sender(&ALICE))
+            .add_timeline_event(
+                f.member(&ALICE).membership(MembershipState::Leave).previous(prev_content),
+            ),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    let timeline_items = timeline.items().await;
+    // Date divider + 5 events
+    assert_eq!(timeline_items.len(), 6);
+
+    // Alice's profile, and therefore display name, should be still available after
+    // she left the room.
+    let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
+    match alice_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Alice".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://...".into()));
+        }
+        _ => panic!("Expected Alice's profile to be ready"),
+    }
+
+    // Bob's profile should also be available
+    let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
+    match bob_profile {
+        TimelineDetails::Ready(profile) => {
+            assert_eq!(profile.display_name, Some("Bob".to_owned()));
+            assert_eq!(profile.avatar_url, Some("mxc://...".into()));
+        }
+        _ => panic!("Expected Bob's profile to be ready"),
+    }
+}
 
 #[async_test]
 async fn test_update_sender_profiles() {
