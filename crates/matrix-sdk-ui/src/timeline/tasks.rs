@@ -16,6 +16,8 @@
 
 use std::collections::BTreeSet;
 
+use eyeball_im::VectorDiff;
+use imbl::Vector;
 use matrix_sdk::{
     event_cache::{
         EventsOrigin, RoomEventCache, RoomEventCacheSubscriber, RoomEventCacheUpdate,
@@ -115,9 +117,31 @@ pub(in crate::timeline) async fn thread_updates_task(
                         }
                     };
 
+                // For each event, we also need to find the related events, as they don't
+                // include the thread relationship, they won't be included in
+                // the initial list of events.
+                let mut related_events = Vector::new();
+                for event_id in initial_events.iter().filter_map(|event| event.event_id()) {
+                    if let Ok(Some((_original, related))) =
+                        room_event_cache.find_event_with_relations(&event_id, None).await
+                    {
+                        related_events.extend(related);
+                    }
+                }
+
                 timeline_controller
                     .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
                     .await;
+
+                // Now that we've inserted the thread events, add the aggregations too.
+                if !related_events.is_empty() {
+                    timeline_controller
+                        .handle_remote_aggregations(
+                            vec![VectorDiff::Append { values: related_events }],
+                            RemoteEventOrigin::Cache,
+                        )
+                        .await;
+                }
 
                 continue;
             }
