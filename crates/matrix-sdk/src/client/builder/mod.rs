@@ -90,6 +90,10 @@ use crate::{
 ///
 /// use matrix_sdk::Client;
 ///
+/// // setting up rustls crypto provider if using rustls
+/// #[cfg(feature = "rustls-tls")]
+/// matrix_sdk::rustls::install_default_crypto_provider_if_none_installed();
+///
 /// // setting up a custom http client
 /// let reqwest_builder = reqwest::ClientBuilder::new()
 ///     .https_only(true)
@@ -534,6 +538,9 @@ impl ClientBuilder {
 
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
+
+        #[cfg(feature = "rustls-tls")]
+        crate::http_client::rustls::install_default_crypto_provider_if_none_installed();
 
         #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {

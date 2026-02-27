@@ -196,15 +196,13 @@ impl HttpSettings {
                 "Adding {} additional root certificates to the HTTP client",
                 self.additional_root_certificates.len()
             );
-
-            for cert in &self.additional_root_certificates {
-                http_client = http_client.add_root_certificate(cert.clone());
-            }
         }
 
         if self.disable_built_in_root_certificates {
             info!("Built-in root certificates disabled in the HTTP client.");
-            http_client = http_client.tls_built_in_root_certs(false);
+            http_client = http_client.tls_certs_only(self.additional_root_certificates.clone());
+        } else {
+            http_client = http_client.tls_certs_merge(self.additional_root_certificates.clone());
         }
 
         if let Some(p) = &self.proxy {
