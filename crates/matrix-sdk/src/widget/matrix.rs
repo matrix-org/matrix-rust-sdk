@@ -102,10 +102,10 @@ impl MatrixDriver {
     ) -> Result<ReadEventsResponse> {
         let ev_cache = self.room.event_cache().await?.0;
         let mut events = ev_cache.events().await?;
-        let mut reached_start = false;
 
+        let mut reached_start = false;
         let mut allow_to_look_for_more_events = true;
-        const LIMIT_ITERATIONS: usize = 2;
+        const LIMIT_ITERATIONS: usize = 5;
         let mut iterations = 0;
 
         let compute_index_of_token = |from: &Option<String>, events: &Vec<TimelineEvent>| match from
@@ -121,23 +121,21 @@ impl MatrixDriver {
             },
             None => Ok(if events.len() > 0 { events.len() - 1 } else { 0 }),
         };
+        let allow_to_look_for_more_events = |reached_start: bool, iterations: usize| {
+            reached_start == false && iterations <= LIMIT_ITERATIONS
+        };
+
         let mut index_of_token = compute_index_of_token(&from, &events)?;
-        while index_of_token <= limit && allow_to_look_for_more_events {
+        while index_of_token <= limit && allow_to_look_for_more_events(reached_start, iterations) {
             // Fetch more events from the server
-            let outcome = ev_cache.pagination().run_backwards_until((limit) as u16).await?;
-            if outcome.reached_start {
-                allow_to_look_for_more_events = false;
-                reached_start = true;
-            }
-            iterations += 1;
-            if iterations > LIMIT_ITERATIONS {
-                allow_to_look_for_more_events = false;
-            }
-            // update local event array
+            // And update local event array
+            reached_start =
+                ev_cache.pagination().run_backwards_until((limit) as u16).await?.reached_start;
             events = ev_cache.events().await?;
 
             // update the index where we can find our pagination token
             index_of_token = compute_index_of_token(&from, &events)?;
+            iterations += 1;
         }
 
         // TODO use checked_sign_diff
