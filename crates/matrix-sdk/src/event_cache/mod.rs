@@ -31,7 +31,7 @@ use std::{
     collections::HashMap,
     fmt,
     ops::{Deref, DerefMut},
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, OnceLock},
 };
 
 use eyeball::SharedObservable;
@@ -51,7 +51,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, instrument, trace};
 
 use crate::{
     Client,
@@ -293,7 +293,7 @@ impl EventCache {
             // Force-initialize the sender in the [`RoomEventCacheInner`].
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
-            let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", Self::auto_shrink_linked_chunk_task(
+            let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             ));
@@ -328,81 +328,6 @@ impl EventCache {
     #[doc(hidden)]
     pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         self.inner.handle_room_updates(updates).await
-    }
-
-    /// Spawns the task that will listen to auto-shrink notifications.
-    ///
-    /// The auto-shrink mechanism works this way:
-    ///
-    /// - Each time there's a new subscriber to a [`RoomEventCache`], it will
-    ///   increment the active number of subscribers to that room, aka
-    ///   [`RoomEventCacheState::subscriber_count`].
-    /// - When that subscriber is dropped, it will decrement that count; and
-    ///   notify the task below if it reached 0.
-    /// - The task spawned here, owned by the [`EventCacheInner`], will listen
-    ///   to such notifications that a room may be shrunk. It will attempt an
-    ///   auto-shrink, by letting the inner state decide whether this is a good
-    ///   time to do so (new subscribers might have spawned in the meanwhile).
-    #[instrument(skip_all)]
-    async fn auto_shrink_linked_chunk_task(
-        inner: Weak<EventCacheInner>,
-        mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
-    ) {
-        while let Some(room_id) = rx.recv().await {
-            trace!(for_room = %room_id, "received notification to shrink");
-
-            let Some(inner) = inner.upgrade() else {
-                return;
-            };
-
-            let room = match inner.for_room(&room_id).await {
-                Ok(room) => room,
-                Err(err) => {
-                    warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
-                    continue;
-                }
-            };
-
-            trace!("waiting for state lock…");
-            let mut state = match room.state().write().await {
-                Ok(state) => state,
-                Err(err) => {
-                    warn!(for_room = %room_id, "Failed to get the `RoomEventCacheStateLock`: {err}");
-                    continue;
-                }
-            };
-
-            match state.auto_shrink_if_no_subscribers().await {
-                Ok(diffs) => {
-                    if let Some(diffs) = diffs {
-                        // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
-                        // subscribers, right? RIGHT? Especially because the state is guarded behind
-                        // a lock.
-                        //
-                        // However, better safe than sorry, and it's cheap to send an update here,
-                        // so let's do it!
-                        if !diffs.is_empty() {
-                            room.update_sender().send(
-                                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                                    diffs,
-                                    origin: EventsOrigin::Cache,
-                                }),
-                                None,
-                            );
-                        }
-                    } else {
-                        debug!("auto-shrinking didn't happen");
-                    }
-                }
-
-                Err(err) => {
-                    // There's not much we can do here, unfortunately.
-                    warn!(for_room = %room_id, "error when attempting to shrink linked chunk: {err}");
-                }
-            }
-        }
-
-        info!("Auto-shrink linked chunk task has been closed, exiting");
     }
 
     /// Check whether [`EventCache::subscribe`] has been called.
