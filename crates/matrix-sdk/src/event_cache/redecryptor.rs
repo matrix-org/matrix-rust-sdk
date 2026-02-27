@@ -402,14 +402,13 @@ impl EventCache {
         // been queued up. We need to send them out to our subscribers now.
         let diffs = state.room_linked_chunk().updates_as_vector_diffs();
 
-        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-            TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-        ));
-
-        let _ = room_cache
-            .inner
-            .generic_update_sender
-            .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
+        let _ = room_cache.send_updates(
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs,
+                origin: EventsOrigin::Cache,
+            }),
+            Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+        );
 
         // We report that we resolved some UTDs, this is mainly for listeners that don't
         // care about the actual events, just about the fact that UTDs got

@@ -303,6 +303,22 @@ impl RoomEventCache {
         Ok(())
     }
 
+    /// Send a [`RoomEventCacheUpdate`] along with a
+    /// [`RoomEventCacheGenericUpdate`] on the appropriate channels.
+    ///
+    /// If `generic_update` is `None`, no generic update will be sent.
+    pub(in super::super) fn send_updates(
+        &self,
+        update: RoomEventCacheUpdate,
+        generic_update: Option<RoomEventCacheGenericUpdate>,
+    ) {
+        let _ = self.inner.update_sender.send(update);
+
+        if let Some(generic_update) = generic_update {
+            let _ = self.inner.generic_update_sender.send(generic_update);
+        }
+    }
+
     /// Handle a single event from the `SendQueue`.
     pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
         self.inner

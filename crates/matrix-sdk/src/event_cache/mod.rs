@@ -454,11 +454,12 @@ impl EventCache {
                         // However, better safe than sorry, and it's cheap to send an update here,
                         // so let's do it!
                         if !diffs.is_empty() {
-                            let _ = room.inner.update_sender.send(
+                            let _ = room.send_updates(
                                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                                     diffs,
                                     origin: EventsOrigin::Cache,
                                 }),
+                                None,
                             );
                         }
                     } else {
@@ -1014,14 +1015,13 @@ impl EventCacheInner {
             let mut state_guard = state_guard?;
             let updates_as_vector_diffs = state_guard.reset().await?;
 
-            let _ = room.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                TimelineVectorDiffs { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
-            ));
-
-            let _ = room
-                .inner
-                .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() });
+            let _ = room.send_updates(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() }),
+            );
 
             Ok::<_, EventCacheError>(())
         }))
