@@ -300,8 +300,8 @@ impl EventLinkedChunk {
         self.chunks.push_items_back(events.iter().cloned());
     }
 
-    /// Finish a network back-pagination for this linked chunk by updating the
-    /// in-memory linked chunk with the results.
+    /// Add events from a backwards pagination for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
     ///
     /// ## Arguments
     ///
@@ -315,7 +315,7 @@ impl EventLinkedChunk {
     ///
     /// Returns a boolean indicating whether we've hit the start of the
     /// timeline/linked chunk.
-    pub fn finish_back_pagination(
+    pub fn push_backwards_pagination_events(
         &mut self,
         prev_gap_id: Option<ChunkIdentifier>,
         new_gap: Option<Gap>,

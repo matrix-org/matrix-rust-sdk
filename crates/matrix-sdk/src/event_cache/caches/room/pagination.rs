@@ -21,19 +21,25 @@ use std::sync::Arc;
 
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::event_cache::Event;
+use matrix_sdk_base::{
+    event_cache::{Event, Gap},
+    linked_chunk::{ChunkContent, LinkedChunkId},
+};
 use ruma::api::Direction;
 
 pub use super::super::pagination::PaginationStatus;
 use super::{
     super::{
-        super::{EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate},
+        super::{
+            EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        },
         TimelineVectorDiffs,
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
     },
-    RoomEventCacheInner, RoomEventCacheUpdate,
+    PostProcessingOrigin, RoomEventCacheInner, RoomEventCacheUpdate,
 };
 use crate::room::MessagesOptions;
 
@@ -152,26 +158,103 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         &self,
         events: Vec<Event>,
         prev_token: Option<String>,
-        new_token: Option<String>,
+        mut new_token: Option<String>,
     ) -> Result<Option<BackPaginationOutcome>> {
-        if let Some((outcome, timeline_event_diffs)) =
-            self.state.write().await?.handle_backpagination(events, new_token, prev_token).await?
-        {
-            if !timeline_event_diffs.is_empty() {
-                self.update_sender.send(
-                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                        diffs: timeline_event_diffs,
-                        origin: EventsOrigin::Pagination,
-                    }),
-                    Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
-                );
+        let mut state = self.state.write().await?;
+
+        // Check that the previous token still exists; otherwise it's a sign that the
+        // room's timeline has been cleared.
+        let prev_gap_id = if let Some(token) = prev_token {
+            // Find the corresponding gap in the in-memory linked chunk.
+            let gap_chunk_id = state.room_linked_chunk().chunk_identifier(|chunk| {
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
+                });
+
+            if gap_chunk_id.is_none() {
+                // We got a previous-batch token from the linked chunk *before* running the
+                // request, but it is missing *after* completing the request.
+                //
+                // It may be a sign the linked chunk has been reset, but it's fine!
+                return Ok(None);
             }
 
-            Ok(Some(outcome))
+            gap_chunk_id
         } else {
-            // The previous token has gone missing, so the timeline has been reset in the
-            // meanwhile, but it's fine per this function's contract.
-            Ok(None)
+            None
+        };
+
+        let DeduplicationOutcome {
+            all_events: mut events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = {
+            let room_linked_chunk = state.room_linked_chunk();
+
+            filter_duplicate_events(
+                &state.state.own_user_id,
+                &state.store,
+                LinkedChunkId::Room(&state.state.room_id),
+                room_linked_chunk,
+                events,
+            )
+            .await?
+        };
+
+        // If not all the events have been back-paginated, we need to remove the
+        // previous ones, otherwise we can end up with misordered events.
+        //
+        // Consider the following scenario:
+        // - sync returns [D, E, F]
+        // - then sync returns [] with a previous batch token PB1, so the internal
+        //   linked chunk state is [D, E, F, PB1].
+        // - back-paginating with PB1 may return [A, B, C, D, E, F].
+        //
+        // Only inserting the new events when replacing PB1 would result in a timeline
+        // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
+        // all the events, in case this happens (see also #4746).
+
+        if !all_duplicates {
+            // Let's forget all the previous events.
+            state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
+        } else {
+            // All new events are duplicated, they can all be ignored.
+            events.clear();
+            // The gap can be ditched too, as it won't be useful to backpaginate any
+            // further.
+            new_token = None;
         }
+
+        // `/messages` has been called with `dir=b` (backwards), so the events are in
+        // the inverted order; reorder them.
+        let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
+
+        let new_gap = new_token.map(|prev_token| Gap { prev_token });
+        let reached_start = state.room_linked_chunk_mut().push_backwards_pagination_events(
+            prev_gap_id,
+            new_gap,
+            &topo_ordered_events,
+        );
+
+        // Note: this flushes updates to the store.
+        state
+            .post_process_new_events(topo_ordered_events, PostProcessingOrigin::Backpagination)
+            .await?;
+
+        let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+
+        if !timeline_event_diffs.is_empty() {
+            self.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Pagination,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+            );
+        }
+
+        Ok(Some(BackPaginationOutcome { events, reached_start }))
     }
 }
