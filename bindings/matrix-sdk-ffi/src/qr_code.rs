@@ -463,8 +463,6 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
         match value {
             LoginProgress::Starting => Self::Starting,
             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),
@@ -565,8 +563,6 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
         match value {
             GrantLoginProgress::Starting => Self::Starting,
             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),

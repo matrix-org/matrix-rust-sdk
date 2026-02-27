@@ -20,7 +20,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 use url::Url;
 use vodozemac::{
-    ecies::{CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult},
+    ecies::{Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult},
     hpke::{
         BidirectionalCreationResult, HpkeSenderChannel, InitialResponse, RecipientCreationResult,
         SenderCreationResult, UnidirectionalSenderChannel,
@@ -183,7 +183,7 @@ impl AlmostEstablishedSecureChannel {
     /// The check code needs to be received out of band from the other side of
     /// the secure channel.
     pub(super) fn confirm(self, check_code: u8) -> Result<EstablishedSecureChannel, Error> {
-        if check_code == self.secure_channel.check_code().to_digit() {
+        if check_code == self.secure_channel.check_code() {
             Ok(self.secure_channel)
         } else {
             Err(Error::InvalidCheckCode)
@@ -321,7 +321,7 @@ impl EstablishedSecureChannel {
     /// Get the [`CheckCode`] which can be used to, out of band, verify that
     /// both sides of the channel are indeed communicating with each other and
     /// not with a 3rd party.
-    pub(super) fn check_code(&self) -> &CheckCode {
+    pub(super) fn check_code(&self) -> u8 {
         self.crypto_channel.check_code()
     }
 
@@ -697,7 +697,7 @@ pub(super) mod test {
         assert_eq!(alice.secure_channel.check_code(), bob.check_code());
 
         let alice = alice
-            .confirm(bob.check_code().to_digit())
+            .confirm(bob.check_code())
             .expect("Alice should be able to confirm the established secure channel.");
 
         assert_eq!(bob.channel.rendezvous_info(), alice.channel.rendezvous_info());

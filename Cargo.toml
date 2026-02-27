@@ -118,7 +118,7 @@ uniffi_bindgen = { version = "0.31.0", default-features = false, features = ["ca
 url = { version = "2.5.7", default-features = false }
 uuid = { version = "1.18.1", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "00407a17", default-features = false, features = ["libolm-compat", "insecure-pk-encryption"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "d330d3d8", default-features = false, features = ["libolm-compat", "insecure-pk-encryption"] }
 wasm-bindgen = { version = "0.2.105", default-features = false }
 wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.82", default-features = false }
@@ -237,3 +237,4 @@ tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba05
 tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
 tracing-appender = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
+universal-hash = { git = "https://github.com/RustCrypto/traits", rev = "b7a3bbfef1bea8fe765a9203c3956f997c9a43f9" }

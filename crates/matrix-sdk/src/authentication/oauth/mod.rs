@@ -1419,8 +1419,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///         match state {
     ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
     ///             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-    ///                 let code = check_code.to_digit();
-    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///                 println!("Please enter the following code into the other device {check_code:02}");
     ///             },
     ///             LoginProgress::WaitingForToken { user_code } => {
     ///                 println!("Please use your other device to confirm the log in {user_code}")

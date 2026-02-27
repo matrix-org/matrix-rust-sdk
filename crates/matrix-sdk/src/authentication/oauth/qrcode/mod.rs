@@ -37,7 +37,6 @@ use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
-use vodozemac::ecies::CheckCode;
 pub use vodozemac::{
     ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError},
     hpke::{Error as HpkeError, MessageDecodeError as HpkeMessageDecodeError},
@@ -325,12 +324,12 @@ pub enum SecureChannelError {
 /// this device is the one scanning the QR code.
 ///
 /// We have established the secure channel, but we need to let the other
-/// side know about the [`CheckCode`] so they can verify that the secure
+/// side know about the check code so they can verify that the secure
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
-    pub check_code: CheckCode,
+    pub check_code: u8,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] and
@@ -339,7 +338,7 @@ pub struct QrProgress {
 ///
 /// We have established the secure channel, but we need to let the
 /// other device know about the [`QrCodeData`] so they can connect to the
-/// channel and let us know about the checkcode so we can verify that the
+/// channel and let us know about the check code so we can verify that the
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub enum GeneratedQrProgress {
@@ -347,7 +346,7 @@ pub enum GeneratedQrProgress {
     /// device to scan it.
     QrReady(QrCodeData),
     /// The QR code has been scanned by the other device and this device is
-    /// waiting for the user to put in the checkcode displayed on the
+    /// waiting for the user to put in the check code displayed on the
     /// other device.
     QrScanned(CheckCodeSender),
 }
@@ -364,7 +363,7 @@ impl CheckCodeSender {
         Self { inner: Arc::new(Mutex::new(Some(tx))) }
     }
 
-    /// Send the checkcode.
+    /// Send the check code.
     ///
     /// Calling this method more than once will result in an error.
     ///
