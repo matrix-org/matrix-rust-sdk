@@ -27,15 +27,13 @@ use ruma::api::Direction;
 pub use super::super::pagination::PaginationStatus;
 use super::{
     super::{
-        super::{
-            EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate,
-            RoomEventCacheUpdate, TimelineVectorDiffs,
-        },
+        super::{EventCacheError, EventsOrigin, Result, RoomEventCacheGenericUpdate},
+        TimelineVectorDiffs,
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
     },
-    RoomEventCacheInner,
+    RoomEventCacheInner, RoomEventCacheUpdate,
 };
 use crate::room::MessagesOptions;
 

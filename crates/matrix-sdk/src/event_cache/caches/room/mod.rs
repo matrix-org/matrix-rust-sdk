@@ -43,12 +43,14 @@ use tokio::sync::{
     mpsc,
 };
 use tracing::{instrument, trace, warn};
-pub use updates::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate};
+pub use updates::{
+    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+};
 
 use super::{
     super::{
         AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
-        RoomEventCacheUpdate, RoomPagination,
+        RoomPagination,
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
