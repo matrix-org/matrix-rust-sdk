@@ -61,6 +61,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Handle race between send queue update and remote echo in latest event computation.
+  ([#6220](https://github.com/matrix-org/matrix-rust-sdk/pull/6220))
 - Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
   the new device is not returned by the homeserver.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
