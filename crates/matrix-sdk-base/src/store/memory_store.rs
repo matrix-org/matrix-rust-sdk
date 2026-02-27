@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::RwLock,
 };
@@ -878,7 +879,7 @@ impl StateStore for MemoryStore {
             .or_default()
             .clone();
         // Inverted order of priority, use stable sort to keep insertion order.
-        ret.sort_by(|lhs, rhs| rhs.priority.cmp(&lhs.priority));
+        ret.sort_by_key(|item| Reverse(item.priority));
         Ok(ret)
     }
 
