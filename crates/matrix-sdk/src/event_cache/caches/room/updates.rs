@@ -20,6 +20,7 @@ use matrix_sdk_base::{
     linked_chunk::{self, OwnedLinkedChunkId},
 };
 use ruma::{OwnedEventId, OwnedRoomId, events::AnySyncEphemeralRoomEvent, serde::Raw};
+use tokio::sync::broadcast::{Receiver, Sender};
 
 use super::super::TimelineVectorDiffs;
 
@@ -99,5 +100,38 @@ impl RoomEventCacheLinkedChunkUpdate {
                 Either::Right(std::iter::empty())
             }
         })
+    }
+}
+
+/// A small type to send updates in all channels.
+#[derive(Clone)]
+pub struct RoomEventCacheUpdateSender {
+    room_sender: Sender<RoomEventCacheUpdate>,
+    generic_sender: Sender<RoomEventCacheGenericUpdate>,
+}
+
+impl RoomEventCacheUpdateSender {
+    /// Create a new [`RoomEventCacheUpdateSender`].
+    pub fn new(generic_sender: Sender<RoomEventCacheGenericUpdate>) -> Self {
+        Self { room_sender: Sender::new(32), generic_sender }
+    }
+
+    /// Send a [`RoomEventCacheUpdate`] and an optional
+    /// [`RoomEventCacheGenericUpdate`].
+    pub fn send(
+        &self,
+        room_update: RoomEventCacheUpdate,
+        generic_update: Option<RoomEventCacheGenericUpdate>,
+    ) {
+        let _ = self.room_sender.send(room_update);
+
+        if let Some(generic_update) = generic_update {
+            let _ = self.generic_sender.send(generic_update);
+        }
+    }
+
+    /// Create a new [`Receiver`] of [`RoomEventCacheUpdate`].
+    pub(super) fn new_room_receiver(&self) -> Receiver<RoomEventCacheUpdate> {
+        self.room_sender.subscribe()
     }
 }

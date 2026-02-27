@@ -37,14 +37,11 @@ use ruma::{
 };
 pub(in super::super) use state::RoomEventCacheStateLock;
 pub use subscriber::RoomEventCacheSubscriber;
-use tokio::sync::{
-    Notify,
-    broadcast::{Receiver, Sender},
-    mpsc,
-};
+use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
 pub use updates::{
     RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+    RoomEventCacheUpdateSender,
 };
 
 use super::{
@@ -80,8 +77,7 @@ impl RoomEventCache {
         pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-        update_sender: Sender<RoomEventCacheUpdate>,
-        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+        update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
@@ -91,7 +87,6 @@ impl RoomEventCache {
                 room_id,
                 auto_shrink_sender,
                 update_sender,
-                generic_update_sender,
             )),
         }
     }
@@ -127,7 +122,7 @@ impl RoomEventCache {
         trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
 
         let subscriber = RoomEventCacheSubscriber::new(
-            self.inner.update_sender.subscribe(),
+            self.inner.update_sender.new_room_receiver(),
             self.inner.room_id.clone(),
             self.inner.auto_shrink_sender.clone(),
             subscriber_count.clone(),
@@ -264,15 +259,13 @@ impl RoomEventCache {
         let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         // Notify observers about the update.
-        let _ = self.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-            TimelineVectorDiffs { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
-        ));
-
-        // Notify observers about the generic update.
-        let _ = self
-            .inner
-            .generic_update_sender
-            .send(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() });
+        self.inner.update_sender.send(
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs: updates_as_vector_diffs,
+                origin: EventsOrigin::Cache,
+            }),
+            Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+        );
 
         Ok(())
     }
@@ -307,20 +300,9 @@ impl RoomEventCache {
         Ok(())
     }
 
-    /// Send a [`RoomEventCacheUpdate`] along with a
-    /// [`RoomEventCacheGenericUpdate`] on the appropriate channels.
-    ///
-    /// If `generic_update` is `None`, no generic update will be sent.
-    pub(in super::super) fn send_updates(
-        &self,
-        update: RoomEventCacheUpdate,
-        generic_update: Option<RoomEventCacheGenericUpdate>,
-    ) {
-        let _ = self.inner.update_sender.send(update);
-
-        if let Some(generic_update) = generic_update {
-            let _ = self.inner.generic_update_sender.send(generic_update);
-        }
+    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    pub(in super::super) fn update_sender(&self) -> &RoomEventCacheUpdateSender {
+        &self.inner.update_sender
     }
 
     /// Handle a single event from the `SendQueue`.
@@ -385,15 +367,8 @@ pub(in super::super) struct RoomEventCacheInner {
     /// more details.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
-    /// Sender part for update subscribers to this room.
-    update_sender: Sender<RoomEventCacheUpdate>,
-
-    /// A clone of [`EventCacheInner::generic_update_sender`].
-    ///
-    /// Whilst `EventCacheInner` handles the generic updates from the sync, or
-    /// the storage, it doesn't handle the update from pagination. Having a
-    /// clone here allows to access it from [`RoomPagination`].
-    generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+    /// Update sender for this room.
+    update_sender: RoomEventCacheUpdateSender,
 }
 
 impl RoomEventCacheInner {
@@ -405,8 +380,7 @@ impl RoomEventCacheInner {
         pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-        update_sender: Sender<RoomEventCacheUpdate>,
-        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+        update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         let weak_room = WeakRoom::new(client, room_id);
 
@@ -418,7 +392,6 @@ impl RoomEventCacheInner {
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
-            generic_update_sender,
         }
     }
 
@@ -443,9 +416,10 @@ impl RoomEventCacheInner {
                     handled_read_marker = true;
 
                     // Propagate to observers. (We ignore the error if there aren't any.)
-                    let _ = self.update_sender.send(RoomEventCacheUpdate::MoveReadMarkerTo {
-                        event_id: ev.content.event_id,
-                    });
+                    self.update_sender.send(
+                        RoomEventCacheUpdate::MoveReadMarkerTo { event_id: ev.content.event_id },
+                        None,
+                    );
                 }
 
                 Ok(_) => {
@@ -492,24 +466,23 @@ impl RoomEventCacheInner {
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
-            let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
-            ));
-
-            let _ = self
-                .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() });
+            self.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Sync,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+            );
         }
 
         if !ephemeral_events.is_empty() {
-            let _ = self
-                .update_sender
-                .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
+            self.update_sender
+                .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events }, None);
         }
 
         if !ambiguity_changes.is_empty() {
-            let _ =
-                self.update_sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            self.update_sender
+                .send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes }, None);
         }
 
         Ok(())

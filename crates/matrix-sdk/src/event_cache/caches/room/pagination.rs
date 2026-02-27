@@ -131,14 +131,13 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         reached_start: bool,
     ) -> BackPaginationOutcome {
         if !timeline_event_diffs.is_empty() {
-            let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
-            ));
-
-            // Send a room event cache generic update.
-            let _ = self
-                .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() });
+            self.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Cache,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+            );
         }
 
         BackPaginationOutcome {
@@ -159,17 +158,13 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             self.state.write().await?.handle_backpagination(events, new_token, prev_token).await?
         {
             if !timeline_event_diffs.is_empty() {
-                let _ = self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-                    TimelineVectorDiffs {
+                self.update_sender.send(
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                         diffs: timeline_event_diffs,
                         origin: EventsOrigin::Pagination,
-                    },
-                ));
-
-                // Send a room event cache generic update.
-                let _ = self
-                    .generic_update_sender
-                    .send(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() });
+                    }),
+                    Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+                );
             }
 
             Ok(Some(outcome))
