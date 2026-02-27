@@ -275,7 +275,10 @@ impl RoomEventCache {
 
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(in super::super) async fn handle_joined_room_update(
+        &self,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.inner
             .handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.ambiguity_changes)
             .await?;
@@ -286,7 +289,10 @@ impl RoomEventCache {
 
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+    pub(in super::super) async fn handle_left_room_update(
+        &self,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
         self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
