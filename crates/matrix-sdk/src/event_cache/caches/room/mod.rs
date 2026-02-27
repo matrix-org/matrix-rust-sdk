@@ -367,7 +367,7 @@ impl RoomEventCache {
 /// The (non-cloneable) details of the `RoomEventCache`.
 pub(in super::super) struct RoomEventCacheInner {
     /// The room id for this room.
-    pub(in super::super) room_id: OwnedRoomId,
+    room_id: OwnedRoomId,
 
     pub weak_room: WeakRoom,
 
@@ -386,14 +386,14 @@ pub(in super::super) struct RoomEventCacheInner {
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
     /// Sender part for update subscribers to this room.
-    pub update_sender: Sender<RoomEventCacheUpdate>,
+    update_sender: Sender<RoomEventCacheUpdate>,
 
     /// A clone of [`EventCacheInner::generic_update_sender`].
     ///
     /// Whilst `EventCacheInner` handles the generic updates from the sync, or
     /// the storage, it doesn't handle the update from pagination. Having a
     /// clone here allows to access it from [`RoomPagination`].
-    pub(in super::super) generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+    generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
 impl RoomEventCacheInner {
