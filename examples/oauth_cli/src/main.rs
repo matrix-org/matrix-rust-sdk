@@ -24,7 +24,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     Client, ClientBuildError, Result, RoomState,
     authentication::oauth::{
-        ClientId, OAuthAuthorizationData, OAuthError, OAuthSession, UrlOrQuery, UserSession,
+        ClientId, OAuthAuthorizationData, OAuthError, OAuthSession, UserSession,
         error::OAuthClientRegistrationError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
@@ -192,10 +192,13 @@ impl OAuthCli {
                 .build()
                 .await?;
 
-            let query_string =
-                use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();
+            let Some(query_string) = use_auth_url(&url, server_handle).await else {
+                println!("Error: failed to login: missing query string on the redirect URL");
+                println!("Please try again.\n");
+                continue;
+            };
 
-            match oauth.finish_login(UrlOrQuery::Query(query_string)).await {
+            match oauth.finish_login(query_string.into()).await {
                 Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");

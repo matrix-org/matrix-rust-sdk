@@ -82,6 +82,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
+  module to the `utils` module. It can also be converted from a `QueryString`.
+- [**breaking**] `MatrixAuth::login_with_sso_callback()` takes a `UrlOrQuery`
+  instead of a `Url`, to make it more convenient to use with
+  `LocalServerBuilder` / `LocalServerRedirectHandle`.
 - [**breaking**] The functions on the `OAuth` API to access the account
   management URL and its actions were removed. The methods available on the
   `AuthorizationServerMetadata` should be used instead.

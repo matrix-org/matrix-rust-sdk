@@ -218,7 +218,7 @@ async fn test_login_with_sso_callback() {
         .await;
 
     let callback_url = Url::parse("http://127.0.0.1:3030?loginToken=averysmalltoken").unwrap();
-    auth.login_with_sso_callback(callback_url).unwrap().await.unwrap();
+    auth.login_with_sso_callback(callback_url.into()).unwrap().await.unwrap();
 
     assert!(client.is_active(), "Client should be active");
 }
