@@ -37,6 +37,8 @@ use super::{AutoShrinkChannelPayload, RoomEventCacheUpdate};
 /// active, all data are reduced to the minimum.
 ///
 /// The side-effect takes effect on `Drop`.
+///
+/// [`RoomEventCache`]: super::RoomEventCache
 #[allow(missing_debug_implementations)]
 pub struct RoomEventCacheSubscriber {
     /// Underlying receiver of the room event cache's updates.

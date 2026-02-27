@@ -56,8 +56,10 @@ pub enum RoomEventCacheUpdate {
 /// Represents a timeline update of a room. It hides the details of
 /// [`RoomEventCacheUpdate`] by being more generic.
 ///
-/// This is used by [`EventCache::subscribe_to_room_generic_updates`]. Please
+/// This is used by [`EventCache::subscribe_to_room_generic_updates`][0]. Please
 /// read it to learn more about the motivation behind this type.
+///
+/// [0]: super::super::super::EventCache::subscribe_to_room_generic_updates
 #[derive(Clone, Debug)]
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
