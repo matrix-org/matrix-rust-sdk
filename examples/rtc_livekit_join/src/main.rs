@@ -736,6 +736,23 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "e2ee-per-participant")]
     let e2ee_context = build_per_participant_e2ee(&room).await?;
     #[cfg(feature = "e2ee-per-participant")]
+    if let Some(context) = e2ee_context.as_ref() {
+        if let (Some(user_id), Some(device_id)) = (client.user_id(), client.device_id()) {
+            let identity = ParticipantIdentity(format!("{user_id}:{device_id}"));
+            let key_set = context.key_provider.set_key(
+                &identity,
+                context.key_index,
+                context.local_key.clone(),
+            );
+            info!(
+                %identity,
+                key_index = context.key_index,
+                key_set,
+                "seeded local per-participant E2EE key_provider key before LiveKit connect"
+            );
+        }
+    }
+    #[cfg(feature = "e2ee-per-participant")]
     let _e2ee_to_device_guard = e2ee_context.as_ref().map(|context| {
         register_e2ee_to_device_handler(
             &client,
