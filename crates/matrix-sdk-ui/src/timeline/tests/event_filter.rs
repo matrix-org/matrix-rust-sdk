@@ -33,7 +33,7 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    AnyOtherFullStateEventContent, MsgLikeContent, MsgLikeKind, TimelineEventCondition,
+    AnyOtherStateEventContentChange, MsgLikeContent, MsgLikeKind, TimelineEventCondition,
     TimelineEventFilter, TimelineItem, TimelineItemContent, TimelineItemKind,
     controller::TimelineSettings, tests::TestTimelineBuilder,
 };
@@ -618,7 +618,7 @@ fn is_room_name_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
             TimelineItemContent::OtherState(state) => {
-                matches!(state.content, AnyOtherFullStateEventContent::RoomName(_))
+                matches!(state.content, AnyOtherStateEventContentChange::RoomName(_))
             }
             _ => false,
         },
@@ -630,7 +630,7 @@ fn is_room_topic_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
             TimelineItemContent::OtherState(state) => {
-                matches!(state.content, AnyOtherFullStateEventContent::RoomTopic(_))
+                matches!(state.content, AnyOtherStateEventContentChange::RoomTopic(_))
             }
             _ => false,
         },

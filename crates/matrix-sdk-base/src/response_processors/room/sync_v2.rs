@@ -220,7 +220,7 @@ pub async fn update_invited_room(
 
     let room = state_store.get_or_create_room(room_id, RoomState::Invited);
 
-    let (raw_events, events) = state_events::stripped::collect(&invited_room.invite_state.events);
+    let raw_state_events = state_events::stripped::collect(&invited_room.invite_state.events);
 
     let mut room_info = room.clone_info();
     room_info.mark_as_invited();
@@ -228,7 +228,7 @@ pub async fn update_invited_room(
 
     state_events::stripped::dispatch_invite_or_knock(
         context,
-        (&raw_events, &events),
+        raw_state_events,
         &room,
         &mut room_info,
         user_id,
@@ -261,7 +261,7 @@ pub async fn update_knocked_room(
 
     let room = state_store.get_or_create_room(room_id, RoomState::Knocked);
 
-    let (raw_events, events) = state_events::stripped::collect(&knocked_room.knock_state.events);
+    let raw_state_events = state_events::stripped::collect(&knocked_room.knock_state.events);
 
     let mut room_info = room.clone_info();
     room_info.mark_as_knocked();
@@ -269,7 +269,7 @@ pub async fn update_knocked_room(
 
     state_events::stripped::dispatch_invite_or_knock(
         context,
-        (&raw_events, &events),
+        raw_state_events,
         &room,
         &mut room_info,
         user_id,

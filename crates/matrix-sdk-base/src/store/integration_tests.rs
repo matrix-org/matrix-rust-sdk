@@ -55,7 +55,7 @@ use crate::{
         ChildTransactionId, QueueWedgeError, SerializableEventContent, StateStoreExt,
         StoredThreadSubscription, ThreadSubscriptionStatus,
     },
-    utils::RawSyncStateEventWithKeys,
+    utils::RawStateEventWithKeys,
 };
 
 /// `StateStore` integration tests.
@@ -163,7 +163,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let name_raw: Raw<AnySyncStateEvent> = f.room_name("room name").into();
         let name_event = name_raw.deserialize()?;
         room.handle_state_event(
-            &mut RawSyncStateEventWithKeys::try_from_raw_state_event(name_raw.clone())
+            &mut RawStateEventWithKeys::try_from_raw_state_event(name_raw.clone())
                 .expect("generated state event should be valid"),
         );
         changes.add_state_event(room_id, name_event, name_raw);
@@ -186,7 +186,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .into_raw_sync_state();
         let topic_event = topic_raw.deserialize()?;
         room.handle_state_event(
-            &mut RawSyncStateEventWithKeys::try_from_raw_state_event(topic_raw.clone())
+            &mut RawStateEventWithKeys::try_from_raw_state_event(topic_raw.clone())
                 .expect("generated state event should be valid"),
         );
         changes.add_state_event(room_id, topic_event, topic_raw);
@@ -233,16 +233,14 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let f = EventFactory::new().sender(user_id).room(stripped_room_id);
         let stripped_name_raw: Raw<AnyStrippedStateEvent> = f.room_name("room name").into();
-        let stripped_name_event = stripped_name_raw.deserialize()?;
-        stripped_room.handle_stripped_state_event(&stripped_name_event);
+        let mut stripped_name_event =
+            RawStateEventWithKeys::try_from_raw_state_event(stripped_name_raw).unwrap();
+        stripped_room.handle_stripped_state_event(&mut stripped_name_event);
         changes.stripped_state.insert(
             stripped_room_id.to_owned(),
             BTreeMap::from([(
-                stripped_name_event.event_type(),
-                BTreeMap::from([(
-                    stripped_name_event.state_key().to_owned(),
-                    stripped_name_raw.clone(),
-                )]),
+                stripped_name_event.event_type,
+                BTreeMap::from([(stripped_name_event.state_key, stripped_name_event.raw)]),
             )]),
         );
 

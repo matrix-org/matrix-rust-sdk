@@ -487,7 +487,7 @@ impl Room {
     pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
         self.info
             .subscribe()
-            .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())
+            .map(|i| i.base_info.pinned_events.and_then(|c| c.pinned).unwrap_or_default())
     }
 
     /// Returns the current pinned event ids for this room.

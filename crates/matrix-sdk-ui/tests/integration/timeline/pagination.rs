@@ -38,10 +38,10 @@ use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     mocks::mock_encryption_state,
 };
-use matrix_sdk_ui::timeline::{AnyOtherFullStateEventContent, RoomExt, TimelineItemContent};
+use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
     EventId,
-    events::{FullStateEventContent, room::message::MessageType},
+    events::{StateEventContentChange, room::message::MessageType},
     room_id, user_id,
 };
 use serde_json::{Value as JsonValue, json};
@@ -103,7 +103,7 @@ async fn test_back_pagination() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
                 content,
                 prev_content
             }) = state.content()
@@ -815,7 +815,7 @@ async fn test_empty_chunk() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
                 content,
                 prev_content
             }) = state.content()
@@ -925,7 +925,7 @@ async fn test_until_num_items_with_empty_chunk() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
                 content,
                 prev_content
             }) = state.content()

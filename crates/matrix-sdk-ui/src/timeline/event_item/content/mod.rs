@@ -19,7 +19,7 @@ use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
-        AnyFullStateEventContent, FullStateEventContent, Mentions, MessageLikeEventType,
+        AnyStateEventContentChange, Mentions, MessageLikeEventType, StateEventContentChange,
         StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
@@ -232,12 +232,12 @@ impl TimelineItemContent {
 
     pub(crate) fn room_member(
         user_id: OwnedUserId,
-        full_content: FullStateEventContent<RoomMemberEventContent>,
+        full_content: StateEventContentChange<RoomMemberEventContent>,
         sender: OwnedUserId,
     ) -> Self {
         use ruma::events::room::member::MembershipChange as MChange;
         match &full_content {
-            FullStateEventContent::Original { content, prev_content } => {
+            StateEventContentChange::Original { content, prev_content } => {
                 let membership_change = content.membership_change(
                     prev_content.as_ref().map(|c| c.details()),
                     &sender,
@@ -287,7 +287,7 @@ impl TimelineItemContent {
                     })
                 }
             }
-            FullStateEventContent::Redacted(_) => Self::MembershipChange(RoomMembershipChange {
+            StateEventContentChange::Redacted(_) => Self::MembershipChange(RoomMembershipChange {
                 user_id,
                 content: full_content,
                 change: None,
@@ -446,7 +446,7 @@ impl Sticker {
 #[derive(Clone, Debug)]
 pub struct RoomMembershipChange {
     pub(in crate::timeline) user_id: OwnedUserId,
-    pub(in crate::timeline) content: FullStateEventContent<RoomMemberEventContent>,
+    pub(in crate::timeline) content: StateEventContentChange<RoomMemberEventContent>,
     pub(in crate::timeline) change: Option<MembershipChange>,
 }
 
@@ -457,14 +457,14 @@ impl RoomMembershipChange {
     }
 
     /// The full content of the event.
-    pub fn content(&self) -> &FullStateEventContent<RoomMemberEventContent> {
+    pub fn content(&self) -> &StateEventContentChange<RoomMemberEventContent> {
         &self.content
     }
 
     /// Retrieve the member's display name from the current event, or, if
     /// missing, from the one it replaced.
     pub fn display_name(&self) -> Option<String> {
-        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+        if let StateEventContentChange::Original { content, prev_content } = &self.content {
             content
                 .displayname
                 .as_ref()
@@ -480,7 +480,7 @@ impl RoomMembershipChange {
     /// Retrieve the avatar URL from the current event, or, if missing, from the
     /// one it replaced.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+        if let StateEventContentChange::Original { content, prev_content } = &self.content {
             content
                 .avatar_url
                 .as_ref()
@@ -507,7 +507,7 @@ impl RoomMembershipChange {
     fn redact(&self, rules: &RedactionRules) -> Self {
         Self {
             user_id: self.user_id.clone(),
-            content: FullStateEventContent::Redacted(self.content.clone().redact(rules)),
+            content: StateEventContentChange::Redacted(self.content.clone().redact(rules)),
             change: self.change,
         }
     }
@@ -611,102 +611,102 @@ impl MemberProfileChange {
 /// An enum over all the full state event contents that don't have their own
 /// `TimelineItemContent` variant.
 #[derive(Clone, Debug)]
-pub enum AnyOtherFullStateEventContent {
+pub enum AnyOtherStateEventContentChange {
     /// m.policy.rule.room
-    PolicyRuleRoom(FullStateEventContent<PolicyRuleRoomEventContent>),
+    PolicyRuleRoom(StateEventContentChange<PolicyRuleRoomEventContent>),
 
     /// m.policy.rule.server
-    PolicyRuleServer(FullStateEventContent<PolicyRuleServerEventContent>),
+    PolicyRuleServer(StateEventContentChange<PolicyRuleServerEventContent>),
 
     /// m.policy.rule.user
-    PolicyRuleUser(FullStateEventContent<PolicyRuleUserEventContent>),
+    PolicyRuleUser(StateEventContentChange<PolicyRuleUserEventContent>),
 
     /// m.room.aliases
-    RoomAliases(FullStateEventContent<RoomAliasesEventContent>),
+    RoomAliases(StateEventContentChange<RoomAliasesEventContent>),
 
     /// m.room.avatar
-    RoomAvatar(FullStateEventContent<RoomAvatarEventContent>),
+    RoomAvatar(StateEventContentChange<RoomAvatarEventContent>),
 
     /// m.room.canonical_alias
-    RoomCanonicalAlias(FullStateEventContent<RoomCanonicalAliasEventContent>),
+    RoomCanonicalAlias(StateEventContentChange<RoomCanonicalAliasEventContent>),
 
     /// m.room.create
-    RoomCreate(FullStateEventContent<RoomCreateEventContent>),
+    RoomCreate(StateEventContentChange<RoomCreateEventContent>),
 
     /// m.room.encryption
-    RoomEncryption(FullStateEventContent<RoomEncryptionEventContent>),
+    RoomEncryption(StateEventContentChange<RoomEncryptionEventContent>),
 
     /// m.room.guest_access
-    RoomGuestAccess(FullStateEventContent<RoomGuestAccessEventContent>),
+    RoomGuestAccess(StateEventContentChange<RoomGuestAccessEventContent>),
 
     /// m.room.history_visibility
-    RoomHistoryVisibility(FullStateEventContent<RoomHistoryVisibilityEventContent>),
+    RoomHistoryVisibility(StateEventContentChange<RoomHistoryVisibilityEventContent>),
 
     /// m.room.join_rules
-    RoomJoinRules(FullStateEventContent<RoomJoinRulesEventContent>),
+    RoomJoinRules(StateEventContentChange<RoomJoinRulesEventContent>),
 
     /// m.room.name
-    RoomName(FullStateEventContent<RoomNameEventContent>),
+    RoomName(StateEventContentChange<RoomNameEventContent>),
 
     /// m.room.pinned_events
-    RoomPinnedEvents(FullStateEventContent<RoomPinnedEventsEventContent>),
+    RoomPinnedEvents(StateEventContentChange<RoomPinnedEventsEventContent>),
 
     /// m.room.power_levels
-    RoomPowerLevels(FullStateEventContent<RoomPowerLevelsEventContent>),
+    RoomPowerLevels(StateEventContentChange<RoomPowerLevelsEventContent>),
 
     /// m.room.server_acl
-    RoomServerAcl(FullStateEventContent<RoomServerAclEventContent>),
+    RoomServerAcl(StateEventContentChange<RoomServerAclEventContent>),
 
     /// m.room.third_party_invite
-    RoomThirdPartyInvite(FullStateEventContent<RoomThirdPartyInviteEventContent>),
+    RoomThirdPartyInvite(StateEventContentChange<RoomThirdPartyInviteEventContent>),
 
     /// m.room.tombstone
-    RoomTombstone(FullStateEventContent<RoomTombstoneEventContent>),
+    RoomTombstone(StateEventContentChange<RoomTombstoneEventContent>),
 
     /// m.room.topic
-    RoomTopic(FullStateEventContent<RoomTopicEventContent>),
+    RoomTopic(StateEventContentChange<RoomTopicEventContent>),
 
     /// m.space.child
-    SpaceChild(FullStateEventContent<SpaceChildEventContent>),
+    SpaceChild(StateEventContentChange<SpaceChildEventContent>),
 
     /// m.space.parent
-    SpaceParent(FullStateEventContent<SpaceParentEventContent>),
+    SpaceParent(StateEventContentChange<SpaceParentEventContent>),
 
     #[doc(hidden)]
     _Custom { event_type: String },
 }
 
-impl AnyOtherFullStateEventContent {
-    /// Create an `AnyOtherFullStateEventContent` from an
-    /// `AnyFullStateEventContent`.
+impl AnyOtherStateEventContentChange {
+    /// Create an `AnyOtherStateEventContentChange` from an
+    /// `AnyStateEventContentChange`.
     ///
     /// Panics if the event content does not match one of the variants.
     // This could be a `From` implementation but we don't want it in the public API.
-    pub(crate) fn with_event_content(content: AnyFullStateEventContent) -> Self {
+    pub(crate) fn with_event_content(content: AnyStateEventContentChange) -> Self {
         let event_type = content.event_type();
 
         match content {
-            AnyFullStateEventContent::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
-            AnyFullStateEventContent::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
-            AnyFullStateEventContent::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
-            AnyFullStateEventContent::RoomAliases(c) => Self::RoomAliases(c),
-            AnyFullStateEventContent::RoomAvatar(c) => Self::RoomAvatar(c),
-            AnyFullStateEventContent::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
-            AnyFullStateEventContent::RoomCreate(c) => Self::RoomCreate(c),
-            AnyFullStateEventContent::RoomEncryption(c) => Self::RoomEncryption(c),
-            AnyFullStateEventContent::RoomGuestAccess(c) => Self::RoomGuestAccess(c),
-            AnyFullStateEventContent::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(c),
-            AnyFullStateEventContent::RoomJoinRules(c) => Self::RoomJoinRules(c),
-            AnyFullStateEventContent::RoomName(c) => Self::RoomName(c),
-            AnyFullStateEventContent::RoomPinnedEvents(c) => Self::RoomPinnedEvents(c),
-            AnyFullStateEventContent::RoomPowerLevels(c) => Self::RoomPowerLevels(c),
-            AnyFullStateEventContent::RoomServerAcl(c) => Self::RoomServerAcl(c),
-            AnyFullStateEventContent::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(c),
-            AnyFullStateEventContent::RoomTombstone(c) => Self::RoomTombstone(c),
-            AnyFullStateEventContent::RoomTopic(c) => Self::RoomTopic(c),
-            AnyFullStateEventContent::SpaceChild(c) => Self::SpaceChild(c),
-            AnyFullStateEventContent::SpaceParent(c) => Self::SpaceParent(c),
-            AnyFullStateEventContent::RoomMember(_) => unreachable!(),
+            AnyStateEventContentChange::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
+            AnyStateEventContentChange::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
+            AnyStateEventContentChange::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
+            AnyStateEventContentChange::RoomAliases(c) => Self::RoomAliases(c),
+            AnyStateEventContentChange::RoomAvatar(c) => Self::RoomAvatar(c),
+            AnyStateEventContentChange::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
+            AnyStateEventContentChange::RoomCreate(c) => Self::RoomCreate(c),
+            AnyStateEventContentChange::RoomEncryption(c) => Self::RoomEncryption(c),
+            AnyStateEventContentChange::RoomGuestAccess(c) => Self::RoomGuestAccess(c),
+            AnyStateEventContentChange::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(c),
+            AnyStateEventContentChange::RoomJoinRules(c) => Self::RoomJoinRules(c),
+            AnyStateEventContentChange::RoomName(c) => Self::RoomName(c),
+            AnyStateEventContentChange::RoomPinnedEvents(c) => Self::RoomPinnedEvents(c),
+            AnyStateEventContentChange::RoomPowerLevels(c) => Self::RoomPowerLevels(c),
+            AnyStateEventContentChange::RoomServerAcl(c) => Self::RoomServerAcl(c),
+            AnyStateEventContentChange::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(c),
+            AnyStateEventContentChange::RoomTombstone(c) => Self::RoomTombstone(c),
+            AnyStateEventContentChange::RoomTopic(c) => Self::RoomTopic(c),
+            AnyStateEventContentChange::SpaceChild(c) => Self::SpaceChild(c),
+            AnyStateEventContentChange::SpaceParent(c) => Self::SpaceParent(c),
+            AnyStateEventContentChange::RoomMember(_) => unreachable!(),
             _ => Self::_Custom { event_type: event_type.to_string() },
         }
     }
@@ -741,64 +741,64 @@ impl AnyOtherFullStateEventContent {
     fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
             Self::PolicyRuleRoom(c) => {
-                Self::PolicyRuleRoom(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::PolicyRuleRoom(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::PolicyRuleServer(c) => {
-                Self::PolicyRuleServer(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::PolicyRuleServer(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::PolicyRuleUser(c) => {
-                Self::PolicyRuleUser(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::PolicyRuleUser(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAliases(c) => {
-                Self::RoomAliases(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomAliases(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAvatar(c) => {
-                Self::RoomAvatar(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomAvatar(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomCanonicalAlias(c) => {
-                Self::RoomCanonicalAlias(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomCanonicalAlias(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomCreate(c) => {
-                Self::RoomCreate(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomCreate(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomEncryption(c) => {
-                Self::RoomEncryption(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomEncryption(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomGuestAccess(c) => {
-                Self::RoomGuestAccess(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomGuestAccess(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(
-                FullStateEventContent::Redacted(c.clone().redact(rules)),
+                StateEventContentChange::Redacted(c.clone().redact(rules)),
             ),
             Self::RoomJoinRules(c) => {
-                Self::RoomJoinRules(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomJoinRules(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomName(c) => {
-                Self::RoomName(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomName(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomPinnedEvents(c) => {
-                Self::RoomPinnedEvents(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomPinnedEvents(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomPowerLevels(c) => {
-                Self::RoomPowerLevels(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomPowerLevels(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomServerAcl(c) => {
-                Self::RoomServerAcl(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomServerAcl(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
-            Self::RoomThirdPartyInvite(c) => {
-                Self::RoomThirdPartyInvite(FullStateEventContent::Redacted(c.clone().redact(rules)))
-            }
+            Self::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(
+                StateEventContentChange::Redacted(c.clone().redact(rules)),
+            ),
             Self::RoomTombstone(c) => {
-                Self::RoomTombstone(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomTombstone(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomTopic(c) => {
-                Self::RoomTopic(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::RoomTopic(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::SpaceChild(c) => {
-                Self::SpaceChild(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::SpaceChild(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::SpaceParent(c) => {
-                Self::SpaceParent(FullStateEventContent::Redacted(c.clone().redact(rules)))
+                Self::SpaceParent(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::_Custom { event_type } => Self::_Custom { event_type: event_type.clone() },
         }
@@ -809,7 +809,7 @@ impl AnyOtherFullStateEventContent {
 #[derive(Clone, Debug)]
 pub struct OtherState {
     pub(in crate::timeline) state_key: String,
-    pub(in crate::timeline) content: AnyOtherFullStateEventContent,
+    pub(in crate::timeline) content: AnyOtherStateEventContentChange,
 }
 
 impl OtherState {
@@ -819,7 +819,7 @@ impl OtherState {
     }
 
     /// The content of the event.
-    pub fn content(&self) -> &AnyOtherFullStateEventContent {
+    pub fn content(&self) -> &AnyOtherStateEventContentChange {
         &self.content
     }
 
@@ -835,7 +835,7 @@ mod tests {
     use ruma::{
         assign,
         events::{
-            FullStateEventContent,
+            StateEventContentChange,
             room::member::{
                 MembershipState, PossiblyRedactedRoomMemberEventContent, RoomMemberEventContent,
             },
@@ -849,7 +849,7 @@ mod tests {
     fn redact_membership_change() {
         let content = TimelineItemContent::MembershipChange(RoomMembershipChange {
             user_id: ALICE.to_owned(),
-            content: FullStateEventContent::Original {
+            content: StateEventContentChange::Original {
                 content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
                     reason: Some("🤬".to_owned()),
                 }),
@@ -863,7 +863,7 @@ mod tests {
         let redacted = content.redact(&RedactionRules::V11);
         assert_let!(TimelineItemContent::MembershipChange(inner) = redacted);
         assert_eq!(inner.change, Some(MembershipChange::Banned));
-        assert_let!(FullStateEventContent::Redacted(inner_content_redacted) = inner.content);
+        assert_let!(StateEventContentChange::Redacted(inner_content_redacted) = inner.content);
         assert_eq!(inner_content_redacted.membership, MembershipState::Ban);
     }
 }

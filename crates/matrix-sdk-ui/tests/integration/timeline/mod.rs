@@ -26,7 +26,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
-    AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
+    AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
     TimelineEventShieldState, TimelineFocus, TimelineItemContent, VirtualTimelineItem,
     default_event_filter,
@@ -848,7 +848,7 @@ async fn test_timeline_without_encryption_can_update() {
     // Room encryption event is received.
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
-    assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
+    assert_let!(AnyOtherStateEventContentChange::RoomEncryption(_) = other_state.content());
     assert_ne!(value.as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     // New message event is received and has a shield.

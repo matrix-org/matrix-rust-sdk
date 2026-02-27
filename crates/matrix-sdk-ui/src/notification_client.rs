@@ -30,8 +30,8 @@ use ruma::{
     api::client::sync::sync_events::v5 as http,
     assign,
     events::{
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyStateEvent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
+        AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContentChange,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, StateEventContentChange, StateEventType,
         TimelineEventType,
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent,
@@ -1004,10 +1004,10 @@ impl NotificationItem {
                 if ev.sender() != sender_id {
                     continue;
                 }
-                if let AnyFullStateEventContent::RoomMember(FullStateEventContent::Original {
+                if let AnyStateEventContentChange::RoomMember(StateEventContentChange::Original {
                     content,
                     ..
-                }) = ev.content()
+                }) = ev.content_change()
                 {
                     if sender_display_name.is_none() {
                         sender_display_name = content.displayname;
