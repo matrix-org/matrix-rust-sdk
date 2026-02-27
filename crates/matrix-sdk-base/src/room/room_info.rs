@@ -193,8 +193,9 @@ impl BaseRoomInfo {
     ) -> bool {
         match (&raw_event.event_type, raw_event.state_key.as_str()) {
             (StateEventType::RoomEncryption, "") => {
-                // No redacted or failed deserialization branch - enabling encryption cannot be
-                // undone.
+                // To avoid breaking encrypted rooms, we ignore `m.room.encryption` events that
+                // fail to deserialize or that are redacted (i.e. they don't contain the
+                // algorithm used for encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
                     as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
