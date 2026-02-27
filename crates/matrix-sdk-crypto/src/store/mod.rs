@@ -586,6 +586,12 @@ impl Store {
         Ok(StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await })
     }
 
+    /// Clear the cached account to force a reload from the store the next time
+    /// it is accessed.
+    pub async fn invalidate_account_cache(&self) {
+        *self.inner.cache.read().await.account.lock().await = None;
+    }
+
     pub(crate) async fn transaction(&self) -> StoreTransaction {
         StoreTransaction::new(self.clone()).await
     }

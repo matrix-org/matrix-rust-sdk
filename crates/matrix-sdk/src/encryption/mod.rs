@@ -672,13 +672,15 @@ impl Client {
                                 // that we forgot about some of our one-time keys. This will lead to
                                 // UTDs.
                                 {
+                                    let is_duplicate_key_error =
+                                        message.starts_with("One time key");
                                     let already_reported = self
                                         .state_store()
                                         .get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded)
                                         .await?
                                         .is_some();
 
-                                    if message.starts_with("One time key") && !already_reported {
+                                    if is_duplicate_key_error && !already_reported {
                                         let error_message =
                                             DuplicateOneTimeKeyErrorMessage::from_str(message);
 
@@ -713,6 +715,23 @@ impl Client {
                                                 e
                                             );
                                         }
+                                    }
+
+                                    if is_duplicate_key_error
+                                        && let Some(store) = self
+                                            .olm_machine()
+                                            .await
+                                            .as_ref()
+                                            .map(|machine| machine.store())
+                                    {
+                                        // Another process or thread has uploaded different keys
+                                        // with the same IDs in parallel and should have persisted
+                                        // them in the store. We invalidate the cached account
+                                        // to force a reload from the store on the next access.
+                                        warn!(
+                                            "Invalidating account cache after duplicate key upload error"
+                                        );
+                                        store.invalidate_account_cache().await;
                                     }
                                 }
                             }
