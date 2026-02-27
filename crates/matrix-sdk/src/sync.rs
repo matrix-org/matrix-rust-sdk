@@ -41,7 +41,7 @@ use ruma::{
     serde::Raw,
     time::Instant,
 };
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, warn};
 
 use crate::{Client, Result, Room, event_handler::HandlerKind};
 
@@ -354,7 +354,7 @@ impl Client {
 ///
 /// That way, the latest event is computed and updated for all rooms receiving
 /// an update from the sync.
-#[instrument(skip_all)]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
 pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
 where
     R: Iterator<Item = &'a OwnedRoomId>,

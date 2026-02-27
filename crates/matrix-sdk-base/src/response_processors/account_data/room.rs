@@ -17,7 +17,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, marked_unread::MarkedUnreadEventContent},
     serde::Raw,
 };
-use tracing::{instrument, warn};
+use tracing::warn;
 
 use super::super::{Context, RoomInfoNotableUpdates};
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
     store::BaseStateStore,
 };
 
-#[instrument(skip_all, fields(?room_id))]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?room_id)))]
 pub fn for_room(
     context: &mut Context,
     room_id: &RoomId,

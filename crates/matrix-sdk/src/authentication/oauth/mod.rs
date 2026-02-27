@@ -194,7 +194,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use tokio::sync::Mutex;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
@@ -1159,7 +1159,7 @@ impl OAuth {
     /// will wait for the result of the first call.
     ///
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         macro_rules! fail {
             ($lock:expr, $err:expr) => {

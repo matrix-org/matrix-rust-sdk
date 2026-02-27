@@ -13,7 +13,6 @@ use futures_core::Stream;
 use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
-use tracing::{instrument, warn};
 
 pub use self::builder::*;
 pub(super) use self::{frozen::FrozenSlidingSyncList, request_generator::*};
@@ -160,7 +159,7 @@ impl SlidingSyncList {
     /// - `maximum_number_of_rooms`: the `lists.$this_list.count` value, i.e.
     ///   maximum number of available rooms in this list, as defined by the
     ///   server.
-    #[instrument(skip(self), fields(name = self.name()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(name = self.name())))]
     pub(super) fn update(&mut self, maximum_number_of_rooms: Option<u32>) -> Result<bool, Error> {
         // Make sure to update the generator state first; ordering matters because
         // `update_room_list` observes the latest ranges in the response.
@@ -284,7 +283,7 @@ impl SlidingSyncListInner {
 
     /// Build a [`http::request::List`] based on the current state of the
     /// request generator.
-    #[instrument(skip(self), fields(name = self.name))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(name = self.name)))]
     fn request(&self, ranges: Ranges) -> http::request::List {
         let ranges = ranges.into_iter().map(|r| ((*r.start()).into(), (*r.end()).into())).collect();
 
@@ -326,7 +325,7 @@ impl SlidingSyncListInner {
 
     /// Send a message over the internal channel if there is a receiver, i.e. if
     /// the sync loop is running.
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
         let _ = self.sliding_sync_internal_channel_sender.send(message);

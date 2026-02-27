@@ -16,6 +16,8 @@
     not(any(feature = "state-store", feature = "crypto-store", feature = "event-cache")),
     allow(dead_code, unused_imports)
 )]
+// Increase recursion limit when using instrumentation: https://github.com/rust-lang/rust/issues/152942
+#![cfg_attr(not(feature = "instrument"), recursion_limit = "256")]
 
 mod connection;
 #[cfg(feature = "crypto-store")]

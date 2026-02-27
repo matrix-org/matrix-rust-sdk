@@ -31,7 +31,7 @@ use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
-use tracing::{Span, field::display, instrument, trace};
+use tracing::{Span, field::display, trace};
 
 use super::{CryptoStoreError, CryptoStoreWrapper};
 use crate::{Account, identities::DeviceData, olm::Session};
@@ -234,7 +234,10 @@ impl UsersForKeyQuery {
     /// user, it is removed from the list of those needing an update.
     ///
     /// Returns true if the user is now up-to-date, else false
-    #[instrument(level = "trace", skip(self), fields(invalidation_sequence))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(level = "trace", skip(self), fields(invalidation_sequence))
+    )]
     pub(super) fn maybe_remove_user(
         &mut self,
         user: &UserId,

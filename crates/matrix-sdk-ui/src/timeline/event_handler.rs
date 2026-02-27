@@ -576,7 +576,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
-    #[instrument(skip_all, fields(txn_id, event_id, position))]
+    #[cfg_attr(
+        feature = "instrument",
+        tracing::instrument(skip_all, fields(txn_id, event_id, position))
+    )]
     pub(super) async fn handle_event(
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
@@ -660,7 +663,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         added_item
     }
 
-    #[instrument(skip(self, edit_kind))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, edit_kind)))]
     fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
         let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
@@ -699,7 +702,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///
     /// Reactions to local events are applied in
     /// [`crate::timeline::TimelineController::handle_local_echo`].
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     fn handle_reaction(&mut self, relates_to: OwnedEventId, reaction_key: String) {
         let target = TimelineEventItemId::EventId(relates_to);
 
@@ -839,7 +842,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///
     /// This assumes the redacted event was present in the timeline in the first
     /// place; it will warn if the redacted event has not been found.
-    #[instrument(skip_all, fields(redacts_event_id = ?redacted))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(redacts_event_id = ?redacted)))]
     fn handle_redaction(&mut self, redacted: OwnedEventId) {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
@@ -885,7 +888,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// etc.).
     ///
     /// Returns true if it's succeeded.
-    #[instrument(skip_all, fields(redacts = ?aggregation_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(redacts = ?aggregation_id)))]
     fn handle_aggregation_redaction(&mut self, aggregation_id: OwnedEventId) -> bool {
         let aggregation_id = TimelineEventItemId::EventId(aggregation_id);
 

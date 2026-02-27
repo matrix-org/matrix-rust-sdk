@@ -17,7 +17,7 @@ use std::sync::Arc;
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
-use tracing::{debug, instrument, warn};
+use tracing::{debug, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
@@ -90,7 +90,7 @@ impl EmbeddedEvent {
         }
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,

@@ -29,7 +29,7 @@ impl super::Timeline {
     /// Add more events to the start of the timeline.
     ///
     /// Returns whether we hit the start of the timeline.
-    #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?self.room().room_id())))]
     pub async fn paginate_backwards(&self, mut num_events: u16) -> Result<bool, Error> {
         match self.controller.focus() {
             TimelineFocusKind::Live { .. } => {

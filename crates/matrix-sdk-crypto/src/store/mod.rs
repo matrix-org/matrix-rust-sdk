@@ -59,7 +59,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info, instrument, trace, warn};
+use tracing::{info, trace, warn};
 use types::{RoomKeyBundleInfo, StoredRoomKeyBundleData};
 use vodozemac::{Curve25519PublicKey, megolm::SessionOrdering};
 
@@ -1674,7 +1674,7 @@ impl Store {
     /// * `bundle` - The decrypted and deserialized bundle itself.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    #[instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len(), sender_data))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len(), sender_data)))]
     pub async fn receive_room_key_bundle(
         &self,
         bundle_info: &StoredRoomKeyBundleData,

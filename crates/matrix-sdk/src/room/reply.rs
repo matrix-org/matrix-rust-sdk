@@ -29,7 +29,6 @@ use ruma::{
     },
 };
 use thiserror::Error;
-use tracing::instrument;
 
 use super::{EventSource, Room};
 
@@ -89,7 +88,7 @@ impl Room {
     /// * `content` - The content to reply with
     /// * `event_id` - ID of the event to reply to
     /// * `enforce_thread` - Whether to enforce a thread relation
-    #[instrument(skip(self, content), fields(room = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, content), fields(room = %self.room_id())))]
     pub async fn make_reply_event(
         &self,
         content: RoomMessageEventContentWithoutRelation,

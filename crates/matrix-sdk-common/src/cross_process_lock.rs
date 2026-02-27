@@ -48,7 +48,9 @@ use std::{
 };
 
 use tokio::sync::Mutex;
-use tracing::{debug, error, instrument, trace, warn};
+#[cfg(feature = "instrument")]
+use tracing::instrument;
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     SendOutsideWasm,
@@ -301,7 +303,7 @@ where
     ///
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
-    #[instrument(skip(self), fields(?self.lock_key, ?self.config, ?self.generation))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(?self.lock_key, ?self.config, ?self.generation)))]
     pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
@@ -466,7 +468,7 @@ where
     /// reached a second time, the lock will stop attempting to get the lock
     /// and will return a timeout error upon locking. If not provided,
     /// will wait for [`MAX_BACKOFF_MS`].
-    #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(?self.lock_key, ?self.config)))]
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,

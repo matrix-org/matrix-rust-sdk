@@ -45,7 +45,7 @@ use tokio::{
     select,
     sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender},
 };
-use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, info, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
@@ -257,7 +257,7 @@ impl SlidingSync {
     }
 
     /// Handle the HTTP response.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn handle_response(
         &self,
         mut sliding_sync_response: http::Response,
@@ -676,7 +676,7 @@ impl SlidingSync {
     ///
     /// Public for testing purposes only.
     #[doc(hidden)]
-    #[instrument(skip_all, fields(conn_id = self.inner.id, pos, timeout))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(conn_id = self.inner.id, pos, timeout)))]
     pub async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, position_guard) = self.generate_sync_request().await?;
 
@@ -698,7 +698,7 @@ impl SlidingSync {
     /// return `Err(…)`. An `Err` will _always_ lead to the `Stream`
     /// termination.
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
-    #[instrument(name = "sync_stream", skip_all, fields(conn_id = self.inner.id, with_e2ee = self.is_e2ee_enabled()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(name = "sync_stream", skip_all, fields(conn_id = self.inner.id, with_e2ee = self.is_e2ee_enabled())))]
     pub fn sync(&self) -> impl Stream<Item = Result<UpdateSummary, crate::Error>> + '_ {
         debug!("Starting sync stream");
 
@@ -844,14 +844,14 @@ fn subscribe_to_rooms(
 
 impl SlidingSyncInner {
     /// Send a message over the internal channel.
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     fn internal_channel_send(&self, message: SlidingSyncInternalMessage) -> Result<(), Error> {
         self.internal_channel.send(message).map(|_| ()).map_err(|_| Error::InternalChannelIsBroken)
     }
 
     /// Send a message over the internal channel if there is a receiver, i.e. if
     /// the sync loop is running.
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
         let _ = self.internal_channel.send(message);

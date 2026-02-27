@@ -25,7 +25,7 @@ use ruma::{
     },
     serde::Raw,
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace, warn};
 
 use super::super::Context;
 use crate::{RoomInfo, StateChanges, store::BaseStateStore};
@@ -76,7 +76,7 @@ impl Global {
     /// Given a [`StateChanges`] instance, processes any direct room info
     /// from the global account data and adds it to the room infos to
     /// save.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn process_direct_rooms(
         &self,
         events: &[AnyGlobalAccountDataEvent],

@@ -26,7 +26,7 @@ use matrix_sdk_base::{
     SendOutsideWasm, SyncOutsideWasm, event_cache::Event, executor::AbortOnDrop, timeout::timeout,
 };
 use matrix_sdk_common::executor::spawn;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace, warn};
 
 use super::super::Result;
 
@@ -57,7 +57,7 @@ where
     /// - either we've reached the start of the timeline,
     /// - or we've obtained enough events to fulfill the requested number of
     ///   events.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn run_backwards_until(
         &self,
         num_requested_events: u16,
@@ -89,7 +89,7 @@ where
     ///
     /// This automatically takes care of waiting for a pagination token from
     /// sync, if we haven't done that before.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn run_backwards_once(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
         loop {
             if let Some(outcome) = self.run_backwards_impl(batch_size).await? {

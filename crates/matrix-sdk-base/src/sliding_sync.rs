@@ -21,7 +21,7 @@ use ruma::{
     OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
     serde::Raw,
 };
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use super::BaseClient;
 use crate::{
@@ -89,7 +89,7 @@ impl BaseClient {
     ///
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
-    #[instrument(skip_all, level = "trace")]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, level = "trace"))]
     pub async fn process_sliding_sync(
         &self,
         response: &http::Response,

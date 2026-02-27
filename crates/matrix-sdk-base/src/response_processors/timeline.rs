@@ -20,7 +20,7 @@ use ruma::{
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
 };
-use tracing::{instrument, trace, warn};
+use tracing::{trace, warn};
 
 use super::{Context, notification};
 #[cfg(feature = "e2e-encryption")]
@@ -36,7 +36,7 @@ use crate::{Result, Room, RoomInfo, sync::Timeline};
 /// - will process redaction,
 /// - will process notification.
 #[allow(clippy::extra_unused_lifetimes)]
-#[instrument(skip_all, fields(room_id = ?room_info.room_id))]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?room_info.room_id)))]
 pub async fn build<'notification, 'e2ee>(
     context: &mut Context,
     room: &Room,

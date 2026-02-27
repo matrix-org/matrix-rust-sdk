@@ -27,7 +27,7 @@ use ruma::{
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
 use to_widget::NotifyNewToDeviceMessage;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use self::{
@@ -271,7 +271,7 @@ impl WidgetMachine {
         }
     }
 
-    #[instrument(skip_all, fields(?request_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?request_id)))]
     fn process_from_widget_request(
         &mut self,
         request_id: String,
@@ -545,7 +545,7 @@ impl WidgetMachine {
         Some(action)
     }
 
-    #[instrument(skip_all, fields(?request_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?request_id)))]
     fn process_to_widget_response(
         &mut self,
         request_id: String,
@@ -578,7 +578,7 @@ impl WidgetMachine {
             .unwrap_or_default()
     }
 
-    #[instrument(skip_all, fields(?request_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?request_id)))]
     fn process_matrix_driver_response(
         &mut self,
         request_id: Uuid,
@@ -622,7 +622,7 @@ impl WidgetMachine {
     ) -> Action {
         // we do not want tho expose this to never allow sending arbitrary errors.
         // Errors always need to be `FromWidgetErrorResponse`.
-        #[instrument(skip_all)]
+        #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
         fn send_response_data(
             raw_request: Raw<FromWidgetRequest>,
             response_data: impl Serialize,
@@ -648,7 +648,7 @@ impl WidgetMachine {
         }
     }
 
-    #[instrument(skip_all, fields(action = T::ACTION))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(action = T::ACTION)))]
     fn send_to_widget_request<T: ToWidgetRequest>(
         &mut self,
         to_widget_request: T,
@@ -680,7 +680,7 @@ impl WidgetMachine {
         Some((ToWidgetRequestHandle::new(meta), Action::SendToWidget(serialized)))
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn send_matrix_driver_request<T: MatrixDriverRequest>(
         &mut self,
         request: T,

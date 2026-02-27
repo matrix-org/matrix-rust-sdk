@@ -21,7 +21,7 @@ use itertools::{Either, Itertools};
 use matrix_sdk_common::deserialized_responses::WithheldCode;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 
 use super::OutboundGroupSession;
 #[cfg(doc)]
@@ -176,7 +176,7 @@ pub(crate) struct CollectRecipientsResult {
 /// Returns information indicating whether the session needs to be rotated
 /// and the list of users/devices that should receive or not the session
 /// (with withheld reason).
-#[instrument(skip_all)]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
 pub(crate) async fn collect_session_recipients(
     store: &Store,
     users: impl Iterator<Item = &UserId>,

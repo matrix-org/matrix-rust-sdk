@@ -24,7 +24,7 @@ use ruma::{
     assign,
     serde::JsonObject,
 };
-use tracing::{info, instrument};
+use tracing::info;
 
 use super::MatrixAuth;
 #[cfg(feature = "sso-login")]
@@ -165,12 +165,12 @@ impl LoginBuilder {
     /// # Panics
     ///
     /// Panics if a session was already restored or logged in.
-    #[instrument(
+    #[cfg_attr(feature = "instrument", tracing::instrument(
         target = "matrix_sdk::client",
         name = "login",
         skip_all,
         fields(method = self.login_method.tracing_desc()),
-    )]
+    ))]
     pub async fn send(self) -> Result<login::v3::Response> {
         let client = &self.auth.client;
         let homeserver = client.homeserver();
@@ -307,7 +307,15 @@ where
     /// # Panics
     ///
     /// Panics if a session was already restored or logged in.
-    #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(
+            target = "matrix_sdk::client",
+            name = "login",
+            skip_all,
+            fields(method = "sso")
+        )
+    )]
     pub async fn send(self) -> Result<login::v3::Response> {
         use std::io::Error as IoError;
 

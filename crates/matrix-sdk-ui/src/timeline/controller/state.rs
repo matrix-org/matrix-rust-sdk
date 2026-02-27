@@ -24,7 +24,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tracing::{instrument, trace, warn};
+use tracing::{trace, warn};
 
 use super::{
     super::{
@@ -116,7 +116,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         txn.commit();
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn handle_ephemeral_events(
         &mut self,
         events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
@@ -148,7 +148,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
     /// Adds a local echo (for an event) to the timeline.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,

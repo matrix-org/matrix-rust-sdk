@@ -54,9 +54,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::{RwLock, RwLockWriteGuard, broadcast};
-use tracing::{
-    Instrument as _, Span, debug, error, field::debug, info, info_span, instrument, trace, warn,
-};
+use tracing::{Instrument as _, Span, debug, error, field::debug, info, info_span, trace, warn};
 
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
@@ -486,7 +484,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Toggle a reaction locally.
     ///
     /// Returns true if the reaction was added, false if it was removed.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn toggle_reaction_local(
         &self,
         item_id: &TimelineEventItemId,
@@ -740,7 +738,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     /// Creates the local echo for an event we're sending.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
@@ -762,7 +760,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ///
     /// If the corresponding local timeline item is missing, a warning is
     /// raised.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub(super) async fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
@@ -1170,7 +1168,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     /// Adds a reaction (local echo) to a local echo.
-    #[instrument(skip(self, send_handle))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, send_handle)))]
     async fn handle_local_reaction(
         &self,
         reaction_key: String,
@@ -1519,7 +1517,7 @@ impl TimelineController {
 
     /// Given an event identifier, will fetch the details for the event it's
     /// replying to, if applicable.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
         let state_guard = self.state.write().await;
         let (index, item) = rfind_event_by_id(&state_guard.items, event_id)
@@ -1749,7 +1747,7 @@ impl TimelineController {
             .next()
     }
 
-    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = ?self.room().room_id())))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
         let (utds, decrypted) = self.compute_redecryption_candidates().await;
 

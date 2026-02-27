@@ -173,7 +173,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     Client, Media, Room, TransmissionProgress,
@@ -654,7 +654,7 @@ impl RoomSendQueue {
     /// It only progresses forward: nothing can be cancelled at any point, which
     /// makes the implementation not overly complicated to follow.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, fields(room_id = %room.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = %room.room_id())))]
     async fn sending_task(
         room: WeakRoom,
         queue: QueueStorage,
@@ -1935,7 +1935,7 @@ impl QueueStorage {
     }
 
     /// Reacts to the given local echo of an event.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn react(
         &self,
         transaction_id: &TransactionId,
@@ -2132,7 +2132,7 @@ impl QueueStorage {
     ///
     /// Returns true if the dependent request has been sent (or should not be
     /// retried later).
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn try_apply_single_dependent_request(
         &self,
         client: &Client,
@@ -2368,7 +2368,7 @@ impl QueueStorage {
         Ok(true)
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn apply_dependent_requests(
         &self,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
@@ -2734,7 +2734,7 @@ impl SendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
-    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id)))]
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
 
@@ -2774,7 +2774,7 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
-    #[instrument(skip(self, new_content), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, new_content), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id)))]
     pub async fn edit_raw(
         &self,
         new_content: Raw<AnyMessageLikeEventContent>,
@@ -2898,7 +2898,7 @@ impl SendHandle {
     ///
     /// If returning `Ok(None)`; this means the reaction couldn't be sent
     /// because the event is already a remote one.
-    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id)))]
     pub async fn react(
         &self,
         key: String,

@@ -27,7 +27,7 @@ use ruma::{
     room::{JoinRuleSummary, RoomType},
 };
 use tokio::try_join;
-use tracing::{instrument, warn};
+use tracing::warn;
 
 use crate::{Client, Error, Room, room_directory_search::RoomDirectorySearch};
 
@@ -132,7 +132,7 @@ impl RoomPreview {
         )
     }
 
-    #[instrument(skip(client))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(client)))]
     pub(crate) async fn from_remote_room(
         client: &Client,
         room_id: OwnedRoomId,

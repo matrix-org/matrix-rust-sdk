@@ -26,7 +26,7 @@ use serde_json::value::to_raw_value;
 use tracing::{
     Span, error,
     field::{debug, display},
-    info, instrument, warn,
+    info, warn,
 };
 use zeroize::Zeroize;
 
@@ -399,7 +399,10 @@ impl SecretStore {
     /// ```
     ///
     /// [`Device`]: crate::encryption::identities::Device
-    #[instrument(fields(user_id, device_id, cross_signing_status))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(fields(user_id, device_id, cross_signing_status))
+    )]
     pub async fn import_secrets(&self) -> Result<()> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;

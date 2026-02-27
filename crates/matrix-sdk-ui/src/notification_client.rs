@@ -47,7 +47,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     DEFAULT_SANITIZER_MODE,
@@ -151,7 +151,7 @@ impl NotificationClient {
     ///
     /// An error result means that we couldn't resolve the notification; in that
     /// case, a dummy notification may be displayed instead.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn get_notification(
         &self,
         room_id: &RoomId,
@@ -216,7 +216,7 @@ impl NotificationClient {
     ///
     /// Otherwise, if the event was not encrypted, or couldn't be decrypted
     /// (without causing a fatal error), will return `Ok(None)`.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn retry_decryption(
         &self,
         room: &Room,
@@ -374,7 +374,7 @@ impl NotificationClient {
     /// match the current user and are invites), and if the SDK concludes the
     /// room was in the invited state, and we didn't find the event by id,
     /// *then* we'll use that stripped room member event.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn try_sliding_sync(
         &self,
         requests: &[NotificationItemsRequest],

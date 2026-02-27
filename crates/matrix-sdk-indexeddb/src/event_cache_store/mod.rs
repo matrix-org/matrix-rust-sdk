@@ -32,7 +32,7 @@ use matrix_sdk_base::{
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
-use tracing::{error, instrument, trace};
+use tracing::{error, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::{
@@ -101,7 +101,7 @@ impl IndexeddbEventCacheStore {
 impl EventCacheStore for IndexeddbEventCacheStore {
     type Error = IndexeddbEventCacheStoreError;
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
@@ -158,7 +158,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         })
     }
 
-    #[instrument(skip(self, updates))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, updates)))]
     async fn handle_linked_chunk_updates(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -273,7 +273,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -298,7 +298,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(raw_chunks)
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_all_chunks_metadata(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -336,7 +336,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(raw_chunks)
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -392,7 +392,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         }
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_previous_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -415,7 +415,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         }
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
@@ -430,7 +430,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
-    #[instrument(skip(self, events))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, events)))]
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -454,7 +454,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(duplicated)
     }
 
-    #[instrument(skip(self, event_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event_id)))]
     async fn find_event(
         &self,
         room_id: &RoomId,
@@ -470,7 +470,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             .map_err(Into::into)
     }
 
-    #[instrument(skip(self, event_id, filters))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event_id, filters)))]
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
@@ -537,7 +537,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             .collect())
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
@@ -574,7 +574,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             .map_err(Into::into)
     }
 
-    #[instrument(skip(self, event))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event)))]
     async fn save_event(
         &self,
         room_id: &RoomId,

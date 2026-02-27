@@ -46,7 +46,6 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
-use tracing::instrument;
 
 use crate::{
     media_store::{
@@ -104,7 +103,7 @@ impl IndexeddbMediaStore {
 impl MediaStore for IndexeddbMediaStore {
     type Error = IndexeddbMediaStoreError;
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
@@ -160,7 +159,7 @@ impl MediaStore for IndexeddbMediaStore {
         })
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
@@ -171,7 +170,7 @@ impl MediaStore for IndexeddbMediaStore {
         self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn replace_media_key(
         &self,
         from: &MediaRequestParameters,
@@ -191,7 +190,7 @@ impl MediaStore for IndexeddbMediaStore {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn get_media_content(
         &self,
         request: &MediaRequestParameters,
@@ -200,7 +199,7 @@ impl MediaStore for IndexeddbMediaStore {
         self.media_service.get_media_content(self, request).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn remove_media_content(
         &self,
         request: &MediaRequestParameters,
@@ -215,7 +214,7 @@ impl MediaStore for IndexeddbMediaStore {
         transaction.commit().await.map_err(Into::into)
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_media_content_for_uri(
         &self,
         uri: &MxcUri,
@@ -224,7 +223,7 @@ impl MediaStore for IndexeddbMediaStore {
         self.media_service.get_media_content_for_uri(self, uri).await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn remove_media_content_for_uri(
         &self,
         uri: &MxcUri,
@@ -239,7 +238,7 @@ impl MediaStore for IndexeddbMediaStore {
         transaction.commit().await.map_err(Into::into)
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_media_retention_policy(
         &self,
         policy: MediaRetentionPolicy,
@@ -248,13 +247,13 @@ impl MediaStore for IndexeddbMediaStore {
         self.media_service.set_media_retention_policy(self, policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
         let _timer = timer!("method");
         self.media_service.media_retention_policy()
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_ignore_media_retention_policy(
         &self,
         request: &MediaRequestParameters,
@@ -264,7 +263,7 @@ impl MediaStore for IndexeddbMediaStore {
         self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn clean(&self) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
         self.media_service.clean(self).await
@@ -284,7 +283,7 @@ impl MediaStore for IndexeddbMediaStore {
 impl MediaStoreInner for IndexeddbMediaStore {
     type Error = IndexeddbMediaStoreError;
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn media_retention_policy_inner(
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, IndexeddbMediaStoreError> {
@@ -295,7 +294,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
             .map_err(Into::into)
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_media_retention_policy_inner(
         &self,
         policy: MediaRetentionPolicy,
@@ -308,7 +307,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         transaction.commit().await.map_err(Into::into)
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn add_media_content_inner(
         &self,
         request: &MediaRequestParameters,
@@ -335,7 +334,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         transaction.commit().await.map_err(Into::into)
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_ignore_media_retention_policy_inner(
         &self,
         request: &MediaRequestParameters,
@@ -355,7 +354,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn get_media_content_inner(
         &self,
         request: &MediaRequestParameters,
@@ -372,7 +371,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         Ok(media.map(|m| m.content))
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn get_media_content_for_uri_inner(
         &self,
         uri: &MxcUri,
@@ -389,7 +388,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         Ok(media.map(|m| m.content))
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn clean_inner(
         &self,
         policy: MediaRetentionPolicy,
@@ -459,7 +458,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
         transaction.commit().await.map_err(Into::into)
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn last_media_cleanup_time_inner(
         &self,
     ) -> Result<Option<SystemTime>, IndexeddbMediaStoreError> {

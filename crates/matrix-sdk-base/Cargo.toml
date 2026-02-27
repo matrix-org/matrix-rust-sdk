@@ -70,6 +70,9 @@ unstable-msc4274 = []
 
 experimental-element-recent-emojis = []
 
+# tracing #[instrument]'ation
+instrument = ["matrix-sdk-common/instrument", "matrix-sdk-crypto?/instrument"]
+
 [dependencies]
 as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }

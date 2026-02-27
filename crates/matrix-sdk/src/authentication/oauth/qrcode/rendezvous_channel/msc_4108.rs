@@ -23,7 +23,7 @@ use ruma::api::{
     EndpointError,
     error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError},
 };
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 use url::Url;
 
 use crate::{HttpError, RumaApiError, http_client::HttpClient};
@@ -170,7 +170,7 @@ impl Channel {
     /// device.
     ///
     /// The message must be of the `text/plain` content type.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn send(&mut self, message: Vec<u8>) -> Result<(), HttpError> {
         let etag = self.etag.clone();
 
@@ -237,7 +237,7 @@ impl Channel {
         }
     }
 
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     async fn receive_message_impl(
         client: &reqwest::Client,
         etag: Option<String>,

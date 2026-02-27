@@ -42,7 +42,7 @@ use thiserror::Error;
 #[cfg(feature = "experimental-search")]
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
-use tracing::{Span, debug, field::debug, instrument};
+use tracing::{Span, debug, field::debug};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
@@ -540,7 +540,10 @@ impl ClientBuilder {
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
-    #[instrument(skip_all, target = "matrix_sdk::client", fields(homeserver))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(skip_all, target = "matrix_sdk::client", fields(homeserver))
+    )]
     pub async fn build(self) -> Result<Client, ClientBuildError> {
         debug!("Starting to build the Client");
 

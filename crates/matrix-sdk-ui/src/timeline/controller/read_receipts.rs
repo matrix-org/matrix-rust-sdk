@@ -22,7 +22,7 @@ use ruma::{
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use super::{
     AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
@@ -93,7 +93,7 @@ impl ReadReceipts {
     ///
     /// Currently this method only works reliably if the timeline was started
     /// from the end of the timeline.
-    #[instrument(skip_all, fields(user_id = %new_receipt.user_id, event_id = %new_receipt.event_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(user_id = %new_receipt.user_id, event_id = %new_receipt.event_id)))]
     fn maybe_update_read_receipt(
         &mut self,
         new_receipt: FullReceipt<'_>,
@@ -281,7 +281,7 @@ impl ReadReceipts {
     ///
     /// This includes all the receipts on the event as well as all the receipts
     /// on the following events that are filtered out (not visible).
-    #[instrument(skip(self, timeline_items, at_end))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, timeline_items, at_end)))]
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
@@ -396,7 +396,7 @@ struct ReadReceiptTimelineUpdate {
 
 impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn remove_old_receipt(&mut self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
         let Some(event_id) = &self.old_event_id else {
             // Nothing to do.
@@ -444,7 +444,7 @@ impl ReadReceiptTimelineUpdate {
     }
 
     /// Add the new receipt to the corresponding timeline item.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn add_new_receipt(
         self,
         items: &mut ObservableItemsTransaction<'_>,
@@ -717,7 +717,7 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
 
     /// Update the read receipts on the event with the given event ID and the
     /// previous visible event because of a visibility change.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self

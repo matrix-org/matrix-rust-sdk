@@ -43,7 +43,7 @@ use tokio::sync::{
     Mutex as AsyncMutex, OwnedMutexGuard,
     mpsc::{Receiver, Sender},
 };
-use tracing::{Instrument, Level, Span, error, info, instrument, trace, warn};
+use tracing::{Instrument, Level, Span, error, info, trace, warn};
 
 use crate::{
     encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService},
@@ -651,7 +651,7 @@ impl SyncService {
     /// This must be called when the app goes into the background. It's better
     /// to call this API when the application exits, although not strictly
     /// necessary.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn stop(&self) {
         let mut inner = self.inner.lock().await;
 
@@ -671,7 +671,7 @@ impl SyncService {
     /// This ensures that the sync service is stopped before expiring both
     /// sessions. It should be used sparingly, as it will cause a restart of
     /// the sessions on the server as well.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn expire_sessions(&self) {
         // First, stop the sync service if it was running; it's a no-op if it was
         // already stopped.

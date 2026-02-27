@@ -19,7 +19,7 @@ use std::{fmt::Display, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
 use ruma::MilliSecondsSinceUnixEpoch;
-use tracing::{Level, error, event_enabled, instrument, trace, warn};
+use tracing::{Level, error, event_enabled, trace};
 
 use super::{
     DateDividerMode, TimelineItem, TimelineItemKind, VirtualTimelineItem,
@@ -107,7 +107,7 @@ impl DateDividerAdjuster {
 
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn run(&mut self, items: &mut ObservableItemsTransaction<'_>, meta: &mut TimelineMetadata) {
         // We're going to record vector operations like inserting, replacing and
         // removing date dividers. Since we may remove or insert new items,

@@ -21,7 +21,7 @@ use ruma::{
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::room::member::{MembershipState, SyncRoomMemberEvent},
 };
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use super::{DynStateStore, Result, StateChanges};
 use crate::{
@@ -79,7 +79,7 @@ pub(crate) struct AmbiguityCache {
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-#[instrument(ret(level = "trace"))]
+#[cfg_attr(feature = "instrument", tracing::instrument(ret(level = "trace")))]
 pub(crate) fn is_display_name_ambiguous(
     display_name: &DisplayName,
     users_with_display_name: &BTreeSet<OwnedUserId>,

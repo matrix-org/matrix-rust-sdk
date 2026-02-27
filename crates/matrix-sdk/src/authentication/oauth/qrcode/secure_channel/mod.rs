@@ -17,7 +17,7 @@ use matrix_sdk_base::crypto::types::qr_login::{
     Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::{instrument, trace};
+use tracing::trace;
 use url::Url;
 use vodozemac::ecies::{
     CheckCode, Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult,
@@ -92,7 +92,7 @@ impl SecureChannel {
         &self.qr_code_data
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub(super) async fn connect(mut self) -> Result<AlmostEstablishedSecureChannel, Error> {
         trace!("Trying to connect the secure channel.");
 
@@ -155,7 +155,7 @@ pub(super) struct EstablishedSecureChannel {
 
 impl EstablishedSecureChannel {
     /// Establish a secure channel from a scanned QR code.
-    #[instrument(skip(client))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(client)))]
     pub(super) async fn from_qr_code(
         client: reqwest::Client,
         qr_code_data: &QrCodeData,

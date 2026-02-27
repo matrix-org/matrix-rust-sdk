@@ -29,7 +29,7 @@ use ruma::{
     push::Action,
     serde::Raw,
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace, warn};
 
 use super::{
     super::{
@@ -676,7 +676,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
     // Attempt to load a thread's latest reply as an embedded timeline item, either
     // using the event cache or the storage.
-    #[instrument(skip(self, room_data_provider))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, room_data_provider)))]
     async fn fetch_latest_thread_reply(
         &mut self,
         event_id: &EventId,
@@ -1034,7 +1034,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
         if self.meta.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {

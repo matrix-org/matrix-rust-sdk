@@ -91,6 +91,15 @@ experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
 
+# tracing #[instrument]'ation
+instrument = [
+    "tracing/attributes",
+    "matrix-sdk-base/instrument",
+    "matrix-sdk-common/instrument",
+    "matrix-sdk-indexeddb?/instrument",
+    "matrix-sdk-sqlite?/instrument",
+]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
@@ -148,7 +157,7 @@ thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tokio-util = "0.7.17"
 tower = { version = "0.5.2", features = ["util"], optional = true }
-tracing = { workspace = true, features = ["attributes"] }
+tracing = { workspace = true }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 urlencoding = "2.1.3"
