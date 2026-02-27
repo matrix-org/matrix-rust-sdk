@@ -82,6 +82,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
+  module to the `utils` module. It can also be converted from a `QueryString`.
 - [**breaking**] The functions on the `OAuth` API to access the account
   management URL and its actions were removed. The methods available on the
   `AuthorizationServerMetadata` should be used instead.
