@@ -436,7 +436,7 @@ impl EventCache {
             };
 
             trace!("waiting for state lock…");
-            let mut state = match room.inner.state.write().await {
+            let mut state = match room.state().write().await {
                 Ok(state) => state,
                 Err(err) => {
                     warn!(for_room = %room_id, "Failed to get the `RoomEventCacheStateLock`: {err}");
@@ -996,10 +996,9 @@ impl EventCacheInner {
 
         // Collect all the rooms' state locks, first: we can clear the storage only when
         // nobody will touch it at the same time.
-        let room_locks = join_all(
-            rooms.values().map(|room| async move { (room, room.inner.state.write().await) }),
-        )
-        .await;
+        let room_locks =
+            join_all(rooms.values().map(|room| async move { (room, room.state().write().await) }))
+                .await;
 
         // Clear the storage for all the rooms, using the storage facility.
         let store_guard = match self.store.lock().await? {

@@ -273,6 +273,11 @@ impl RoomEventCache {
         Ok(())
     }
 
+    /// Return a reference to the state.
+    pub(in super::super) fn state(&self) -> &RoomEventCacheStateLock {
+        &self.inner.state
+    }
+
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
     pub(in super::super) async fn handle_joined_room_update(

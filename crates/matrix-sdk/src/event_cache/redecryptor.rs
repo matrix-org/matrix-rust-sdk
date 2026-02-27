@@ -366,7 +366,7 @@ impl EventCache {
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-        let mut state = room_cache.inner.state.write().await?;
+        let mut state = room_cache.state().write().await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
