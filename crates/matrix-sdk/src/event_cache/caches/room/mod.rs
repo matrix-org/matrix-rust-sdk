@@ -43,7 +43,7 @@ use tokio::sync::{
     mpsc,
 };
 use tracing::{instrument, trace, warn};
-pub use updates::RoomEventCacheGenericUpdate;
+pub use updates::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate};
 
 use super::{
     super::{

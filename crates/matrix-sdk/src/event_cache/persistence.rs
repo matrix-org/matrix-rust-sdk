@@ -22,7 +22,7 @@ use ruma::serde::Raw;
 use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
-use crate::event_cache::{Result, RoomEventCacheLinkedChunkUpdate};
+use crate::event_cache::{Result, caches::room::RoomEventCacheLinkedChunkUpdate};
 
 /// Propagate linked chunk updates to the store and to the linked chunk update
 /// observers.

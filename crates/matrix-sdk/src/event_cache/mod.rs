@@ -39,12 +39,9 @@ use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     ThreadingSupport,
     cross_process_lock::CrossProcessLockError,
-    deserialized_responses::{AmbiguityChange, TimelineEvent},
-    event_cache::{
-        Gap,
-        store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
-    },
-    linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
+    deserialized_responses::AmbiguityChange,
+    event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
+    linked_chunk::{OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
@@ -76,7 +73,7 @@ mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
 
-use caches::room::RoomEventCacheStateLock;
+use caches::room::{RoomEventCacheLinkedChunkUpdate, RoomEventCacheStateLock};
 pub use caches::{
     TimelineVectorDiffs,
     pagination::{BackPaginationOutcome, PaginationStatus},
@@ -1169,45 +1166,6 @@ impl EventCacheInner {
                 Ok(room_event_cache)
             }
         }
-    }
-}
-
-/// An update being triggered when events change in the persisted event cache
-/// for any room.
-#[derive(Clone, Debug)]
-struct RoomEventCacheLinkedChunkUpdate {
-    /// The linked chunk affected by the update.
-    linked_chunk_id: OwnedLinkedChunkId,
-
-    /// A vector of all the linked chunk updates that happened during this event
-    /// cache update.
-    updates: Vec<linked_chunk::Update<TimelineEvent, Gap>>,
-}
-
-impl RoomEventCacheLinkedChunkUpdate {
-    /// Return all the new events propagated by this update, in topological
-    /// order.
-    pub fn events(self) -> impl DoubleEndedIterator<Item = TimelineEvent> {
-        use itertools::Either;
-        self.updates.into_iter().flat_map(|update| match update {
-            linked_chunk::Update::PushItems { items, .. } => {
-                Either::Left(Either::Left(items.into_iter()))
-            }
-            linked_chunk::Update::ReplaceItem { item, .. } => {
-                Either::Left(Either::Right(std::iter::once(item)))
-            }
-            linked_chunk::Update::RemoveItem { .. }
-            | linked_chunk::Update::DetachLastItems { .. }
-            | linked_chunk::Update::StartReattachItems
-            | linked_chunk::Update::EndReattachItems
-            | linked_chunk::Update::NewItemsChunk { .. }
-            | linked_chunk::Update::NewGapChunk { .. }
-            | linked_chunk::Update::RemoveChunk(..)
-            | linked_chunk::Update::Clear => {
-                // All these updates don't contain any new event.
-                Either::Right(std::iter::empty())
-            }
-        })
     }
 }
 

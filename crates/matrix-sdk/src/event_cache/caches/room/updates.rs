@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_base::{
+    event_cache::{Event, Gap},
+    linked_chunk::{self, OwnedLinkedChunkId},
+};
 use ruma::OwnedRoomId;
 
 /// Represents a timeline update of a room. It hides the details of
@@ -23,4 +27,43 @@ use ruma::OwnedRoomId;
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
     pub room_id: OwnedRoomId,
+}
+
+/// An update being triggered when events change in the persisted event cache
+/// for any room.
+#[derive(Clone, Debug)]
+pub struct RoomEventCacheLinkedChunkUpdate {
+    /// The linked chunk affected by the update.
+    pub linked_chunk_id: OwnedLinkedChunkId,
+
+    /// A vector of all the linked chunk updates that happened during this event
+    /// cache update.
+    pub updates: Vec<linked_chunk::Update<Event, Gap>>,
+}
+
+impl RoomEventCacheLinkedChunkUpdate {
+    /// Return all the new events propagated by this update, in topological
+    /// order.
+    pub fn events(self) -> impl DoubleEndedIterator<Item = Event> {
+        use itertools::Either;
+        self.updates.into_iter().flat_map(|update| match update {
+            linked_chunk::Update::PushItems { items, .. } => {
+                Either::Left(Either::Left(items.into_iter()))
+            }
+            linked_chunk::Update::ReplaceItem { item, .. } => {
+                Either::Left(Either::Right(std::iter::once(item)))
+            }
+            linked_chunk::Update::RemoveItem { .. }
+            | linked_chunk::Update::DetachLastItems { .. }
+            | linked_chunk::Update::StartReattachItems
+            | linked_chunk::Update::EndReattachItems
+            | linked_chunk::Update::NewItemsChunk { .. }
+            | linked_chunk::Update::NewGapChunk { .. }
+            | linked_chunk::Update::RemoveChunk(..)
+            | linked_chunk::Update::Clear => {
+                // All these updates don't contain any new event.
+                Either::Right(std::iter::empty())
+            }
+        })
+    }
 }

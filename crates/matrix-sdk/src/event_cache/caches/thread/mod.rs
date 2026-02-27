@@ -27,10 +27,11 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, trace};
 
 use super::{
-    super::{RoomEventCacheLinkedChunkUpdate, deduplicator::DeduplicationOutcome},
+    super::deduplicator::DeduplicationOutcome,
     EventsOrigin, TimelineVectorDiffs,
     event_linked_chunk::EventLinkedChunk,
     pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
+    room::RoomEventCacheLinkedChunkUpdate,
 };
 
 /// All the information related to a single thread.
