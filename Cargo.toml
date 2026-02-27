@@ -16,7 +16,7 @@ default-members = ["benchmarks", "crates/*"]
 resolver = "3"
 
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.93"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.100", default-features = false }
