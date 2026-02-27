@@ -86,7 +86,7 @@ use ruma::{
         },
         rtc::{
             decline::RtcDeclineEventContent,
-            notification::{NotificationType, RtcNotificationEventContent},
+            notification::{CallIntent, NotificationType, RtcNotificationEventContent},
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         space_order::SpaceOrderEventContent,
@@ -1717,6 +1717,11 @@ impl EventBuilder<RoomAvatarEventContent> {
 impl EventBuilder<RtcNotificationEventContent> {
     pub fn mentions(mut self, users: impl IntoIterator<Item = OwnedUserId>) -> Self {
         self.content.mentions = Some(Mentions::with_user_ids(users));
+        self
+    }
+
+    pub fn call_intent(mut self, call_intent: CallIntent) -> Self {
+        self.content.call_intent = Some(call_intent);
         self
     }
 

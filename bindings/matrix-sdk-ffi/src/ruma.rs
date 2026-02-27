@@ -56,7 +56,9 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
             ThumbnailInfo as RumaThumbnailInfo,
         },
-        rtc::notification::NotificationType as RumaNotificationType,
+        rtc::notification::{
+            CallIntent as RumaCallIntent, NotificationType as RumaNotificationType,
+        },
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent,
             key::{
@@ -506,6 +508,31 @@ impl From<RtcNotificationType> for RumaNotificationType {
         match value {
             RtcNotificationType::Ring => RumaNotificationType::Ring,
             RtcNotificationType::Notification => RumaNotificationType::Notification,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum RtcCallIntent {
+    Video,
+    Audio,
+}
+
+impl From<RumaCallIntent> for RtcCallIntent {
+    fn from(val: RumaCallIntent) -> Self {
+        match val {
+            RumaCallIntent::Audio => Self::Audio,
+            // No support for custom intents, so we can just use video as default
+            _ => Self::Video,
+        }
+    }
+}
+
+impl From<RtcCallIntent> for RumaCallIntent {
+    fn from(value: RtcCallIntent) -> Self {
+        match value {
+            RtcCallIntent::Video => RumaCallIntent::Video,
+            RtcCallIntent::Audio => RumaCallIntent::Audio,
         }
     }
 }
