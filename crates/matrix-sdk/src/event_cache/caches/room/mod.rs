@@ -63,7 +63,7 @@ use crate::{client::WeakClient, room::WeakRoom};
 /// Cloning is shallow, and thus is cheap to do.
 #[derive(Clone)]
 pub struct RoomEventCache {
-    pub(in super::super) inner: Arc<RoomEventCacheInner>,
+    inner: Arc<RoomEventCacheInner>,
 }
 
 impl fmt::Debug for RoomEventCache {
