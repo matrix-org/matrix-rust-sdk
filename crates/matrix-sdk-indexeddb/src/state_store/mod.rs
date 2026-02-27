@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     str::FromStr as _,
     sync::Arc,
@@ -1703,7 +1704,7 @@ impl_state_store!({
         )?;
 
         // Inverted stable ordering on priority.
-        prev.sort_by(|lhs, rhs| rhs.priority.unwrap_or(0).cmp(&lhs.priority.unwrap_or(0)));
+        prev.sort_by_key(|item| Reverse(item.priority.unwrap_or(0)));
 
         Ok(prev.into_iter().filter_map(PersistedQueuedRequest::into_queued_request).collect())
     }

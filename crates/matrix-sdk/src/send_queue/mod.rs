@@ -2864,7 +2864,7 @@ fn canonicalize_dependent_requests(
         }
     }
 
-    by_txn.into_iter().flat_map(|(_parent_txn_id, entries)| entries.into_iter().cloned()).collect()
+    by_txn.into_values().flat_map(|entries| entries.into_iter().cloned()).collect()
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
