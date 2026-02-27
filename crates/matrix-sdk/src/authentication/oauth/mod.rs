@@ -223,7 +223,10 @@ use self::{
     registration::{ClientMetadata, ClientRegistrationResponse, register_client},
 };
 use super::{AuthData, SessionTokens};
-use crate::{Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn};
+use crate::{
+    Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn,
+    utils::UrlOrQuery,
+};
 
 pub(crate) struct OAuthCtx {
     /// Lock and state when multiple processes may refresh an OAuth 2.0 session.
@@ -1795,33 +1798,5 @@ impl ClientRegistrationData {
 impl From<Raw<ClientMetadata>> for ClientRegistrationData {
     fn from(value: Raw<ClientMetadata>) -> Self {
         Self::new(value)
-    }
-}
-
-/// A full URL or just the query part of a URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UrlOrQuery {
-    /// A full URL.
-    Url(Url),
-
-    /// The query part of a URL.
-    Query(String),
-}
-
-impl UrlOrQuery {
-    /// Get the query part of this [`UrlOrQuery`].
-    ///
-    /// If this is a [`Url`], this extracts the query.
-    pub fn query(&self) -> Option<&str> {
-        match self {
-            Self::Url(url) => url.query(),
-            Self::Query(query) => Some(query),
-        }
-    }
-}
-
-impl From<Url> for UrlOrQuery {
-    fn from(value: Url) -> Self {
-        Self::Url(value)
     }
 }
