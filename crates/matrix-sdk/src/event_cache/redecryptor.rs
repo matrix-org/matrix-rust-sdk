@@ -402,7 +402,7 @@ impl EventCache {
         // been queued up. We need to send them out to our subscribers now.
         room_cache.update_sender().send(
             RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs: state.room_linked_chunk().updates_as_vector_diffs(),
+                diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
                 origin: EventsOrigin::Cache,
             }),
             Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
