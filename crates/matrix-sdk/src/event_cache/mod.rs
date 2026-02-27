@@ -48,7 +48,7 @@ use matrix_sdk_base::{
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{
     Mutex, RwLock,
-    broadcast::{Receiver, Sender, channel, error::RecvError},
+    broadcast::{Receiver, Sender, channel},
     mpsc,
 };
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
@@ -278,7 +278,7 @@ impl EventCache {
             let task_monitor = client.task_monitor();
 
             // Spawn the task that will listen to all the room updates at once.
-            let listen_updates_task = task_monitor.spawn_background_task("event_cache::listen_updates", Self::listen_task(
+            let listen_updates_task = task_monitor.spawn_background_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
             ));
@@ -349,52 +349,6 @@ impl EventCache {
     #[doc(hidden)]
     pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         self.inner.handle_room_updates(updates).await
-    }
-
-    #[instrument(skip_all)]
-    async fn listen_task(
-        inner: Arc<EventCacheInner>,
-        mut room_updates_feed: Receiver<RoomUpdates>,
-    ) {
-        trace!("Spawning the listen task");
-        loop {
-            match room_updates_feed.recv().await {
-                Ok(updates) => {
-                    trace!("Receiving `RoomUpdates`");
-
-                    if let Err(err) = inner.handle_room_updates(updates).await {
-                        match err {
-                            EventCacheError::ClientDropped => {
-                                // The client has dropped, exit the listen task.
-                                info!(
-                                    "Closing the event cache global listen task because client dropped"
-                                );
-                                break;
-                            }
-                            err => {
-                                error!("Error when handling room updates: {err}");
-                            }
-                        }
-                    }
-                }
-
-                Err(RecvError::Lagged(num_skipped)) => {
-                    // Forget everything we know; we could have missed events, and we have
-                    // no way to reconcile at the moment!
-                    // TODO: implement Smart Matching™,
-                    warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
-                    if let Err(err) = inner.clear_all_rooms().await {
-                        error!("when clearing storage after lag in listen_task: {err}");
-                    }
-                }
-
-                Err(RecvError::Closed) => {
-                    // The sender has shut down, exit.
-                    info!("Closing the event cache global listen task because receiver closed");
-                    break;
-                }
-            }
-        }
     }
 
     /// Spawns the task that will listen to auto-shrink notifications.
