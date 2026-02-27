@@ -136,6 +136,15 @@ impl Event {
         }
         self
     }
+
+    /// Ensures that the underlying [`GenericEvent`] is an [`OutOfBandEvent`].
+    /// If it is not an [`OutOfBandEvent`], then it is converted into one.
+    pub fn into_out_of_band_event(self) -> Self {
+        match self {
+            Event::InBand(i) => Self::OutOfBand(i.into()),
+            o @ Event::OutOfBand(_) => o,
+        }
+    }
 }
 
 /// A generic representation of an
@@ -181,6 +190,12 @@ pub type InBandEvent = GenericEvent<Position>;
 /// A concrete instance of [`GenericEvent`] for out-of-band events, i.e.,
 /// events which are not part of a chunk and therefore have no position.
 pub type OutOfBandEvent = GenericEvent<()>;
+
+impl From<InBandEvent> for OutOfBandEvent {
+    fn from(value: InBandEvent) -> Self {
+        Self { linked_chunk_id: value.linked_chunk_id, content: value.content, position: () }
+    }
+}
 
 /// A representation of [`Position`](matrix_sdk_base::linked_chunk::Position)
 /// which can be stored in IndexedDB.

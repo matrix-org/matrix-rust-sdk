@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v2};
+    use super::{Version, v3};
 
-    pub const VERSION: Version = Version::V2;
-    pub use v2::keys;
+    pub const VERSION: Version = Version::V3;
+    pub use v3::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -56,6 +56,8 @@ pub enum Version {
     V1 = 1,
     /// Version 2 of the database, for details see [`v2`].
     V2 = 2,
+    /// Version 3 of the database, for details see [`v3`].
+    V3 = 3,
 }
 
 impl Version {
@@ -64,7 +66,8 @@ impl Version {
         match self {
             Self::V0 => v0::upgrade(transaction).map(Some),
             Self::V1 => v1::upgrade(transaction).map(Some),
-            Self::V2 => Ok(None),
+            Self::V2 => v2::upgrade(transaction).map(Some),
+            Self::V3 => Ok(None),
         }
     }
 }
@@ -81,6 +84,7 @@ impl TryFrom<u32> for Version {
             0 => Ok(Version::V0),
             1 => Ok(Version::V1),
             2 => Ok(Version::V2),
+            3 => Ok(Version::V3),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -223,6 +227,69 @@ mod v2 {
         // Remove all previous leases.
         object_store.clear()?;
 
+        Ok(())
+    }
+
+    /// Upgrade database from `v2` to `v3`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v3::update_events_object_store(transaction)?;
+        Ok(Version::V3)
+    }
+}
+
+mod v3 {
+    use indexed_db_futures::Build;
+
+    // Re-use all the same keys from `v2`.
+    pub use super::v2::keys;
+    use super::*;
+
+    /// Update the events object store, so that the `room` index is no longer
+    /// unique. This allows an event to be stored in a room twice - e.g., once
+    /// in the main thread and once in a side thread.
+    ///
+    /// Note that this operation removes the existing events object store and
+    /// all of its contents.
+    pub fn update_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        remove_events_object_store(transaction)?;
+        create_events_object_store(transaction.db())?;
+        Ok(())
+    }
+
+    /// Remove events object store
+    pub fn remove_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let object_store = transaction.object_store(keys::EVENTS)?;
+        // It is faster to clear all events first, then delete the object store rather
+        // than immediately deleting.
+        //
+        // For details, see https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+        object_store.clear()?;
+        transaction.db().delete_object_store(keys::EVENTS)?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about events.
+    ///
+    /// * Primary Key - `id`
+    /// * Index - `room` - tracks whether an event is in a given room
+    /// * Index (unique) - `position` - tracks position of an event in linked
+    ///   chunks
+    /// * Index - `relation` - tracks any event to which the given event is
+    ///   related
+    pub fn create_events_object_store(db: &Database) -> Result<(), Error> {
+        let events = db
+            .create_object_store(keys::EVENTS)
+            .with_key_path(keys::EVENTS_KEY_PATH.into())
+            .build()?;
+        let _ =
+            events.create_index(keys::EVENTS_ROOM, keys::EVENTS_ROOM_KEY_PATH.into()).build()?;
+        let _ = events
+            .create_index(keys::EVENTS_POSITION, keys::EVENTS_POSITION_KEY_PATH.into())
+            .with_unique(true)
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 }

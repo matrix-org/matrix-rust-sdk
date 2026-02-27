@@ -16,7 +16,7 @@
 //! [`RelationalLinkedChunk`].
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     hash::Hash,
 };
 
@@ -395,7 +395,8 @@ where
     }
 
     /// Return an iterator over all items of all linked chunks of a room, along
-    /// with their positions, if available.
+    /// with the linked chunk they are in and the position in that linked chunk,
+    /// if available.
     ///
     /// The only items which will NOT have a position are those saved with
     /// [`Self::save_item`].
@@ -404,26 +405,41 @@ where
     pub fn items<'a>(
         &'a self,
         room_id: &'a RoomId,
-    ) -> impl Iterator<Item = (&'a Item, Option<Position>)> {
+    ) -> impl Iterator<Item = (&'a OwnedLinkedChunkId, (&'a Item, Option<Position>))> {
         self.items
             .iter()
-            .filter_map(move |(linked_chunk_id, items)| {
-                (linked_chunk_id.room_id() == room_id).then_some(items)
+            .filter(move |(linked_chunk_id, _)| linked_chunk_id.room_id() == room_id)
+            .flat_map(|(linked_chunk_id, items)| {
+                items.values().map(move |(item, pos)| (linked_chunk_id, (item, *pos)))
             })
-            .flat_map(|items| items.values().map(|(item, pos)| (item, *pos)))
     }
+}
 
+impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
+where
+    Item: IndexableItem<ItemId = ItemId> + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
+{
     /// Save a single item "out-of-band" in the relational linked chunk.
     pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
         let id = item.id();
-        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id);
 
-        let map = self.items.entry(linked_chunk_id).or_default();
-        if let Some(prev_value) = map.get_mut(&id) {
-            // If the item already exists, we keep the position.
-            prev_value.0 = item;
-        } else {
-            map.insert(id, (item, None));
+        let mut linked_chunk_ids = self
+            .items
+            .keys()
+            .filter(|linked_chunk_id| linked_chunk_id.room_id() == room_id)
+            .cloned()
+            .collect::<HashSet<_>>();
+        linked_chunk_ids.insert(OwnedLinkedChunkId::Room(room_id));
+
+        for linked_chunk_id in linked_chunk_ids {
+            let map = self.items.entry(linked_chunk_id).or_default();
+            if let Some(prev_value) = map.get_mut(&id) {
+                // If the item already exists, we keep the position.
+                prev_value.0 = item.clone();
+            } else {
+                map.insert(id.clone(), (item.clone(), None));
+            }
         }
     }
 }
