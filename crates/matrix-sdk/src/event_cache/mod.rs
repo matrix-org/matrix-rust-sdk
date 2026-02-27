@@ -34,10 +34,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use eyeball::SharedObservable;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
-    ThreadingSupport,
     cross_process_lock::CrossProcessLockError,
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
     linked_chunk::lazy_loader::LazyLoaderError,
@@ -65,7 +63,7 @@ mod persistence;
 mod redecryptor;
 mod tasks;
 
-use caches::room::{RoomEventCacheLinkedChunkUpdate, RoomEventCacheStateLock};
+use caches::{Caches, room::RoomEventCacheLinkedChunkUpdate};
 pub use caches::{
     TimelineVectorDiffs,
     pagination::{BackPaginationOutcome, PaginationStatus},
@@ -344,7 +342,7 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.for_room(room_id).await?;
+        let Caches { room } = self.inner.all_caches_for_room(room_id).await?;
 
         Ok((room, drop_handles))
     }
@@ -418,7 +416,7 @@ struct EventCacheInner {
     multiple_room_updates_lock: Mutex<()>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
-    by_room: RwLock<HashMap<OwnedRoomId, RoomEventCache>>,
+    by_room: RwLock<HashMap<OwnedRoomId, Caches>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
@@ -522,13 +520,16 @@ impl EventCacheInner {
         //    this point it's only held for a short while each time, so rooms will take
         //    turn to acquire it.
 
-        let rooms = self.by_room.write().await;
+        let caches_for_all_rooms = self.by_room.write().await;
 
         // Collect all the rooms' state locks, first: we can clear the storage only when
         // nobody will touch it at the same time.
-        let room_locks =
-            join_all(rooms.values().map(|room| async move { (room, room.state().write().await) }))
-                .await;
+        let room_locks = join_all(
+            caches_for_all_rooms
+                .values()
+                .map(|Caches { room }| async move { (room, room.state().write().await) }),
+        )
+        .await;
 
         // Clear the storage for all the rooms, using the storage facility.
         let store_guard = match self.store.lock().await? {
@@ -576,7 +577,7 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let Ok(room) = self.for_room(&room_id).await else {
+            let Ok(Caches { room }) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
             };
@@ -591,7 +592,7 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let Ok(room) = self.for_room(&room_id).await else {
+            let Ok(Caches { room }) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
             };
@@ -609,13 +610,13 @@ impl EventCacheInner {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
+    async fn all_caches_for_room(&self, room_id: &RoomId) -> Result<Caches> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
         let by_room_guard = self.by_room.read().await;
 
         match by_room_guard.get(room_id) {
-            Some(room) => Ok(room.clone()),
+            Some(caches) => Ok(caches.clone()),
 
             None => {
                 // Slow-path: the entry doesn't exist; let's acquire a write lock.
@@ -624,75 +625,27 @@ impl EventCacheInner {
 
                 // In the meanwhile, some other caller might have obtained write access and done
                 // the same, so check for existence again.
-                if let Some(room) = by_room_guard.get(room_id) {
-                    return Ok(room.clone());
+                if let Some(caches) = by_room_guard.get(room_id) {
+                    return Ok(caches.clone());
                 }
 
-                let pagination_status =
-                    SharedObservable::new(PaginationStatus::Idle { hit_timeline_start: false });
-
-                let Some(client) = self.client.get() else {
-                    return Err(EventCacheError::ClientDropped);
-                };
-
-                let room = client
-                    .get_room(room_id)
-                    .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
-                let room_version_rules = room.clone_info().room_version_rules_or_default();
-
-                let enabled_thread_support = matches!(
-                    client.base_client().threading_support,
-                    ThreadingSupport::Enabled { .. }
-                );
-
-                let update_sender = caches::room::RoomEventCacheUpdateSender::new(
+                let caches = Caches::new(
+                    &self.client,
+                    room_id,
                     self.generic_update_sender.clone(),
-                );
-
-                let own_user_id =
-                    client.user_id().expect("the user must be logged in, at this point").to_owned();
-                let room_state = RoomEventCacheStateLock::new(
-                    own_user_id,
-                    room_id.to_owned(),
-                    room_version_rules,
-                    enabled_thread_support,
-                    update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
+                    // SAFETY: we must have subscribed before reaching this code, otherwise
+                    // something is very wrong.
+                    self.auto_shrink_sender.get().cloned().expect(
+                        "we must have called `EventCache::subscribe()` before calling here.",
+                    ),
                     self.store.clone(),
-                    pagination_status.clone(),
                 )
                 .await?;
 
-                let timeline_is_not_empty =
-                    room_state.read().await?.room_linked_chunk().revents().next().is_some();
+                by_room_guard.insert(room_id.to_owned(), caches.clone());
 
-                // SAFETY: we must have subscribed before reaching this code, otherwise
-                // something is very wrong.
-                let auto_shrink_sender =
-                    self.auto_shrink_sender.get().cloned().expect(
-                        "we must have called `EventCache::subscribe()` before calling here.",
-                    );
-
-                let room_event_cache = RoomEventCache::new(
-                    self.client.clone(),
-                    room_state,
-                    pagination_status,
-                    room_id.to_owned(),
-                    auto_shrink_sender,
-                    update_sender,
-                );
-
-                by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
-
-                // If at least one event has been loaded, it means there is a timeline. Let's
-                // emit a generic update.
-                if timeline_is_not_empty {
-                    let _ = self
-                        .generic_update_sender
-                        .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
-                }
-
-                Ok(room_event_cache)
+                Ok(caches)
             }
         }
     }
