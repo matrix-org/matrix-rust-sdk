@@ -826,7 +826,7 @@ impl Encryption {
         }
     }
 
-    pub(crate) async fn import_secrets_bundle(
+    pub async fn import_secrets_bundle(
         &self,
         bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
     ) -> Result<(), SecretImportError> {
@@ -1890,7 +1890,7 @@ impl Encryption {
     /// **Warning**: Do not use this method if we're already calling
     /// [`Client::send_outgoing_request()`]. This method is intended for
     /// explicitly uploading the device keys before starting a sync.
-    pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
+    pub async fn ensure_device_keys_upload(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
