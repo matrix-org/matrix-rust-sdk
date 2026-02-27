@@ -1022,7 +1022,7 @@ impl EventCacheInner {
             let _ = room
                 .inner
                 .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
+                .send(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() });
 
             Ok::<_, EventCacheError>(())
         }))
