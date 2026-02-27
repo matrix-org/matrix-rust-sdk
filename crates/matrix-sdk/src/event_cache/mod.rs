@@ -80,7 +80,10 @@ use caches::room::RoomEventCacheStateLock;
 pub use caches::{
     TimelineVectorDiffs,
     pagination::{BackPaginationOutcome, PaginationStatus},
-    room::{RoomEventCache, RoomEventCacheSubscriber, pagination::RoomPagination},
+    room::{
+        RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
+        pagination::RoomPagination,
+    },
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
@@ -1167,17 +1170,6 @@ impl EventCacheInner {
             }
         }
     }
-}
-
-/// Represents a timeline update of a room. It hides the details of
-/// [`RoomEventCacheUpdate`] by being more generic.
-///
-/// This is used by [`EventCache::subscribe_to_room_generic_updates`]. Please
-/// read it to learn more about the motivation behind this type.
-#[derive(Clone, Debug)]
-pub struct RoomEventCacheGenericUpdate {
-    /// The room ID owning the timeline.
-    pub room_id: OwnedRoomId,
 }
 
 /// An update being triggered when events change in the persisted event cache
