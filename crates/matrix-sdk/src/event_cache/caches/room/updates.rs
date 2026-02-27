@@ -12,11 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use matrix_sdk_base::{
+    deserialized_responses::AmbiguityChange,
     event_cache::{Event, Gap},
     linked_chunk::{self, OwnedLinkedChunkId},
 };
-use ruma::OwnedRoomId;
+use ruma::{OwnedEventId, OwnedRoomId, events::AnySyncEphemeralRoomEvent, serde::Raw};
+
+use super::super::TimelineVectorDiffs;
+
+/// An update related to events happened in a room.
+#[derive(Debug, Clone)]
+pub enum RoomEventCacheUpdate {
+    /// The fully read marker has moved to a different event.
+    MoveReadMarkerTo {
+        /// Event at which the read marker is now pointing.
+        event_id: OwnedEventId,
+    },
+
+    /// The members have changed.
+    UpdateMembers {
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    },
+
+    /// The room has received updates for the timeline as _diffs_.
+    UpdateTimelineEvents(TimelineVectorDiffs),
+
+    /// The room has received new ephemeral events.
+    AddEphemeralEvents {
+        /// XXX: this is temporary, until read receipts are handled in the event
+        /// cache
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    },
+}
 
 /// Represents a timeline update of a room. It hides the details of
 /// [`RoomEventCacheUpdate`] by being more generic.

@@ -28,7 +28,7 @@
 #![forbid(missing_docs)]
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fmt,
     ops::{Deref, DerefMut},
     sync::{Arc, OnceLock, Weak},
@@ -39,7 +39,6 @@ use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     ThreadingSupport,
     cross_process_lock::CrossProcessLockError,
-    deserialized_responses::AmbiguityChange,
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
     linked_chunk::{OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
@@ -47,10 +46,7 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-use ruma::{
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
-    serde::Raw,
-};
+use ruma::{OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId};
 use tokio::{
     select,
     sync::{
@@ -79,7 +75,7 @@ pub use caches::{
     pagination::{BackPaginationOutcome, PaginationStatus},
     room::{
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
-        pagination::RoomPagination,
+        RoomEventCacheUpdate, pagination::RoomPagination,
     },
 };
 #[cfg(feature = "e2e-encryption")]
@@ -1167,35 +1163,6 @@ impl EventCacheInner {
             }
         }
     }
-}
-
-/// An update related to events happened in a room.
-#[derive(Debug, Clone)]
-pub enum RoomEventCacheUpdate {
-    /// The fully read marker has moved to a different event.
-    MoveReadMarkerTo {
-        /// Event at which the read marker is now pointing.
-        event_id: OwnedEventId,
-    },
-
-    /// The members have changed.
-    UpdateMembers {
-        /// Collection of ambiguity changes that room member events trigger.
-        ///
-        /// This is a map of event ID of the `m.room.member` event to the
-        /// details of the ambiguity change.
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-    },
-
-    /// The room has received updates for the timeline as _diffs_.
-    UpdateTimelineEvents(TimelineVectorDiffs),
-
-    /// The room has received new ephemeral events.
-    AddEphemeralEvents {
-        /// XXX: this is temporary, until read receipts are handled in the event
-        /// cache
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-    },
 }
 
 /// Indicate where events are coming from.
