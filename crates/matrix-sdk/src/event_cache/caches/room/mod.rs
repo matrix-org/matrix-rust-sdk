@@ -15,6 +15,7 @@
 pub mod pagination;
 mod state;
 mod subscriber;
+mod updates;
 
 use std::{
     collections::BTreeMap,
@@ -42,11 +43,12 @@ use tokio::sync::{
     mpsc,
 };
 use tracing::{instrument, trace, warn};
+pub use updates::RoomEventCacheGenericUpdate;
 
 use super::{
     super::{
         AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
-        RoomEventCacheGenericUpdate, RoomEventCacheUpdate, RoomPagination,
+        RoomEventCacheUpdate, RoomPagination,
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
