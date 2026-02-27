@@ -259,14 +259,30 @@ impl Builder {
                     // one if and only if the sent one was the last local one: not from the buffer,
                     // not from the Event Cache!.
                     if buffer_of_values_for_local_events.last().is_none() {
-                        match value {
+                        let or = match value {
                             LatestEventValue::LocalIsSending(local_value)
                             | LatestEventValue::LocalCannotBeSent(local_value)
                             // Technically impossible, but it's not harmful to handle this that way.
                             | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
-                                return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value });
+                                Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value })
                             }
                             LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
+                        };
+
+                        // Try to resolve to a remote value from the event cache first. The remote
+                        // echo might already have been processed before we get here.
+                        if let Ok(Some(_)) = room_event_cache.find_event(event_id).await {
+                            return Self::new_local_or_remote(
+                                buffer_of_values_for_local_events,
+                                room_event_cache,
+                                current_value_event_id,
+                                own_user_id,
+                                power_levels,
+                            )
+                            .await
+                            .or(or);
+                        } else {
+                            return or;
                         }
                     }
                 }
@@ -3487,5 +3503,104 @@ mod builder_tests {
             .await
             => with body = "hello"
         );
+    }
+
+    #[async_test]
+    async fn test_local_sent_event_resolves_to_remote_when_remote_echo_is_processed_first() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let sent_event_id = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // The event that was sent and already synced back.
+                                event_factory.text_msg("hello").event_id(sent_event_id).into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let send_queue = client.send_queue();
+        let room = client.get_room(room_id).unwrap();
+        let room_send_queue = send_queue.for_room(room);
+
+        let mut buffer = BufferOfValuesForLocalEvents::new();
+        let transaction_id = OwnedTransactionId::from("txnid0");
+
+        // Step 1: A local event is being sent (added to the buffer).
+        let previous_value = {
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "hello");
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            assert_local_value_matches_room_message_with_body!(
+                Builder::new_local(
+                    &update,
+                    &mut buffer,
+                    &room_event_cache,
+                    None,
+                    user_id,
+                    None,
+                )
+                .await,
+                LatestEventValue::LocalIsSending => with body = "hello"
+            )
+        };
+        assert_eq!(buffer.buffer.len(), 1);
+
+        // Step 2: The SentEvent update arrives. The buffer is now empty but the remote
+        // echo has already been processed and the event was added to the cache. The
+        // builder should resolve to LatestEventValue::Remote.
+        assert_remote_value_matches_room_message_with_body!(
+            Builder::new_local(
+                &RoomSendQueueUpdate::SentEvent {
+                    transaction_id,
+                    event_id: sent_event_id.to_owned(),
+                },
+                &mut buffer,
+                &room_event_cache,
+                previous_value.event_id(),
+                user_id,
+                None,
+            )
+            .await
+            => with body = "hello"
+        );
+        assert!(buffer.buffer.is_empty());
     }
 }
