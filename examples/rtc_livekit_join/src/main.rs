@@ -44,7 +44,7 @@ use matrix_sdk_rtc::LiveKitError;
 use matrix_sdk_rtc::{livekit_service_url, LiveKitConnector, LiveKitResult};
 #[cfg(feature = "e2ee-per-participant")]
 use matrix_sdk_rtc_livekit::livekit::e2ee::{
-    key_provider::{KeyProvider, KeyProviderOptions},
+    key_provider::{KeyDerivationFunction, KeyProvider, KeyProviderOptions},
     E2eeOptions, EncryptionType,
 };
 #[cfg(feature = "e2ee-per-participant")]
@@ -273,7 +273,7 @@ fn configure_v4l2_capture_mode(
             width: config.width.unwrap_or(640),
             height: config.height.unwrap_or(480),
         };
-        let rtc_source = NativeVideoSource::new(resolution.clone());
+        let rtc_source = NativeVideoSource::new(resolution.clone(), true);
         info!(
             width = resolution.width,
             height = resolution.height,
@@ -314,7 +314,7 @@ fn configure_v4l2_capture_mode(
         fourcc = ?format.fourcc,
         "configured V4L2 device format"
     );
-    let rtc_source = NativeVideoSource::new(resolution.clone());
+    let rtc_source = NativeVideoSource::new(resolution.clone(), true);
     Ok((resolution, rtc_source, V4l2CaptureMode::Camera { device, pixel_format }))
 }
 
@@ -1628,7 +1628,12 @@ async fn build_per_participant_e2ee(
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
     info!("proceeding with per-participant E2EE setup (sender key is freshly generated)");
-    let key_provider = std::sync::Arc::new(KeyProvider::new(KeyProviderOptions::default()));
+    let mut key_provider_options = KeyProviderOptions::default();
+    key_provider_options.ratchet_window_size = 10;
+    key_provider_options.key_ring_size = 256;
+    key_provider_options.key_derivation_function = KeyDerivationFunction::HKDF;
+
+    let key_provider = std::sync::Arc::new(KeyProvider::new(key_provider_options));
     let local_key = derive_per_participant_key()?;
     info!(
         room_id = %room.room_id(),

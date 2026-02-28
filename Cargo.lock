@@ -3752,8 +3752,8 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.23"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.3.26"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "cxx",
  "glib",
@@ -3803,13 +3803,15 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "livekit"
-version = "0.7.28"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.7.32"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
+ "base64 0.22.1",
  "bmrng",
  "bytes",
  "chrono",
  "futures-util",
+ "hkdf",
  "lazy_static",
  "libloading",
  "libwebrtc",
@@ -3822,14 +3824,15 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 1.0.69",
  "tokio",
 ]
 
 [[package]]
 name = "livekit-api"
-version = "0.4.11"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.4.14"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -3858,8 +3861,8 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.6.0"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.7.1"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -3875,7 +3878,7 @@ dependencies = [
 [[package]]
 name = "livekit-runtime"
 version = "0.4.0"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "tokio",
  "tokio-stream",
@@ -4457,6 +4460,7 @@ dependencies = [
  "matrix-sdk-rtc",
  "thiserror 2.0.17",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -8936,8 +8940,8 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.20"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.3.23"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "cc",
  "cxx",
@@ -8950,8 +8954,8 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.12"
-source = "git+https://github.com/livekit/rust-sdks#3c6ff16cc860db85af991cf5fca3ac2bd913ac80"
+version = "0.3.13"
+source = "git+https://github.com/onestacked/livekit-rust-sdks?branch=EC-compat-changes#f4085eb1b814e90d85cb02152433a1d3951625f1"
 dependencies = [
  "anyhow",
  "fs2",

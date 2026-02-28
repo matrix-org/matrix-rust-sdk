@@ -21,7 +21,7 @@ crypto = ["matrix-sdk-crypto", "matrix-sdk/e2e-encryption"]
 
 [dependencies]
 async-trait.workspace = true
-livekit = { git = "https://github.com/livekit/rust-sdks" }
+livekit = { git = "https://github.com/onestacked/livekit-rust-sdks", branch = "EC-compat-changes" }
 matrix-sdk.workspace = true
 matrix-sdk-rtc.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
