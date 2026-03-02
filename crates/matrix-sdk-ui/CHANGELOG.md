@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- The internal timeline unique ID may be recycled when an event is deduplicated from the timeline,
+  so that embedders can notice that it's the same item and avoid unnecessary re-rendering.
+  ([#6228](https://github.com/matrix-org/matrix-rust-sdk/pull/6228))
 - [**breaking**] Add `NotificationState.EventRedacted` enum value, to handle the case
   where a notification resolves to a redacted event.
   ([#6203](https://github.com/matrix-org/matrix-rust-sdk/pull/6203))
