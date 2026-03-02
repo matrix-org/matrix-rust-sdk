@@ -259,7 +259,21 @@ impl Builder {
                     // one if and only if the sent one was the last local one: not from the buffer,
                     // not from the Event Cache!.
                     if buffer_of_values_for_local_events.last().is_none() {
-                        let or = match value {
+                        // Try to resolve to a remote value from the event cache first. The remote
+                        // echo might already have been processed before we get here.
+                        if let Ok(Some(_)) = room_event_cache.find_event(event_id).await
+                            && let Some(latest_event_value) = Self::new_remote(
+                                room_event_cache,
+                                current_value_event_id,
+                                own_user_id,
+                                power_levels,
+                            )
+                            .await
+                        {
+                            return Some(latest_event_value);
+                        }
+
+                        return match value {
                             LatestEventValue::LocalIsSending(local_value)
                             | LatestEventValue::LocalCannotBeSent(local_value)
                             // Technically impossible, but it's not harmful to handle this that way.
@@ -268,22 +282,6 @@ impl Builder {
                             }
                             LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         };
-
-                        // Try to resolve to a remote value from the event cache first. The remote
-                        // echo might already have been processed before we get here.
-                        if let Ok(Some(_)) = room_event_cache.find_event(event_id).await {
-                            return Self::new_local_or_remote(
-                                buffer_of_values_for_local_events,
-                                room_event_cache,
-                                current_value_event_id,
-                                own_user_id,
-                                power_levels,
-                            )
-                            .await
-                            .or(or);
-                        } else {
-                            return or;
-                        }
                     }
                 }
 
