@@ -314,10 +314,11 @@ impl SupportedPathBuilder for path_builder::SinglePath {
     }
 }
 
-/// Functions for configuring the default [`CryptoProvider`] when using
-/// `reqwest` with `rustls`'s implementation of TLS.
 #[cfg(feature = "rustls-tls")]
 pub mod rustls {
+    //! Functions for configuring the default [`CryptoProvider`] when using
+    //! `reqwest` with `rustls`'s implementation of TLS.
+
     use rustls::crypto::CryptoProvider;
 
     /// The default [`CryptoProvider`] preferred by this crate.
