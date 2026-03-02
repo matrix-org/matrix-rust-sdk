@@ -73,7 +73,7 @@ uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
 experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device"]
 
-docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "federation-api"]
+docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "federation-api", "dep:aquamarine"]
 
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
@@ -85,7 +85,7 @@ experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-rece
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
-aquamarine.workspace = true
+aquamarine = { workspace = true, optional = true }
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"

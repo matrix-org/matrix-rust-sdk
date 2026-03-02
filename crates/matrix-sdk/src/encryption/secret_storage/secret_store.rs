@@ -33,7 +33,7 @@ use zeroize::Zeroize;
 use super::{DecryptionError, Result, SecretStorageError};
 use crate::Client;
 
-#[cfg_attr(doc, aquamarine::aquamarine)]
+#[cfg_attr(all(doc, feature = "docsrs"), aquamarine::aquamarine)]
 /// Secure key/value storage for Matrix users.
 ///
 /// The `SecretStore` struct encapsulates the secret storage mechanism for
