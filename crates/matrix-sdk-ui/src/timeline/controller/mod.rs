@@ -581,34 +581,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Thread { root_event_id, .. } => {
-                let (events, _) =
-                    room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
-                let has_events = !events.is_empty();
-
-                // For each event, we also need to find the related events, as they don't
-                // include the thread relationship, they won't be included in
-                // the initial list of events.
-                let mut related_events = Vector::new();
-                for event_id in events.iter().filter_map(|event| event.event_id()) {
-                    if let Some((_original, related)) =
-                        room_event_cache.find_event_with_relations(&event_id, None).await?
-                    {
-                        related_events.extend(related);
-                    }
-                }
-
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
-
-                // Now that we've inserted the thread events, add the aggregations too.
-                if !related_events.is_empty() {
-                    self.handle_remote_aggregations(
-                        vec![VectorDiff::Append { values: related_events }],
-                        RemoteEventOrigin::Cache,
-                    )
-                    .await;
-                }
-
-                Ok(has_events)
+                self.init_with_thread_root(root_event_id, room_event_cache).await
             }
 
             TimelineFocus::PinnedEvents => {
@@ -626,6 +599,44 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
         }
+    }
+
+    /// (Re-)initialise a timeline using [`TimelineFocus::Thread`] with cached
+    /// threaded events and secondary relations.
+    ///
+    /// Returns whether there were any events added to the timeline.
+    pub(super) async fn init_with_thread_root(
+        &self,
+        root_event_id: &OwnedEventId,
+        room_event_cache: &RoomEventCache,
+    ) -> Result<bool, Error> {
+        let (events, _) = room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
+        let has_events = !events.is_empty();
+
+        // For each event, we also need to find the related events, as they don't
+        // include the thread relationship, they won't be included in
+        // the initial list of events.
+        let mut related_events = Vector::new();
+        for event_id in events.iter().filter_map(|event| event.event_id()) {
+            if let Some((_original, related)) =
+                room_event_cache.find_event_with_relations(&event_id, None).await?
+            {
+                related_events.extend(related);
+            }
+        }
+
+        self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+
+        // Now that we've inserted the thread events, add the aggregations too.
+        if !related_events.is_empty() {
+            self.handle_remote_aggregations(
+                vec![VectorDiff::Append { values: related_events }],
+                RemoteEventOrigin::Cache,
+            )
+            .await;
+        }
+
+        Ok(has_events)
     }
 
     /// Listens to encryption state changes for the room in

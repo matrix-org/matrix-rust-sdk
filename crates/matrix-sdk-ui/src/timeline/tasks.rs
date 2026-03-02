@@ -106,18 +106,7 @@ pub(in crate::timeline) async fn thread_updates_task(
                 // The updates might have lagged, but the room event cache might
                 // have events, so retrieve them and add them back again to the
                 // timeline, after clearing it.
-                let (initial_events, _) =
-                    match room_event_cache.subscribe_to_thread(root.clone()).await {
-                        Ok(values) => values,
-                        Err(err) => {
-                            error!(?err, "Subscribing to thread failed");
-                            break;
-                        }
-                    };
-
-                timeline_controller
-                    .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
-                    .await;
+                _ = timeline_controller.init_with_thread_root(&root, &room_event_cache).await;
 
                 continue;
             }
