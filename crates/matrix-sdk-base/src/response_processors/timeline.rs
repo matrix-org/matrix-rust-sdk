@@ -43,7 +43,7 @@ pub async fn build<'notification, 'e2ee>(
     room_info: &mut RoomInfo,
     timeline_inputs: builder::Timeline,
     mut notification: notification::Notification<'notification>,
-    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let _timer = timer!(tracing::Level::TRACE, "build a timeline from sync");
 
@@ -95,7 +95,7 @@ pub async fn build<'notification, 'e2ee>(
                             ) => {
                                 if let Some(decrypted_timeline_event) =
                                     Box::pin(e2ee::decrypt::sync_timeline_event(
-                                        e2ee.clone(),
+                                        e2ee,
                                         &timeline_event,
                                         room_id,
                                     ))
@@ -108,7 +108,7 @@ pub async fn build<'notification, 'e2ee>(
                             _ => {
                                 Box::pin(verification::process_if_relevant(
                                     &sync_timeline_event,
-                                    e2ee.clone(),
+                                    e2ee,
                                     room_id,
                                 ))
                                 .await?;

@@ -745,8 +745,8 @@ impl GroupSessionManager {
         // Filter out the devices that already received this room key or have a
         // to-device message already queued up.
         let devices: Vec<_> = devices
-            .into_iter()
-            .flat_map(|(_, d)| {
+            .into_values()
+            .flat_map(|d| {
                 d.into_iter().filter(|d| match outbound.sharing_view().get_share_state(d) {
                     ShareState::NotShared => true,
                     ShareState::Shared { message_index: _, olm_wedging_index } => {

@@ -570,7 +570,7 @@ impl TryFrom<RumaImageMessageEventContent> for ImageMessageContent {
     fn try_from(value: RumaImageMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -609,7 +609,7 @@ impl TryFrom<RumaAudioMessageEventContent> for AudioMessageContent {
     fn try_from(value: RumaAudioMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(Into::into),
@@ -646,7 +646,7 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
     fn try_from(value: RumaVideoMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -681,7 +681,7 @@ impl TryFrom<RumaFileMessageEventContent> for FileMessageContent {
     fn try_from(value: RumaFileMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,

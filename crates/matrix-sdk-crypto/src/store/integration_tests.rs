@@ -1401,6 +1401,47 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
+            async fn test_room_pending_key_bundle() {
+                use $crate::store::types::RoomPendingKeyBundleDetails;
+                let store = get_store("room_pending_key_bundle", None, true).await;
+                let test_room = room_id!("!room:example.org");
+                let test_user = user_id!("@user:example.com");
+                let timestamp = ruma::MilliSecondsSinceUnixEpoch::now();
+
+                // Empty to start with
+                assert!(store.get_pending_key_bundle_details_for_room(test_room).await.unwrap().is_none());
+
+                // Now add an entry, and check it comes back correctly
+                store.save_changes(Changes {
+                    rooms_pending_key_bundle: HashMap::from([(
+                        test_room.to_owned(),
+                        Some(RoomPendingKeyBundleDetails {
+                            room_id: test_room.to_owned(),
+                            invite_accepted_at: timestamp,
+                            inviter: test_user.to_owned(),
+                        }),
+                    )]),
+                    ..Default::default()
+                }).await.unwrap();
+
+                let details = store.get_pending_key_bundle_details_for_room(test_room).await.unwrap();
+                assert_matches!(details, Some(details) => {
+                    assert_eq!(details.inviter, test_user);
+                    assert_eq!(details.invite_accepted_at, timestamp);
+                });
+
+                // Clear the entry, and check it is blank again
+                store.save_changes(Changes {
+                    rooms_pending_key_bundle: HashMap::from([(test_room.to_owned(), None)]),
+                    ..Default::default()
+                }).await.unwrap();
+                assert!(
+                    store.get_pending_key_bundle_details_for_room(test_room).await.unwrap().is_none(),
+                    "Pending key bundle details were present after being cleared"
+                );
+            }
+
+            #[async_test]
             async fn test_set_has_downloaded_all_room_keys() {
                 let store = get_store("room_key_backups_fully_downloaded", None, true).await;
                 let test_room = room_id!("!room:example.org");

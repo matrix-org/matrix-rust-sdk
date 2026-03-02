@@ -19,14 +19,16 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::event_cache::Event;
 use ruma::{OwnedEventId, api::Direction};
 
-use super::super::super::{
-    EventCacheError, Result,
-    caches::pagination::{
-        BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+pub use super::super::pagination::PaginationStatus;
+use super::super::{
+    super::{
+        EventCacheError, Result,
+        caches::pagination::{
+            BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+        },
     },
     room::RoomEventCacheInner,
 };
-pub use super::super::pagination::PaginationStatus;
 use crate::room::{IncludeRelations, RelationsOptions};
 
 /// Intermediate type because the `ThreadEventCache` state is currently owned by

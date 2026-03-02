@@ -244,7 +244,7 @@ impl EventLinkedChunk {
     /// might hide some underlying updates to the in-memory chunk; those
     /// updates should be reflected with manual updates to
     /// [`Self::chunks_updates_as_vectordiffs`].
-    pub(super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+    pub(in super::super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
@@ -300,8 +300,8 @@ impl EventLinkedChunk {
         self.chunks.push_items_back(events.iter().cloned());
     }
 
-    /// Finish a network back-pagination for this linked chunk by updating the
-    /// in-memory linked chunk with the results.
+    /// Add events from a backwards pagination for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
     ///
     /// ## Arguments
     ///
@@ -315,7 +315,7 @@ impl EventLinkedChunk {
     ///
     /// Returns a boolean indicating whether we've hit the start of the
     /// timeline/linked chunk.
-    pub fn finish_back_pagination(
+    pub fn push_backwards_pagination_events(
         &mut self,
         prev_gap_id: Option<ChunkIdentifier>,
         new_gap: Option<Gap>,
@@ -426,7 +426,7 @@ impl EventLinkedChunk {
     ///
     /// This clears all the chunks in memory before resetting to the new chunk,
     /// if provided.
-    pub(super) fn replace_with(
+    pub(in super::super) fn replace_with(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
@@ -439,7 +439,7 @@ impl EventLinkedChunk {
     }
 
     /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
-    pub(super) fn insert_new_chunk_as_first(
+    pub(in super::super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LazyLoaderError> {
@@ -494,7 +494,7 @@ fn chunk_debug_string(
 /// that all positions remain valid inside the same chunk while they are being
 /// removed. For the sake of debugability, we also sort by position chunk
 /// identifier, but this is not required.
-pub(super) fn sort_positions_descending(positions: &mut [Position]) {
+pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
     positions.sort_by(|a, b| {
         b.chunk_identifier()
             .cmp(&a.chunk_identifier())

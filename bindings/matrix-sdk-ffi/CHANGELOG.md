@@ -31,6 +31,16 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Cancelled` for when the grant is cancelled
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::OtherDeviceAlreadySignedIn` for when the other device is already signed in
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `RoomInfo::is_low_priority` for getting the room's `m.lowpriority` tag state
   ([#6183](https://github.com/matrix-org/matrix-rust-sdk/pull/6183))
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
@@ -81,9 +91,19 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The following variants of `AccountManagementAction` were
+  renamed to match their new names after being merge in the Matrix specification:
+  - `SessionsList` is renamed to `DevicesList`
+  - `SessionView` is renamed to `DeviceView`
+  - `SessionEnd` is renamed to `DeviceDelete`
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
+- [**breaking**] `HumanQrGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- [**breaking**] Removed `ClientBuilder::enable_oidc_refresh_lock` in favour of using `ClientBuilder::cross_process_lock_config`
+  to configure that lock when a `MultiProcess` configuration is supplied. ([#6204](https://github.com/matrix-org/matrix-rust-sdk/pull/6204))
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174/))
-- Replaced `ClientBuilder::cross_process_store_locks_holder_name` with `ClientBuilder::cross_process_lock_config`, 
+- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with `ClientBuilder::cross_process_lock_config`, 
   which accepts a `CrossProcessLockConfig` value to specify whether the resulting `Client` will be used in a single 
   process or multiple processes. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] Refactored `is_last_admin` to `is_last_owner` the check will now

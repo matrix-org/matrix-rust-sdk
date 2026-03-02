@@ -72,7 +72,7 @@ lazy_static! {
             ^
 
             # A name.
-            (?<name>[\w\d_]+)
+            \s*(?<name>[\w\d_]+)
             # Equal
             =
             # A value, which can be anything: it stops when a new field is found.
@@ -333,9 +333,9 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             .unwrap();
 
             if let Some(fields) = captures.name("fields") {
-                writeln!(buffer, "<ul class=\"fields\"></li>").unwrap();
+                writeln!(buffer, "<ul class=\"fields\">").unwrap();
 
-                let mut fields = &message[fields.start()..];
+                let mut fields = &message[fields.start()..fields.end()];
 
                 while let Some(captures) = fields_parser.captures(fields) {
                     let name = captures
@@ -350,7 +350,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     writeln!(buffer, "<li><span>{name}</span><span>{value}</span></li>").unwrap();
 
                     if let Some(next_fields) = captures.name("next_fields") {
-                        fields = &message[next_fields.start()..];
+                        fields = &fields[next_fields.start()..];
                     } else {
                         break;
                     }
@@ -364,6 +364,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             writeln!(buffer, "<li>{message}</li>").unwrap();
         }
     }
+
     let output = OUTPUT_TEMPLATE.replace("{log_file}", &log_path.to_string_lossy());
 
     output_file.write_all(output.as_bytes()).expect(

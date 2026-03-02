@@ -24,8 +24,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     Client, ClientBuildError, Result, RoomState,
     authentication::oauth::{
-        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError, OAuthSession,
-        UrlOrQuery, UserSession,
+        ClientId, OAuthAuthorizationData, OAuthError, OAuthSession, UrlOrQuery, UserSession,
         error::OAuthClientRegistrationError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
@@ -33,6 +32,7 @@ use matrix_sdk::{
     encryption::{CrossSigningResetAuthType, recovery::RecoveryState},
     room::Room,
     ruma::{
+        api::client::discovery::get_authorization_server_metadata::v1::AccountManagementActionData,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
@@ -265,10 +265,10 @@ impl OAuthCli {
                     self.account(None).await;
                 }
                 Some("profile") => {
-                    self.account(Some(AccountManagementActionFull::Profile)).await;
+                    self.account(Some(AccountManagementActionData::Profile)).await;
                 }
-                Some("sessions") => {
-                    self.account(Some(AccountManagementActionFull::SessionsList)).await;
+                Some("devices") => {
+                    self.account(Some(AccountManagementActionData::DevicesList)).await;
                 }
                 Some("watch") => match args.next() {
                     Some(sub) => {
@@ -375,18 +375,23 @@ impl OAuthCli {
     }
 
     /// Get the account management URL.
-    async fn account(&self, action: Option<AccountManagementActionFull>) {
-        let Ok(Some(mut url_builder)) = self.client.oauth().fetch_account_management_url().await
-        else {
+    async fn account(&self, action: Option<AccountManagementActionData<'_>>) {
+        let Ok(server_metadata) = self.client.oauth().cached_server_metadata().await else {
+            println!("\nCould not retrieve the server metadata");
+            return;
+        };
+
+        let url = if let Some(action) = action {
+            server_metadata.account_management_url_with_action(action)
+        } else {
+            server_metadata.account_management_uri
+        };
+
+        let Some(url) = url else {
             println!("\nThis homeserver does not provide the URL to manage your account");
             return;
         };
 
-        if let Some(action) = action {
-            url_builder = url_builder.action(action);
-        }
-
-        let url = url_builder.build();
         println!("\nTo manage your account, visit: {url}");
     }
 

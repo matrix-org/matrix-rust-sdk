@@ -673,7 +673,7 @@ async fn test_register_client() {
 }
 
 #[async_test]
-async fn test_management_url_cache() {
+async fn test_server_metadata_cache() {
     let server = MatrixMockServer::new().await;
 
     let oauth_server = server.oauth();
@@ -685,23 +685,13 @@ async fn test_management_url_cache() {
     // The cache should not contain the entry.
     assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
-    let management_url = oauth
-        .account_management_url()
-        .await
-        .expect("We should be able to fetch the account management url");
-
-    assert!(management_url.is_some());
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
     // Check that the server metadata has been inserted into the cache.
     assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
     // Another call doesn't make another request for the metadata.
-    let management_url = oauth
-        .account_management_url()
-        .await
-        .expect("We should be able to fetch the account management url");
-
-    assert!(management_url.is_some());
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server_metadata");
 }
 
 #[async_test]

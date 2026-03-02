@@ -167,11 +167,7 @@ impl InvitedRoomView {
                 column,
                 row,
                 ..
-            }) => {
-                if self.buttons.click(column, row) {
-                    self.join_or_leave()
-                }
-            }
+            }) if self.buttons.click(column, row) => self.join_or_leave(),
 
             Event::Mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), .. }) => {
                 self.buttons.release();

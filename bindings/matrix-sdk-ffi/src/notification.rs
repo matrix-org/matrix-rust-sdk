@@ -131,6 +131,8 @@ pub enum NotificationStatus {
     /// rules, or because the user which triggered it is ignored by the
     /// current user.
     EventFilteredOut,
+    /// The event has been redacted.
+    EventRedacted,
 }
 
 impl From<SdkNotificationStatus> for NotificationStatus {
@@ -141,6 +143,7 @@ impl From<SdkNotificationStatus> for NotificationStatus {
             }
             SdkNotificationStatus::EventNotFound => NotificationStatus::EventNotFound,
             SdkNotificationStatus::EventFilteredOut => NotificationStatus::EventFilteredOut,
+            SdkNotificationStatus::EventRedacted => NotificationStatus::EventRedacted,
         }
     }
 }

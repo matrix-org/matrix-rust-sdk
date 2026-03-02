@@ -662,7 +662,7 @@ mod tests {
     }
 
     #[cfg(not(target_os = "macos"))]
-    #[allow(unknown_lints, clippy::unchecked_duration_subtraction)]
+    #[allow(unknown_lints, clippy::unchecked_time_subtraction)]
     #[async_test]
     async fn test_timing_out() {
         use std::time::Duration;
