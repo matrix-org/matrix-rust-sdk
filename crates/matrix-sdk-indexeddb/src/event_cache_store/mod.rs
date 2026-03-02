@@ -14,7 +14,7 @@
 
 #![cfg_attr(not(test), allow(unused))]
 
-use std::{rc::Rc, time::Duration};
+use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
@@ -464,9 +464,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_room(room_id, event_id)
+            .get_events_by_room(room_id, event_id)
             .await
-            .map(|ok| ok.map(Into::into))
+            .map(|mut events| events.pop().map(Into::into))
             .map_err(Into::into)
     }
 
@@ -481,26 +481,60 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
 
-        let mut related_events = Vec::new();
+        let mut related_events = HashMap::<OwnedEventId, types::Event>::new();
         match filters {
             Some(relation_types) if !relation_types.is_empty() => {
                 for relation_type in relation_types {
                     let relation = (event_id, relation_type);
                     let events = transaction.get_events_by_relation(room_id, relation).await?;
                     for event in events {
-                        let position = event.position().map(Into::into);
-                        related_events.push((event.into(), position));
+                        let Some(event_id) = event.event_id() else {
+                            return Err(IndexeddbEventCacheStoreError::EventWithoutId);
+                        };
+                        match event.linked_chunk_id() {
+                            LinkedChunkId::Room(_) => {
+                                // Prioritize events that come from a room linked chunk
+                                related_events.insert(event_id, event);
+                            }
+                            _ => {
+                                // Remove position information from events that come
+                                // from any other type of linked chunk
+                                related_events
+                                    .entry(event_id)
+                                    .or_insert_with(|| event.into_out_of_band_event());
+                            }
+                        }
                     }
                 }
             }
             _ => {
                 for event in transaction.get_events_by_related_event(room_id, event_id).await? {
-                    let position = event.position().map(Into::into);
-                    related_events.push((event.into(), position));
+                    let Some(event_id) = event.event_id() else {
+                        return Err(IndexeddbEventCacheStoreError::EventWithoutId);
+                    };
+                    match event.linked_chunk_id() {
+                        LinkedChunkId::Room(_) => {
+                            // Prioritize events that come from a room linked chunk
+                            related_events.insert(event_id, event);
+                        }
+                        _ => {
+                            // Remove position information from events that come
+                            // from any other type of linked chunk
+                            related_events
+                                .entry(event_id)
+                                .or_insert_with(|| event.into_out_of_band_event());
+                        }
+                    }
                 }
             }
         }
-        Ok(related_events)
+        Ok(related_events
+            .into_values()
+            .map(|event| {
+                let position = event.position().map(Into::into);
+                (event.into(), position)
+            })
+            .collect())
     }
 
     #[instrument(skip(self))]
@@ -519,7 +553,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         transaction
             .get_room_events(room_id)
             .await
-            .map(|vec| {
+            .map(|mut vec| {
+                vec.dedup_by(|a, b| {
+                    if let (Some(a), Some(b)) = (a.event_id(), b.event_id()) {
+                        a == b
+                    } else {
+                        false
+                    }
+                });
                 vec.into_iter()
                     .map(Event::from)
                     .filter(|e| {
@@ -546,15 +587,23 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             return Ok(());
         };
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_room(room_id, &event_id).await? {
-            Some(inner) => inner.with_content(event),
-            None => types::Event::OutOfBand(OutOfBandEvent {
+
+        let mut events = transaction
+            .get_events_by_room(room_id, &event_id)
+            .await?
+            .into_iter()
+            .map(|e| e.with_content(event.clone()))
+            .collect::<Vec<types::Event>>();
+        if events.is_empty() {
+            events.push(types::Event::OutOfBand(OutOfBandEvent {
                 linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
                 content: event,
                 position: (),
-            }),
-        };
-        transaction.put_event(&event).await?;
+            }));
+        }
+        for event in events {
+            transaction.put_event(&event).await?;
+        }
         transaction.commit().await?;
         Ok(())
     }

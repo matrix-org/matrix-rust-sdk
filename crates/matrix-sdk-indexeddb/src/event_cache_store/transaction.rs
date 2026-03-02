@@ -350,6 +350,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_item_by_key::<Event, IndexedEventRoomKey>(key).await
     }
 
+    /// Query IndexedDB for events that match the given event id in the given
+    /// room.
+    pub async fn get_events_by_room(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key: IndexedEventRoomKey = self.serializer().encode_key((room_id, event_id));
+        self.get_items_by_key::<Event, IndexedEventRoomKey>(key).await
+    }
+
     /// Query IndexedDB for events that are in the given
     /// room.
     pub async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, TransactionError> {

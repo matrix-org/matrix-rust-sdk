@@ -7,7 +7,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+- Add support in the `MemoryStore`'s implementation of `EventCacheStore` for
+  having duplicate events in a room, where each duplicate is in a different
+  `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
+  thread in that room.
 
+
+- [**breaking**] In order to support having duplicate events in the same room (in different `LinkedChunk`'s) a few
+  functions were changed in `RelationalLinkedChunk`. The items in the `Iterator` returned by `RelationalLinkedChunk::items`
+  now also include the `LinkedChunkId` in which the `Item` was found. Additionally, `RelationalLinkedChunk::save_item`
+  now requires the `Item` to be `Clone` as it may be stored in multiple `LinkedChunk`s. 
+  (#[6200](https://github.com/matrix-org/matrix-rust-sdk/pull/6200))
 - [**breaking**] Added `CrossProcessLockConfig`, which can be used to configure the behavior of the cross-process lock.
   `CrossProcessLock` now takes a `CrossProcessLockConfig` as an argument to its constructor instead of a `lock_holder` 
   value. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))

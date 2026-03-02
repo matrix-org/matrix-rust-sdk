@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -188,10 +188,9 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event = inner
-            .events
-            .items(room_id)
-            .find_map(|(event, _pos)| (event.event_id()? == event_id).then_some(event.clone()));
+        let event = inner.events.items(room_id).find_map(|(_, (event, _pos))| {
+            (event.event_id()? == event_id).then_some(event.clone())
+        });
 
         Ok(event)
     }
@@ -204,10 +203,10 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let related_events = inner
+        let related_events: Vec<_> = inner
             .events
             .items(room_id)
-            .filter_map(|(event, pos)| {
+            .filter_map(|(linked_chunk_id, (event, pos))| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
                 let rel_type = RelationType::from(rel_type.as_str());
@@ -219,14 +218,35 @@ impl EventCacheStore for MemoryStore {
 
                 // Must not be filtered out.
                 if let Some(filters) = &filters {
-                    filters.contains(&rel_type).then_some((event.clone(), pos))
+                    filters.contains(&rel_type).then_some((linked_chunk_id, (event.clone(), pos)))
                 } else {
-                    Some((event.clone(), pos))
+                    Some((linked_chunk_id, (event.clone(), pos)))
                 }
             })
             .collect();
 
-        Ok(related_events)
+        // Remove any duplicate events which may exist in both a room and thread
+        // linked chunk. Additionally, remove any position information from non-room
+        // linked chunks.
+        let mut deduplicated = HashMap::new();
+        for (linked_chunk_id, (event, position)) in related_events {
+            let event_id = event
+                .event_id()
+                .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })?;
+            match linked_chunk_id.as_ref() {
+                LinkedChunkId::Room(_) => {
+                    // Prioritize events that come from a room linked chunk
+                    deduplicated.insert(event_id, (event, position));
+                }
+                _ => {
+                    // Remove position information from events that come
+                    // from any other type of linked chunk
+                    deduplicated.entry(event_id).or_insert_with(|| (event, None));
+                }
+            }
+        }
+
+        Ok(deduplicated.into_values().collect())
     }
 
     async fn get_room_events(
@@ -237,17 +257,29 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event: Vec<_> = inner
+        let (_, event): (_, Vec<_>) = inner
             .events
             .items(room_id)
-            .map(|(event, _pos)| event.clone())
+            .map(|(_, (event, _pos))| event.clone())
             .filter(|e| {
                 event_type
                     .is_none_or(|event_type| Some(event_type) == e.kind.event_type().as_deref())
             })
             .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
-            .collect();
-
+            .map(|e| {
+                e.event_id()
+                    .map(|id| (id, e))
+                    .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .fold((HashSet::new(), Vec::new()), |(mut ids, mut es), (id, e)| {
+                if !ids.contains(&id) {
+                    ids.insert(id);
+                    es.push(e);
+                }
+                (ids, es)
+            });
         Ok(event)
     }
 
