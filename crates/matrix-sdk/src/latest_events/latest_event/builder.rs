@@ -273,12 +273,12 @@ impl Builder {
                             return Some(latest_event_value);
                         }
 
-                        return match value {
+                        match value {
                             LatestEventValue::LocalIsSending(local_value)
                             | LatestEventValue::LocalCannotBeSent(local_value)
                             // Technically impossible, but it's not harmful to handle this that way.
                             | LatestEventValue::LocalHasBeenSent { value: local_value, .. } => {
-                                Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value })
+                                return Some(LatestEventValue::LocalHasBeenSent { event_id: event_id.clone(), value: local_value })
                             }
                             LatestEventValue::Remote(_) | LatestEventValue::RemoteInvite { .. } | LatestEventValue::None => unreachable!("Impossible to get a remote `LatestEventValue`"),
                         };
