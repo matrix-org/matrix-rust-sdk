@@ -38,6 +38,7 @@ use ruma::{
         RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
+        beacon_info::BeaconInfoEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         fully_read::FullyReadEventContent,
@@ -1386,6 +1387,42 @@ impl EventFactory {
     ) -> EventBuilder<BeaconEventContent> {
         let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
         self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
+    }
+
+    /// Create a new `org.matrix.msc3672.beacon_info` state event.
+    ///
+    /// # Arguments
+    ///
+    /// * `description` - An optional human-readable label for the sharing
+    ///   session.
+    /// * `duration` - How long the location share is active.
+    /// * `live` - Whether the sharing session is active. Pass `true` to start
+    ///   and `false` to stop.
+    /// * `ts` - The start timestamp; if `None` the current time is used.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::time::Duration;
+    ///
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{room_id, user_id};
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event = factory
+    ///     .beacon_info(None, Duration::from_secs(60), true, None)
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .state_key(user_id!("@alice:localhost"));
+    /// ```
+    pub fn beacon_info(
+        &self,
+        description: Option<String>,
+        duration: Duration,
+        live: bool,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> EventBuilder<BeaconInfoEventContent> {
+        self.event(BeaconInfoEventContent::new(description, duration, live, ts))
     }
 
     /// Create a new `m.sticker` event.
