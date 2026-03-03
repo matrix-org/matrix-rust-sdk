@@ -428,7 +428,7 @@ impl EventLinkedChunk {
     /// ## Returns
     ///
     /// Returns a boolean indicating whether we've hit the end of the timeline.
-    pub fn finish_forward_pagination(
+    pub fn push_forwards_pagination_events(
         &mut self,
         next_gap_id: Option<ChunkIdentifier>,
         new_gap: Option<Gap>,

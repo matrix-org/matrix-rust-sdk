@@ -416,7 +416,7 @@ impl EventFocusedCacheInner {
         let new_gap = new_token.map(|t| Gap { prev_token: t });
 
         // Replace the gap and insert new events.
-        self.chunk.finish_forward_pagination(Some(gap_id), new_gap, &events);
+        self.chunk.push_forwards_pagination_events(Some(gap_id), new_gap, &events);
 
         self.propagate_changes();
         self.notify_subscribers(EventsOrigin::Pagination);
