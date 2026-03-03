@@ -36,6 +36,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Gap::prev_token` has been renamed to `Gap::token` since it's now used for both
+  the previous batch token and the next batch token.
+  ([#6236](https://github.com/matrix-org/matrix-rust-sdk/pull/6236))
 - [**breaking**] Invite acceptance details are no longer stored in `RoomInfo`,
   and the accessors `RoomInfo.invite_acceptance_details()` and
   `Room::invite_acceptance_details` have been removed. Instead, equivalent
