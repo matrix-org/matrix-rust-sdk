@@ -24,11 +24,7 @@ use std::{
 };
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use matrix_sdk::{
-    Client,
-    executor::{JoinHandle, spawn},
-    sleep::sleep,
-};
+use matrix_sdk::{Client, sleep::sleep, task_monitor::BackgroundTaskHandle};
 use matrix_sdk_base::{
     SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm,
     crypto::types::events::UtdCause,
@@ -92,7 +88,7 @@ struct PendingUtdReport {
     marked_utd_at: Instant,
 
     /// The task that will report this UTD to the parent hook.
-    report_task: JoinHandle<()>,
+    report_task: BackgroundTaskHandle,
 
     /// The UnableToDecryptInfo structure for this UTD event.
     utd_info: UnableToDecryptInfo,
@@ -296,7 +292,7 @@ impl UtdHookManager {
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
-        let handle = spawn(async move {
+        let handle = self.client.task_monitor().spawn_background_task("utd_hook", async move {
             // Wait for the given delay.
             sleep(max_delay).await;
 
@@ -407,7 +403,7 @@ impl Drop for UtdHookManager {
 mod tests {
     use matrix_sdk::test_utils::{logged_in_client, no_retry_test_client};
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, server_name, user_id};
+    use ruma::{event_id, owned_server_name, server_name, user_id};
 
     use super::*;
 
@@ -461,10 +457,10 @@ mod tests {
             assert!(utd_local_age <= 1000);
 
             assert_eq!(utds[0].sender_homeserver, server_name!("localhost"));
-            assert_eq!(utds[0].own_homeserver, Some(server_name!("localhost").to_owned()));
+            assert_eq!(utds[0].own_homeserver, Some(owned_server_name!("localhost")));
 
             assert_eq!(utds[1].sender_homeserver, server_name!("example.com"));
-            assert_eq!(utds[1].own_homeserver, Some(server_name!("localhost").to_owned()));
+            assert_eq!(utds[1].own_homeserver, Some(owned_server_name!("localhost")));
         }
     }
 

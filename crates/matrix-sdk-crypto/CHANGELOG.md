@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Store::{store,clear}_room_pending_key_bundle`,
+  `CryptoStore::get_pending_key_bundle_details_for_room` and
+  `CryptoStore::get_all_rooms_pending_key_bundle`, which can be used by
+  applications to track whether they are expecting an
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key
+  bundle.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233)),
+
 - Add MSC4388 support to the QrcodeData struct.
   ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
 
@@ -16,7 +24,7 @@ All notable changes to this project will be documented in this file.
   ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
 - Added a new field `forwarder` to `InboundGroupSession` of type `ForwarderData`, which stores information about the forwarder of a session shared in a room key bundle under [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5980])(https://github.com/matrix-org/matrix-rust-sdk/pull/5980)
-- The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo` 
+- The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo`
   used when encrypting raw events.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
 - Expose a new method `CryptoStore::has_downloaded_all_room_keys`, used to track whether the
@@ -28,6 +36,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
+  ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
   support MSC4388. The fields of the QrcodeData struct are not anymore publicly
   accessible. The `mode_data()` method has been renamed to `intent_data()` and

@@ -513,7 +513,7 @@ impl PrivateCrossSigningIdentity {
         let mut user_signed_keys = SignedKeys::new();
         user_signed_keys.add_device_keys(device_keys.device_id.clone(), device_keys.to_raw());
 
-        let signed_keys = [((*self.user_id).to_owned(), user_signed_keys)].into();
+        let signed_keys = [(self.user_id.clone(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 
@@ -631,7 +631,7 @@ impl PrivateCrossSigningIdentity {
         let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
-            user_id: (*pickle.user_id).into(),
+            user_id: pickle.user_id.clone(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),

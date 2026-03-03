@@ -44,7 +44,7 @@ use super::{
     metadata::EventMeta,
 };
 use crate::timeline::{
-    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, TimelineUniqueId, VirtualTimelineItem,
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
 };
@@ -106,10 +106,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         let mut cached_profiles: HashMap<OwnedUserId, Option<Profile>> = HashMap::new();
 
+        let mut recycled_timeline_ids = HashMap::new();
+
         for diff in diffs {
             match diff {
                 VectorDiff::Append { values: events } => {
                     for event in events {
+                        let recycled_timeline_id = event
+                            .event_id()
+                            .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
                         self.handle_remote_event(
                             event,
                             TimelineItemPosition::End { origin },
@@ -117,12 +122,16 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             settings,
                             &mut date_divider_adjuster,
                             &mut cached_profiles,
+                            recycled_timeline_id,
                         )
                         .await;
                     }
                 }
 
                 VectorDiff::PushFront { value: event } => {
+                    let recycled_timeline_id = event
+                        .event_id()
+                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::Start { origin },
@@ -130,11 +139,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
+                        recycled_timeline_id,
                     )
                     .await;
                 }
 
                 VectorDiff::PushBack { value: event } => {
+                    let recycled_timeline_id = event
+                        .event_id()
+                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::End { origin },
@@ -142,11 +155,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
+                        recycled_timeline_id,
                     )
                     .await;
                 }
 
                 VectorDiff::Insert { index: event_index, value: event } => {
+                    let recycled_timeline_id = event
+                        .event_id()
+                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::At { event_index, origin },
@@ -154,6 +171,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
+                        recycled_timeline_id,
                     )
                     .await;
                 }
@@ -172,6 +190,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             settings,
                             &mut date_divider_adjuster,
                             &mut cached_profiles,
+                            None,
                         )
                         .await;
                     } else {
@@ -183,7 +202,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 }
 
                 VectorDiff::Remove { index: event_index } => {
-                    self.remove_timeline_item(event_index, &mut date_divider_adjuster);
+                    if let Some((timeline_id, event_id)) =
+                        self.remove_timeline_item(event_index, &mut date_divider_adjuster)
+                    {
+                        recycled_timeline_ids.insert(event_id, timeline_id);
+                    }
                 }
 
                 VectorDiff::Clear => {
@@ -277,7 +300,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 }
 
                 TimelineEventHandler::new(self, ctx)
-                    .handle_event(date_divider_adjuster, action)
+                    .handle_event(date_divider_adjuster, action, None)
                     .await;
             }
             None => {}
@@ -747,6 +770,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn handle_remote_event(
         &mut self,
         event: TimelineEvent,
@@ -755,6 +779,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
         profiles: &mut HashMap<OwnedUserId, Option<Profile>>,
+        recycled_timeline_id: Option<TimelineUniqueId>,
     ) -> RemovedItem {
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
@@ -909,7 +934,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             };
 
             TimelineEventHandler::new(self, ctx)
-                .handle_event(date_divider_adjuster, timeline_action)
+                .handle_event(date_divider_adjuster, timeline_action, recycled_timeline_id)
                 .await
         } else {
             // No item has been added to the timeline.
@@ -938,7 +963,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         &mut self,
         event_index: usize,
         day_divider_adjuster: &mut DateDividerAdjuster,
-    ) {
+    ) -> Option<(TimelineUniqueId, OwnedEventId)> {
         day_divider_adjuster.mark_used();
 
         // We need to be careful here.
@@ -949,16 +974,22 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // after that, we can remove the remote event. Doing this in the other order
         // will update the mapping twice, and will result in a corrupted state.
 
+        let mut recycled_timeline_id = None;
+
         // Remove the timeline item first.
         if let Some(event_meta) = self.items.all_remote_events().get(event_index) {
             // Fetch the `timeline_item_index` associated to the remote event.
             if let Some(timeline_item_index) = event_meta.timeline_item_index {
-                let _ = self.items.remove(timeline_item_index);
+                let event_id = event_meta.event_id.clone();
+                let timeline_item = self.items.remove(timeline_item_index);
+                recycled_timeline_id = Some((timeline_item.unique_id().clone(), event_id));
             }
 
             // Now we can remove the remote event.
             self.items.remove_remote_event(event_index);
         }
+
+        recycled_timeline_id
     }
 
     pub(super) fn clear(&mut self) {

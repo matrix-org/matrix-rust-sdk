@@ -56,7 +56,9 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
             ThumbnailInfo as RumaThumbnailInfo,
         },
-        rtc::notification::NotificationType as RumaNotificationType,
+        rtc::notification::{
+            CallIntent as RumaCallIntent, NotificationType as RumaNotificationType,
+        },
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent,
             key::{
@@ -510,6 +512,31 @@ impl From<RtcNotificationType> for RumaNotificationType {
     }
 }
 
+#[derive(Clone, uniffi::Enum)]
+pub enum RtcCallIntent {
+    Video,
+    Audio,
+}
+
+impl From<RumaCallIntent> for RtcCallIntent {
+    fn from(val: RumaCallIntent) -> Self {
+        match val {
+            RumaCallIntent::Audio => Self::Audio,
+            // No support for custom intents, so we can just use video as default
+            _ => Self::Video,
+        }
+    }
+}
+
+impl From<RtcCallIntent> for RumaCallIntent {
+    fn from(value: RtcCallIntent) -> Self {
+        match value {
+            RtcCallIntent::Video => RumaCallIntent::Video,
+            RtcCallIntent::Audio => RumaCallIntent::Audio,
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct EmoteMessageContent {
     pub body: String,
@@ -543,7 +570,7 @@ impl TryFrom<RumaImageMessageEventContent> for ImageMessageContent {
     fn try_from(value: RumaImageMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -582,7 +609,7 @@ impl TryFrom<RumaAudioMessageEventContent> for AudioMessageContent {
     fn try_from(value: RumaAudioMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(Into::into),
@@ -619,7 +646,7 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
     fn try_from(value: RumaVideoMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -654,7 +681,7 @@ impl TryFrom<RumaFileMessageEventContent> for FileMessageContent {
     fn try_from(value: RumaFileMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,

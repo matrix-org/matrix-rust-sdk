@@ -32,6 +32,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{Span, debug, instrument, trace};
@@ -58,25 +59,12 @@ impl EncryptionSyncPermit {
     }
 }
 
-/// Should the `EncryptionSyncService` make use of locking?
-pub enum WithLocking {
-    Yes,
-    No,
-}
-
-impl From<bool> for WithLocking {
-    fn from(value: bool) -> Self {
-        if value { Self::Yes } else { Self::No }
-    }
-}
-
 /// High-level helper for synchronizing encryption events using sliding sync.
 ///
 /// See the module's documentation for more details.
 pub struct EncryptionSyncService {
     client: Client,
     sliding_sync: SlidingSync,
-    with_locking: bool,
 }
 
 impl EncryptionSyncService {
@@ -86,7 +74,6 @@ impl EncryptionSyncService {
     pub async fn new(
         client: Client,
         poll_and_network_timeouts: Option<(Duration, Duration)>,
-        with_locking: WithLocking,
     ) -> Result<Self, Error> {
         // Make sure to use the same `conn_id` and caching store identifier, whichever
         // process is running this sliding sync. There must be at most one
@@ -106,17 +93,11 @@ impl EncryptionSyncService {
 
         let sliding_sync = builder.build().await.map_err(Error::SlidingSync)?;
 
-        let with_locking = matches!(with_locking, WithLocking::Yes);
-
-        if with_locking {
+        if let CrossProcessLockConfig::MultiProcess { holder_name } =
+            client.cross_process_lock_config()
+        {
             // Gently try to enable the cross-process lock on behalf of the user.
-            match client
-                .encryption()
-                .enable_cross_process_store_lock(
-                    client.cross_process_store_locks_holder_name().to_owned(),
-                )
-                .await
-            {
+            match client.encryption().enable_cross_process_store_lock(holder_name.clone()).await {
                 Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
                     // Ignore; we've already set the crypto store lock to
                     // something, and that's sufficient as
@@ -129,7 +110,7 @@ impl EncryptionSyncService {
             }
         }
 
-        Ok(Self { client, sliding_sync, with_locking })
+        Ok(Self { client, sliding_sync })
     }
 
     /// Runs an `EncryptionSyncService` loop for a fixed number of iterations.
@@ -151,7 +132,9 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let lock_guard = if self.with_locking {
+        let lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
+            self.client.cross_process_lock_config()
+        {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
 
@@ -281,7 +264,9 @@ impl EncryptionSyncService {
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
-        let guard = if self.with_locking {
+        let guard = if let CrossProcessLockConfig::MultiProcess { .. } =
+            self.client.cross_process_lock_config()
+        {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
         } else {
             None

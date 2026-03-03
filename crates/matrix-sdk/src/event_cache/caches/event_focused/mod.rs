@@ -44,14 +44,13 @@ use tokio::sync::{
 };
 use tracing::{instrument, trace};
 
-use super::events::EventLinkedChunk;
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor::ResolvedUtd;
 use crate::{
     Room,
     event_cache::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        caches::TimelineVectorDiffs,
+        caches::{TimelineVectorDiffs, event_linked_chunk::EventLinkedChunk},
     },
     paginators::{PaginationResult, Paginator, StartFromResult, thread::PaginableThread},
     room::{IncludeRelations, MessagesOptions, RelationsOptions, WeakRoom},
@@ -320,7 +319,7 @@ impl EventFocusedCacheInner {
         let new_gap = new_token.map(|t| Gap { prev_token: t });
 
         // Replace the gap and insert the new events.
-        self.chunk.finish_back_pagination(Some(gap_id), new_gap, &events);
+        self.chunk.push_backwards_pagination_events(Some(gap_id), new_gap, &events);
 
         self.propagate_changes();
         self.notify_subscribers(EventsOrigin::Pagination);

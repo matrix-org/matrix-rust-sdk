@@ -32,8 +32,8 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    CrossProcessLockState, TryLock,
+    CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError, CrossProcessLockGeneration,
+    CrossProcessLockGuard, CrossProcessLockState, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -113,22 +113,20 @@ impl fmt::Debug for MediaStoreLock {
 impl MediaStoreLock {
     /// Create a new lock around the [`MediaStore`].
     ///
-    /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessLock::new`].
-    pub fn new<S>(store: S, holder: String) -> Self
+    /// The `cross_process_lock_config` argument controls whether we need to
+    /// hold the cross process lock or not.
+    pub fn new<S>(store: S, cross_process_lock_config: CrossProcessLockConfig) -> Self
     where
         S: IntoMediaStore,
     {
         let store = store.into_media_store();
 
-        Self {
-            cross_process_lock: Arc::new(CrossProcessLock::new(
-                LockableMediaStore(store.clone()),
-                "default".to_owned(),
-                holder,
-            )),
-            store,
-        }
+        let cross_process_lock = Arc::new(CrossProcessLock::new(
+            LockableMediaStore(store.clone()),
+            "default".to_owned(),
+            cross_process_lock_config,
+        ));
+        Self { cross_process_lock, store }
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
@@ -138,9 +136,10 @@ impl MediaStoreLock {
             CrossProcessLockState::Clean(guard) => guard,
 
             // The lock is dirty: another holder acquired it since the last time we acquired it.
-            // It's not a problem in the case of the `MediaStore` because this API is “stateless” at
-            // the time of writing (2025-11-11). There is nothing that can be out-of-sync: all the
-            // state is in the database, nothing in memory.
+            // It's not a problem in the case of the `MediaStore` because this API is
+            // “stateless” at the time of writing (2025-11-11). There is nothing
+            // that can be out-of-sync: all the state is in the database,
+            // nothing in memory.
             CrossProcessLockState::Dirty(guard) => {
                 guard.clear_dirty();
 

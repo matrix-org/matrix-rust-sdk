@@ -27,7 +27,7 @@ use matrix_sdk_ui::{
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
     events::room::message::RoomMessageEventContent,
-    mxc_uri, room_id,
+    owned_mxc_uri, room_id,
     time::{Duration, Instant},
 };
 use serde_json::json;
@@ -2203,7 +2203,7 @@ async fn test_room() -> Result<(), Error> {
     assert_eq!(room0.cached_display_name(), Some(RoomDisplayName::Named("Room #0".to_owned())));
 
     // Room has received an avatar from sliding sync.
-    assert_eq!(room0.avatar_url(), Some(mxc_uri!("mxc://homeserver/media").to_owned()));
+    assert_eq!(room0.avatar_url(), Some(owned_mxc_uri!("mxc://homeserver/media")));
 
     let room1 = room_list.room(room_id_1)?;
 
@@ -2248,7 +2248,7 @@ async fn test_room() -> Result<(), Error> {
     assert_eq!(room1.cached_display_name(), Some(RoomDisplayName::Named("Room #1".to_owned())));
 
     // Room has _now_ received an avatar URL from sliding sync!
-    assert_eq!(room1.avatar_url(), Some(mxc_uri!("mxc://homeserver/other-media").to_owned()));
+    assert_eq!(room1.avatar_url(), Some(owned_mxc_uri!("mxc://homeserver/other-media")));
 
     Ok(())
 }

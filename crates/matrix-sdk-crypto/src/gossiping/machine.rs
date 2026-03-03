@@ -1118,12 +1118,12 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
-        DeviceId, RoomId, UserId, device_id, event_id,
+        DeviceId, RoomId, UserId, device_id,
         events::{
             ToDeviceEvent as RumaToDeviceEvent,
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
         },
-        room_id,
+        owned_event_id, room_id,
         serde::Raw,
         user_id,
     };
@@ -1237,14 +1237,14 @@ mod tests {
     }
 
     async fn get_machine_test_helper() -> GossipMachine {
-        let user_id = alice_id().to_owned();
-        let account = Account::with_device_id(&user_id, alice_device_id());
+        let user_id = alice_id();
+        let account = Account::with_device_id(user_id, alice_device_id());
         let device = DeviceData::from_account(&account);
         let another_device =
-            DeviceData::from_account(&Account::with_device_id(&user_id, alice2_device_id()));
+            DeviceData::from_account(&Account::with_device_id(user_id, alice2_device_id()));
 
         let store =
-            Arc::new(CryptoStoreWrapper::new(&user_id, account.device_id(), MemoryStore::new()));
+            Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
@@ -1378,7 +1378,7 @@ mod tests {
 
         EncryptedEvent {
             sender: sender.to_owned(),
-            event_id: event_id!("$143273582443PhrSn:example.org").to_owned(),
+            event_id: owned_event_id!("$143273582443PhrSn:example.org"),
             #[cfg(feature = "experimental-encrypted-state-events")]
             state_key: None,
             content,

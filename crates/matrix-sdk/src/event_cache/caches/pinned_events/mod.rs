@@ -34,16 +34,18 @@ use tracing::{debug, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
-use super::super::{
-    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, caches::lock,
-    persistence::send_updates_to_store, room::events::EventLinkedChunk,
+use super::{
+    super::{EventCacheError, EventsOrigin, Result, persistence::send_updates_to_store},
+    event_linked_chunk::EventLinkedChunk,
+    lock,
+    room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorDiffs,
     room::WeakRoom,
 };
 
-pub(in super::super) struct PinnedEventCacheState {
+pub(in super::super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
@@ -207,7 +209,7 @@ pub struct PinnedEventCache {
 
 impl PinnedEventCache {
     /// Creates a new [`PinnedEventCache`] for the given room.
-    pub(super) fn new(
+    pub(in super::super) fn new(
         room: Room,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
@@ -300,7 +302,7 @@ impl PinnedEventCache {
 
     /// Check if any of the given events relate to an event in the pinned events
     /// linked chunk, and append it, in this case.
-    pub(super) async fn maybe_add_live_related_events(
+    pub(in super::super) async fn maybe_add_live_related_events(
         &mut self,
         events: &[Event],
         room_redaction_rules: &RedactionRules,

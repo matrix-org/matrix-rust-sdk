@@ -263,6 +263,7 @@ impl Channel {
         let etag = get_header(headers, &ETAG)?;
         let expires = get_header(headers, &EXPIRES)?;
         let last_modified = get_header(headers, &LAST_MODIFIED)?;
+        #[allow(clippy::result_large_err)]
         let content_type = headers
             .get(CONTENT_TYPE)
             .map(|c| c.to_str().map_err(FromHttpResponseError::<RumaApiError>::from))

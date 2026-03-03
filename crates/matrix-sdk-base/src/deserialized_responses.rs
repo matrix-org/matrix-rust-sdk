@@ -14,10 +14,9 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt, hash::Hash, iter};
+use std::{collections::BTreeMap, fmt, hash::Hash, iter, sync::LazyLock};
 
 pub use matrix_sdk_common::deserialized_responses::*;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, UInt,
@@ -72,15 +71,15 @@ pub struct AmbiguityChanges {
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-static MXID_REGEX: Lazy<Regex> = Lazy::new(|| {
+static MXID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(DisplayName::MXID_PATTERN)
         .expect("We should be able to create a regex from our static MXID pattern")
 });
-static LEFT_TO_RIGHT_REGEX: Lazy<Regex> = Lazy::new(|| {
+static LEFT_TO_RIGHT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(DisplayName::LEFT_TO_RIGHT_PATTERN)
         .expect("We should be able to create a regex from our static left-to-right pattern")
 });
-static HIDDEN_CHARACTERS_REGEX: Lazy<Regex> = Lazy::new(|| {
+static HIDDEN_CHARACTERS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(DisplayName::HIDDEN_CHARACTERS_PATTERN)
         .expect("We should be able to create a regex from our static hidden characters pattern")
 });
@@ -89,7 +88,7 @@ static HIDDEN_CHARACTERS_REGEX: Lazy<Regex> = Lazy::new(|| {
 ///
 /// This is used to replace an `i` with a lowercase `l`, i.e. to mark "Hello"
 /// and "HeIlo" as ambiguous. Decancer will lowercase an `I` for us.
-static I_REGEX: Lazy<Regex> = Lazy::new(|| {
+static I_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new("[i]").expect("We should be able to create a regex from our uppercase I pattern")
 });
 
@@ -97,7 +96,7 @@ static I_REGEX: Lazy<Regex> = Lazy::new(|| {
 ///
 /// This is used to replace an `0` with a lowercase `o`, i.e. to mark "HellO"
 /// and "Hell0" as ambiguous. Decancer will lowercase an `O` for us.
-static ZERO_REGEX: Lazy<Regex> = Lazy::new(|| {
+static ZERO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new("[0]").expect("We should be able to create a regex from our zero pattern")
 });
 
@@ -105,7 +104,7 @@ static ZERO_REGEX: Lazy<Regex> = Lazy::new(|| {
 ///
 /// This is used to replace a `.` with a `:`, i.e. to mark "@mxid.domain.tld" as
 /// ambiguous.
-static DOT_REGEX: Lazy<Regex> = Lazy::new(|| {
+static DOT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new("[.\u{1d16d}]").expect("We should be able to create a regex from our dot pattern")
 });
 

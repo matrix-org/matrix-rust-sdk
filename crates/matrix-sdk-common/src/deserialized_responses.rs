@@ -1483,10 +1483,10 @@ mod tests {
     use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, device_id, event_id,
+        DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, event_id,
         events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
+        owned_device_id, owned_event_id, owned_user_id,
         serde::Raw,
-        user_id,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -1635,7 +1635,7 @@ mod tests {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast_unchecked(),
                 encryption_info: Arc::new(EncryptionInfo {
-                    sender: user_id!("@sender:example.com").to_owned(),
+                    sender: owned_user_id!("@sender:example.com"),
                     sender_device: None,
                     forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -1702,7 +1702,7 @@ mod tests {
 
         // And it can be properly deserialized from the new format.
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -1733,7 +1733,7 @@ mod tests {
             },
         });
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { session_id: None, .. }
@@ -1768,7 +1768,7 @@ mod tests {
             }
         });
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -2060,8 +2060,8 @@ mod tests {
     #[test]
     fn snapshot_test_encryption_info() {
         let info = EncryptionInfo {
-            sender: user_id!("@alice:localhost").to_owned(),
-            sender_device: Some(device_id!("ABCDEFGH").to_owned()),
+            sender: owned_user_id!("@alice:localhost"),
+            sender_device: Some(owned_device_id!("ABCDEFGH")),
             forwarder: None,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: "curvecurvecurve".into(),
@@ -2082,8 +2082,8 @@ mod tests {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast_unchecked(),
                 encryption_info: Arc::new(EncryptionInfo {
-                    sender: user_id!("@sender:example.com").to_owned(),
-                    sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
+                    sender: owned_user_id!("@sender:example.com"),
+                    sender_device: Some(owned_device_id!("ABCDEFGHIJ")),
                     forwarder: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),

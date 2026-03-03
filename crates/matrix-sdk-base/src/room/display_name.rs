@@ -551,7 +551,7 @@ mod tests {
                 name::{PossiblyRedactedRoomNameEventContent, RoomNameEventContent},
             },
         },
-        room_alias_id, room_id,
+        owned_room_alias_id, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         user_id,
     };
@@ -587,7 +587,7 @@ mod tests {
     fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {
         MinimalStateEvent {
             content: assign!(PossiblyRedactedRoomCanonicalAliasEventContent::new(), {
-                alias: Some(room_alias_id!("#test:example.com").to_owned()),
+                alias: Some(owned_room_alias_id!("#test:example.com")),
             }),
             event_id: None,
         }
@@ -1035,27 +1035,27 @@ mod tests {
                 None,
                 vec![
                     RoomHero {
-                        user_id: user_id!("@alice:example.org").to_owned(),
+                        user_id: owned_user_id!("@alice:example.org"),
                         display_name: Some("Alice".to_owned()),
                         avatar_url: None,
                     },
                     RoomHero {
-                        user_id: user_id!("@bob:example.org").to_owned(),
+                        user_id: owned_user_id!("@bob:example.org"),
                         display_name: Some("Bob".to_owned()),
                         avatar_url: None,
                     },
                     RoomHero {
-                        user_id: user_id!("@carol:example.org").to_owned(),
+                        user_id: owned_user_id!("@carol:example.org"),
                         display_name: Some("Carol".to_owned()),
                         avatar_url: None,
                     },
                     RoomHero {
-                        user_id: user_id!("@denis:example.org").to_owned(),
+                        user_id: owned_user_id!("@denis:example.org"),
                         display_name: Some("Denis".to_owned()),
                         avatar_url: None,
                     },
                     RoomHero {
-                        user_id: user_id!("@erica:example.org").to_owned(),
+                        user_id: owned_user_id!("@erica:example.org"),
                         display_name: Some("Erica".to_owned()),
                         avatar_url: None,
                     },

@@ -28,8 +28,8 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockError, CrossProcessLockGeneration, CrossProcessLockGuard,
-    MappedCrossProcessLockState, TryLock,
+    CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError, CrossProcessLockGeneration,
+    CrossProcessLockGuard, MappedCrossProcessLockState, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
@@ -64,32 +64,27 @@ impl fmt::Debug for EventCacheStoreLock {
 impl EventCacheStoreLock {
     /// Create a new lock around the [`EventCacheStore`].
     ///
-    /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessLock::new`].
-    pub fn new<S>(store: S, holder: String) -> Self
+    /// The `cross_process_lock_config` argument controls whether we need to
+    /// hold the cross process lock or not.
+    pub fn new<S>(store: S, cross_process_lock_config: CrossProcessLockConfig) -> Self
     where
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
 
-        Self {
-            cross_process_lock: Arc::new(CrossProcessLock::new(
-                LockableEventCacheStore(store.clone()),
-                "default".to_owned(),
-                holder,
-            )),
-            store,
-        }
+        let cross_process_lock = Arc::new(CrossProcessLock::new(
+            LockableEventCacheStore(store.clone()),
+            "default".to_owned(),
+            cross_process_lock_config,
+        ));
+        Self { cross_process_lock, store }
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
-        let lock_state =
-            self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
-                EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
-            });
-
-        Ok(lock_state)
+        Ok(self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {
+            EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.clone() }
+        }))
     }
 }
 

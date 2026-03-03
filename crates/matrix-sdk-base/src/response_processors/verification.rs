@@ -36,7 +36,7 @@ use crate::Result;
 /// processing the response with [`OlmMachine::mark_request_as_sent`].
 pub async fn process_if_relevant(
     event: &AnySyncTimelineEvent,
-    e2ee: E2EE<'_>,
+    e2ee: &E2EE<'_>,
     room_id: &RoomId,
 ) -> Result<()> {
     if !e2ee.verification_is_allowed {

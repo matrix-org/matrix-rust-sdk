@@ -26,8 +26,8 @@ experimental-encrypted-state-events = [
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
-deadpool = { version = "0.12.3", default-features = false, features = ["managed", "rt_tokio_1"] }
-deadpool-sync = { version = "0.1.4", default-features = false }
+deadpool = { version = "0.13", default-features = false, features = ["managed", "rt_tokio_1"] }
+deadpool-sync = { version = "0.2", default-features = false }
 itertools.workspace = true
 matrix-sdk-base = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
@@ -53,7 +53,6 @@ matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
-once_cell.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

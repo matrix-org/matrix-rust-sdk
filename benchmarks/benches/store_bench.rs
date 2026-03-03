@@ -4,10 +4,11 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use matrix_sdk::{
     Client, RoomInfo, RoomState, SessionTokens, StateChanges,
     authentication::matrix::MatrixSession, config::StoreConfig,
+    cross_process_lock::CrossProcessLockConfig,
 };
 use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
-use ruma::{RoomId, device_id, user_id};
+use ruma::{RoomId, owned_device_id, owned_user_id};
 use tokio::runtime::Builder;
 
 /// Number of joined rooms in the benchmark.
@@ -23,19 +24,19 @@ pub fn restore_session(c: &mut Criterion) {
     let mut changes = StateChanges::default();
 
     for i in 0..NUM_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap().to_owned();
+        let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap();
         changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
     }
 
     for i in 0..NUM_STRIPPED_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap().to_owned();
+        let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap();
         changes.add_room(RoomInfo::new(&room_id, RoomState::Invited));
     }
 
     let session = MatrixSession {
         meta: SessionMeta {
-            user_id: user_id!("@somebody:example.com").to_owned(),
-            device_id: device_id!("DEVICE_ID").to_owned(),
+            user_id: owned_user_id!("@somebody:example.com"),
+            device_id: owned_device_id!("DEVICE_ID"),
         },
         tokens: SessionTokens { access_token: "OHEY".to_owned(), refresh_token: None },
     };
@@ -54,8 +55,10 @@ pub fn restore_session(c: &mut Criterion) {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
                 .store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                        .state_store(store.clone()),
+                    StoreConfig::new(CrossProcessLockConfig::multi_process(
+                        "cross-process-store-locks-holder-name",
+                    ))
+                    .state_store(store.clone()),
                 )
                 .build()
                 .await
@@ -84,8 +87,10 @@ pub fn restore_session(c: &mut Criterion) {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
                         .store_config(
-                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                                .state_store(store.clone()),
+                            StoreConfig::new(CrossProcessLockConfig::multi_process(
+                                "cross-process-store-locks-holder-name",
+                            ))
+                            .state_store(store.clone()),
                         )
                         .build()
                         .await

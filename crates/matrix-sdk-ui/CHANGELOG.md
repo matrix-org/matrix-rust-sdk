@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Include secondary relations when re-initializing a threaded timeline after a lag.
+  ([#6209](https://github.com/matrix-org/matrix-rust-sdk/pull/6209))
 - Ensure that the display name of a `Room` in a `NotificationStatus` coming 
   from a `NotificationClient` excludes service members.
   ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
@@ -24,6 +26,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- The internal timeline unique ID may be recycled when an event is deduplicated from the timeline,
+  so that embedders can notice that it's the same item and avoid unnecessary re-rendering.
+  ([#6228](https://github.com/matrix-org/matrix-rust-sdk/pull/6228))
+- [**breaking**] Add `NotificationState.EventRedacted` enum value, to handle the case
+  where a notification resolves to a redacted event.
+  ([#6203](https://github.com/matrix-org/matrix-rust-sdk/pull/6203))
 - [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
   event as the root of a thread.
   ([#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050))
@@ -61,6 +69,8 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Remove `WithLocking` from `EncryptionSyncService`, the locking mechanism will be taken from the parent 
+  `Client` with `Client::cross_process_store_config`. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The [`Timeline::pin_event`] and [`Timeline::unpin_event`] methods have been
   moved to the SDK crate, in the `Room` object. Users can replace previous uses with
   `timeline.room().pin_event()` etc.

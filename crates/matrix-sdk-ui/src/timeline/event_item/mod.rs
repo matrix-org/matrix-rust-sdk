@@ -14,7 +14,7 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use as_variant::as_variant;
@@ -25,7 +25,6 @@ use matrix_sdk::{
     send_queue::{SendHandle, SendReactionHandle},
 };
 use matrix_sdk_base::deserialized_responses::ShieldStateCode;
-use once_cell::sync::Lazy;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
     OwnedUserId, TransactionId, UserId,
@@ -271,7 +270,8 @@ impl EventTimelineItem {
     ///
     /// Note that currently this ignores threads.
     pub fn read_receipts(&self) -> &IndexMap<OwnedUserId, Receipt> {
-        static EMPTY_RECEIPTS: Lazy<IndexMap<OwnedUserId, Receipt>> = Lazy::new(Default::default);
+        static EMPTY_RECEIPTS: LazyLock<IndexMap<OwnedUserId, Receipt>> =
+            LazyLock::new(Default::default);
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_RECEIPTS,
             EventTimelineItemKind::Remote(remote_event) => &remote_event.read_receipts,

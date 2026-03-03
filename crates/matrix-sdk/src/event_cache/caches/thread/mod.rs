@@ -1,4 +1,4 @@
-// Copyright 2025 The Matrix.org Foundation C.I.C.
+// Copyright 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,8 @@
 
 //! Threads-related data structures.
 
+pub mod pagination;
+
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
@@ -24,11 +26,12 @@ use ruma::{EventId, OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, trace};
 
-use crate::event_cache::{
-    BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
-    caches::TimelineVectorDiffs,
-    deduplicator::DeduplicationOutcome,
-    room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
+use super::{
+    super::deduplicator::DeduplicationOutcome,
+    EventsOrigin, TimelineVectorDiffs,
+    event_linked_chunk::EventLinkedChunk,
+    pagination::{BackPaginationOutcome, LoadMoreEventsBackwardsOutcome},
+    room::RoomEventCacheLinkedChunkUpdate,
 };
 
 /// All the information related to a single thread.
@@ -173,7 +176,12 @@ impl ThreadEventCache {
         // resolve the gap.
         if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.prev_token) {
             trace!(%prev_token, "thread chunk has at least a gap");
-            return LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) };
+            return LoadMoreEventsBackwardsOutcome::Gap {
+                prev_token: Some(prev_token),
+                // Since there is `Some(prev_token)` already, we assume we've
+                // waited for it already.
+                waited_for_initial_prev_token: true,
+            };
         }
 
         // If we don't have a gap, then the first event should be the the thread's root;
@@ -190,7 +198,11 @@ impl ThreadEventCache {
 
         // Otherwise, we don't have a gap nor events. We don't have anything. Poor us.
         // Well, is ok: start a pagination from the end.
-        LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
+        LoadMoreEventsBackwardsOutcome::Gap {
+            prev_token: None,
+            // No `prev_token` for threads, let's assume it's been waited.
+            waited_for_initial_prev_token: true,
+        }
     }
 
     /// Find duplicates in a thread, until there's persistent storage for
@@ -301,7 +313,8 @@ impl ThreadEventCache {
         };
 
         // Add the paginated events to the thread chunk.
-        let reached_start = self.chunk.finish_back_pagination(prev_gap_id, new_gap, &events);
+        let reached_start =
+            self.chunk.push_backwards_pagination_events(prev_gap_id, new_gap, &events);
 
         self.propagate_changes();
 

@@ -1632,8 +1632,8 @@ mod tests {
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{
-        UserId, event_id, events::key::verification::VerificationMethod, room_id,
-        to_device::DeviceIdOrAllDevices,
+        UserId, event_id, events::key::verification::VerificationMethod, owned_event_id,
+        owned_room_id, room_id, to_device::DeviceIdOrAllDevices,
     };
 
     use super::VerificationRequest;
@@ -1652,8 +1652,8 @@ mod tests {
 
     #[async_test]
     async fn test_request_accepting() {
-        let event_id = event_id!("$1234localhost").to_owned();
-        let room_id = room_id!("!test:localhost").to_owned();
+        let event_id = owned_event_id!("$1234localhost");
+        let room_id = owned_room_id!("!test:localhost");
 
         let (alice, alice_store, bob, bob_store) = setup_stores().await;
 

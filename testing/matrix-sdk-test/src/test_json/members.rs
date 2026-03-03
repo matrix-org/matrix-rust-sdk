@@ -1,11 +1,12 @@
 //! Example responses to `GET /_matrix/client/v3/rooms/{roomId}/members`
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use serde_json::{Value as JsonValue, json};
 
 use super::DEFAULT_TEST_ROOM_ID;
 
-pub static MEMBERS: Lazy<JsonValue> = Lazy::new(|| {
+pub static MEMBERS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
         {

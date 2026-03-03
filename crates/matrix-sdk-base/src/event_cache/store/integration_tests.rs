@@ -1361,12 +1361,12 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             self.filter_duplicated_events(
                 linked_chunk_id,
                 vec![
-                    event_comte.event_id().unwrap().to_owned(),
-                    event_raclette.event_id().unwrap().to_owned(),
-                    event_morbier.event_id().unwrap().to_owned(),
-                    event_gruyere.event_id().unwrap().to_owned(),
-                    event_tome.event_id().unwrap().to_owned(),
-                    event_mont_dor.event_id().unwrap().to_owned(),
+                    event_comte.event_id().unwrap(),
+                    event_raclette.event_id().unwrap(),
+                    event_morbier.event_id().unwrap(),
+                    event_gruyere.event_id().unwrap(),
+                    event_tome.event_id().unwrap(),
+                    event_mont_dor.event_id().unwrap(),
                 ],
             )
             .await
@@ -1826,10 +1826,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let dups = self
             .filter_duplicated_events(
                 LinkedChunkId::Thread(room_id, thread_root1.event_id().unwrap().as_ref()),
-                vec![
-                    thread1_ev.event_id().unwrap().to_owned(),
-                    room_ev.event_id().unwrap().to_owned(),
-                ],
+                vec![thread1_ev.event_id().unwrap(), room_ev.event_id().unwrap()],
             )
             .await
             .unwrap();

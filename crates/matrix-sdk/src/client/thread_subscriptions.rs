@@ -15,7 +15,7 @@
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{self, AtomicBool},
     },
 };
@@ -26,7 +26,6 @@ use matrix_sdk_base::{
     store::{StoredThreadSubscription, ThreadSubscriptionStatus},
 };
 use matrix_sdk_common::executor::spawn;
-use once_cell::sync::OnceCell;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId,
     api::client::threads::get_thread_subscriptions_changes::unstable::{
@@ -114,7 +113,7 @@ impl GuardedStoreAccess {
 
 pub struct ThreadSubscriptionCatchup {
     /// The task catching up thread subscriptions in the background.
-    _task: OnceCell<AbortOnDrop<()>>,
+    _task: OnceLock<AbortOnDrop<()>>,
 
     /// Whether the known list of thread subscriptions is outdated or not, i.e.
     /// all thread subscriptions have been caught up
@@ -143,7 +142,7 @@ impl ThreadSubscriptionCatchup {
         let uniq_mutex = Arc::new(Mutex::new(()));
 
         let this = Arc::new(Self {
-            _task: OnceCell::new(),
+            _task: OnceLock::new(),
             is_outdated,
             client: weak_client,
             ping_sender,

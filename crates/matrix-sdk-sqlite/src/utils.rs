@@ -97,6 +97,17 @@ pub(crate) trait SqliteAsyncConnExt {
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
 
+    async fn query_many<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<Vec<T>>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         T: Send + 'static,
@@ -278,6 +289,25 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             .map_err(map_interact_err)?
     }
 
+    async fn query_many<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<Vec<T>>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.interact(move |conn| {
+            let mut stmt = conn.prepare(sql.as_ref())?;
+            stmt.query_and_then(params, f)?.collect()
+        })
+        .await
+        .map_err(map_interact_err)?
+    }
+
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         T: Send + 'static,
@@ -320,13 +350,13 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 
 /// Map an [`InteractError`] into a [`rusqlite::Error`].
 ///
-/// An [`InteractError::Panic`] will panic. An [`InteractError::Aborted`] will
+/// An [`InteractError::Panic`] will panic. An [`InteractError::Cancelled`] will
 /// generate a [`rusqlite::Error::SqliteFailure`] with the
 /// [`rusqlite::ffi::SQLITE_ABORT`] code.
 fn map_interact_err(error: InteractError) -> rusqlite::Error {
     match error {
         InteractError::Panic(p) => panic!("{p:?}"),
-        InteractError::Aborted => rusqlite::Error::SqliteFailure(
+        InteractError::Cancelled => rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ABORT),
             None,
         ),

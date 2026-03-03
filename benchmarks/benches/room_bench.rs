@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use matrix_sdk::{store::RoomLoadSettings, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    cross_process_lock::CrossProcessLockConfig, store::RoomLoadSettings,
+    test_utils::mocks::MatrixMockServer,
+};
 use matrix_sdk_base::{
     BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore, ThreadingSupport,
     store::StoreConfig,
@@ -12,11 +15,9 @@ use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
     api::client::membership::get_member_events,
-    device_id,
     events::room::member::{MembershipState, RoomMemberEvent},
-    mxc_uri, owned_room_id, owned_user_id,
+    mxc_uri, owned_device_id, owned_room_id, owned_user_id,
     serde::Raw,
-    user_id,
 };
 use tokio::runtime::Builder;
 use wiremock::{Request, ResponseTemplate};
@@ -57,16 +58,18 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .expect("initial filling of sqlite failed");
 
     let base_client = BaseClient::new(
-        StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-            .state_store(sqlite_store),
+        StoreConfig::new(CrossProcessLockConfig::multi_process(
+            "cross-process-store-locks-holder-name",
+        ))
+        .state_store(sqlite_store),
         ThreadingSupport::Disabled,
     );
 
     runtime
         .block_on(base_client.activate(
             SessionMeta {
-                user_id: user_id!("@somebody:example.com").to_owned(),
-                device_id: device_id!("DEVICE_ID").to_owned(),
+                user_id: owned_user_id!("@somebody:example.com"),
+                device_id: owned_device_id!("DEVICE_ID"),
             },
             RoomLoadSettings::default(),
             None,

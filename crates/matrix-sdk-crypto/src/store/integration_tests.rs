@@ -39,7 +39,7 @@ macro_rules! cryptostore_integration_tests {
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id, events::secret::request::SecretName, room_id, serde::Raw,
+                device_id, events::secret::request::SecretName, room_id, serde::Raw, owned_room_id,
                 to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
@@ -1005,7 +1005,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
-                    room_id: room_id!("!test:localhost").to_owned(),
+                    room_id: owned_room_id!("!test:localhost"),
                     sender_key: Some(sender_key),
                     session_id: "test_session_id".to_owned(),
                 }
@@ -1066,7 +1066,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
-                    room_id: room_id!("!test:localhost").to_owned(),
+                    room_id: owned_room_id!("!test:localhost"),
                     sender_key: Some(account.identity_keys().curve25519),
                     session_id: "test_session_id".to_owned(),
                 }
@@ -1376,7 +1376,7 @@ macro_rules! cryptostore_integration_tests {
                         sender_key: Curve25519PublicKey::from_bytes([0u8; 32]),
                         sender_data: SenderData::unknown(),
                         bundle_data: RoomKeyBundleContent {
-                            room_id: room_id!("!room:example.org").to_owned(),
+                            room_id: owned_room_id!("!room:example.org"),
                             file,
                         },
                     }
@@ -1398,6 +1398,54 @@ macro_rules! cryptostore_integration_tests {
                     test_room, user_id!("@alice:example.com")
                 ).await.unwrap().expect("Did not get any bundle data");
                 assert_eq!(bundle.bundle_data.file.url.to_string(), "alice2");
+            }
+
+            #[async_test]
+            async fn test_room_pending_key_bundle() {
+                use $crate::store::types::RoomPendingKeyBundleDetails;
+                let store = get_store("room_pending_key_bundle", None, true).await;
+                let test_room = room_id!("!room:example.org");
+                let test_user = user_id!("@user:example.com");
+                let timestamp = ruma::MilliSecondsSinceUnixEpoch::now();
+
+                // Empty to start with
+                assert!(store.get_pending_key_bundle_details_for_room(test_room).await.unwrap().is_none());
+
+                // Now add an entry, and check it comes back correctly
+                store.save_changes(Changes {
+                    rooms_pending_key_bundle: HashMap::from([(
+                        test_room.to_owned(),
+                        Some(RoomPendingKeyBundleDetails {
+                            room_id: test_room.to_owned(),
+                            invite_accepted_at: timestamp,
+                            inviter: test_user.to_owned(),
+                        }),
+                    )]),
+                    ..Default::default()
+                }).await.unwrap();
+
+                let details = store.get_pending_key_bundle_details_for_room(test_room).await.unwrap();
+                assert_matches!(details, Some(details) => {
+                    assert_eq!(details.room_id, test_room);
+                    assert_eq!(details.inviter, test_user);
+                    assert_eq!(details.invite_accepted_at, timestamp);
+                });
+
+                let all_rooms = store.get_all_rooms_pending_key_bundles().await.unwrap();
+                assert_eq!(all_rooms.len(), 1);
+                assert_eq!(all_rooms[0].room_id, test_room);
+                assert_eq!(all_rooms[0].inviter, test_user);
+                assert_eq!(all_rooms[0].invite_accepted_at, timestamp);
+
+                // Clear the entry, and check it is blank again
+                store.save_changes(Changes {
+                    rooms_pending_key_bundle: HashMap::from([(test_room.to_owned(), None)]),
+                    ..Default::default()
+                }).await.unwrap();
+                assert!(
+                    store.get_pending_key_bundle_details_for_room(test_room).await.unwrap().is_none(),
+                    "Pending key bundle details were present after being cleared"
+                );
             }
 
             #[async_test]

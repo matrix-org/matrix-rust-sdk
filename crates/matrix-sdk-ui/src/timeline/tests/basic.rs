@@ -152,10 +152,10 @@ async fn test_sticker() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_sticker());
 
-    assert_eq!(item.content().thread_root(), Some(event_id!("$thread_root").to_owned()));
+    assert_eq!(item.content().thread_root(), Some(owned_event_id!("$thread_root")));
 
     assert_let!(Some(details) = item.content().in_reply_to());
-    assert_eq!(details.event_id, event_id!("$in_reply_to").to_owned())
+    assert_eq!(details.event_id, owned_event_id!("$in_reply_to"))
 }
 
 #[async_test]
@@ -319,6 +319,76 @@ async fn test_internal_id_prefix() {
     let event3 = &timeline_items[3];
     assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
     assert_eq!(event3.unique_id().0, "le_prefix_2");
+}
+
+#[async_test]
+async fn test_internal_id_reuse() {
+    let timeline = TestTimelineBuilder::new().build();
+
+    let f = &timeline.factory;
+    let ev_a = f.text_msg("A").sender(*ALICE).into_event();
+    let ev_b = f.text_msg("B").sender(*BOB).into_event();
+    let ev_c = f.text_msg("C").sender(*CAROL).into_event();
+
+    // First, push three events.
+    timeline
+        .controller
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev_a, ev_b, ev_c.clone()] }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    let timeline_items = timeline.controller.items().await;
+    assert_eq!(timeline_items.len(), 4);
+
+    assert!(timeline_items[0].is_date_divider());
+    assert_eq!(timeline_items[0].unique_id().0, "3");
+
+    let event1 = &timeline_items[1];
+    assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
+    assert_eq!(event1.unique_id().0, "0");
+
+    let event2 = &timeline_items[2];
+    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.unique_id().0, "1");
+
+    let event3 = &timeline_items[3];
+    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.unique_id().0, "2");
+
+    // Then, handle a deduplication (removal then reinsertion of the same event).
+    timeline
+        .controller
+        .handle_remote_events_with_diffs(
+            vec![
+                // Note: indices are in the *event* array index space, not in the *timeline item*
+                // array index space.
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Insert { index: 2, value: ev_c },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    let timeline_items = timeline.controller.items().await;
+    assert_eq!(timeline_items.len(), 4);
+
+    // The IDs haven't changed.
+    assert!(timeline_items[0].is_date_divider());
+    assert_eq!(timeline_items[0].unique_id().0, "3");
+
+    let event1 = &timeline_items[1];
+    assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
+    assert_eq!(event1.unique_id().0, "0");
+
+    let event2 = &timeline_items[2];
+    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.unique_id().0, "1");
+
+    let event3 = &timeline_items[3];
+    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.unique_id().0, "2");
 }
 
 #[async_test]

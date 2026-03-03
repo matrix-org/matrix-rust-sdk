@@ -2656,8 +2656,8 @@ impl OlmMachine {
     ///
     /// ```
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::{device_id, user_id};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # use ruma::{device_id, owned_user_id};
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let device = machine.get_device(&alice, device_id!("DEVICEID"), None).await;
@@ -2714,8 +2714,8 @@ impl OlmMachine {
     ///
     /// ```
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::{device_id, user_id};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # use ruma::{device_id, owned_user_id};
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let devices = machine.get_user_devices(&alice, None).await.unwrap();

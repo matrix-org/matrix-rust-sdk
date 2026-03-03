@@ -893,7 +893,9 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
-    use ruma::{DeviceId, UserId, device_id, event_id, room_id, user_id};
+    use ruma::{
+        DeviceId, UserId, device_id, owned_event_id, owned_room_id, owned_user_id, user_id,
+    };
     use tokio::sync::Mutex;
 
     use crate::{
@@ -966,12 +968,11 @@ mod tests {
         assert_eq!(verification.inner.first_key(), master_key);
         assert_eq!(verification.inner.second_key(), device_key);
 
-        let bob_identity = PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned());
+        let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example"));
         let bob_master_key = bob_identity.master_public_key().await.unwrap();
         let bob_master_key = bob_master_key.get_first_key().unwrap().to_owned();
 
-        let flow_id =
-            FlowId::InRoom(room_id!("!test:example").to_owned(), event_id!("$EVENTID").to_owned());
+        let flow_id = FlowId::InRoom(owned_room_id!("!test:example"), owned_event_id!("$EVENTID"));
 
         let verification =
             QrVerification::new_cross(flow_id, master_key, bob_master_key, identities, false, None);
@@ -1099,8 +1100,7 @@ mod tests {
         let flow_id = FlowId::ToDevice("test_transaction".into());
         test(flow_id).await;
 
-        let flow_id =
-            FlowId::InRoom(room_id!("!test:example").to_owned(), event_id!("$EVENTID").to_owned());
+        let flow_id = FlowId::InRoom(owned_room_id!("!test:example"), owned_event_id!("$EVENTID"));
         test(flow_id).await;
     }
 }

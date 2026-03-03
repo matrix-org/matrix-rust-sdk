@@ -304,8 +304,8 @@ impl StaticAccountData {
         ]);
 
         let mut ret = DeviceKeys::new(
-            (*self.user_id).to_owned(),
-            (*self.device_id).to_owned(),
+            self.user_id.clone(),
+            self.device_id.clone(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             Default::default(),
@@ -769,8 +769,8 @@ impl Account {
 
         Ok(Self {
             static_data: StaticAccountData {
-                user_id: (*pickle.user_id).into(),
-                device_id: (*pickle.device_id).into(),
+                user_id: pickle.user_id.clone(),
+                device_id: pickle.device_id.clone(),
                 identity_keys: Arc::new(identity_keys),
                 dehydrated: pickle.dehydrated,
                 creation_local_time: pickle.creation_local_time,

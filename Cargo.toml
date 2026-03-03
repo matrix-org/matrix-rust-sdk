@@ -16,7 +16,7 @@ default-members = ["benchmarks", "crates/*"]
 resolver = "3"
 
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.93"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.100", default-features = false }
@@ -61,7 +61,6 @@ itertools = { version = "0.14.0", default-features = false, features = ["use_std
 js-sys = { version = "0.3.82", default-features = false, features = ["std"] }
 mime = { version = "0.3.17", default-features = false }
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
-once_cell = { version = "1.21.3", default-features = false }
 pbkdf2 = { version = "0.12.2", default-features = false }
 pin-project-lite = { version = "0.2.16", default-features = false }
 proc-macro2 = { version = "1.0.106", default-features = false }
@@ -71,7 +70,7 @@ rand = { version = "0.8.5", default-features = false, features = ["std", "std_rn
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.12.24", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "289bee87974bd3c2ad14a6c15801c80b683b67dc", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "4a0ae80fbf42d1b759e108d7315537d13583c144", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",

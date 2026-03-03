@@ -97,7 +97,7 @@ pub mod sync {
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
         state_store: &BaseStateStore,
-        #[cfg(feature = "experimental-encrypted-state-events")] e2ee: e2ee::E2EE<'_>,
+        #[cfg(feature = "experimental-encrypted-state-events")] e2ee: &e2ee::E2EE<'_>,
     ) -> StoreResult<()>
     where
         U: NewUsers,
@@ -146,7 +146,7 @@ pub mod sync {
                 #[cfg(feature = "experimental-encrypted-state-events")]
                 (StateEventType::RoomEncrypted, _) => {
                     let Some(mut raw_event) =
-                        super::decrypt_state_event(&mut raw_event, &room_info.room_id, &e2ee).await
+                        super::decrypt_state_event(&mut raw_event, &room_info.room_id, e2ee).await
                     else {
                         continue;
                     };

@@ -29,6 +29,7 @@ use matrix_sdk_base::crypto::DecryptionSettings;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
@@ -119,7 +120,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
-    cross_process_store_locks_holder_name: String,
+    cross_process_lock_config: CrossProcessLockConfig,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
     search_index_store_kind: SearchIndexStoreKind,
@@ -134,7 +135,9 @@ impl ClientBuilder {
             sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::new(
-                Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+                CrossProcessLockConfig::multi_process(
+                    Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME,
+                ),
             )),
             request_config: Default::default(),
             respect_login_well_known: true,
@@ -151,8 +154,9 @@ impl ClientBuilder {
             },
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: false,
-            cross_process_store_locks_holder_name:
-                Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+            cross_process_lock_config: CrossProcessLockConfig::MultiProcess {
+                holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+            },
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store_kind: SearchIndexStoreKind::InMemory,
@@ -297,12 +301,14 @@ impl ClientBuilder {
     ///
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
+    /// # use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{Client, config::StoreConfig};
     ///
-    /// let store_config =
-    ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-    ///         .state_store(custom_state_store);
+    /// let store_config = StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+    ///     holder_name: "cross-process-store-locks-holder-name".to_owned(),
+    /// })
+    /// .state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
@@ -487,8 +493,11 @@ impl ClientBuilder {
     ///
     /// If 2 concurrent `Client`s are running in 2 different process, this
     /// method must be called with different `hold_name` values.
-    pub fn cross_process_store_locks_holder_name(mut self, holder_name: String) -> Self {
-        self.cross_process_store_locks_holder_name = holder_name;
+    pub fn cross_process_store_config(
+        mut self,
+        cross_process_store_config: CrossProcessLockConfig,
+    ) -> Self {
+        self.cross_process_lock_config = cross_process_store_config;
         self
     }
 
@@ -541,8 +550,7 @@ impl ClientBuilder {
         } else {
             #[allow(unused_mut)]
             let mut client = BaseClient::new(
-                build_store_config(self.store_config, &self.cross_process_store_locks_holder_name)
-                    .await?,
+                build_store_config(self.store_config, &self.cross_process_lock_config).await?,
                 self.threading_support,
             );
 
@@ -619,7 +627,7 @@ impl ClientBuilder {
             self.encryption_settings,
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
-            self.cross_process_store_locks_holder_name,
+            self.cross_process_lock_config,
             #[cfg(feature = "experimental-search")]
             search_index,
             thread_subscriptions_catchup,
@@ -644,13 +652,13 @@ pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseEr
 #[allow(clippy::unused_async, unused)] // False positive when building with !sqlite & !indexeddb
 async fn build_store_config(
     builder_config: BuilderStoreConfig,
-    cross_process_store_locks_holder_name: &str,
+    cross_process_store_config: &CrossProcessLockConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[allow(clippy::infallible_destructuring_match)]
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { config, cache_path } => {
-            let store_config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
+            let store_config = StoreConfig::new(cross_process_store_config.clone())
                 .state_store(
                     matrix_sdk_sqlite::SqliteStateStore::open_with_config(config.clone()).await?,
                 )
@@ -686,7 +694,7 @@ async fn build_store_config(
             build_indexeddb_store_config(
                 &name,
                 passphrase.as_deref(),
-                cross_process_store_locks_holder_name,
+                cross_process_store_config.clone(),
             )
             .await?
         }
@@ -702,12 +710,10 @@ async fn build_store_config(
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
-    cross_process_store_locks_holder_name: &str,
+    cross_process_store_config: CrossProcessLockConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
-    let cross_process_store_locks_holder_name = cross_process_store_locks_holder_name.to_owned();
-
     let stores = matrix_sdk_indexeddb::IndexeddbStores::open(name, passphrase).await?;
-    let store_config = StoreConfig::new(cross_process_store_locks_holder_name)
+    let store_config = StoreConfig::new(cross_process_store_config)
         .state_store(stores.state)
         .event_cache_store(stores.event_cache)
         .media_store(stores.media);
@@ -723,7 +729,7 @@ async fn build_indexeddb_store_config(
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
-    _event_cache_store_lock_holder_name: &str,
+    _cross_process_store_config: CrossProcessLockConfig,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
@@ -802,7 +808,7 @@ impl fmt::Debug for BuilderStoreConfig {
 #[derive(Debug, Error)]
 pub enum ClientBuildError {
     /// No homeserver or user ID was configured
-    #[error("no homeserver or user ID was configured")]
+    #[error("No homeserver or user ID was configured")]
     MissingHomeserver,
 
     /// The supplied server name was invalid.
@@ -840,6 +846,7 @@ pub enum ClientBuildError {
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{Value as JsonValue, json_internal};
     use wiremock::{
@@ -1074,19 +1081,27 @@ pub(crate) mod tests {
             let client =
                 ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
 
-            assert_eq!(client.cross_process_store_locks_holder_name(), "main");
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "main");
         }
 
         {
             let homeserver = make_mock_homeserver().await;
             let client = ClientBuilder::new()
                 .homeserver_url(homeserver.uri())
-                .cross_process_store_locks_holder_name("foo".to_owned())
+                .cross_process_store_config(CrossProcessLockConfig::multi_process("foo"))
                 .build()
                 .await
                 .unwrap();
 
-            assert_eq!(client.cross_process_store_locks_holder_name(), "foo");
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "foo");
         }
     }
 }

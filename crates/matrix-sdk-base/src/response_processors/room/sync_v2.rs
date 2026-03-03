@@ -41,7 +41,7 @@ pub async fn update_joined_room(
     joined_room: JoinedRoom,
     updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
     notification: notification::Notification<'_>,
-    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
     let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
@@ -71,7 +71,7 @@ pub async fn update_joined_room(
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        e2ee,
     )
     .await?;
 
@@ -147,10 +147,13 @@ pub async fn update_left_room(
     room_creation_data: RoomCreationData<'_>,
     left_room: LeftRoom,
     notification: notification::Notification<'_>,
-    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
     let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
+
+    #[cfg(feature = "e2e-encryption")]
+    let olm_machine = e2ee.olm_machine;
 
     let state_store = notification.state_store;
 
@@ -172,7 +175,7 @@ pub async fn update_left_room(
         &mut (),
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
-        e2ee.clone(),
+        e2ee,
     )
     .await?;
 
@@ -186,6 +189,13 @@ pub async fn update_left_room(
         e2ee,
     )
     .await?;
+
+    // Since we are no longer joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    if let Some(olm_machine) = olm_machine {
+        olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+    }
 
     // Save the new `RoomInfo`.
     context.state_changes.add_room(room_info);
@@ -204,6 +214,7 @@ pub async fn update_invited_room(
     user_id: &UserId,
     invited_room: InvitedRoom,
     notification: notification::Notification<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<InvitedRoomUpdate> {
     let state_store = notification.state_store;
 
@@ -225,6 +236,13 @@ pub async fn update_invited_room(
     )
     .await?;
 
+    // Since we are no longer joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    if let Some(olm_machine) = e2ee.olm_machine {
+        olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+    }
+
     context.state_changes.add_room(room_info);
 
     Ok(invited_room)
@@ -237,6 +255,7 @@ pub async fn update_knocked_room(
     user_id: &UserId,
     knocked_room: KnockedRoom,
     notification: notification::Notification<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<KnockedRoomUpdate> {
     let state_store = notification.state_store;
 
@@ -257,6 +276,13 @@ pub async fn update_knocked_room(
         notification,
     )
     .await?;
+
+    // Since we are not joined to the room, we cannot be waiting for a key
+    // bundle: clear any flag that we are.
+    #[cfg(feature = "e2e-encryption")]
+    if let Some(olm_machine) = e2ee.olm_machine {
+        olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+    }
 
     context.state_changes.add_room(room_info);
 

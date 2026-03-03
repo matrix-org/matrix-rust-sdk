@@ -254,7 +254,7 @@ async fn test_dedup_by_event_id_late() {
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 // Note: no transaction id.
                 f.text_msg("Hello, World!")
-                    .sender(user_id!("@example:localhost"))
+                    .sender(client.user_id().unwrap())
                     .event_id(event_id)
                     .server_ts(123456),
             ),
@@ -274,7 +274,7 @@ async fn test_dedup_by_event_id_late() {
     assert!(date_divider.is_date_divider());
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 6);
 
     // Local echo and its date divider are removed.
     // Timeline: [date-divider, remote-echo, date-divider]
@@ -282,6 +282,25 @@ async fn test_dedup_by_event_id_late() {
 
     // Timeline: [date-divider, remote-echo]
     assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[1]);
+
+    // And now, a false negative in deduplication (because the event received by
+    // sync has been sent by the current user; see #6190 for details), so the
+    // event is deduplicated and reinserted. Timeline: [date-divider]
+    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[2]);
+
+    // Timeline: [remote-echo, date-divider]
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(event_id));
+
+    // Timeline: [date-divider, remote-echo, date-divider]
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
+    // Timeline: [date-divider, remote-echo, date-divider]
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[5]);
 
     assert_pending!(timeline_stream);
 }

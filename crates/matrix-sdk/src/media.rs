@@ -442,6 +442,7 @@ impl Media {
 
         // Use the authenticated endpoints when the server supports it.
         let supported_versions = self.client.supported_versions().await?;
+
         let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
             .is_supported(&supported_versions);
 

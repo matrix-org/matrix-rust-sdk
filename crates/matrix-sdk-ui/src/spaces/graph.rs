@@ -183,9 +183,9 @@ mod tests {
     fn test_add_edge_and_root_nodes() {
         let mut graph = SpaceGraph::new();
 
-        let a = room_id!("!a:example.org").to_owned();
-        let b = room_id!("!b:example.org").to_owned();
-        let c = room_id!("!c:example.org").to_owned();
+        let a = owned_room_id!("!a:example.org");
+        let b = owned_room_id!("!b:example.org");
+        let c = owned_room_id!("!c:example.org");
 
         graph.add_edge(a.clone(), b.clone());
         graph.add_edge(a.clone(), c.clone());
@@ -202,9 +202,9 @@ mod tests {
     fn test_remove_cycles() {
         let mut graph = SpaceGraph::new();
 
-        let a = room_id!("!a:example.org").to_owned();
-        let b = room_id!("!b:example.org").to_owned();
-        let c = room_id!("!c:example.org").to_owned();
+        let a = owned_room_id!("!a:example.org");
+        let b = owned_room_id!("!b:example.org");
+        let c = owned_room_id!("!c:example.org");
 
         graph.add_edge(a.clone(), b.clone());
         graph.add_edge(b, c.clone());
@@ -222,12 +222,12 @@ mod tests {
     fn test_disconnected_graph_roots() {
         let mut graph = SpaceGraph::new();
 
-        let a = room_id!("!a:example.org").to_owned();
-        let b = room_id!("!b:example.org").to_owned();
+        let a = owned_room_id!("!a:example.org");
+        let b = owned_room_id!("!b:example.org");
         graph.add_edge(a.clone(), b);
 
-        let x = room_id!("!x:example.org").to_owned();
-        let y = room_id!("!y:example.org").to_owned();
+        let x = owned_room_id!("!x:example.org");
+        let y = owned_room_id!("!y:example.org");
         graph.add_edge(x.clone(), y);
 
         let mut roots = graph.root_nodes();
@@ -241,10 +241,10 @@ mod tests {
     fn test_multiple_parents() {
         let mut graph = SpaceGraph::new();
 
-        let a = room_id!("!a:example.org").to_owned();
-        let b = room_id!("!b:example.org").to_owned();
-        let c = room_id!("!c:example.org").to_owned();
-        let d = room_id!("!d:example.org").to_owned();
+        let a = owned_room_id!("!a:example.org");
+        let b = owned_room_id!("!b:example.org");
+        let c = owned_room_id!("!c:example.org");
+        let d = owned_room_id!("!d:example.org");
 
         graph.add_edge(a.clone(), c.clone());
         graph.add_edge(b.clone(), c.clone());

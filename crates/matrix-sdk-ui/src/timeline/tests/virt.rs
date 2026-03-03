@@ -19,8 +19,8 @@ use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    event_id,
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+    owned_event_id,
 };
 use stream_assert::assert_next_matches;
 
@@ -152,7 +152,7 @@ async fn test_update_read_marker() {
     assert!(stream.next().now_or_never().is_none());
 
     // Nothing should happen if the fully read event isn't found.
-    timeline.controller.handle_fully_read_marker(event_id!("$fake_event_id").to_owned()).await;
+    timeline.controller.handle_fully_read_marker(owned_event_id!("$fake_event_id")).await;
     assert!(stream.next().now_or_never().is_none());
 
     // Nothing should happen if the fully read event is referring to an event

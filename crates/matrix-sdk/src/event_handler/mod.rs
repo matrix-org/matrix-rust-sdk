@@ -737,7 +737,7 @@ mod tests {
     use std::{
         future,
         sync::{
-            Arc,
+            Arc, LazyLock,
             atomic::{AtomicU8, Ordering::SeqCst},
         },
     };
@@ -745,7 +745,6 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
     use matrix_sdk_test::SyncResponseBuilder;
-    use once_cell::sync::Lazy;
     use ruma::{
         event_id,
         events::{
@@ -773,7 +772,7 @@ mod tests {
         test_utils::{logged_in_client, no_retry_test_client},
     };
 
-    static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
+    static MEMBER_EVENT: LazyLock<Raw<AnySyncTimelineEvent>> = LazyLock::new(|| {
         EventFactory::new()
             .member(user_id!("@example:localhost"))
             .membership(MembershipState::Join)

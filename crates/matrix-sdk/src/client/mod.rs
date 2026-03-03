@@ -28,7 +28,9 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
+use matrix_sdk_base::crypto::{
+    DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
+};
 use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
@@ -41,7 +43,7 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::ttl_cache::TtlCache;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::TtlCache};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -307,16 +309,15 @@ pub(crate) struct ClientInner {
     /// deduplicate multiple calls to a method.
     pub(crate) locks: ClientLocks,
 
-    /// The cross-process store locks holder name.
+    /// The cross-process lock configuration.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
-    /// `holder_name` is the value used for all cross-process store locks
-    /// used by this `Client`.
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when
+    /// [`CrossProcessLockConfig::MultiProcess`] is used.
     ///
     /// If multiple `Client`s are running in different processes, this
     /// value MUST be different for each `Client`.
-    cross_process_store_locks_holder_name: String,
+    cross_process_lock_config: CrossProcessLockConfig,
 
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
@@ -420,7 +421,7 @@ impl ClientInner {
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
-        cross_process_store_locks_holder_name: String,
+        cross_process_lock_config: CrossProcessLockConfig,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
@@ -439,7 +440,7 @@ impl ClientInner {
             base_client,
             caches,
             locks: Default::default(),
-            cross_process_store_locks_holder_name,
+            cross_process_lock_config,
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -536,14 +537,15 @@ impl Client {
         &self.inner.auth_ctx
     }
 
-    /// The cross-process store locks holder name.
+    /// The cross-process store lock configuration used by this [`Client`].
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
-    /// `holder_name` is the value used for all cross-process store locks
-    /// used by this `Client`.
-    pub fn cross_process_store_locks_holder_name(&self) -> &str {
-        &self.inner.cross_process_store_locks_holder_name
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]) when this
+    /// value is [`CrossProcessLockConfig::MultiProcess`]. Its holder name is
+    /// the value used for all cross-process store locks used by this
+    /// `Client`.
+    pub fn cross_process_lock_config(&self) -> &CrossProcessLockConfig {
+        &self.inner.cross_process_lock_config
     }
 
     /// Change the homeserver URL used by this client.
@@ -1628,6 +1630,12 @@ impl Client {
             room.set_is_direct(true).await?;
         }
 
+        // If we joined following an invite, check if we had previously received a key
+        // bundle from the inviter, and import it if so.
+        //
+        // It's important that we only do this once `BaseClient::room_joined` has
+        // completed: see the notes on `BundleReceiverTask::handle_bundle` on avoiding a
+        // race.
         #[cfg(feature = "e2e-encryption")]
         if self.inner.enable_share_history_on_invite
             && let Some(inviter) =
@@ -1900,12 +1908,12 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// use matrix_sdk::ruma::{api::client::profile, user_id};
+    /// use matrix_sdk::ruma::{api::client::profile, owned_user_id};
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
-    /// let user_id = user_id!("@example:localhost").to_owned();
+    /// let user_id = owned_user_id!("@example:localhost");
     /// let request = profile::get_profile::v3::Request::new(user_id);
     ///
     /// // Start the request using Client::send()
@@ -2517,7 +2525,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::{api::client::uiaa, device_id},
+    /// #    ruma::{api::client::uiaa, owned_device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use serde_json::json;
@@ -2526,7 +2534,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let devices = &[device_id!("DEVICEID").to_owned()];
+    /// let devices = &[owned_device_id!("DEVICEID")];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {
@@ -3089,12 +3097,12 @@ impl Client {
     /// Create a new specialized `Client` that can process notifications.
     ///
     /// See [`CrossProcessLock::new`] to learn more about
-    /// `cross_process_store_locks_holder_name`.
+    /// `cross_process_lock_config`.
     ///
     /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
-        cross_process_store_locks_holder_name: String,
+        cross_process_lock_config: CrossProcessLockConfig,
     ) -> Result<Client> {
         let client = Client {
             inner: ClientInner::new(
@@ -3105,7 +3113,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
+                    .clone_with_in_memory_state_store(cross_process_lock_config.clone(), false)
                     .await?,
                 self.inner.caches.supported_versions.read().await.clone(),
                 self.inner.caches.well_known.read().await.clone(),
@@ -3117,7 +3125,7 @@ impl Client {
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
-                cross_process_store_locks_holder_name,
+                cross_process_lock_config,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
@@ -3340,6 +3348,18 @@ impl Client {
     ) -> broadcast::Receiver<Option<DuplicateOneTimeKeyErrorMessage>> {
         self.inner.duplicate_key_upload_error_sender.subscribe()
     }
+
+    /// Check the record of whether we are waiting for an [MSC4268] key bundle
+    /// for the given room.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        Ok(self.base_client().get_pending_key_bundle_details_for_room(room_id).await?)
+    }
 }
 
 /// Contains the disk size of the different stores, if known. It won't be
@@ -3429,6 +3449,7 @@ pub(crate) mod tests {
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use ruma::{
         RoomId, ServerName, UserId,
         api::{
@@ -3801,7 +3822,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3822,7 +3843,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3879,7 +3900,7 @@ pub(crate) mod tests {
         let client = Client::builder()
             .insecure_server_name_no_tls(server_name)
             .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                     .state_store(memory_store.clone()),
             )
             .build()
@@ -3898,7 +3919,7 @@ pub(crate) mod tests {
             .no_server_versions()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3942,7 +3963,7 @@ pub(crate) mod tests {
             .client_builder()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -3960,7 +3981,7 @@ pub(crate) mod tests {
             .client_builder()
             .on_builder(|builder| {
                 builder.store_config(
-                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                         .state_store(memory_store.clone()),
                 )
             })
@@ -4158,7 +4179,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(invited_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(invited_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4180,7 +4201,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(left_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(left_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4202,7 +4223,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(knocked_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(knocked_room.room_id(), preview.room_id);
     }
 
     #[async_test]
@@ -4224,7 +4245,7 @@ pub(crate) mod tests {
             .await
             .expect("Room preview should be retrieved");
 
-        assert_eq!(joined_room.room_id().to_owned(), preview.room_id);
+        assert_eq!(joined_room.room_id(), preview.room_id);
     }
 
     #[async_test]

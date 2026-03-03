@@ -52,8 +52,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
-    events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+    encryption::KeyUsage, events::secret::request::SecretName,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -65,7 +65,8 @@ use vodozemac::{Curve25519PublicKey, megolm::SessionOrdering};
 
 use self::types::{
     Changes, CrossSigningKeyExport, DeviceChanges, DeviceUpdates, IdentityChanges, IdentityUpdates,
-    PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, UserKeyQueryResult,
+    PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, RoomPendingKeyBundleDetails,
+    UserKeyQueryResult,
 };
 use crate::{
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -100,7 +101,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    cross_process_lock::{CrossProcessLock, CrossProcessLockGeneration},
+    cross_process_lock::{CrossProcessLock, CrossProcessLockConfig, CrossProcessLockGeneration},
     deserialized_responses::WithheldCode,
     timeout::timeout,
 };
@@ -1346,9 +1347,9 @@ impl Store {
     pub fn create_store_lock(
         &self,
         lock_key: String,
-        lock_value: String,
+        config: CrossProcessLockConfig,
     ) -> CrossProcessLock<LockableCryptoStore> {
-        self.inner.store.create_store_lock(lock_key, lock_value)
+        self.inner.store.create_store_lock(lock_key, config)
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
@@ -1375,9 +1376,9 @@ impl Store {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     ///
@@ -1411,9 +1412,9 @@ impl Store {
     /// #    store::types::StoredRoomKeyBundleData,
     /// #    types::room_history::RoomKeyBundle
     /// # };
-    /// # use ruma::{device_id, user_id};
+    /// # use ruma::{device_id, owned_user_id};
     /// # use futures_util::{pin_mut, StreamExt};
-    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();
@@ -1839,6 +1840,44 @@ impl Store {
         );
 
         Ok(())
+    }
+
+    /// Store the fact that we have accepted an invite for a given room on this
+    /// client, so should accept an [MSC4268] key bundle if one arrives
+    /// soon.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub async fn store_room_pending_key_bundle(
+        &self,
+        room_id: &RoomId,
+        inviter: &UserId,
+    ) -> Result<(), CryptoStoreError> {
+        let invite_accepted_at = MilliSecondsSinceUnixEpoch::now();
+        self.save_changes(Changes {
+            rooms_pending_key_bundle: HashMap::from([(
+                room_id.to_owned(),
+                Some(RoomPendingKeyBundleDetails {
+                    room_id: room_id.to_owned(),
+                    invite_accepted_at,
+                    inviter: inviter.to_owned(),
+                }),
+            )]),
+            ..Default::default()
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Clear the record of accepting an invite for a specific room.
+    ///
+    /// The counterpart of [`Store::store_room_pending_key_bundle`].
+    pub async fn clear_room_pending_key_bundle(&self, room_id: &RoomId) -> Result<()> {
+        self.save_changes(Changes {
+            rooms_pending_key_bundle: HashMap::from([(room_id.to_owned(), None)]),
+            ..Default::default()
+        })
+        .await
     }
 }
 

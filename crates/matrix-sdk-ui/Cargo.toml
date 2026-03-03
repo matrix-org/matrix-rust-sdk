@@ -54,7 +54,6 @@ matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 mime.workspace = true
-once_cell.workspace = true
 pin-project-lite.workspace = true
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
 serde.workspace = true

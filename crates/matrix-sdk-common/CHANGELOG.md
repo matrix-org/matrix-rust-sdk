@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Added `CrossProcessLockConfig`, which can be used to configure the behavior of the cross-process lock.
+  `CrossProcessLock` now takes a `CrossProcessLockConfig` as an argument to its constructor instead of a `lock_holder` 
+  value. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] `ShieldStateCode` no longer includes
   `SentInClear`. `VerificationState::to_shield_state_{lax,strict}` never
   returned that code, and so having it in the enum was somewhat misleading.

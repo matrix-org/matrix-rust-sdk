@@ -27,9 +27,7 @@ use imbl::Vector;
 use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{
-        DecryptionRetryRequest, EventFocusThreadMode, RoomEventCache, RoomPaginationStatus,
-    },
+    event_cache::{DecryptionRetryRequest, EventFocusThreadMode, PaginationStatus, RoomEventCache},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -383,14 +381,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
                 match room_event_cache.pagination().status().get() {
-                    RoomPaginationStatus::Idle { hit_timeline_start } => {
+                    PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
                             // Eagerly insert the timeline start item, since pagination claims
                             // we've already hit the timeline start.
                             self.insert_timeline_start_if_missing().await;
                         }
                     }
-                    RoomPaginationStatus::Paginating => {}
+                    PaginationStatus::Paginating => {}
                 }
 
                 Ok(has_events)
@@ -440,34 +438,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Thread { root_event_id, .. } => {
-                let (events, _) =
-                    room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
-                let has_events = !events.is_empty();
-
-                // For each event, we also need to find the related events, as they don't
-                // include the thread relationship, they won't be included in
-                // the initial list of events.
-                let mut related_events = Vector::new();
-                for event_id in events.iter().filter_map(|event| event.event_id()) {
-                    if let Some((_original, related)) =
-                        room_event_cache.find_event_with_relations(&event_id, None).await?
-                    {
-                        related_events.extend(related);
-                    }
-                }
-
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
-
-                // Now that we've inserted the thread events, add the aggregations too.
-                if !related_events.is_empty() {
-                    self.handle_remote_aggregations(
-                        vec![VectorDiff::Append { values: related_events }],
-                        RemoteEventOrigin::Cache,
-                    )
-                    .await;
-                }
-
-                Ok(has_events)
+                self.init_with_thread_root(root_event_id, room_event_cache).await
             }
 
             TimelineFocus::PinnedEvents => {
@@ -485,6 +456,44 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
         }
+    }
+
+    /// (Re-)initialise a timeline using [`TimelineFocus::Thread`] with cached
+    /// threaded events and secondary relations.
+    ///
+    /// Returns whether there were any events added to the timeline.
+    pub(super) async fn init_with_thread_root(
+        &self,
+        root_event_id: &OwnedEventId,
+        room_event_cache: &RoomEventCache,
+    ) -> Result<bool, Error> {
+        let (events, _) = room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
+        let has_events = !events.is_empty();
+
+        // For each event, we also need to find the related events, as they don't
+        // include the thread relationship, they won't be included in
+        // the initial list of events.
+        let mut related_events = Vector::new();
+        for event_id in events.iter().filter_map(|event| event.event_id()) {
+            if let Some((_original, related)) =
+                room_event_cache.find_event_with_relations(&event_id, None).await?
+            {
+                related_events.extend(related);
+            }
+        }
+
+        self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+
+        // Now that we've inserted the thread events, add the aggregations too.
+        if !related_events.is_empty() {
+            self.handle_remote_aggregations(
+                vec![VectorDiff::Append { values: related_events }],
+                RemoteEventOrigin::Cache,
+            )
+            .await;
+        }
+
+        Ok(has_events)
     }
 
     /// Listens to encryption state changes for the room in
@@ -1616,23 +1625,20 @@ impl TimelineController {
     /// case: if the timeline has a skip count greater than 0, it will
     /// ensure that the pagination status says that we haven't reached the
     /// timeline start yet.
-    pub(super) async fn map_pagination_status(
-        &self,
-        status: RoomPaginationStatus,
-    ) -> RoomPaginationStatus {
+    pub(super) async fn map_pagination_status(&self, status: PaginationStatus) -> PaginationStatus {
         match status {
-            RoomPaginationStatus::Idle { hit_timeline_start } => {
+            PaginationStatus::Idle { hit_timeline_start } => {
                 if hit_timeline_start {
                     let state = self.state.read().await;
                     // If the skip count is greater than 0, it means that a subsequent pagination
                     // could return more items, so pretend we didn't get the information that the
                     // timeline start was hit.
                     if state.meta.subscriber_skip_count.get() > 0 {
-                        return RoomPaginationStatus::Idle { hit_timeline_start: false };
+                        return PaginationStatus::Idle { hit_timeline_start: false };
                     }
                 }
             }
-            RoomPaginationStatus::Paginating => {}
+            PaginationStatus::Paginating => {}
         }
 
         // You're perfect, just the way you are.

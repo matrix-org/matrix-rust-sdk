@@ -196,7 +196,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         let timeline_action = TimelineAction::from_content(content, in_reply_to, thread_root, None);
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, timeline_action)
+            .handle_event(&mut date_divider_adjuster, timeline_action, None)
             .await;
         txn.adjust_date_dividers(date_divider_adjuster);
 
