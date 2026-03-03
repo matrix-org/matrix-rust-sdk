@@ -191,7 +191,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         .add_item(&types::Gap {
                             linked_chunk_id: linked_chunk_id.to_owned(),
                             chunk_identifier: new.index(),
-                            prev_token: gap.prev_token,
+                            token: gap.token,
                         })
                         .await?;
                     transaction

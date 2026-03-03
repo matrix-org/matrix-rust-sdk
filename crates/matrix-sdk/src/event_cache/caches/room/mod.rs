@@ -956,7 +956,7 @@ mod timed_tests {
 
         // We start with the gap.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "raclette");
+            assert_eq!(gap.token, "raclette");
         });
 
         // Then we have the stored event.
@@ -1093,7 +1093,7 @@ mod timed_tests {
                         // Chunk IDs aren't supposed to be ordered, so use a random value here.
                         new: ChunkIdentifier::new(42),
                         next: None,
-                        gap: Gap { prev_token: "comté".to_owned() },
+                        gap: Gap { token: "comté".to_owned() },
                     },
                     // Another items chunk, non-empty this time.
                     Update::NewItemsChunk {
@@ -1251,7 +1251,7 @@ mod timed_tests {
                         // Chunk IDs aren't supposed to be ordered, so use a random value here.
                         new: ChunkIdentifier::new(42),
                         next: None,
-                        gap: Gap { prev_token: "cheddar".to_owned() },
+                        gap: Gap { token: "cheddar".to_owned() },
                     },
                     // Another items chunk, non-empty this time.
                     Update::NewItemsChunk {
@@ -1547,7 +1547,7 @@ mod timed_tests {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
                     ChunkContent::Gap(gap) => {
-                        assert_eq!(gap.prev_token, "raclette");
+                        assert_eq!(gap.token, "raclette");
                         num_gaps += 1;
                     }
                 }

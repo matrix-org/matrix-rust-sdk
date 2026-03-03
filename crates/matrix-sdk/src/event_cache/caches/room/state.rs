@@ -494,7 +494,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
-        if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.prev_token) {
+        if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.token) {
             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
                 waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
@@ -583,7 +583,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             ChunkContent::Gap(gap) => {
                 trace!("reloaded chunk from disk (gap)");
                 LoadMoreEventsBackwardsOutcome::Gap {
-                    prev_token: Some(gap.prev_token),
+                    prev_token: Some(gap.token),
                     waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
                 }
             }
@@ -891,7 +891,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         self.state
             .room_linked_chunk
-            .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
+            .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
 
         self.post_process_new_events(events, PostProcessingOrigin::Sync).await?;
 

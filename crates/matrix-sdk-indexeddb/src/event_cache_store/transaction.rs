@@ -236,7 +236,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                         .get_gap_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
                         .await?
                         .ok_or(TransactionError::ItemNotFound)?;
-                    ChunkContent::Gap(RawGap { prev_token: gap.prev_token })
+                    ChunkContent::Gap(RawGap { token: gap.token })
                 }
             };
             return Ok(Some(RawChunk {

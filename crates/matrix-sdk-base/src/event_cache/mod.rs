@@ -26,5 +26,5 @@ pub type Event = TimelineEvent;
 pub struct Gap {
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
-    pub prev_token: String,
+    pub token: String,
 }

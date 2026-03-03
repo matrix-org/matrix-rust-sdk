@@ -88,9 +88,8 @@ fn writing(c: &mut Criterion) {
                     }
 
                     {
-                        operations.push(Operation::PushGapBack(Gap {
-                            prev_token: format!("gap{gap_nth}"),
-                        }));
+                        operations
+                            .push(Operation::PushGapBack(Gap { token: format!("gap{gap_nth}") }));
                         gap_nth += 1;
                     }
                 }
@@ -198,7 +197,7 @@ fn reading(c: &mut Criterion) {
                     }
 
                     lc.push_items_back(events_chunk);
-                    lc.push_gap_back(Gap { prev_token: format!("gap{num_gaps}") });
+                    lc.push_gap_back(Gap { token: format!("gap{num_gaps}") });
 
                     num_gaps += 1;
                 }

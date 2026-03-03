@@ -167,7 +167,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         let prev_gap_id = if let Some(token) = prev_token {
             // Find the corresponding gap in the in-memory linked chunk.
             let gap_chunk_id = state.room_linked_chunk().chunk_identifier(|chunk| {
-                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { token: prev_token }) if *prev_token == token)
                 });
 
             if gap_chunk_id.is_none() {
@@ -231,7 +231,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // the inverted order; reorder them.
         let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-        let new_gap = new_token.map(|prev_token| Gap { prev_token });
+        let new_gap = new_token.map(|prev_token| Gap { token: prev_token });
         let reached_start = state.room_linked_chunk_mut().push_backwards_pagination_events(
             prev_gap_id,
             new_gap,

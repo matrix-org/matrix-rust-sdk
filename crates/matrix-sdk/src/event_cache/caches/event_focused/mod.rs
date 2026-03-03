@@ -241,12 +241,13 @@ impl EventFocusedCacheInner {
     ) {
         // Insert backward gap at the back if we have a token, and the events
         // themselves.
-        self.chunk.push_live_events(prev_gap_token.map(|prev_token| Gap { prev_token }), &events);
+        self.chunk
+            .push_live_events(prev_gap_token.map(|prev_token| Gap { token: prev_token }), &events);
 
         // Insert forward gap at back if we have a token.
         if let Some(next_token) = next_gap_token {
             trace!("inserting forward pagination gap at back");
-            self.chunk.push_gap(Gap { prev_token: next_token });
+            self.chunk.push_gap(Gap { token: next_token });
         }
     }
 
@@ -298,7 +299,7 @@ impl EventFocusedCacheInner {
             return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
         };
 
-        let token = gap.prev_token;
+        let token = gap.token;
         trace!(?token, "paginating backwards with token from front gap");
 
         // Fetch events based on pagination mode.
@@ -316,7 +317,7 @@ impl EventFocusedCacheInner {
         events.reverse();
 
         let hit_end = new_token.is_none();
-        let new_gap = new_token.map(|t| Gap { prev_token: t });
+        let new_gap = new_token.map(|t| Gap { token: t });
 
         // Replace the gap and insert the new events.
         self.chunk.push_backwards_pagination_events(Some(gap_id), new_gap, &events);
@@ -399,7 +400,7 @@ impl EventFocusedCacheInner {
             return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
         };
 
-        let token = gap.prev_token;
+        let token = gap.token;
         trace!(?token, "paginating forwards with token from back gap");
 
         // Fetch events based on pagination mode.
@@ -413,7 +414,7 @@ impl EventFocusedCacheInner {
         };
 
         let hit_end = new_token.is_none();
-        let new_gap = new_token.map(|t| Gap { prev_token: t });
+        let new_gap = new_token.map(|t| Gap { token: t });
 
         // Replace the gap and insert new events.
         self.chunk.push_forwards_pagination_events(Some(gap_id), new_gap, &events);
