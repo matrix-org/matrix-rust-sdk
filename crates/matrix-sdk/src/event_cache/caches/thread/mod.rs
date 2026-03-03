@@ -174,7 +174,7 @@ impl ThreadEventCache {
     pub fn load_more_events_backwards(&self) -> LoadMoreEventsBackwardsOutcome {
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
-        if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.prev_token) {
+        if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.token) {
             trace!(%prev_token, "thread chunk has at least a gap");
             return LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
@@ -282,7 +282,7 @@ impl ThreadEventCache {
             // If the gap id is missing, it means that the gap disappeared during
             // pagination; in this case, early return to the caller.
             let gap_id = self.chunk.chunk_identifier(|chunk| {
-                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { token: prev_token }) if *prev_token == token)
                 })?;
 
             Some(gap_id)
@@ -293,7 +293,7 @@ impl ThreadEventCache {
         // This is a backwards pagination, so the events were returned in the reverse
         // topological order.
         let topo_ordered_events = events.iter().cloned().rev().collect::<Vec<_>>();
-        let new_gap = new_token.map(|token| Gap { prev_token: token });
+        let new_gap = new_token.map(|token| Gap { token });
 
         let deduplication = self.filter_duplicate_events(topo_ordered_events);
 

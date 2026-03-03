@@ -214,5 +214,6 @@ pub struct Gap {
     pub chunk_identifier: u64,
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
-    pub prev_token: String,
+    #[serde(alias = "prev_token")]
+    pub token: String,
 }

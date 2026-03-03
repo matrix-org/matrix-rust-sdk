@@ -242,7 +242,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: None,
-                    gap: Gap { prev_token: "parmesan".to_owned() },
+                    gap: Gap { token: "parmesan".to_owned() },
                 },
                 // another items chunk
                 Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
@@ -283,7 +283,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             assert_eq!(second.identifier(), CId::new(1));
 
             assert_matches!(second.content(), ChunkContent::Gap(gap) => {
-                assert_eq!(gap.prev_token, "parmesan");
+                assert_eq!(gap.token, "parmesan");
             });
         }
 
@@ -335,7 +335,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 previous: Some(CId::new(41)),
                 new: CId::new(42),
                 next: None,
-                gap: Gap { prev_token: "gap".to_owned() },
+                gap: Gap { token: "gap".to_owned() },
             }],
         )
         .await
@@ -348,7 +348,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 previous: None,
                 new: CId::new(42),
                 next: Some(CId::new(43)),
-                gap: Gap { prev_token: "gap".to_owned() },
+                gap: Gap { token: "gap".to_owned() },
             }],
         )
         .await
@@ -377,7 +377,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: None,
-                    gap: Gap { prev_token: "parmesan".to_owned() },
+                    gap: Gap { token: "parmesan".to_owned() },
                 },
                 // another items chunk
                 Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
@@ -626,7 +626,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: None,
-                    gap: Gap { prev_token: "morbier".to_owned() },
+                    gap: Gap { token: "morbier".to_owned() },
                 },
                 // new chunk for items
                 Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
@@ -704,7 +704,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert_eq!(chunk.lazy_previous(), Some(CId::new(0)));
 
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
-                    assert_eq!(gap.prev_token, "morbier");
+                    assert_eq!(gap.token, "morbier");
                 });
             });
 
@@ -742,7 +742,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
                 // Already asserted, but let's be sure nothing breaks.
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
-                    assert_eq!(gap.prev_token, "morbier");
+                    assert_eq!(gap.token, "morbier");
                 });
             });
 
@@ -793,7 +793,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert!(chunk.lazy_previous().is_none());
 
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
-                    assert_eq!(gap.prev_token, "morbier");
+                    assert_eq!(gap.token, "morbier");
                 });
             });
 
@@ -825,19 +825,19 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: None,
                     new: CId::new(42),
                     next: None,
-                    gap: Gap { prev_token: "raclette".to_owned() },
+                    gap: Gap { token: "raclette".to_owned() },
                 },
                 Update::NewGapChunk {
                     previous: Some(CId::new(42)),
                     new: CId::new(43),
                     next: None,
-                    gap: Gap { prev_token: "fondue".to_owned() },
+                    gap: Gap { token: "fondue".to_owned() },
                 },
                 Update::NewGapChunk {
                     previous: Some(CId::new(43)),
                     new: CId::new(44),
                     next: None,
-                    gap: Gap { prev_token: "tartiflette".to_owned() },
+                    gap: Gap { token: "tartiflette".to_owned() },
                 },
                 Update::RemoveChunk(CId::new(43)),
             ],
@@ -855,7 +855,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(c.previous, None);
         assert_eq!(c.next, Some(CId::new(44)));
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "raclette");
+            assert_eq!(gap.token, "raclette");
         });
 
         let c = chunks.remove(0);
@@ -863,7 +863,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(c.previous, Some(CId::new(42)));
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
-            assert_eq!(gap.prev_token, "tartiflette");
+            assert_eq!(gap.token, "tartiflette");
         });
     }
 
@@ -1043,7 +1043,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(42)),
                     new: CId::new(54),
                     next: None,
-                    gap: Gap { prev_token: "fondue".to_owned() },
+                    gap: Gap { token: "fondue".to_owned() },
                 },
                 Update::PushItems {
                     at: Position::new(CId::new(42), 0),
@@ -1074,7 +1074,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(42)),
                     new: CId::new(54),
                     next: None,
-                    gap: Gap { prev_token: "fondue".to_owned() },
+                    gap: Gap { token: "fondue".to_owned() },
                 },
                 Update::PushItems {
                     at: Position::new(CId::new(42), 0),
@@ -1203,7 +1203,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: None,
-                    gap: Gap { prev_token: "bleu d'auvergne".to_owned() },
+                    gap: Gap { token: "bleu d'auvergne".to_owned() },
                 },
                 // another items chunk
                 Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
@@ -1330,7 +1330,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: None,
-                    gap: Gap { prev_token: "brillat-savarin".to_owned() },
+                    gap: Gap { token: "brillat-savarin".to_owned() },
                 },
                 Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
                 Update::PushItems {
