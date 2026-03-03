@@ -319,20 +319,34 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         let fields_parser = &*FIELDS_PARSER;
 
         if let Some(captures) = message_parser.captures(&message) {
+            // Poor man HTML sanitizer.
+            let formatted_message = captures
+                .name("message")
+                .expect("Failed to parse the `message`")
+                .as_str()
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+
             writeln!(
                 buffer,
-                "<li><time datetime=\"{date_time}\">{time}</time> {message} <span title=\"Log line\">[#{log_line}]</span>\
+                "<li><time datetime=\"{date_time}\">{time}</time> {formatted_message} <span title=\"Log line\">[#{log_line}]</span>\
                 <span class=\"aside\">\
                 <span class=\"highlight\"><input type=\"checkbox\" title=\"Highlight\" /></span>\
                 </span>\
                 ",
-                message = captures.name("message").expect("Failed to parse the `message`").as_str(),
                 date_time = date_time.format("%+"),
                 time = date_time.format("%H:%M:%S%.3f"),
             )
             .unwrap();
 
-            if let Some(fields) = captures.name("fields") {
+            // The message can contain HTML data. It happens notably when the
+            // homeserver is broken, and an HTML document is returned in some
+            // errors. We don't want to parse the fields in this case, because
+            // HTML breaks everything.
+            if !formatted_message.contains("!DOCTYPE html")
+                && let Some(fields) = captures.name("fields")
+            {
                 writeln!(buffer, "<ul class=\"fields\">").unwrap();
 
                 let mut fields = &message[fields.start()..fields.end()];
