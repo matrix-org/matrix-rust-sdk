@@ -85,7 +85,10 @@ use ruma::{
         filter::LazyLoadOptions,
         membership::{
             Invite3pid, ban_user, forget_room, get_member_events,
-            invite_user::{self, v3::InvitationRecipient},
+            invite_user::{
+                self,
+                v3::{InvitationRecipient, InviteUserId},
+            },
             kick_user, leave_room, unban_user,
         },
         message::send_message_event,
@@ -2001,7 +2004,7 @@ impl Room {
             shared_room_history::share_room_history(self, user_id.to_owned()).await?;
         }
 
-        let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
+        let recipient = InvitationRecipient::UserId(InviteUserId::new(user_id.to_owned()));
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
 
