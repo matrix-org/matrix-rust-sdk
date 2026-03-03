@@ -31,7 +31,6 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
     Position,
 };
-use ruma::EventId;
 use tracing::trace;
 
 #[cfg(feature = "e2e-encryption")]
@@ -460,7 +459,8 @@ impl EventLinkedChunk {
 
     /// Find an event in the event linked chunk by its event ID, and return its
     /// location.
-    pub fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
+    #[cfg(feature = "e2e-encryption")]
+    pub fn find_event(&self, event_id: &ruma::EventId) -> Option<(Position, Event)> {
         for (position, event) in self.revents() {
             if event.event_id().as_deref() == Some(event_id) {
                 return Some((position, event.clone()));
