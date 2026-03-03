@@ -55,8 +55,8 @@ use tracing::{info, trace, warn};
 
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
-    EventTimelineItem, MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus,
-    TimelineEventItemId, TimelineItem, TimelineItemContent,
+    BeaconInfo, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind, PollState,
+    ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
 
 #[derive(Clone)]
@@ -136,6 +136,9 @@ pub(crate) enum AggregationKind {
     /// `Aggregation::unapply`, and the callers have the responsibility of
     /// considering all the edits and applying only the right one.
     Edit(PendingEdit),
+
+    /// A location update for a live location sharing session (MSC3489).
+    BeaconUpdate { location: BeaconInfo },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -170,6 +173,26 @@ fn poll_state_from_item<'a>(
     } else {
         Err(AggregationError::InvalidType {
             expected: "a poll".to_owned(),
+            actual: event.content().debug_string().to_owned(),
+        })
+    }
+}
+
+/// Get the [`LiveLocationState`] from a given [`TimelineItemContent`], mutably.
+fn live_location_state_from_item<'a>(
+    event: &'a mut Cow<'_, EventTimelineItem>,
+) -> Result<&'a mut LiveLocationState, AggregationError> {
+    if event.content().is_live_location() {
+        // It was a live location! Now return the state as mutable.
+        let state = event
+            .to_mut()
+            .content_mut()
+            .as_live_location_state_mut()
+            .expect("it was a live location just above");
+        Ok(state)
+    } else {
+        Err(AggregationError::InvalidType {
+            expected: "a live location".to_owned(),
             actual: event.content().debug_string().to_owned(),
         })
     }
@@ -275,6 +298,16 @@ impl Aggregation {
                 // Let the caller handle the edit.
                 ApplyAggregationResult::Edit
             }
+
+            AggregationKind::BeaconUpdate { location } => {
+                match live_location_state_from_item(event) {
+                    Ok(state) => {
+                        state.add_location(location.clone());
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
         }
     }
 
@@ -343,6 +376,16 @@ impl Aggregation {
             AggregationKind::Edit(_) => {
                 // Let the caller handle the edit.
                 ApplyAggregationResult::Edit
+            }
+
+            AggregationKind::BeaconUpdate { location } => {
+                match live_location_state_from_item(event) {
+                    Ok(state) => {
+                        state.remove_location(location.ts);
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
             }
         }
     }
@@ -579,7 +622,8 @@ impl Aggregations {
                 AggregationKind::PollResponse { .. }
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
-                | AggregationKind::Redaction => {
+                | AggregationKind::Redaction
+                | AggregationKind::BeaconUpdate { .. } => {
                     // Nothing particular to do.
                 }
 
