@@ -303,12 +303,17 @@ impl RoomEventCache {
         // Initialize the cache from the server.
         cache.start_from(room, num_context_events, thread_mode).await?;
 
+        let mut guard = self.inner.state.write().await?;
+
+        // Check again if we already have a cache for this event, just in case there was
+        // a race with another caller during initialization.
+        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
+            trace!("another cache has been racily created, returning it");
+            return Ok(cache);
+        }
+
         // Insert the cache in the map.
-        self.inner.state.write().await?.insert_event_focused_cache(
-            event_id,
-            thread_mode,
-            cache.clone(),
-        );
+        guard.insert_event_focused_cache(event_id, thread_mode, cache.clone());
 
         Ok(cache)
     }
@@ -2153,6 +2158,19 @@ mod private {
         ) {
             let key = EventFocusedCacheKey { focused: event_id, thread_mode };
             self.state.event_focused_caches.insert(key, cache);
+        }
+
+        /// Get an event-focused cache for this event and thread mode, if it
+        /// exists.
+        ///
+        /// Otherwise, returns `None`.
+        pub fn get_event_focused_cache(
+            &self,
+            event_id: OwnedEventId,
+            thread_mode: EventFocusThreadMode,
+        ) -> Option<EventFocusedCache> {
+            let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+            self.state.event_focused_caches.get(&key).cloned()
         }
     }
 
