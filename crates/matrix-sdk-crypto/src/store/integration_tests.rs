@@ -1426,9 +1426,16 @@ macro_rules! cryptostore_integration_tests {
 
                 let details = store.get_pending_key_bundle_details_for_room(test_room).await.unwrap();
                 assert_matches!(details, Some(details) => {
+                    assert_eq!(details.room_id, test_room);
                     assert_eq!(details.inviter, test_user);
                     assert_eq!(details.invite_accepted_at, timestamp);
                 });
+
+                let all_rooms = store.get_all_rooms_pending_key_bundles().await.unwrap();
+                assert_eq!(all_rooms.len(), 1);
+                assert_eq!(all_rooms[0].room_id, test_room);
+                assert_eq!(all_rooms[0].inviter, test_user);
+                assert_eq!(all_rooms[0].invite_accepted_at, timestamp);
 
                 // Clear the entry, and check it is blank again
                 store.save_changes(Changes {
