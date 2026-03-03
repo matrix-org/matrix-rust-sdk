@@ -18,7 +18,6 @@ use ruma::{
     events::{
         Mentions,
         reaction::RedactedReactionEventContent,
-        relation::InReplyTo,
         room::{
             ImageInfo,
             encrypted::{
@@ -678,7 +677,8 @@ async fn test_send_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -686,8 +686,8 @@ async fn test_send_reply() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
@@ -780,7 +780,8 @@ async fn test_send_reply_to_self() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by the current user.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -788,8 +789,8 @@ async fn test_send_reply_to_self() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_self);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_self);
             });
             assert!(reply_event.mentions.is_none());
 
@@ -944,7 +945,8 @@ async fn test_send_reply_with_event_id() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -952,8 +954,8 @@ async fn test_send_reply_with_event_id() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
@@ -1230,7 +1232,8 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -1238,8 +1241,8 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, redacted_event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, redacted_event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);

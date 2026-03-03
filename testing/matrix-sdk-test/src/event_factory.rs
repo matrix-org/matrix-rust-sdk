@@ -57,7 +57,7 @@ use ruma::{
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::{Annotation, BundledThread, InReplyTo, Reference, Replacement, Thread},
+        relation::{Annotation, BundledThread, Reference, Replacement, Reply, Thread},
         room::{
             ImageInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -443,8 +443,7 @@ impl EventBuilder<RoomEncryptedEventContent> {
 impl EventBuilder<RoomMessageEventContent> {
     /// Adds a reply relation to the current event.
     pub fn reply_to(mut self, event_id: &EventId) -> Self {
-        self.content.relates_to =
-            Some(Relation::Reply { in_reply_to: InReplyTo::new(event_id.to_owned()) });
+        self.content.relates_to = Some(Relation::Reply(Reply::with_event_id(event_id.to_owned())));
         self
     }
 
@@ -518,9 +517,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
     /// Adds a reply relation to the current event.
     pub fn reply_to(mut self, event_id: &EventId) -> Self {
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
-            content.relates_to = Some(RelationWithoutReplacement::Reply {
-                in_reply_to: InReplyTo::new(event_id.to_owned()),
-            });
+            content.relates_to =
+                Some(RelationWithoutReplacement::Reply(Reply::with_event_id(event_id.to_owned())));
         }
         self
     }
