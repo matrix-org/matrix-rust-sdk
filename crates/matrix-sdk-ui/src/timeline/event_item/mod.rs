@@ -40,10 +40,10 @@ mod remote;
 
 pub use self::{
     content::{
-        AnyOtherStateEventContentChange, EmbeddedEvent, EncryptedMessage, InReplyToDetails,
-        MemberProfileChange, MembershipChange, Message, MsgLikeContent, MsgLikeKind,
-        OtherMessageLike, OtherState, PollResult, PollState, RoomMembershipChange,
-        RoomPinnedEventsChange, Sticker, ThreadSummary, TimelineItemContent,
+        AnyOtherStateEventContentChange, BeaconInfo, EmbeddedEvent, EncryptedMessage,
+        InReplyToDetails, LiveLocationState, MemberProfileChange, MembershipChange, Message,
+        MsgLikeContent, MsgLikeKind, OtherMessageLike, OtherState, PollResult, PollState,
+        RoomMembershipChange, RoomPinnedEventsChange, Sticker, ThreadSummary, TimelineItemContent,
     },
     local::{EventSendState, MediaUploadProgress},
 };
@@ -562,7 +562,8 @@ impl EventTimelineItem {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => None,
+            | TimelineItemContent::RtcNotification
+            | TimelineItemContent::LiveLocation(_) => None,
         };
 
         if let Some(body) = body {
