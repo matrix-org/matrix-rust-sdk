@@ -25,7 +25,10 @@ use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
         MatrixVersion,
-        client::{account::register, error::ErrorKind},
+        client::{
+            account::register,
+            error::{ErrorKind, UnknownTokenErrorData},
+        },
     },
     assign, owned_device_id, owned_user_id,
 };
@@ -377,10 +380,13 @@ async fn test_refresh_token_handled_failure() {
     assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
     assert_matches!(
         http_err.client_api_error_kind(),
-        Some(ErrorKind::UnknownToken { soft_logout: true })
+        Some(ErrorKind::UnknownToken(UnknownTokenErrorData { soft_logout: true, .. }))
     );
 
-    assert_eq!(session_changes.try_recv(), Ok(SessionChange::UnknownToken { soft_logout: true }));
+    assert_matches!(
+        session_changes.try_recv(),
+        Ok(SessionChange::UnknownToken(UnknownTokenErrorData { soft_logout: true, .. }))
+    );
     assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -664,9 +670,9 @@ async fn test_oauth_refresh_token_handled_failure() {
     );
 
     // We get notified once that the token is invalid.
-    assert_eq!(
+    assert_matches!(
         session_changes.try_recv(),
-        Ok(SessionChange::UnknownToken { soft_logout: false }),
+        Ok(SessionChange::UnknownToken(UnknownTokenErrorData { soft_logout: false, .. })),
         "The session changes should be notified that the token is invalid"
     );
     assert_eq!(

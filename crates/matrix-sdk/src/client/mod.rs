@@ -63,7 +63,7 @@ use ruma::{
                 get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
-            error::ErrorKind,
+            error::{ErrorKind, UnknownTokenErrorData},
             filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
@@ -165,10 +165,7 @@ pub enum LoopCtrl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionChange {
     /// The session's token is no longer valid.
-    UnknownToken {
-        /// Whether or not the session was soft logged out
-        soft_logout: bool,
-    },
+    UnknownToken(UnknownTokenErrorData),
     /// The session's tokens have been refreshed.
     TokensRefreshed,
 }
@@ -1983,12 +1980,12 @@ impl Client {
         result
     }
 
-    fn broadcast_unknown_token(&self, soft_logout: &bool) {
+    fn broadcast_unknown_token(&self, unknown_token_data: &UnknownTokenErrorData) {
         _ = self
             .inner
             .auth_ctx
             .session_change_sender
-            .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
+            .send(SessionChange::UnknownToken(unknown_token_data.clone()));
     }
 
     /// Fetches server versions from network; no caching.

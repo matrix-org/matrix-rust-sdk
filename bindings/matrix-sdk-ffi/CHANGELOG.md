@@ -91,6 +91,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `current_version` field of `ErrorKind::WrongRoomKeysVersion`
+  is no longer optional.
+  ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
 - [**breaking**] The following variants of `AccountManagementAction` were
   renamed to match their new names after being merge in the Matrix specification:
   - `SessionsList` is renamed to `DevicesList`
