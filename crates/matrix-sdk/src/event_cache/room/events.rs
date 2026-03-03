@@ -287,25 +287,32 @@ impl EventLinkedChunk {
             .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
     }
 
+    /// Add the a pagination token to the end of the linked chunk.
+    ///
+    /// Also make sure to get rid of empty event chunks before the gap, as they
+    /// wouldn't be useful to keep.
+    pub fn push_gap(&mut self, gap: Gap) {
+        // As a tiny optimization: remove the last chunk if it's an empty event
+        // one, as it's not useful to keep it before a gap.
+        let prev_chunk_to_remove = self.rchunks().next().and_then(|chunk| {
+            (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
+        });
+
+        self.chunks.push_gap_back(gap);
+
+        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+            self.chunks
+                .remove_empty_chunk_at(prev_chunk_to_remove)
+                .expect("we just checked the chunk is there, and it's an empty item chunk");
+        }
+    }
+
     /// Add the previous back-pagination token (if present), followed by the
     /// timeline events themselves.
     pub fn push_live_events(&mut self, new_gap: Option<Gap>, events: &[Event]) {
         if let Some(new_gap) = new_gap {
-            // As a tiny optimization: remove the last chunk if it's an empty event
-            // one, as it's not useful to keep it before a gap.
-            let prev_chunk_to_remove = self.rchunks().next().and_then(|chunk| {
-                (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
-            });
-
-            self.chunks.push_gap_back(new_gap);
-
-            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                self.chunks
-                    .remove_empty_chunk_at(prev_chunk_to_remove)
-                    .expect("we just checked the chunk is there, and it's an empty item chunk");
-            }
+            self.push_gap(new_gap);
         }
-
         self.chunks.push_items_back(events.iter().cloned());
     }
 

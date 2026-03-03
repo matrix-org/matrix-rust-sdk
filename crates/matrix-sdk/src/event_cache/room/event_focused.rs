@@ -250,7 +250,7 @@ impl EventFocusedCacheInner {
         // Insert forward gap at back if we have a token.
         if let Some(next_token) = next_gap_token {
             trace!("inserting forward pagination gap at back");
-            self.chunk.push_live_events(Some(Gap { prev_token: next_token }), &[]);
+            self.chunk.push_gap(Gap { prev_token: next_token });
         }
     }
 
