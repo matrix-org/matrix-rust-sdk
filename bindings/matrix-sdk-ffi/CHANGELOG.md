@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/pull/3489)  
+  live location sharing through a new `TimelineItemContent::LiveLocation` variant.
+  ([#6232](https://github.com/matrix-org/matrix-rust-sdk/pull/6232))
 - Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
