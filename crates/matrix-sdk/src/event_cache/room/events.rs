@@ -507,6 +507,17 @@ impl EventLinkedChunk {
 
         replaced_some
     }
+
+    /// Return the first chunk as a gap, if it's one.
+    pub fn first_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
+        self.chunks().next().and_then(|chunk| {
+            if let ChunkContent::Gap(gap) = chunk.content() {
+                Some((chunk.identifier(), gap.clone()))
+            } else {
+                None
+            }
+        })
+    }
 }
 
 // Methods related to lazy-loading.

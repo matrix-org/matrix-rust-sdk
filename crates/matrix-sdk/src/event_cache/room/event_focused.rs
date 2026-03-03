@@ -277,16 +277,8 @@ impl EventFocusedCacheInner {
     }
 
     /// Return the first chunk as a gap, if it's one.
-    ///
-    /// This stores the backward pagination token, in this case.
     fn first_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
-        self.chunk.chunks().next().and_then(|chunk| {
-            if let ChunkContent::Gap(gap) = chunk.content() {
-                Some((chunk.identifier(), gap.clone()))
-            } else {
-                None
-            }
-        })
+        self.chunk.first_chunk_as_gap()
     }
 
     /// Return the last chunk as a gap, if it's one.
