@@ -52,6 +52,7 @@ use ruma::{
     room_version_rules::RedactionRules,
 };
 
+mod live_location;
 mod message;
 mod msg_like;
 pub(super) mod other;
@@ -65,6 +66,7 @@ pub(in crate::timeline) use self::message::{
     extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
 };
 pub use self::{
+    live_location::{BeaconInfo, LiveLocationState},
     message::Message,
     msg_like::{MsgLikeContent, MsgLikeKind, ThreadSummary},
     other::OtherMessageLike,
@@ -114,11 +116,38 @@ pub enum TimelineItemContent {
 
     /// An `m.rtc.notification` event
     RtcNotification,
+
+    /// A live location sharing session (MSC3489).
+    ///
+    /// Created from an `org.matrix.msc3672.beacon_info` state event.
+    /// Subsequent `org.matrix.msc3672.beacon` message-like events are
+    /// aggregated onto this item.
+    LiveLocation(LiveLocationState),
 }
 
 impl TimelineItemContent {
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
         as_variant!(self, TimelineItemContent::MsgLike)
+    }
+
+    /// If `self` is of the [`LiveLocation`][Self::LiveLocation] variant, return
+    /// the inner [`LiveLocationState`].
+    pub fn as_live_location_state(&self) -> Option<&LiveLocationState> {
+        as_variant!(self, Self::LiveLocation)
+    }
+
+    /// If `self` is of the [`LiveLocation`][Self::LiveLocation] variant, return
+    /// the inner [`LiveLocationState`] mutably.
+    pub(in crate::timeline) fn as_live_location_state_mut(
+        &mut self,
+    ) -> Option<&mut LiveLocationState> {
+        as_variant!(self, Self::LiveLocation)
+    }
+
+    /// Check whether this item's content is a live location
+    /// [`LiveLocation`][Self::LiveLocation].
+    pub fn is_live_location(&self) -> bool {
+        matches!(self, Self::LiveLocation(_))
     }
 
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
@@ -227,6 +256,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
             TimelineItemContent::RtcNotification => "a call notification",
+            TimelineItemContent::LiveLocation(_) => "a live location share",
         }
     }
 
@@ -297,7 +327,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification | Self::LiveLocation(_) => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -329,7 +359,8 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification
+            | TimelineItemContent::LiveLocation(..) => {
                 // No reactions for these kind of items.
                 None
             }
@@ -354,7 +385,8 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification
+            | TimelineItemContent::LiveLocation(..) => {
                 // No reactions for these kind of items.
                 None
             }
