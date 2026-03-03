@@ -22,8 +22,8 @@
 //! - In-memory storage, as these linked chunks are meant to be short-lived.
 //!
 //! Pagination tokens are stored as Gap items in the linked chunk:
-//! - Backward token: Gap at the front of the chunk
-//! - Forward token: Gap at the back of the chunk
+//! - Backward token: Gap at the front of the linked chunk.
+//! - Forward token: Gap at the back of the linked chunk.
 //!
 //! This allows pagination to resume at any point, and supports a future use
 //! case where we'd want to persist these caches on disk (e.g., for permalinks
@@ -64,26 +64,27 @@ use crate::{
 /// focused event may be part of a thread, or a thread's root.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum EventFocusThreadMode {
-    /// Force the timeline into threaded mode.
+    /// Force the timeline represented by the linked chunk to only include
+    /// threaded events.
     ///
-    /// When the focused event is part of a thread, the timeline will be focused
-    /// on that thread's root. Otherwise, the timeline will treat the target
-    /// event itself as the thread root. Threaded events will never be
-    /// hidden.
+    /// When the focused event is part of a thread, the linked chunk will be
+    /// focused on that thread's root. Otherwise, the linked chunk will
+    /// treat the target event itself as the thread root. Threaded events
+    /// will never be hidden.
     ForceThread,
 
     /// Automatically determine if the target event is part of a thread or not.
     ///
-    /// If the event is part of a thread, the timeline will be filtered to
+    /// If the event is part of a thread, the linked chunk will be filtered to
     /// on-thread events.
     Automatic,
 }
 
-/// The mode of pagination for an event-focused timeline.
+/// The mode of pagination for an event-focused linked chunk.
 #[derive(Debug, Clone)]
 pub(crate) enum EventFocusedPaginationMode {
-    /// Standard room pagination (for all events as part of the unthreaded
-    /// timeline).
+    /// Standard room pagination (for all events as for an unthreaded/main room
+    /// linked chunk).
     Room,
 
     /// Threaded pagination (the focused event is part of a thread).
@@ -94,7 +95,7 @@ pub(crate) enum EventFocusedPaginationMode {
 }
 
 struct EventFocusedCacheInner {
-    /// The room owning this timeline.
+    /// The room owning this event-focused cache.
     room: WeakRoom,
 
     /// The focused event ID.
@@ -103,10 +104,10 @@ struct EventFocusedCacheInner {
     /// The pagination mode (room or thread).
     pagination_mode: EventFocusedPaginationMode,
 
-    /// The linked chunk for this focused timeline.
+    /// The linked chunk for this event-focused cache.
     chunk: EventLinkedChunk,
 
-    /// A sender for timeline updates.
+    /// A sender of timeline updates.
     sender: Sender<TimelineVectorDiffs>,
 
     /// A sender for globally observable linked chunk updates.
@@ -122,8 +123,8 @@ impl EventFocusedCacheInner {
     /// appropriate pagination mode.
     ///
     /// Pagination tokens are stored as gaps in the linked chunk:
-    /// - Backward token (start): Gap at the front
-    /// - Forward token (end): Gap at the back
+    /// - Backward token (start): Gap at the front of the linked chunk.
+    /// - Forward token (end): Gap at the back of the linked chunk.
     #[instrument(skip(self, room), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
     async fn start_from(
         &mut self,
@@ -145,7 +146,7 @@ impl EventFocusedCacheInner {
                 let focused_event = result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_deref() == Some(&*self.focused_event_id));
+                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id));
 
                 // If the focused event has a thread root, use it.
                 let mut thread_root =
@@ -168,7 +169,7 @@ impl EventFocusedCacheInner {
                 result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_deref() == Some(&*self.focused_event_id))
+                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id))
                     .and_then(|event| extract_thread_root(event.raw()))
             }
         };
@@ -183,7 +184,7 @@ impl EventFocusedCacheInner {
             // beginning, since it's more likely to be around there, in that
             // case.
             let includes_root =
-                result.events.iter().any(|event| event.event_id().as_deref() == Some(&*root_id));
+                result.events.iter().any(|event| event.event_id().as_ref() == Some(&root_id));
 
             self.pagination_mode =
                 EventFocusedPaginationMode::Thread { thread_root: root_id.clone() };
@@ -194,7 +195,7 @@ impl EventFocusedCacheInner {
                 .iter()
                 .filter(|event| {
                     extract_thread_root(event.raw()).as_ref() == Some(&root_id)
-                        || event.event_id().as_deref() == Some(&*root_id)
+                        || event.event_id().as_ref() == Some(&root_id)
                 })
                 .cloned()
                 .collect();
@@ -224,9 +225,12 @@ impl EventFocusedCacheInner {
         self.propagate_changes();
 
         // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
-        // have subscribed to this cache yet, since it was being created here. Such
-        // initial updates would be duplicated, since the subscriber will get
-        // the full initial list of events on subscription.
+        // have subscribed to this cache yet, since this code is part of the constructor
+        // flow.
+        //
+        // If we didn't empty those, such initial updates would be duplicated, since the
+        // subscriber would get the full initial list of events as diffs and as a set of
+        // initial events.
         let _ = self.chunk.updates_as_vector_diffs();
 
         Ok(result)
@@ -239,18 +243,9 @@ impl EventFocusedCacheInner {
         prev_gap_token: Option<String>,
         next_gap_token: Option<String>,
     ) {
-        let events: Vec<Event> = events.into_iter().collect();
-
-        // Insert backward gap at front if we have a token.
-        if let Some(prev_token) = prev_gap_token {
-            trace!("inserting backward pagination gap at front");
-            self.chunk.push_live_events(Some(Gap { prev_token }), &[]);
-        }
-
-        // Add the events.
-        if !events.is_empty() {
-            self.chunk.push_live_events(None, &events);
-        }
+        // Insert backward gap at the back if we have a token, and the events
+        // themselves.
+        self.chunk.push_live_events(prev_gap_token.map(|prev_token| Gap { prev_token }), &events);
 
         // Insert forward gap at back if we have a token.
         if let Some(next_token) = next_gap_token {
@@ -307,7 +302,7 @@ impl EventFocusedCacheInner {
         })
     }
 
-    /// Paginate backwards in this event-focused timeline.
+    /// Paginate backwards in this event-focused linked chunk.
     ///
     /// This finds the gap at the front of the linked chunk, fetches older
     /// events, replaces the gap with the events, and inserts a new gap if
