@@ -87,6 +87,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `SessionChange::UnknownToken` is now a tuple variant containing
   an `UnknownTokenErrorData`.
   ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
+- [**breaking**] `EventCacheError::BackPaginationError` has been renamed `PaginationError`.
+  ([#6239](https://github.com/matrix-org/matrix-rust-sdk/pull/6239))
 - [**breaking**] The functions on the `OAuth` API to access the account
   management URL and its actions were removed. The methods available on the
   `AuthorizationServerMetadata` should be used instead.
