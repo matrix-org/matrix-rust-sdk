@@ -96,6 +96,27 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     error: error.to_string(),
                 }
             }
+
+            Content::LiveLocation(state) => {
+                let locations = state
+                    .locations()
+                    .iter()
+                    .map(|location| BeaconInfo {
+                        geo_uri: location.geo_uri().to_owned(),
+                        ts: location.ts().into(),
+                        description: location.description().map(ToOwned::to_owned),
+                    })
+                    .collect();
+
+                TimelineItemContent::LiveLocation {
+                    content: LiveLocationContent {
+                        is_live: state.is_live(),
+                        description: state.description().map(ToOwned::to_owned),
+                        timeout_ms: state.beacon_info().timeout.as_millis() as u64,
+                        locations,
+                    },
+                }
+            }
         }
     }
 }
@@ -184,6 +205,13 @@ pub enum TimelineItemContent {
         event_type: String,
         state_key: String,
         error: String,
+    },
+    /// A live location sharing session (MSC3489).
+    ///
+    /// Represents a `org.matrix.msc3672.beacon_info` state event with all
+    /// aggregated location updates from `org.matrix.msc3672.beacon` events.
+    LiveLocation {
+        content: LiveLocationContent,
     },
 }
 
@@ -310,11 +338,43 @@ pub enum OtherState {
     },
 }
 
+/// FFI representation of a single location update from a beacon event.
+#[derive(Clone, uniffi::Record)]
+pub struct BeaconInfo {
+    /// The geo URI carrying the user's coordinates
+    /// (e.g. `"geo:51.5008,0.1247;u=35"`).
+    pub geo_uri: String,
+
+    /// Timestamp (ms since Unix Epoch) of this location update.
+    pub ts: Timestamp,
+
+    /// An optional human-readable description of the location.
+    pub description: Option<String>,
+}
+
+/// FFI representation of a live location sharing session (MSC3489).
+///
+/// Corresponds to a `org.matrix.msc3672.beacon_info` state event in the
+/// timeline. Location updates are aggregated here as they arrive.
+#[derive(Clone, uniffi::Record)]
+pub struct LiveLocationContent {
+    /// Whether this sharing session is currently active.
+    pub is_live: bool,
+
+    /// An optional human-readable label for this sharing session.
+    pub description: Option<String>,
+
+    /// Duration of the session in milliseconds.
+    pub timeout_ms: u64,
+
+    /// All location updates received so far, sorted oldest-first.
+    pub locations: Vec<BeaconInfo>,
+}
+
 impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherState {
     fn from(content: &matrix_sdk_ui::timeline::AnyOtherStateEventContentChange) -> Self {
         use matrix_sdk::ruma::events::StateEventContentChange as FullContent;
         use matrix_sdk_ui::timeline::AnyOtherStateEventContentChange as Content;
-
         match content {
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
