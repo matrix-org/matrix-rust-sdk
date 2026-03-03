@@ -472,7 +472,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 let original_content = get_message_like_event_original_content(content)?;
                 let in_reply_to_event_id =
                     original_content.relates_to.and_then(|relation| match relation {
-                        Relation::Reply { in_reply_to } => Some(in_reply_to.event_id.to_string()),
+                        Relation::Reply(reply) => Some(reply.in_reply_to.event_id.to_string()),
                         _ => None,
                     });
                 MessageLikeEventContent::RoomMessage {

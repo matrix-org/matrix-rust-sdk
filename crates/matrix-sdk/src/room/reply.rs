@@ -295,9 +295,9 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(Some(Relation::Reply { in_reply_to }) = &reply_event.relates_to);
+        assert_let!(Some(Relation::Reply(reply)) = &reply_event.relates_to);
 
-        assert_eq!(in_reply_to.event_id, event_id);
+        assert_eq!(reply.in_reply_to.event_id, event_id);
     }
 
     #[async_test]
