@@ -203,7 +203,7 @@ impl CiArgs {
 
 fn check_bindings() -> Result<()> {
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features rustls-tls,sentry,experimental-element-recent-emojis").run()?;
+    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features sentry,experimental-element-recent-emojis").run()?;
     cmd!(
         sh,
         "

@@ -36,7 +36,7 @@ use ruma::api::{
     path_builder,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
-use tracing::{debug, field::debug, instrument, trace};
+use tracing::{debug, error, field::debug, instrument, trace};
 
 use crate::{HttpResult, client::caches::CachedValue, config::RequestConfig, error::HttpError};
 
@@ -215,7 +215,7 @@ impl HttpClient {
                 Ok(response)
             }
             Err(e) => {
-                debug!("Error while sending request: {e:?}");
+                error!("Error while sending request: {e:?}");
                 Err(e)
             }
         }

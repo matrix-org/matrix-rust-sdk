@@ -36,7 +36,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         SenderDataType, Session,
     },
-    store::types::RoomKeyWithheldEntry,
+    store::types::{RoomKeyWithheldEntry, RoomPendingKeyBundleDetails},
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -356,6 +356,13 @@ pub trait CryptoStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>, Self::Error>;
 
+    /// Check whether we are awaiting a key bundle for the given room, and if so
+    /// return the details
+    async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>, Self::Error>;
+
     /// Get whether we have previously downloaded all room keys for a particular
     /// room from the key backup in advance of building a room key bundle.
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error>;
@@ -633,6 +640,13 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error> {
         self.0.has_downloaded_all_room_keys(room_id).await.map_err(Into::into)
+    }
+
+    async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>, Self::Error> {
+        self.0.get_pending_key_bundle_details_for_room(room_id).await.map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

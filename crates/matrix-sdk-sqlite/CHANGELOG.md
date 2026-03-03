@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Implement `CryptoStore::get_pending_key_bundle_details_for_room` and process `rooms_pending_key_bundle` field in
+  `Changes`.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
 - Implement new method `CryptoStore::has_downloaded_all_room_keys`, and process
   `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))

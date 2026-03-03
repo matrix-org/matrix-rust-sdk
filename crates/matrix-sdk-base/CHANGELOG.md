@@ -36,6 +36,13 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Invite acceptance details are no longer stored in `RoomInfo`,
+  and the accessors `RoomInfo.invite_acceptance_details()` and
+  `Room::invite_acceptance_details` have been removed. Instead, equivalent
+  details are stored in the Crypto store, and, provided the `e2e-encryption`
+  feature is enabled, are accessible via
+  `BaseClient::get_pending_key_bundle_details_for_room`.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
 - [**breaking**] `once_cell` is no longer reexported from this crate. The types that were stabilized
   in the Rust standard library can be used instead in most cases.
   ([#6194](https://github.com/matrix-org/matrix-rust-sdk/pull/6194))
@@ -56,7 +63,8 @@ All notable changes to this project will be documented in this file.
 
 - Skip the serialization of custom join rules in the `RoomInfo` which prevented
   the processing of sync responses containing events with custom join rules.
-  ([#5924](https://github.com/matrix-org/matrix-rust-sdk/pull/5924)) (Low, [CVE-2025-66622](https://www.cve.org/CVERecord?id=CVE-2025-66622), [GHSA-jj6p-3m75-g2p3](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-jj6p-3m75-g2p3)).
+  ([#5924](https://github.com/matrix-org/matrix-rust-sdk/pull/5924)) (
+  Low, [CVE-2025-66622](https://www.cve.org/CVERecord?id=CVE-2025-66622), [GHSA-jj6p-3m75-g2p3](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-jj6p-3m75-g2p3)).
 
 ### Refactor
 
@@ -66,8 +74,8 @@ All notable changes to this project will be documented in this file.
   `maybe_decode()`. Its constructor has been removed since all its fields are
   now public.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
-  - `StateStoreData(Key/Value)::ServerInfo` has been split into the
-    `SupportedVersions` and `WellKnown` variants.
+    - `StateStoreData(Key/Value)::ServerInfo` has been split into the
+      `SupportedVersions` and `WellKnown` variants.
 - [**breaking**] Upgrade Ruma to version 0.14.0.
   ([#5882](https://github.com/matrix-org/matrix-rust-sdk/pull/5882))
 - `Client::sync_lock` has been renamed `Client::state_store_lock`.
@@ -88,11 +96,13 @@ All notable changes to this project will be documented in this file.
 ### Security Fixes
 
 - Fix a panic in the `RoomMember::normalized_power_level` method.
-  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635)) (Low, [CVE-2025-59047](https://www.cve.org/CVERecord?id=CVE-2025-59047), [GHSA-qhj8-q5r6-8q6j](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-qhj8-q5r6-8q6j)).
+  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635)) (
+  Low, [CVE-2025-59047](https://www.cve.org/CVERecord?id=CVE-2025-59047), [GHSA-qhj8-q5r6-8q6j](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-qhj8-q5r6-8q6j)).
 
 ## [0.14.0] - 2025-09-04
 
 ### Features
+
 - Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room updates.
   ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
 - Add `EncryptionState::StateEncrypted` to represent rooms supporting encrypted
@@ -115,6 +125,7 @@ All notable changes to this project will be documented in this file.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
 ### Refactor
+
 - [**breaking**] The `Stripped` variants of `RawAnySyncOrStrippedTimelineEvent`,
   `RawAnySyncOrStrippedState` and `AnySyncOrStrippedState` use `StrippedState`
   instead of `AnyStrippedStateEvent`.
@@ -161,6 +172,7 @@ All notable changes to this project will be documented in this file.
 ## [0.13.0] - 2025-07-10
 
 ### Features
+
 - The `RoomInfo` now remembers when an invite was explicitly accepted when the
   `BaseClient::room_joined()` method was called. A new getter for this
   timestamp exists, the `RoomInfo::invite_accepted_at()` method returns this
@@ -198,9 +210,9 @@ No notable changes in this release.
 - [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
   with its new `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
-  - `Clone` is a supertrait of `EventCacheStoreMedia`.
-  - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
-  - There are new `'static` bounds in `MediaService` for the media cache stores
+    - `Clone` is a supertrait of `EventCacheStoreMedia`.
+    - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
+    - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
 - `BaseClient` now has a `handle_verification_events` field which is `true` by
   default and can be negated so the `NotificationClient` won't handle received
@@ -236,17 +248,17 @@ No notable changes in this release.
 - [**breaking**] `EventCacheStore` allows to control which media content is
   allowed in the media cache, and how long it should be kept, with a
   `MediaRetentionPolicy`:
-  - `EventCacheStore::add_media_content()` has an extra argument,
-    `ignore_policy`, which decides whether a media content should ignore the
-    `MediaRetentionPolicy`. It should be stored alongside the media content.
-  - `EventCacheStore` has four new methods: `media_retention_policy()`,
-    `set_media_retention_policy()`, `set_ignore_media_retention_policy()` and
-    `clean_up_media_cache()`.
-  - `EventCacheStore` implementations should delegate media cache methods to the
-    methods of the same name of `MediaService` to use the `MediaRetentionPolicy`.
-    They need to implement the `EventCacheStoreMedia` trait that can be tested
-    with the `event_cache_store_media_integration_tests!` macro.
-    ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+    - `EventCacheStore::add_media_content()` has an extra argument,
+      `ignore_policy`, which decides whether a media content should ignore the
+      `MediaRetentionPolicy`. It should be stored alongside the media content.
+    - `EventCacheStore` has four new methods: `media_retention_policy()`,
+      `set_media_retention_policy()`, `set_ignore_media_retention_policy()` and
+      `clean_up_media_cache()`.
+    - `EventCacheStore` implementations should delegate media cache methods to the
+      methods of the same name of `MediaService` to use the `MediaRetentionPolicy`.
+      They need to implement the `EventCacheStoreMedia` trait that can be tested
+      with the `event_cache_store_media_integration_tests!` macro.
+      ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
 
 ### Refactor
 
@@ -286,8 +298,8 @@ No notable changes in this release.
 
 - Use the `DisplayName` struct to protect against homoglyph attacks.
 
-
 ### Features
+
 - Add `BaseClient::room_key_recipient_strategy` field
 
 - `AmbiguityCache` contains the room member's user ID.
@@ -300,17 +312,17 @@ No notable changes in this release.
   disambiguation.
 
 - `Client::cross_process_store_locks_holder_name` is used everywhere:
- - `StoreConfig::new()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `StoreConfig` no longer implements `Default`.
- - `BaseClient::new()` has been removed.
- - `BaseClient::clone_with_in_memory_state_store()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `BaseClient` no longer implements `Default`.
- - `EventCacheStoreLock::new()` no longer takes a `key` argument.
- - `BuilderStoreConfig` no longer has
-   `cross_process_store_locks_holder_name` field for `Sqlite` and
-   `IndexedDb`.
+- `StoreConfig::new()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `StoreConfig` no longer implements `Default`.
+- `BaseClient::new()` has been removed.
+- `BaseClient::clone_with_in_memory_state_store()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `BaseClient` no longer implements `Default`.
+- `EventCacheStoreLock::new()` no longer takes a `key` argument.
+- `BuilderStoreConfig` no longer has
+  `cross_process_store_locks_holder_name` field for `Sqlite` and
+  `IndexedDb`.
 
 - Make `ObservableMap::stream` works on `wasm32-unknown-unknown`.
 
@@ -320,8 +332,7 @@ No notable changes in this release.
   by a custom one.
 
 - Introduce a `DisplayName` struct which normalizes and sanitizes
-display names.
-
+  display names.
 
 ### Refactor
 
@@ -361,34 +372,35 @@ display names.
   other state events in `state` and `stripped_state`.
 - `StateStore::get_user_ids` takes a `RoomMemberships` to be able to filter the results by any
   membership state.
-  - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are deprecated.
+    - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are deprecated.
 - `Room::members` takes a `RoomMemberships` to be able to filter the results by any membership
   state.
-  - `Room::active_members` and `Room::joined_members` are deprecated.
+    - `Room::active_members` and `Room::joined_members` are deprecated.
 - `RoomMember` has new methods:
-  - `can_ban`
-  - `can_invite`
-  - `can_kick`
-  - `can_redact`
-  - `can_send_message`
-  - `can_send_state`
-  - `can_trigger_room_notification`
+    - `can_ban`
+    - `can_invite`
+    - `can_kick`
+    - `can_redact`
+    - `can_send_message`
+    - `can_send_state`
+    - `can_trigger_room_notification`
 - Move `StateStore::get_member_event` to `StateStoreExt`
 - `StateStore::get_stripped_room_infos` is deprecated. All room infos should now be returned by
   `get_room_infos`.
 - `BaseClient::get_stripped_rooms` is deprecated. Use `get_rooms_filtered` with
   `RoomStateFilter::INVITED` instead.
 - Add methods to `StateStore` to be able to retrieve data in batch
-  - `get_state_events_for_keys`
-  - `get_profiles`
-  - `get_presence_events`
-  - `get_users_with_display_names`
+    - `get_state_events_for_keys`
+    - `get_profiles`
+    - `get_presence_events`
+    - `get_users_with_display_names`
 - Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
 - Add `Room::subscribe_info`
 
 # 0.5.1
 
 ## Bug Fixes
+
 - #664: Fix regression with push rules being applied to the own user_id only instead of all but the own user_id
 
 # 0.5.0

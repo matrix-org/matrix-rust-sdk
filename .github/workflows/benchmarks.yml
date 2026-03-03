@@ -11,6 +11,9 @@ jobs:
   benchmarks:
     name: Run Benchmarks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       matrix:
         benchmark:
@@ -92,8 +95,7 @@ jobs:
         run: cargo codspeed build -p benchmarks --bench ${{ matrix.benchmark }} --features codspeed
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@4deb3275dd364fb96fb074c953133d29ec96f80f
+        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
         with:
           run: cargo codspeed run
-          mode: "instrumentation"
-          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: simulation

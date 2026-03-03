@@ -631,7 +631,7 @@ impl PrivateCrossSigningIdentity {
         let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
-            user_id: (*pickle.user_id).into(),
+            user_id: pickle.user_id.clone(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),

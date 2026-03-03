@@ -49,7 +49,7 @@ use crate::{
         OutboundGroupSession, PickledAccount, PickledInboundGroupSession, PickledSession,
         PrivateCrossSigningIdentity, SenderDataType, StaticAccountData,
     },
-    store::types::RoomKeyWithheldEntry,
+    store::types::{RoomKeyWithheldEntry, RoomPendingKeyBundleDetails},
 };
 
 fn encode_key_info(info: &SecretInfo) -> String {
@@ -112,6 +112,7 @@ pub struct MemoryStore {
     room_key_bundles:
         StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
     room_key_backups_fully_downloaded: StdRwLock<HashSet<OwnedRoomId>>,
+    rooms_pending_key_bundle: StdRwLock<HashMap<OwnedRoomId, RoomPendingKeyBundleDetails>>,
 
     save_changes_lock: Arc<Mutex<()>>,
 }
@@ -345,6 +346,17 @@ impl CryptoStore for MemoryStore {
                 self.room_key_backups_fully_downloaded.write();
             for room in changes.room_key_backups_fully_downloaded {
                 room_key_backups_fully_downloaded.insert(room);
+            }
+        }
+
+        if !changes.rooms_pending_key_bundle.is_empty() {
+            let mut lock = self.rooms_pending_key_bundle.write();
+            for (room, details) in changes.rooms_pending_key_bundle {
+                if let Some(details) = details {
+                    lock.insert(room, details);
+                } else {
+                    lock.remove(&room);
+                }
             }
         }
 
@@ -761,6 +773,13 @@ impl CryptoStore for MemoryStore {
         let result = guard.get(room_id).and_then(|bundles| bundles.get(user_id).cloned());
 
         Ok(result)
+    }
+
+    async fn get_pending_key_bundle_details_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RoomPendingKeyBundleDetails>> {
+        Ok(self.rooms_pending_key_bundle.read().get(room_id).cloned())
     }
 
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
@@ -1312,7 +1331,8 @@ mod integration_tests {
             CryptoStore,
             types::{
                 BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-                RoomKeyWithheldEntry, RoomSettings, StoredRoomKeyBundleData, TrackedUser,
+                RoomKeyWithheldEntry, RoomPendingKeyBundleDetails, RoomSettings,
+                StoredRoomKeyBundleData, TrackedUser,
             },
         },
     };
@@ -1600,6 +1620,13 @@ mod integration_tests {
             room_id: &RoomId,
         ) -> Result<bool, Self::Error> {
             self.0.has_downloaded_all_room_keys(room_id).await
+        }
+
+        async fn get_pending_key_bundle_details_for_room(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Option<RoomPendingKeyBundleDetails>, Self::Error> {
+            self.0.get_pending_key_bundle_details_for_room(room_id).await
         }
 
         async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Implement `CryptoStore::get_pending_key_bundle_details_for_room` and process `rooms_pending_key_bundle` field in
+  `Changes`.
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
 - Expose implementations of `EventCacheStore` and `MediaStore` and add a
   composite type for initializing all stores with a single function - i.e.,
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the

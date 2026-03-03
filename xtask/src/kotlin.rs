@@ -21,10 +21,13 @@ enum Package {
 impl Package {
     fn values(self) -> PackageValues {
         match self {
-            Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi", features: "" },
-            Package::FullSDK => {
-                PackageValues { name: "matrix-sdk-ffi", features: "rustls-tls,sentry" }
+            Package::CryptoSDK => {
+                PackageValues { name: "matrix-sdk-crypto-ffi", features: "bundled-sqlite" }
             }
+            Package::FullSDK => PackageValues {
+                name: "matrix-sdk-ffi",
+                features: "bundled-sqlite,unstable-msc4274,experimental-element-recent-emojis,rustls-tls,sentry",
+            },
         }
     }
 }
@@ -168,7 +171,7 @@ fn build_for_android_target(
     let sh = sh();
     cmd!(
         sh,
-        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} --package {package_name} --features {features}"
+        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} --package {package_name} --no-default-features --features {features}"
     )
     .run()?;
 

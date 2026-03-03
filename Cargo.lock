@@ -1234,8 +1234,19 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
 dependencies = [
- "deadpool-runtime",
+ "deadpool-runtime 0.1.4",
  "lazy_static",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "883466cb8db62725aee5f4a6011e8a5d42912b42632df32aad57fc91127c6e04"
+dependencies = [
+ "deadpool-runtime 0.3.1",
  "num_cpus",
  "tokio",
 ]
@@ -1245,17 +1256,23 @@ name = "deadpool-runtime"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2657f61fb1dd8bf37a8d51093cc7cee4e77125b22f7753f49b289f831bec2bae"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "deadpool-sync"
-version = "0.1.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "524bc3df0d57e98ecd022e21ba31166c2625e7d3e5bcc4510efaeeab4abcab04"
+checksum = "e385cc95d3d582c328b36d1ff90feac061102b001894b555e6b465a2e0eaabbf"
 dependencies = [
- "deadpool-runtime",
+ "deadpool-runtime 0.3.1",
 ]
 
 [[package]]
@@ -3525,7 +3542,7 @@ dependencies = [
  "as_variant",
  "assert_matches",
  "async-trait",
- "deadpool",
+ "deadpool 0.13.0",
  "deadpool-sync",
  "glob",
  "itertools 0.14.0",
@@ -4852,7 +4869,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.14.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "assign",
  "js_int",
@@ -4870,7 +4887,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.22.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "as_variant",
  "assign",
@@ -4893,7 +4910,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.17.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "as_variant",
  "base64",
@@ -4926,7 +4943,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.32.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -4953,7 +4970,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.13.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "headers",
  "http",
@@ -4974,7 +4991,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.6.0"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4985,7 +5002,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.12.0"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "js_int",
  "thiserror 2.0.17",
@@ -4994,7 +5011,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.17.1"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -5010,7 +5027,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.19.0"
-source = "git+https://github.com/ruma/ruma?rev=289bee87974bd3c2ad14a6c15801c80b683b67dc#289bee87974bd3c2ad14a6c15801c80b683b67dc"
+source = "git+https://github.com/ruma/ruma?rev=4a0ae80fbf42d1b759e108d7315537d13583c144#4a0ae80fbf42d1b759e108d7315537d13583c144"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -7139,9 +7156,9 @@ dependencies = [
 
 [[package]]
 name = "wildmatch"
-version = "2.3.4"
+version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3928939971918220fed093266b809d1ee4ec6c1a2d72692ff6876898f3b16c19"
+checksum = "29333c3ea1ba8b17211763463ff24ee84e41c78224c16b001cd907e663a38c68"
 
 [[package]]
 name = "winapi"
@@ -7549,7 +7566,7 @@ checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
 dependencies = [
  "assert-json-diff",
  "base64",
- "deadpool",
+ "deadpool 0.12.3",
  "futures",
  "http",
  "http-body-util",

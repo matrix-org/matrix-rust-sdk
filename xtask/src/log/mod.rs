@@ -1,5 +1,6 @@
 mod overview;
 mod sync;
+mod timer;
 
 use std::path::PathBuf;
 
@@ -39,6 +40,17 @@ enum LogCommand {
         #[clap(long)]
         html_output_file: PathBuf,
     },
+
+    /// Visualise the timers to detect bottlenecks.
+    Timer {
+        /// The file containing the logs to analyse.
+        #[clap(long)]
+        log_file: PathBuf,
+
+        /// The output file that will receive the HTML report.
+        #[clap(long)]
+        html_output_file: PathBuf,
+    },
 }
 
 impl LogArgs {
@@ -52,6 +64,9 @@ impl LogArgs {
             }
             LogCommand::Sync { log_file, html_output_file } => {
                 sync::run(log_file, html_output_file)?
+            }
+            LogCommand::Timer { log_file, html_output_file } => {
+                timer::run(log_file, html_output_file)?
             }
         }
 

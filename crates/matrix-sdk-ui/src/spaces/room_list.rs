@@ -19,8 +19,9 @@ use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::Itertools;
-use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk::{
+    Client, Error, locks::Mutex, paginators::PaginationToken, task_monitor::BackgroundTaskHandle,
+};
 use ruma::{
     OwnedRoomId,
     api::client::space::get_hierarchy,
@@ -115,9 +116,9 @@ pub struct SpaceRoomList {
 
     rooms: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
-    _space_update_handle: Option<AbortOnDrop<()>>,
+    _space_update_handle: Option<BackgroundTaskHandle>,
 
-    _room_update_handle: AbortOnDrop<()>,
+    _room_update_handle: BackgroundTaskHandle,
 }
 
 impl SpaceRoomList {
@@ -127,46 +128,49 @@ impl SpaceRoomList {
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        let room_update_handle = spawn({
-            let client = client.clone();
-            let rooms = rooms.clone();
+        let room_update_handle = client
+            .task_monitor()
+            .spawn_background_task("space_room_list::room_updates", {
+                let client = client.clone();
+                let rooms = rooms.clone();
 
-            async move {
-                pin_mut!(all_room_updates_receiver);
+                async move {
+                    pin_mut!(all_room_updates_receiver);
 
-                loop {
-                    match all_room_updates_receiver.recv().await {
-                        Ok(updates) => {
-                            if updates.is_empty() {
-                                continue;
-                            }
-
-                            let mut mutable_rooms = rooms.lock();
-
-                            updates.iter_all_room_ids().for_each(|updated_room_id| {
-                                if let Some((position, room)) = mutable_rooms
-                                    .clone()
-                                    .iter()
-                                    .find_position(|room| &room.room_id == updated_room_id)
-                                    && let Some(updated_room) = client.get_room(updated_room_id)
-                                {
-                                    mutable_rooms.set(
-                                        position,
-                                        SpaceRoom::new_from_known(
-                                            &updated_room,
-                                            room.children_count,
-                                        ),
-                                    );
+                    loop {
+                        match all_room_updates_receiver.recv().await {
+                            Ok(updates) => {
+                                if updates.is_empty() {
+                                    continue;
                                 }
-                            })
-                        }
-                        Err(err) => {
-                            error!("error when listening to room updates: {err}");
+
+                                let mut mutable_rooms = rooms.lock();
+
+                                updates.iter_all_room_ids().for_each(|updated_room_id| {
+                                    if let Some((position, room)) = mutable_rooms
+                                        .clone()
+                                        .iter()
+                                        .find_position(|room| &room.room_id == updated_room_id)
+                                        && let Some(updated_room) = client.get_room(updated_room_id)
+                                    {
+                                        mutable_rooms.set(
+                                            position,
+                                            SpaceRoom::new_from_known(
+                                                &updated_room,
+                                                room.children_count,
+                                            ),
+                                        );
+                                    }
+                                })
+                            }
+                            Err(err) => {
+                                error!("error when listening to room updates: {err}");
+                            }
                         }
                     }
                 }
-            }
-        });
+            })
+            .abort_on_drop();
 
         let space_observable = SharedObservable::new(None);
 
@@ -177,24 +181,24 @@ impl SpaceRoomList {
                 .map_or(0, |c| c.len() as u64);
 
             let mut subscriber = parent.subscribe_info();
-            let space_update_handle = spawn({
-                let client = client.clone();
-                let space_id = space_id.clone();
-                let space_observable = space_observable.clone();
-                async move {
-                    while subscriber.next().await.is_some() {
-                        if let Some(room) = client.get_room(&space_id) {
-                            space_observable
-                                .set(Some(SpaceRoom::new_from_known(&room, children_count)));
+            let space_update_handle = client
+                .task_monitor()
+                .spawn_background_task("space_room_list::space_update", {
+                    let client = client.clone();
+                    let space_id = space_id.clone();
+                    let space_observable = space_observable.clone();
+                    async move {
+                        while subscriber.next().await.is_some() {
+                            if let Some(room) = client.get_room(&space_id) {
+                                space_observable
+                                    .set(Some(SpaceRoom::new_from_known(&room, children_count)));
+                            }
                         }
                     }
-                }
-            });
+                })
+                .abort_on_drop();
 
-            (
-                Some(SpaceRoom::new_from_known(&parent, children_count)),
-                Some(AbortOnDrop::new(space_update_handle)),
-            )
+            (Some(SpaceRoom::new_from_known(&parent, children_count)), Some(space_update_handle))
         } else {
             (None, None)
         };
@@ -212,7 +216,7 @@ impl SpaceRoomList {
             }),
             rooms,
             _space_update_handle: space_update_handle,
-            _room_update_handle: AbortOnDrop::new(room_update_handle),
+            _room_update_handle: room_update_handle,
         }
     }
 

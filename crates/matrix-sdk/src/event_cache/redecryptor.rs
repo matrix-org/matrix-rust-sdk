@@ -154,16 +154,12 @@ use tracing::{info, instrument, trace, warn};
 
 #[cfg(doc)]
 use super::RoomEventCache;
-use super::{EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheUpdate};
-use crate::{
-    Client, Result, Room,
-    encryption::backups::BackupState,
-    event_cache::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, TimelineVectorDiffs,
-        room::PostProcessingOrigin,
-    },
-    room::PushContext,
+use super::{
+    EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
+    RoomEventCacheUpdate, TimelineVectorDiffs,
+    caches::room::{PostProcessingOrigin, RoomEventCacheLinkedChunkUpdate},
 };
+use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
@@ -370,7 +366,7 @@ impl EventCache {
         // Get the cache for this particular room and lock the state for the duration of
         // the decryption.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-        let mut state = room_cache.inner.state.write().await?;
+        let mut state = room_cache.state().write().await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
@@ -404,16 +400,13 @@ impl EventCache {
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
-        let diffs = state.room_linked_chunk().updates_as_vector_diffs();
-
-        let _ = room_cache.inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineEvents(
-            TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-        ));
-
-        let _ = room_cache
-            .inner
-            .generic_update_sender
-            .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
+        room_cache.update_sender().send(
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
+                origin: EventsOrigin::Cache,
+            }),
+            Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+        );
 
         // We report that we resolved some UTDs, this is mainly for listeners that don't
         // care about the actual events, just about the fact that UTDs got

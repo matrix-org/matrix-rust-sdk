@@ -320,13 +320,13 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 
 /// Map an [`InteractError`] into a [`rusqlite::Error`].
 ///
-/// An [`InteractError::Panic`] will panic. An [`InteractError::Aborted`] will
+/// An [`InteractError::Panic`] will panic. An [`InteractError::Cancelled`] will
 /// generate a [`rusqlite::Error::SqliteFailure`] with the
 /// [`rusqlite::ffi::SQLITE_ABORT`] code.
 fn map_interact_err(error: InteractError) -> rusqlite::Error {
     match error {
         InteractError::Panic(p) => panic!("{p:?}"),
-        InteractError::Aborted => rusqlite::Error::SqliteFailure(
+        InteractError::Cancelled => rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ABORT),
             None,
         ),

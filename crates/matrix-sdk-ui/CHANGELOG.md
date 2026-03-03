@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Include secondary relations when re-initializing a threaded timeline after a lag.
+  ([#6209](https://github.com/matrix-org/matrix-rust-sdk/pull/6209))
 - Ensure that the display name of a `Room` in a `NotificationStatus` coming 
   from a `NotificationClient` excludes service members.
   ([#6136](https://github.com/matrix-org/matrix-rust-sdk/pull/6136))
@@ -24,6 +26,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add `NotificationState.EventRedacted` enum value, to handle the case
+  where a notification resolves to a redacted event.
+  ([#6203](https://github.com/matrix-org/matrix-rust-sdk/pull/6203))
 - [**breaking**] Extend `TimelineFocus::Event` to allow marking the target
   event as the root of a thread.
   ([#6050](https://github.com/matrix-org/matrix-rust-sdk/pull/6050))

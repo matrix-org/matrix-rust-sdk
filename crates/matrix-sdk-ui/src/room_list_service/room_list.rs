@@ -23,7 +23,7 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{Stream, StreamExt as _, pin_mut, stream};
 use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
-    executor::{JoinHandle, spawn},
+    task_monitor::BackgroundTaskHandle,
 };
 use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 use ruma::MilliSecondsSinceUnixEpoch;
@@ -49,13 +49,7 @@ pub struct RoomList {
     client: Client,
     sliding_sync_list: SlidingSyncList,
     loading_state: SharedObservable<RoomListLoadingState>,
-    loading_state_task: JoinHandle<()>,
-}
-
-impl Drop for RoomList {
-    fn drop(&mut self) {
-        self.loading_state_task.abort();
-    }
+    _loading_state_task: BackgroundTaskHandle,
 }
 
 impl RoomList {
@@ -82,36 +76,39 @@ impl RoomList {
             client: client.clone(),
             sliding_sync_list: sliding_sync_list.clone(),
             loading_state: loading_state.clone(),
-            loading_state_task: spawn(async move {
-                pin_mut!(room_list_service_state);
+            _loading_state_task: client
+                .task_monitor()
+                .spawn_background_task("room_list::loading_state_task", async move {
+                    pin_mut!(room_list_service_state);
 
-                // As soon as `RoomListService` changes its state, if it isn't
-                // `Terminated` nor `Error`, we know we have fetched something,
-                // so the room list is loaded.
-                while let Some(state) = room_list_service_state.next().await {
-                    use State::*;
+                    // As soon as `RoomListService` changes its state, if it isn't
+                    // `Terminated` nor `Error`, we know we have fetched something,
+                    // so the room list is loaded.
+                    while let Some(state) = room_list_service_state.next().await {
+                        use State::*;
 
-                    match state {
-                        Terminated { .. } | Error { .. } | Init => (),
-                        SettingUp | Recovering | Running => break,
+                        match state {
+                            Terminated { .. } | Error { .. } | Init => (),
+                            SettingUp | Recovering | Running => break,
+                        }
                     }
-                }
 
-                // Let's jump from `NotLoaded` to `Loaded`.
-                let maximum_number_of_rooms = sliding_sync_list.maximum_number_of_rooms();
+                    // Let's jump from `NotLoaded` to `Loaded`.
+                    let maximum_number_of_rooms = sliding_sync_list.maximum_number_of_rooms();
 
-                loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
-
-                // Wait for updates on the maximum number of rooms to update again.
-                let mut maximum_number_of_rooms_stream =
-                    sliding_sync_list.maximum_number_of_rooms_stream();
-
-                while let Some(maximum_number_of_rooms) =
-                    maximum_number_of_rooms_stream.next().await
-                {
                     loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
-                }
-            }),
+
+                    // Wait for updates on the maximum number of rooms to update again.
+                    let mut maximum_number_of_rooms_stream =
+                        sliding_sync_list.maximum_number_of_rooms_stream();
+
+                    while let Some(maximum_number_of_rooms) =
+                        maximum_number_of_rooms_stream.next().await
+                    {
+                        loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
+                    }
+                })
+                .abort_on_drop(),
         })
     }
 

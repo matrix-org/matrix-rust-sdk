@@ -30,13 +30,13 @@ use matrix_sdk::{
     attachment::{AttachmentInfo, Thumbnail},
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
-    executor::JoinHandle,
     room::{
         Receipts, Room,
         edit::EditedContent,
         reply::{EnforceThread, Reply},
     },
     send_queue::{RoomSendQueueError, SendHandle},
+    task_monitor::BackgroundTaskHandle,
 };
 use mime::Mime;
 use ruma::{
@@ -866,27 +866,12 @@ impl Timeline {
 
 #[derive(Debug)]
 struct TimelineDropHandle {
-    room_update_join_handle: JoinHandle<()>,
-    pinned_events_join_handle: Option<JoinHandle<()>>,
-    thread_update_join_handle: Option<JoinHandle<()>>,
-    local_echo_listener_handle: JoinHandle<()>,
+    _room_update_join_handle: BackgroundTaskHandle,
+    _pinned_events_join_handle: Option<BackgroundTaskHandle>,
+    _thread_update_join_handle: Option<BackgroundTaskHandle>,
+    _local_echo_listener_handle: BackgroundTaskHandle,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
     _crypto_drop_handles: CryptoDropHandles,
-}
-
-impl Drop for TimelineDropHandle {
-    fn drop(&mut self) {
-        if let Some(handle) = self.pinned_events_join_handle.take() {
-            handle.abort();
-        }
-
-        if let Some(handle) = self.thread_update_join_handle.take() {
-            handle.abort();
-        }
-
-        self.local_echo_listener_handle.abort();
-        self.room_update_join_handle.abort();
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]
