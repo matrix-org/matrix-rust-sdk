@@ -304,6 +304,11 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                         | AnyMessageLikeEventContent::RtcNotification(_)
                         | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
 
+                        // Beacon location-update events are aggregated onto
+                        // their parent `beacon_info` state event's timeline
+                        // item. They are never rendered as standalone items.
+                        AnyMessageLikeEventContent::Beacon(_) => false,
+
                         _ => false,
                     }
                 }
