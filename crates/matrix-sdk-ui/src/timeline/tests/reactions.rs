@@ -195,7 +195,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
     let timeline = TestTimeline::new();
 
     let f = &timeline.factory;
-    let message_event_id = EventId::new(server_name!("dummy.server"));
+    let message_event_id = EventId::new_v1(server_name!("dummy.server"));
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
     timeline
