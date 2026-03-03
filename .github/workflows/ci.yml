@@ -214,29 +214,29 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - name: "[m]-qrcode"
+          - name: '[m]-qrcode'
             cmd: matrix-sdk-qrcode
 
-          - name: "[m]-base"
+          - name: '[m]-base'
             cmd: matrix-sdk-base
 
-          - name: "[m]-common"
+          - name: '[m]-common'
             cmd: matrix-sdk-common
 
-          - name: "[m], no-default"
+          - name: '[m], no-default'
             cmd: matrix-sdk-no-default
 
-          - name: "[m]-ui"
+          - name: '[m]-ui'
             cmd: matrix-sdk-ui
             check_only: true
 
-          - name: "[m]-indexeddb"
+          - name: '[m]-indexeddb'
             cmd: indexeddb
 
-          - name: "[m], indexeddb stores"
+          - name: '[m], indexeddb stores'
             cmd: matrix-sdk-indexeddb-stores
 
-          - name: "[m], indexeddb stores, no crypto"
+          - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
     steps:
@@ -251,7 +251,7 @@ jobs:
 
       - name: Install wasm-pack
         uses: qmaru/wasm-pack-action@v0.5.3
-        if: "!matrix.check_only"
+        if: '!matrix.check_only'
         with:
           version: v0.13.1
 
@@ -281,7 +281,7 @@ jobs:
           target/debug/xtask ci wasm ${{ matrix.cmd }}
 
       - name: Wasm-Pack test
-        if: "!matrix.check_only"
+        if: '!matrix.check_only'
         run: |
           target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
@@ -337,7 +337,7 @@ jobs:
           target/debug/xtask ci clippy
 
   integration-tests:
-    name: "Integration test (features: ${{ matrix.feature }})"
+    name: 'Integration test (features: ${{ matrix.feature }})'
     runs-on: ubuntu-latest
 
     # run several docker containers with the same networking stack so the hostname 'synapse'
@@ -348,10 +348,10 @@ jobs:
       synapse:
         image: ghcr.io/matrix-org/synapse-service:v1.117.0 # keep in sync with ./coverage.yml
         env:
-          SYNAPSE_COMPLEMENT_DATABASE: sqlite
-          SERVER_NAME: synapse
+            SYNAPSE_COMPLEMENT_DATABASE: sqlite
+            SERVER_NAME: synapse
         ports:
-          - 8008:8008
+            - 8008:8008
 
     strategy:
       fail-fast: true
