@@ -36,10 +36,7 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::OwnedLinkedChunkId,
 };
-use matrix_sdk_common::{
-    linked_chunk::{ChunkContent, ChunkIdentifier},
-    serde_helpers::extract_thread_root,
-};
+use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
 use ruma::{OwnedEventId, UInt, api::Direction};
 use tokio::sync::{
     RwLock,
@@ -282,16 +279,8 @@ impl EventFocusedCacheInner {
     }
 
     /// Return the last chunk as a gap, if it's one.
-    ///
-    /// This stores the forward pagination token, in this case.
     fn last_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
-        self.chunk.rchunks().next().and_then(|chunk| {
-            if let ChunkContent::Gap(gap) = chunk.content() {
-                Some((chunk.identifier(), gap.clone()))
-            } else {
-                None
-            }
-        })
+        self.chunk.last_chunk_as_gap()
     }
 
     /// Paginate backwards in this event-focused linked chunk.
