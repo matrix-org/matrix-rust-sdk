@@ -96,9 +96,9 @@ pub enum EventCacheError {
         room_id: OwnedRoomId,
     },
 
-    /// An error has been observed while back-paginating.
+    /// An error has been observed while back- or forward- paginating.
     #[error(transparent)]
-    BackpaginationError(Box<crate::Error>),
+    PaginationError(Box<crate::Error>),
 
     /// An error has been observed while initiating an event-focused timeline.
     #[error(transparent)]

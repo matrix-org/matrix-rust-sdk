@@ -343,7 +343,7 @@ impl EventFocusedCacheInner {
         let messages = room
             .messages(options)
             .await
-            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
 
         Ok((messages.chunk, messages.end))
     }
@@ -369,14 +369,14 @@ impl EventFocusedCacheInner {
         let mut result = room
             .relations(thread_root.clone(), options)
             .await
-            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
 
         // If we hit the end (no more token), load the thread root event.
         if result.next_batch_token.is_none() {
             let root_event = room
                 .load_event(&thread_root)
                 .await
-                .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+                .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
             result.chunk.push(root_event);
         }
 
@@ -434,9 +434,10 @@ impl EventFocusedCacheInner {
         options = options.from(Some(token));
         options.limit = UInt::from(num_events);
 
-        let messages = room.messages(options).await.map_err(|err|
-            // TODO(bnjbvr): should be a more generic "pagination" error now!
-            EventCacheError::BackpaginationError(Box::new(err)))?;
+        let messages = room
+            .messages(options)
+            .await
+            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
 
         Ok((messages.chunk, messages.end))
     }
@@ -459,7 +460,7 @@ impl EventFocusedCacheInner {
         let result = room
             .relations(thread_root, options)
             .await
-            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
 
         Ok((result.chunk, result.next_batch_token))
     }
