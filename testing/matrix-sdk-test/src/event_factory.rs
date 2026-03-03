@@ -349,7 +349,7 @@ where
                     .and_then(|room_id| room_id.server_name())
                     .unwrap_or(server_name!("dummy.org"));
 
-                EventId::new(server_name)
+                EventId::new_v1(server_name)
             });
 
             map.insert("event_id".to_owned(), json!(event_id));
@@ -1152,7 +1152,7 @@ impl EventFactory {
 
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
-            event_id: EventId::new(server_name!("dummy.server")),
+            event_id: EventId::new_v1(server_name!("dummy.server")),
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
@@ -1174,7 +1174,7 @@ impl EventFactory {
 
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
-            event_id: EventId::new(server_name!("dummy.server")),
+            event_id: EventId::new_v1(server_name!("dummy.server")),
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
