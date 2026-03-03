@@ -512,8 +512,11 @@ impl OAuthCli {
         tokio::spawn(async move {
             while let Ok(update) = this.client.subscribe_to_session_changes().recv().await {
                 match update {
-                    matrix_sdk::SessionChange::UnknownToken { soft_logout } => {
-                        println!("Received an unknown token error; soft logout? {soft_logout:?}");
+                    matrix_sdk::SessionChange::UnknownToken(unknown_token) => {
+                        println!(
+                            "Received an unknown token error; soft logout? {:?}",
+                            unknown_token.soft_logout
+                        );
                     }
                     matrix_sdk::SessionChange::TokensRefreshed => {
                         // The tokens have been refreshed, persist them to disk.

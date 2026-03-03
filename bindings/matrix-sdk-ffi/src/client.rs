@@ -2241,8 +2241,8 @@ impl Client {
             debug!("Applying session change: {session_change:?}");
             let delegate = delegate_data.delegate.clone();
             get_runtime_handle().spawn_blocking(move || match session_change {
-                SessionChange::UnknownToken { soft_logout } => {
-                    delegate.did_receive_auth_error(soft_logout);
+                SessionChange::UnknownToken(unknown_token) => {
+                    delegate.did_receive_auth_error(unknown_token.soft_logout);
                 }
                 SessionChange::TokensRefreshed => {}
             });

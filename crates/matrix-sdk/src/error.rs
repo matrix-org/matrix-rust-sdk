@@ -210,8 +210,8 @@ impl RetryKind {
     fn from_api_error(api_error: &RumaApiError) -> Self {
         match api_error {
             RumaApiError::ClientApi(client_error) => match client_error.error_kind() {
-                Some(ErrorKind::LimitExceeded { retry_after }) => {
-                    RetryKind::from_retry_after(retry_after.as_ref())
+                Some(ErrorKind::LimitExceeded(limit_exceeded)) => {
+                    RetryKind::from_retry_after(limit_exceeded.retry_after.as_ref())
                 }
                 Some(ErrorKind::Unrecognized) => RetryKind::Permanent,
                 _ => RetryKind::from_status_code(client_error.status_code),

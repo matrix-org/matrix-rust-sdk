@@ -750,7 +750,7 @@ pub enum ErrorKind {
     /// [room keys backup]: https://spec.matrix.org/latest/client-server-api/#server-side-key-backups
     WrongRoomKeysVersion {
         /// The currently active backup version.
-        current_version: Option<String>,
+        current_version: String,
     },
 
     /// A custom API error.
@@ -764,9 +764,9 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::BadAlias => Ok(ErrorKind::BadAlias),
             RumaApiErrorKind::BadJson => Ok(ErrorKind::BadJson),
             RumaApiErrorKind::BadState => Ok(ErrorKind::BadState),
-            RumaApiErrorKind::BadStatus { status, body } => Ok(ErrorKind::BadStatus {
-                status: status.map(|code| code.clone().as_u16()),
-                body: body.clone(),
+            RumaApiErrorKind::BadStatus(bad_status) => Ok(ErrorKind::BadStatus {
+                status: bad_status.status.map(|code| code.as_u16()),
+                body: bad_status.body.clone(),
             }),
             RumaApiErrorKind::CannotLeaveServerNoticeRoom => {
                 Ok(ErrorKind::CannotLeaveServerNoticeRoom)
@@ -780,14 +780,16 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::Exclusive => Ok(ErrorKind::Exclusive),
             RumaApiErrorKind::Forbidden { .. } => Ok(ErrorKind::Forbidden),
             RumaApiErrorKind::GuestAccessForbidden => Ok(ErrorKind::GuestAccessForbidden),
-            RumaApiErrorKind::IncompatibleRoomVersion { room_version } => {
-                Ok(ErrorKind::IncompatibleRoomVersion { room_version: room_version.to_string() })
+            RumaApiErrorKind::IncompatibleRoomVersion(incompatible_room_version) => {
+                Ok(ErrorKind::IncompatibleRoomVersion {
+                    room_version: incompatible_room_version.room_version.to_string(),
+                })
             }
             RumaApiErrorKind::InvalidParam => Ok(ErrorKind::InvalidParam),
             RumaApiErrorKind::InvalidRoomState => Ok(ErrorKind::InvalidRoomState),
             RumaApiErrorKind::InvalidUsername => Ok(ErrorKind::InvalidUsername),
-            RumaApiErrorKind::LimitExceeded { retry_after } => {
-                let retry_after_ms = match retry_after {
+            RumaApiErrorKind::LimitExceeded(limit_exceeded) => {
+                let retry_after_ms = match &limit_exceeded.retry_after {
                     Some(RetryAfter::Delay(duration)) => Some(duration.as_millis() as u64),
                     Some(RetryAfter::DateTime(system_time)) => {
                         let duration = MilliSecondsSinceUnixEpoch::now()
@@ -804,8 +806,10 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::NotFound => Ok(ErrorKind::NotFound),
             RumaApiErrorKind::NotJson => Ok(ErrorKind::NotJson),
             RumaApiErrorKind::NotYetUploaded => Ok(ErrorKind::NotYetUploaded),
-            RumaApiErrorKind::ResourceLimitExceeded { admin_contact } => {
-                Ok(ErrorKind::ResourceLimitExceeded { admin_contact: admin_contact.to_owned() })
+            RumaApiErrorKind::ResourceLimitExceeded(resource_limit_exceeded) => {
+                Ok(ErrorKind::ResourceLimitExceeded {
+                    admin_contact: resource_limit_exceeded.admin_contact.clone(),
+                })
             }
             RumaApiErrorKind::RoomInUse => Ok(ErrorKind::RoomInUse),
             RumaApiErrorKind::ServerNotTrusted => Ok(ErrorKind::ServerNotTrusted),
@@ -821,8 +825,8 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::UnableToGrantJoin => Ok(ErrorKind::UnableToGrantJoin),
             RumaApiErrorKind::Unauthorized => Ok(ErrorKind::Unauthorized),
             RumaApiErrorKind::Unknown => Ok(ErrorKind::Unknown),
-            RumaApiErrorKind::UnknownToken { soft_logout } => {
-                Ok(ErrorKind::UnknownToken { soft_logout: soft_logout.to_owned() })
+            RumaApiErrorKind::UnknownToken(unknown_token) => {
+                Ok(ErrorKind::UnknownToken { soft_logout: unknown_token.soft_logout.to_owned() })
             }
             RumaApiErrorKind::Unrecognized => Ok(ErrorKind::Unrecognized),
             RumaApiErrorKind::UnsupportedRoomVersion => Ok(ErrorKind::UnsupportedRoomVersion),
@@ -832,10 +836,12 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::UserLocked => Ok(ErrorKind::UserLocked),
             RumaApiErrorKind::UserSuspended => Ok(ErrorKind::UserSuspended),
             RumaApiErrorKind::WeakPassword => Ok(ErrorKind::WeakPassword),
-            RumaApiErrorKind::WrongRoomKeysVersion { current_version } => {
-                Ok(ErrorKind::WrongRoomKeysVersion { current_version: current_version.to_owned() })
+            RumaApiErrorKind::WrongRoomKeysVersion(wrong_version) => {
+                Ok(ErrorKind::WrongRoomKeysVersion {
+                    current_version: wrong_version.current_version.clone(),
+                })
             }
-            RumaApiErrorKind::_Custom { .. } => {
+            RumaApiErrorKind::_Custom(_) => {
                 // There is no way to map the extra values since they're private, so we omit
                 // them
                 Ok(ErrorKind::Custom { errcode: value.errcode().to_string() })

@@ -704,9 +704,9 @@ impl Backups {
 
                             self.handle_deleted_backup_version(olm_machine).await?;
                         }
-                        ErrorKind::WrongRoomKeysVersion { current_version } => {
+                        ErrorKind::WrongRoomKeysVersion(wrong_version) => {
                             warn!(
-                                new_version = current_version,
+                                new_version = wrong_version.current_version,
                                 "A new backup version was found on the server, disabling backups."
                             );
 
