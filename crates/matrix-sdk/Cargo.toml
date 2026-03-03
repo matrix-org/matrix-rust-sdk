@@ -15,6 +15,9 @@ version = "0.16.0"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
+[package.metadata.cargo-machete]
+ignored = ["ring", "rustls-pki-types"]
+
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-tls"]
 testing = [
