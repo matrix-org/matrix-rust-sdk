@@ -26,7 +26,7 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
     Position,
 };
-use tracing::trace;
+use tracing::{instrument, trace};
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -102,6 +102,7 @@ impl EventLinkedChunk {
     ///
     /// This method returns the position of the (first if many) newly created
     /// `Chunk` that contains the `items`.
+    #[instrument(err, skip_all, fields(gap_identifier, sentry = true))]
     fn replace_gap_at(
         &mut self,
         gap_identifier: ChunkIdentifier,
@@ -140,6 +141,7 @@ impl EventLinkedChunk {
     /// Remove some events from the linked chunk.
     ///
     /// If a chunk becomes empty, it's going to be removed.
+    #[instrument(err, skip_all, fields(positions, sentry = true))]
     pub fn remove_events_by_position(&mut self, mut positions: Vec<Position>) -> Result<(), Error> {
         sort_positions_descending(&mut positions);
 
@@ -154,6 +156,7 @@ impl EventLinkedChunk {
     ///
     /// `position` must point to a valid item, otherwise the method returns an
     /// error.
+    #[instrument(err, skip_all, fields(position, sentry = true))]
     pub fn replace_event_at(&mut self, position: Position, event: Event) -> Result<(), Error> {
         self.chunks.replace_item_at(position, event)
     }
@@ -426,6 +429,7 @@ impl EventLinkedChunk {
     ///
     /// This clears all the chunks in memory before resetting to the new chunk,
     /// if provided.
+    #[instrument(err, skip_all, fields(sentry = true))]
     pub(in super::super) fn replace_with(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
@@ -439,6 +443,7 @@ impl EventLinkedChunk {
     }
 
     /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
+    #[instrument(err, skip_all, fields(sentry = true))]
     pub(in super::super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
