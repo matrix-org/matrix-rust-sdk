@@ -192,7 +192,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
         .await;
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -266,7 +266,7 @@ async fn test_thread_push_rules_and_notification_modes() {
         .await;
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let f = EventFactory::new().room(room_id).sender(*ALICE);

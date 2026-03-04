@@ -1753,7 +1753,7 @@ async fn test_sync_thread_subscriptions_with_catchup() {
     let thread3 = owned_event_id!("$thread3:example.com");
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // The provided catchup token will be used to fetch more thread
     // subscriptions via the msc4308 companion endpoint.

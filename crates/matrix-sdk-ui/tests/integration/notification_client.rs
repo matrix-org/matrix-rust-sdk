@@ -116,7 +116,7 @@ async fn test_subscribed_threads_get_notifications() {
     let f = EventFactory::new().room(room_id).sender(sender);
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // First, mock an empty sync so the room is known.
     server.mock_room_state_encryption().plain().mount().await;
@@ -221,7 +221,7 @@ async fn test_unsubscribed_threads_get_notifications() {
     let f = EventFactory::new().room(room_id).sender(sender);
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // First, mock an empty sync so the room is known.
     server.mock_room_state_encryption().plain().mount().await;
