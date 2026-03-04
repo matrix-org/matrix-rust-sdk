@@ -1553,7 +1553,7 @@ async fn test_server_version_without_auth() {
 
     // If we do not provide an access token, all is fine as the endpoint does not
     // require one.
-    server.mock_versions().expect_missing_access_token().ok_with_unstable_features().mount().await;
+    server.mock_versions().expect_missing_access_token().ok().mount().await;
 
     let request_config = RequestConfig::new().disable_retry();
     client
