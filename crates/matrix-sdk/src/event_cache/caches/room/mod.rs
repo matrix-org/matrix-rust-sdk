@@ -36,6 +36,7 @@ use ruma::{
     serde::Raw,
 };
 pub(in super::super) use state::RoomEventCacheStateLock;
+pub(super) use state::RoomEventCacheStateLockWriteGuard;
 pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};

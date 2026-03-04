@@ -101,6 +101,58 @@ impl Caches {
 
         Ok(Self { room: room_event_cache })
     }
+
+    /// Try to acquire exclusive locks over all the event caches managed by
+    /// this [`Caches`], in order to reset all the in-memory data.
+    ///
+    /// Note that this method takes `&mut self`, ensuring only one reset can
+    /// happen at a time.
+    ///
+    /// If the returned value is dropped, no data will be reset.
+    pub async fn prepare_to_reset(&mut self) -> Result<ResetCaches<'_>> {
+        ResetCaches::new(self).await
+    }
+}
+
+/// Type holding exclusive locks over all event caches managed by a
+/// [`Caches`].
+///
+/// To reset all the event caches, call [`ResetCaches::reset_all`]. If this type
+/// is dropped, no reset happens and the exclusive lock is released.
+pub(super) struct ResetCaches<'c> {
+    room_lock: (&'c room::RoomEventCache, room::RoomEventCacheStateLockWriteGuard<'c>),
+}
+
+impl<'c> ResetCaches<'c> {
+    /// Create a new [`ResetCaches`].
+    ///
+    /// It can fail if acquiring an exclusive lock fails.
+    async fn new(Caches { room }: &'c mut Caches) -> Result<Self> {
+        Ok(Self { room_lock: (room, room.state().write().await?) })
+    }
+
+    /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
+    ///
+    /// Note that this method consumes `self`, ensuring the acquired exclusive
+    /// locks over the event caches are released.
+    ///
+    /// It can fail if resetting an event cache fails.
+    pub async fn reset_all(self) -> Result<()> {
+        let Self { room_lock: (room, mut room_state) } = self;
+
+        {
+            let updates_as_vector_diffs = room_state.reset().await?;
+            room.update_sender().send(
+                room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                }),
+                Some(room::RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() }),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 /// A diff update for an event cache timeline represented as a vector.
