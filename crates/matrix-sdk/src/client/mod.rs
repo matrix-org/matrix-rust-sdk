@@ -3693,7 +3693,13 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server
+            .mock_versions()
+            .with_feature("org.matrix.e2e_cross_signing", true)
+            .ok()
+            .mock_once()
+            .mount()
+            .await;
 
         let unstable_features = client.unstable_features().await.unwrap();
         assert!(unstable_features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
@@ -3822,7 +3828,8 @@ pub(crate) mod tests {
         let versions_mock = server
             .mock_versions()
             .expect_default_access_token()
-            .ok_with_unstable_features()
+            .with_feature("org.matrix.e2e_cross_signing", true)
+            .ok()
             .named("first versions mock")
             .expect(1)
             .mount_as_scoped()
