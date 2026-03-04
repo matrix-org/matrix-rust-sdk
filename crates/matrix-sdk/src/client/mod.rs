@@ -3256,7 +3256,7 @@ impl Client {
             ThreadingSupport::Enabled { with_subscriptions: false }
             | ThreadingSupport::Disabled => return Ok(false),
             ThreadingSupport::Enabled { with_subscriptions: true } => {}
-        };
+        }
 
         // Now, let's check that the server supports it.
         let server_enabled = self
