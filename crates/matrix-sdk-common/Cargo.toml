@@ -17,7 +17,7 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-js = ["wasm-bindgen-futures"]
+js = ["wasm-bindgen-futures", "ruma/js"]
 uniffi = ["dep:uniffi"]
 # Private feature, see
 # https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
@@ -47,6 +47,7 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 [target.'cfg(target_family = "wasm")'.dependencies]
 futures-executor.workspace = true
 futures-util = { workspace = true, features = ["channel"] }
+getrandom = { workspace = true, default-features = false, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 tokio = { workspace = true, features = ["sync", "macros", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
@@ -64,8 +65,6 @@ proptest.workspace = true
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
-# Enable the JS feature for getrandom.
-getrandom = { workspace = true, default-features = false, features = ["js"] }
 js-sys.workspace = true
 
 [lints]

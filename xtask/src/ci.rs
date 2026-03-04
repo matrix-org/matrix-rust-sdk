@@ -405,6 +405,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .args(arg_set.split_whitespace())
             .args(["--", "-D", "warnings"])
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+            .env("RUSTFLAGS", "--cfg getrandom_backend=\"wasm_js\"")
             .run()
     };
 
@@ -470,6 +471,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
             cmd!(sh, "wasm-pack test --node -- ")
                 .args(arg_set.split_whitespace())
                 .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .env("RUSTFLAGS", "--cfg getrandom_backend=\"wasm_js\"")
                 .run()?;
         }
 
@@ -477,6 +479,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
             cmd!(sh, "wasm-pack test --firefox --headless --")
                 .args(arg_set.split_whitespace())
                 .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .env("RUSTFLAGS", "--cfg getrandom_backend=\"wasm_js\"")
                 .run()?;
         }
 
@@ -484,6 +487,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
             cmd!(sh, "wasm-pack test --chrome --headless --")
                 .args(arg_set.split_whitespace())
                 .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+                .env("RUSTFLAGS", "--cfg getrandom_backend=\"wasm_js\"")
                 .run()?;
         }
 
