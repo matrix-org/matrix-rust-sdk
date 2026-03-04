@@ -4403,10 +4403,9 @@ pub(crate) mod tests {
 
         server
             .mock_versions()
-            .ok_custom(
-                &["v1.7", "v1.8", "v1.9", "v1.10"],
-                &[("org.matrix.msc3916.stable", true)].into(),
-            )
+            .with_versions(vec!["v1.7", "v1.8", "v1.9", "v1.10"])
+            .with_feature("org.matrix.msc3916.stable", true)
+            .ok()
             .named("versions")
             .expect(1)
             .mount()
@@ -4429,7 +4428,8 @@ pub(crate) mod tests {
 
         server
             .mock_versions()
-            .ok_custom(&["v1.1"], &Default::default())
+            .with_versions(vec!["v1.1"])
+            .ok()
             .named("versions")
             .expect(1)
             .mount()

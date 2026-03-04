@@ -18,7 +18,8 @@ async fn test_get_media_content_no_auth() {
 
     server
         .mock_versions()
-        .ok_custom(&["v1.1"], &Default::default())
+        .with_versions(vec!["v1.1"])
+        .ok()
         .named("versions")
         .expect(1)
         .mount()
@@ -94,7 +95,8 @@ async fn test_get_media_file_no_auth() {
 
     server
         .mock_versions()
-        .ok_custom(&["v1.1"], &Default::default())
+        .with_versions(vec!["v1.1"])
+        .ok()
         .named("versions")
         .expect(1)
         .mount()
@@ -162,7 +164,8 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
 
     server
         .mock_versions()
-        .ok_custom(&["v1.11"], &Default::default())
+        .with_versions(vec!["v1.11"])
+        .ok()
         .expect(1)
         .named("versions")
         .mount()
@@ -231,10 +234,9 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
 
     server
         .mock_versions()
-        .ok_custom(
-            &["v1.7", "v1.8", "v1.9", "v1.10"],
-            &[("org.matrix.msc3916.stable", true)].into(),
-        )
+        .with_versions(vec!["v1.7", "v1.8", "v1.9", "v1.10"])
+        .with_feature("org.matrix.msc3916.stable", true)
+        .ok()
         .named("versions")
         .expect(1)
         .mount()
@@ -300,7 +302,7 @@ async fn test_async_media_upload() {
     let client = server.client_builder().no_server_versions().build().await;
 
     // Declare Matrix version v1.7.
-    server.mock_versions().ok_custom(&["v1.7"], &Default::default()).expect(1).mount().await;
+    server.mock_versions().with_versions(vec!["v1.7"]).ok().expect(1).mount().await;
 
     server.mock_media_allocate().ok().expect(1).mount().await;
 
