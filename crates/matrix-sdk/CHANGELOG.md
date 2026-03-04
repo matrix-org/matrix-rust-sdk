@@ -64,6 +64,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- The event cache's thread subscriptions background task won't enable if the server doesn't
+  advertise support for the experimental thread subscription feature. In the past, this would result
+  in sending spurious requests that aren't supported by the user's homeserver.
+  ([#6245](https://github.com/matrix-org/matrix-rust-sdk/pull/6245))
 - Handle race between send queue update and remote echo in latest event computation.
   ([#6220](https://github.com/matrix-org/matrix-rust-sdk/pull/6220))
 - Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
@@ -84,6 +88,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Client::enabled_thread_subscriptions()` is now async and fallible, as it will
+  check for both static enablement of the thread subscription feature as well as dynamically
+  checking that the user's homeserver supports it.
+  ([#6245](https://github.com/matrix-org/matrix-rust-sdk/pull/6245))
 - [**breaking**] `SessionChange::UnknownToken` is now a tuple variant containing
   an `UnknownTokenErrorData`.
   ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
