@@ -53,7 +53,11 @@ use super::{
     event_linked_chunk::sort_positions_descending,
     thread::pagination::ThreadPagination,
 };
-use crate::{client::WeakClient, room::WeakRoom};
+use crate::{
+    client::WeakClient,
+    event_cache::{EventFocusThreadMode, caches::event_focused::EventFocusedCache},
+    room::WeakRoom,
+};
 
 /// A subset of an event cache, for a room.
 ///
@@ -157,6 +161,82 @@ impl RoomEventCache {
         let state = self.inner.state.read().await?;
 
         state.subscribe_to_pinned_events(room).await
+    }
+
+    /// Create or get an event-focused timeline cache for this room.
+    ///
+    /// This creates a timeline centered around a specific event (e.g., for
+    /// permalinks), in a given mode, supporting both forward and backward
+    /// pagination.
+    ///
+    /// If the focused event is part of a thread, the timeline will
+    /// automatically use thread-specific pagination.
+    ///
+    /// If the thread mode is defined to [`EventFocusThreadMode::ForceThread`],
+    /// the timeline will be focused on the thread root of the thread the
+    /// target event belongs to, or it will consider that the target event
+    /// itself is the thread root.
+    #[instrument(skip(self), fields(room_id = %self.inner.room_id, event_id = %event_id, thread_mode = ?thread_mode))]
+    pub async fn get_or_create_event_focused_cache(
+        &self,
+        event_id: OwnedEventId,
+        num_context_events: u16,
+        thread_mode: EventFocusThreadMode,
+    ) -> Result<EventFocusedCache> {
+        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+        let guard = self.inner.state.read().await?;
+
+        // Check if we already have a cache for this event.
+        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
+            trace!("the cache was already created, returning it");
+            return Ok(cache);
+        }
+
+        // Create a new cache.
+        let linked_chunk_update_sender = guard.state.linked_chunk_update_sender.clone();
+
+        // Make sure to drop the guard before calling `start_from` below, as it may need
+        // to lock the room event cache's state again, when memoizing events
+        // received from the network response.
+        drop(guard);
+
+        let room_id = room.room_id().to_owned();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&room.client()), room_id.clone());
+
+        trace!("creating a fresh event-focused cache");
+        let cache = EventFocusedCache::new(weak_room, event_id.clone(), linked_chunk_update_sender);
+
+        // Initialize the cache from the server.
+        cache.start_from(room, num_context_events, thread_mode).await?;
+
+        let mut guard = self.inner.state.write().await?;
+
+        // Check again if we already have a cache for this event, just in case there was
+        // a race with another caller during initialization.
+        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
+            trace!("another cache has been racily created, returning it");
+            return Ok(cache);
+        }
+
+        // Insert the cache in the map.
+        guard.insert_event_focused_cache(event_id, thread_mode, cache.clone());
+
+        Ok(cache)
+    }
+
+    /// Get an event-focused cache for this event and thread mode, if it exists.
+    ///
+    /// Otherwise, returns `None`.
+    ///
+    /// Use [`Self::get_or_create_event_focused_cache`] for ensuring such a
+    /// cache exists.
+    #[instrument(skip(self), fields(room_id = %self.inner.room_id))]
+    pub async fn get_event_focused_cache(
+        &self,
+        event_id: OwnedEventId,
+        thread_mode: EventFocusThreadMode,
+    ) -> Result<Option<EventFocusedCache>> {
+        Ok(self.inner.state.read().await?.get_event_focused_cache(event_id, thread_mode))
     }
 
     /// Return a [`RoomPagination`] API object useful for running

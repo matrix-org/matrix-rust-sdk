@@ -35,6 +35,16 @@ pub enum PaginationToken {
     HitEnd,
 }
 
+impl PaginationToken {
+    /// Convert to the token string, if we have one.
+    pub fn into_token(self) -> Option<String> {
+        match self {
+            Self::HasMore(token) => Some(token),
+            Self::None | Self::HitEnd => None,
+        }
+    }
+}
+
 impl From<Option<String>> for PaginationToken {
     fn from(token: Option<String>) -> Self {
         match token {

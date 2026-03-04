@@ -25,11 +25,11 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineReadReceiptTracking,
+        PaginationError, TimelineReadReceiptTracking,
         controller::spawn_crypto_tasks,
         tasks::{
-            pinned_events_task, room_event_cache_updates_task, room_send_queue_update_task,
-            thread_updates_task,
+            event_focused_task, pinned_events_task, room_event_cache_updates_task,
+            room_send_queue_update_task, thread_updates_task,
         },
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -206,6 +206,29 @@ impl TimelineBuilder {
             None
         };
 
+        let event_focused_join_handle =
+            if let TimelineFocus::Event { target, thread_mode, .. } = &focus {
+                let cache = room_event_cache
+                    .get_event_focused_cache(target.clone(), (*thread_mode).into())
+                    .await?
+                    .ok_or(Error::PaginationError(PaginationError::MissingCache))?;
+
+                let (_initial_events, recv) = cache.subscribe().await;
+
+                Some(room.client().task_monitor().spawn_background_task(
+                    "timeline::event_focused_cache_updates",
+                    event_focused_task(
+                        target.clone(),
+                        (*thread_mode).into(),
+                        room_event_cache.clone(),
+                        controller.clone(),
+                        recv,
+                    ),
+                ))
+            } else {
+                None
+            };
+
         let room_update_join_handle = room
             .client()
             .task_monitor()
@@ -298,6 +321,7 @@ impl TimelineBuilder {
                 _thread_update_join_handle: thread_update_join_handle,
                 _pinned_events_join_handle: pinned_events_join_handle,
                 _local_echo_listener_handle: local_echo_listener_handle,
+                _event_focused_join_handle: event_focused_join_handle,
                 _event_cache_drop_handle: event_cache_drop,
             }),
         };

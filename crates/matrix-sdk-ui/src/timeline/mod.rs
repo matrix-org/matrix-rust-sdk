@@ -29,7 +29,7 @@ use matrix_sdk::{
     Result,
     attachment::{AttachmentInfo, Thumbnail},
     deserialized_responses::TimelineEvent,
-    event_cache::{EventCacheDropHandles, RoomEventCache},
+    event_cache::{EventCacheDropHandles, EventFocusThreadMode, RoomEventCache},
     room::{
         Receipts, Room,
         edit::EditedContent,
@@ -151,26 +151,40 @@ pub enum TimelineFocus {
 /// Options for controlling the behaviour of [`TimelineFocus::Event`]
 /// for threaded events.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TimelineEventFocusThreadMode {
-    /// Force the timeline into threaded mode. When the focused event is part of
-    /// a thread, the timeline will be focused on that thread's root. Otherwise,
-    /// the timeline will treat the target event itself as the thread root.
-    /// Threaded events will never be hidden.
+    /// Force the timeline into threaded mode.
+    ///
+    /// When the focused event is part of a thread, the timeline will be focused
+    /// on that thread's root. Otherwise, the timeline will treat the target
+    /// event itself as the thread root. Threaded events will never be
+    /// hidden.
     ForceThread,
-    /// Automatically determine if the target event is
-    /// part of a thread or not. If the event is part of a thread, the timeline
+
+    /// Automatically determine if the target event is part of a thread or not.
+    ///
+    /// If the event is part of a thread, the timeline
     /// will be filtered to on-thread events.
     Automatic {
         /// When the target event is not part of a thread, whether to
-        /// hide in-thread replies from the live timeline. Has no effect
-        /// when the target event is part of a thread.
+        /// hide in-thread replies from the live timeline.
+        ///
+        /// Has no effect when the target event is part of a thread.
         ///
         /// This should be set to true when the client can create
         /// [`TimelineFocus::Thread`]-focused timelines from the thread roots
         /// themselves and doesn't use the [`Self::ForceThread`] mode.
         hide_threaded_events: bool,
     },
+}
+
+impl From<TimelineEventFocusThreadMode> for EventFocusThreadMode {
+    fn from(val: TimelineEventFocusThreadMode) -> Self {
+        match val {
+            TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
+            TimelineEventFocusThreadMode::Automatic { .. } => EventFocusThreadMode::Automatic,
+        }
+    }
 }
 
 impl TimelineFocus {
@@ -868,6 +882,7 @@ impl Timeline {
 struct TimelineDropHandle {
     _room_update_join_handle: BackgroundTaskHandle,
     _pinned_events_join_handle: Option<BackgroundTaskHandle>,
+    _event_focused_join_handle: Option<BackgroundTaskHandle>,
     _thread_update_join_handle: Option<BackgroundTaskHandle>,
     _local_echo_listener_handle: BackgroundTaskHandle,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,

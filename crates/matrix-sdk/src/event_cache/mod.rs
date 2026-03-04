@@ -56,6 +56,7 @@ use tracing::{error, instrument, trace};
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
+    paginators::PaginatorError,
 };
 
 mod caches;
@@ -68,6 +69,7 @@ mod tasks;
 use caches::room::{RoomEventCacheLinkedChunkUpdate, RoomEventCacheStateLock};
 pub use caches::{
     TimelineVectorDiffs,
+    event_focused::EventFocusThreadMode,
     pagination::{BackPaginationOutcome, PaginationStatus},
     room::{
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
@@ -97,6 +99,10 @@ pub enum EventCacheError {
     /// An error has been observed while back-paginating.
     #[error(transparent)]
     BackpaginationError(Box<crate::Error>),
+
+    /// An error has been observed while initiating an event-focused timeline.
+    #[error(transparent)]
+    InitialPaginationError(#[from] PaginatorError),
 
     /// Back-pagination was already happening in a given room, where we tried to
     /// back-paginate again.
