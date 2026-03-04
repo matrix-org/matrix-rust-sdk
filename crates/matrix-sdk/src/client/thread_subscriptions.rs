@@ -22,10 +22,9 @@ use std::{
 
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, ThreadSubscriptionCatchupToken,
-    executor::AbortOnDrop,
     store::{StoredThreadSubscription, ThreadSubscriptionStatus},
+    task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId,
     api::client::threads::get_thread_subscriptions_changes::unstable::{
@@ -113,7 +112,7 @@ impl GuardedStoreAccess {
 
 pub struct ThreadSubscriptionCatchup {
     /// The task catching up thread subscriptions in the background.
-    _task: OnceLock<AbortOnDrop<()>>,
+    _task: OnceLock<BackgroundTaskHandle>,
 
     /// Whether the known list of thread subscriptions is outdated or not, i.e.
     /// all thread subscriptions have been caught up
@@ -153,9 +152,10 @@ impl ThreadSubscriptionCatchup {
         // subscriptions.
         let _ = this._task.get_or_init(|| {
             let that = this.clone();
+            let client_clone = client.clone();
 
-            AbortOnDrop::new(spawn(async move {
-                match client.enabled_thread_subscriptions().await {
+            client.task_monitor().spawn_background_task("client::thread_subscriptions_catchup", async move {
+                match client_clone.enabled_thread_subscriptions().await {
                     Ok(enabled) => {
                         if !enabled {
                             debug!("Thread subscriptions catchup not enabled, not starting the catchup task");
@@ -173,7 +173,7 @@ impl ThreadSubscriptionCatchup {
                     that,
                     ping_receiver,
                 ).await
-            }))
+            }).abort_on_drop()
         });
 
         this
