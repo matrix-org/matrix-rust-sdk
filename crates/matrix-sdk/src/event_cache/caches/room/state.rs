@@ -416,8 +416,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         event_id: OwnedEventId,
         thread_mode: EventFocusThreadMode,
     ) -> Option<EventFocusedCache> {
-        let key = EventFocusedCacheKey { focused: event_id, thread_mode };
-        self.state.event_focused_caches.get(&key).cloned()
+        get_event_focused_cache(&self.state, event_id, thread_mode)
     }
 }
 
@@ -1288,9 +1287,23 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         event_id: OwnedEventId,
         thread_mode: EventFocusThreadMode,
     ) -> Option<EventFocusedCache> {
-        let key = EventFocusedCacheKey { focused: event_id, thread_mode };
-        self.state.event_focused_caches.get(&key).cloned()
+        get_event_focused_cache(&self.state, event_id, thread_mode)
     }
+}
+
+/// Get an event-focused cache for this event and thread mode, if it exists.
+///
+/// Otherwise, returns `None`.
+///
+/// Extracted as a separate function to avoid duplicating the implementation for
+/// both the read and write guards.
+fn get_event_focused_cache(
+    state: &RoomEventCacheState,
+    event_id: OwnedEventId,
+    thread_mode: EventFocusThreadMode,
+) -> Option<EventFocusedCache> {
+    let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+    state.event_focused_caches.get(&key).cloned()
 }
 
 /// Load a linked chunk's full metadata, making sure the chunks are
