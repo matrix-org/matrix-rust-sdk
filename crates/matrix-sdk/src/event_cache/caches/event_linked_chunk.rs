@@ -286,7 +286,7 @@ impl EventLinkedChunk {
             .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
     }
 
-    /// Add the a pagination token to the end of the linked chunk.
+    /// Add a gap (i.e. pagination token) to the end of the linked chunk.
     ///
     /// Also make sure to get rid of empty event chunks before the gap, as they
     /// wouldn't be useful to keep.
@@ -410,11 +410,11 @@ impl EventLinkedChunk {
         reached_start
     }
 
-    /// Finish a network forward-pagination for this linked chunk by updating
+    /// Add events from a forwards paginatino for this linked chunk by updating
     /// the in-memory linked chunk with the results.
     ///
-    /// This is similar to [`Self::finish_back_pagination`] but for forward
-    /// pagination where new events are appended at the end.
+    /// This is similar to [`Self::push_backwards_pagination_events`] but for
+    /// forward pagination where new events are appended at the end.
     ///
     /// ## Arguments
     ///
