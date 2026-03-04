@@ -774,7 +774,7 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
     server
         .mock_versions()
         .expect_missing_access_token()
-        .ok_with_unstable_features()
+        .ok()
         .expect(1..)
         .named("unauthenticated versions")
         .mount()
@@ -834,7 +834,7 @@ async fn test_supported_versions_handle_refresh_token() {
     server
         .mock_versions()
         .expect_default_access_token()
-        .ok_with_unstable_features()
+        .ok()
         .named("versions with new access token")
         .expect(1)
         .mount()
@@ -844,7 +844,7 @@ async fn test_supported_versions_handle_refresh_token() {
     server
         .mock_versions()
         .expect_missing_access_token()
-        .ok_with_unstable_features()
+        .ok()
         .named("unauthenticated versions")
         .expect(1)
         .mount()
@@ -909,7 +909,7 @@ async fn test_refresh_token_not_handled_supported_versions_not_cached() {
     server
         .mock_versions()
         .expect_missing_access_token()
-        .ok_with_unstable_features()
+        .ok()
         .named("unauthenticated versions")
         .expect(1..)
         .mount()
