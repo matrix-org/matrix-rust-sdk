@@ -3,7 +3,7 @@ use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineReadReceiptTracking};
 use ruma::{
-    EventId, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
+    OwnedEventId, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
     owned_user_id,
 };
 use tokio::runtime::Builder;
@@ -18,7 +18,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
     const NUM_EVENTS: usize = 10000;
 
     let runtime = Builder::new_multi_thread().enable_all().build().expect("Can't create runtime");
-    let room_id = owned_room_id!("!room:example.com");
+    let room_id = owned_room_id!("!fortesfortunajuvat:example.com");
 
     let sender_id = owned_user_id!("@sender:example.com");
     let other_sender_id = owned_user_id!("@other_sender:example.com");
@@ -35,46 +35,44 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
             _ => unreachable!("math genius over here"),
         };
 
-        let event_id = EventId::parse(format!("$event{i}")).unwrap();
-
         let j = i % 10;
         if j < 6 {
             // Messages.
-            events.push(
-                f.text_msg(format!("Message {i}"))
-                    .sender(sender)
-                    .event_id(&event_id)
-                    .into_raw_sync(),
-            );
+            events.push(f.text_msg(format!("Message {i}")).sender(sender).into_raw_sync());
         } else if j < 8 {
             // Reactions.
-            let prev_event = EventId::parse(format!("$event{}", i - 2)).unwrap();
-            events.push(
-                f.reaction(&prev_event, "👍").sender(sender).event_id(&event_id).into_raw_sync(),
-            );
+            let prev_event_id = events[i - 2]
+                .get_field::<OwnedEventId>("event_id")
+                .expect("invalid event ID")
+                .expect("missing event ID");
+            events.push(f.reaction(&prev_event_id, "👍").sender(sender).into_raw_sync());
         } else if j == 8 {
             // Edit.
             // Note: (i-3)%3 is the same as i%3 -> same sender!
-            let prev_event = EventId::parse(format!("$event{}", i - 3)).unwrap();
+            let prev_event_id = events[i - 3]
+                .get_field::<OwnedEventId>("event_id")
+                .expect("invalid event ID")
+                .expect("missing event ID");
             events.push(
                 f.text_msg(format!("* Message {}v2", i - 3))
                     .edit(
-                        &prev_event,
+                        &prev_event_id,
                         RoomMessageEventContentWithoutRelation::text_plain(format!(
                             "Message {}v2",
                             i - 3
                         )),
                     )
                     .sender(sender)
-                    .event_id(&event_id)
                     .into_raw_sync(),
             );
         } else if j == 9 {
             // Redaction.
             // Note: (i-6)%3 is the same as i%6 -> same sender!
-            let prev_event = EventId::parse(format!("$event{}", i - 6)).unwrap();
-            events
-                .push(f.redaction(&prev_event).sender(sender).event_id(&event_id).into_raw_sync());
+            let prev_event_id = events[i - 6]
+                .get_field::<OwnedEventId>("event_id")
+                .expect("invalid event ID")
+                .expect("missing event ID");
+            events.push(f.redaction(&prev_event_id).sender(sender).into_raw_sync());
         }
     }
 
