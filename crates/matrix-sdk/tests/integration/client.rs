@@ -1738,6 +1738,7 @@ async fn test_sync_thread_subscriptions_with_catchup() {
     let server = MatrixMockServer::new().await;
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         })
@@ -1750,6 +1751,9 @@ async fn test_sync_thread_subscriptions_with_catchup() {
     let thread1 = owned_event_id!("$thread1:example.com");
     let thread2 = owned_event_id!("$thread2:example.com");
     let thread3 = owned_event_id!("$thread3:example.com");
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().ok_with_unstable_features().mount().await;
 
     // The provided catchup token will be used to fetch more thread
     // subscriptions via the msc4308 companion endpoint.

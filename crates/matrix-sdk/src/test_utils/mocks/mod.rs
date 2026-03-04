@@ -3461,7 +3461,11 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
             "unstable_features": {
                 "org.matrix.label_based_filtering": true,
                 "org.matrix.e2e_cross_signing": true,
+                // Push encrypted events.
                 "org.matrix.msc4028": true,
+                // Thread subscriptions.
+                "org.matrix.msc4306": true,
+                // Simplified sliding sync.
                 "org.matrix.simplified_msc3575": true,
             },
             "versions": Self::versions()

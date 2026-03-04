@@ -3571,7 +3571,8 @@ impl Room {
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
     pub async fn push_condition_room_ctx(&self) -> Result<Option<PushConditionRoomCtx>> {
-        self.push_condition_room_ctx_internal(self.client.enabled_thread_subscriptions()).await
+        self.push_condition_room_ctx_internal(self.client.enabled_thread_subscriptions().await?)
+            .await
     }
 
     /// Get the push-condition context for this room, with a choice to include
@@ -3637,7 +3638,7 @@ impl Room {
     /// Retrieves a [`PushContext`] that can be used to compute the push
     /// actions for events.
     pub async fn push_context(&self) -> Result<Option<PushContext>> {
-        self.push_context_internal(self.client.enabled_thread_subscriptions()).await
+        self.push_context_internal(self.client.enabled_thread_subscriptions().await?).await
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push actions
