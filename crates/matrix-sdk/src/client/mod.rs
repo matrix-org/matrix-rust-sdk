@@ -3241,16 +3241,31 @@ impl Client {
     }
 
     /// Whether the client is configured to take thread subscriptions (MSC4306
-    /// and MSC4308) into account.
+    /// and MSC4308) into account, and the server enabled the experimental
+    /// feature flag for it.
     ///
     /// This may cause filtering out of thread subscriptions, and loading the
     /// thread subscriptions via the sliding sync extension, when the room
     /// list service is being used.
-    pub fn enabled_thread_subscriptions(&self) -> bool {
+    ///
+    /// This is async and fallible as it may use the network to retrieve the
+    /// server supported features, if they aren't cached already.
+    pub async fn enabled_thread_subscriptions(&self) -> Result<bool> {
+        // Check if the client is configured to support thread subscriptions first.
         match self.base_client().threading_support {
-            ThreadingSupport::Enabled { with_subscriptions } => with_subscriptions,
-            ThreadingSupport::Disabled => false,
-        }
+            ThreadingSupport::Enabled { with_subscriptions: false }
+            | ThreadingSupport::Disabled => return Ok(false),
+            ThreadingSupport::Enabled { with_subscriptions: true } => {}
+        };
+
+        // Now, let's check that the server supports it.
+        let server_enabled = self
+            .supported_versions()
+            .await?
+            .features
+            .contains(&FeatureFlag::from("org.matrix.msc4306"));
+
+        Ok(server_enabled)
     }
 
     /// Fetch thread subscriptions changes between `from` and up to `to`.

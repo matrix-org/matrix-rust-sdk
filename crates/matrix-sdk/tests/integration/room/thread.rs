@@ -182,6 +182,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     let server = MatrixMockServer::new().await;
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
                 with_subscriptions: true,
@@ -189,6 +190,9 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().ok_with_unstable_features().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -252,6 +256,7 @@ async fn test_thread_push_rules_and_notification_modes() {
     let server = MatrixMockServer::new().await;
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
                 with_subscriptions: true,
@@ -259,6 +264,9 @@ async fn test_thread_push_rules_and_notification_modes() {
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().ok_with_unstable_features().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let f = EventFactory::new().room(room_id).sender(*ALICE);

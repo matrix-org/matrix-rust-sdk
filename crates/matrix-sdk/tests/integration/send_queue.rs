@@ -3754,11 +3754,15 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     // Assuming a client that's interested in thread subscriptions,
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().ok_with_unstable_features().mount().await;
 
     client.event_cache().subscribe().unwrap();
 

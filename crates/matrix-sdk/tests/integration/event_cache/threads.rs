@@ -482,11 +482,15 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     // Assuming a client that's interested in thread subscriptions,
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().ok_with_unstable_features().mount().await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();

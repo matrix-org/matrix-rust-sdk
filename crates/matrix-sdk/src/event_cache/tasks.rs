@@ -201,9 +201,20 @@ pub(super) async fn thread_subscriber_task(
     thread_subscriber_sender: Sender<()>,
 ) {
     let mut send_q_rx = if let Some(client) = client.get() {
-        if !client.enabled_thread_subscriptions() {
-            trace!("Thread subscriptions are not enabled, not spawning thread subscriber task");
-            return;
+        match client.enabled_thread_subscriptions().await {
+            Ok(enabled) => {
+                if !enabled {
+                    trace!(
+                        "Thread subscriptions are not enabled, not spawning thread subscriber task"
+                    );
+                    return;
+                }
+            }
+
+            Err(err) => {
+                warn!(%err, "Failed to get whether thread subscriptions are enabled, not spawning thread subscriber task");
+                return;
+            }
         }
 
         client.send_queue().subscribe()

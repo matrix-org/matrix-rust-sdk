@@ -67,9 +67,7 @@ use matrix_sdk::{
 };
 pub use room_list::*;
 use ruma::{
-    OwnedRoomId, RoomId, UInt,
-    api::{FeatureFlag, client::sync::sync_events::v5 as http},
-    assign,
+    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
     events::StateEventType,
 };
 pub use state::*;
@@ -157,33 +155,28 @@ impl RoomListService {
                 enabled: Some(true),
             }));
 
-        if client.enabled_thread_subscriptions() {
-            let server_features = if let Some(cached) = client
-                .supported_versions_cached()
-                .await
-                .map_err(|e| Error::SlidingSync(e.into()))?
-            {
-                cached.features
-            } else {
-                client
-                    .fetch_server_versions(None)
-                    .await
-                    .map_err(|e| Error::SlidingSync(e.into()))?
-                    .as_supported_versions()
-                    .features
-            };
+        match client.enabled_thread_subscriptions().await {
+            Ok(true) => {
+                debug!("Client requested thread subscriptions extension");
 
-            if !server_features.contains(&FeatureFlag::from("org.matrix.msc4306")) {
-                warn!(
-                    "Thread subscriptions extension is requested on the client, but the server doesn't advertise support for it: not enabling."
-                );
-            } else {
-                debug!("Enabling the thread subscriptions extension");
                 builder = builder.with_thread_subscriptions_extension(
                     assign!(http::request::ThreadSubscriptions::default(), {
                         enabled: Some(true),
                         limit: Some(ruma::uint!(10))
                     }),
+                );
+            }
+
+            Ok(false) => {
+                debug!(
+                    "Thread subscriptions extension either not requested on the client, or the server doesn't advertise support for it: not enabling."
+                );
+            }
+
+            Err(error) => {
+                warn!(
+                    ?error,
+                    "Failed to check whether the client requested thread subscriptions extension: not enabling."
                 );
             }
         }

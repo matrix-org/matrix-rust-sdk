@@ -37,7 +37,7 @@ use tokio::sync::{
     Mutex, OwnedMutexGuard,
     mpsc::{Receiver, Sender, channel},
 };
-use tracing::{instrument, trace, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use crate::{Client, Result, client::WeakClient};
 
@@ -151,14 +151,30 @@ impl ThreadSubscriptionCatchup {
 
         // Create the task only if the client is configured to handle thread
         // subscriptions.
-        if client.enabled_thread_subscriptions() {
-            let _ = this._task.get_or_init(|| {
-                AbortOnDrop::new(spawn(Self::thread_subscriptions_catchup_task(
-                    this.clone(),
+        let _ = this._task.get_or_init(|| {
+            let that = this.clone();
+
+            AbortOnDrop::new(spawn(async move {
+                match client.enabled_thread_subscriptions().await {
+                    Ok(enabled) => {
+                        if !enabled {
+                            debug!("Thread subscriptions catchup not enabled, not starting the catchup task");
+                            return;
+                        }
+                    }
+
+                    Err(err) => {
+                        warn!("Failed to check if thread subscriptions catchup is enabled: {err}");
+                        return;
+                    }
+                }
+
+                Self::thread_subscriptions_catchup_task(
+                    that,
                     ping_receiver,
-                )))
-            });
-        }
+                ).await
+            }))
+        });
 
         this
     }
