@@ -3493,26 +3493,6 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
         self
     }
 
-    /// Returns a successful `/_matrix/client/versions` request.
-    ///
-    /// The response will return some commonly supported versions and unstable
-    /// features supported by the SDK.
-    pub fn ok_with_unstable_features(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "unstable_features": {
-                "org.matrix.label_based_filtering": true,
-                "org.matrix.e2e_cross_signing": true,
-                // Push encrypted events.
-                "org.matrix.msc4028": true,
-                // Thread subscriptions.
-                "org.matrix.msc4306": true,
-                // Simplified sliding sync.
-                "org.matrix.simplified_msc3575": true,
-            },
-            "versions": VersionsEndpoint::commonly_supported_versions()
-        })))
-    }
-
     /// Returns a successful `/_matrix/client/versions` request with the given
     /// versions and unstable features.
     pub fn ok_custom(
