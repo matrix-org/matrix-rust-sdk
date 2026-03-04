@@ -21,8 +21,8 @@ use ruma::events::{
 };
 
 use crate::{
-    client::JoinRule, event::TimelineEventType, timeline::msg_like::MsgLikeContent,
-    utils::Timestamp,
+    client::JoinRule, event::TimelineEventType, ruma::AssetType,
+    timeline::msg_like::MsgLikeContent, utils::Timestamp,
 };
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
@@ -112,7 +112,8 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     content: LiveLocationContent {
                         is_live: state.is_live(),
                         description: state.description().map(ToOwned::to_owned),
-                        timeout_ms: state.beacon_info().timeout.as_millis() as u64,
+                        timeout_ms: state.timeout().as_millis() as u64,
+                        asset_type: state.asset_type().into(),
                         locations,
                     },
                 }
@@ -366,6 +367,10 @@ pub struct LiveLocationContent {
 
     /// Duration of the session in milliseconds.
     pub timeout_ms: u64,
+
+    /// The asset type of the beacon (e.g. `Sender` for the user's own
+    /// location, `Pin` for a fixed point of interest).
+    pub asset_type: AssetType,
 
     /// All location updates received so far, sorted oldest-first.
     pub locations: Vec<BeaconInfo>,

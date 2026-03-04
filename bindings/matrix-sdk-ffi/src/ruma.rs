@@ -934,6 +934,7 @@ pub struct LocationContent {
 pub enum AssetType {
     Sender,
     Pin,
+    Unknown,
 }
 
 impl From<AssetType> for RumaAssetType {
@@ -941,6 +942,17 @@ impl From<AssetType> for RumaAssetType {
         match value {
             AssetType::Sender => Self::Self_,
             AssetType::Pin => Self::Pin,
+            _ => panic!("Invalid asset type"),
+        }
+    }
+}
+
+impl From<RumaAssetType> for AssetType {
+    fn from(value: RumaAssetType) -> Self {
+        match value {
+            RumaAssetType::Self_ => Self::Sender,
+            RumaAssetType::Pin => Self::Pin,
+            _ => Self::Unknown,
         }
     }
 }
