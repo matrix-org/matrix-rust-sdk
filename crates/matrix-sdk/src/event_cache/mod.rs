@@ -34,7 +34,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use futures_util::future::{join_all, try_join_all};
+use futures_util::future::try_join_all;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
@@ -515,6 +515,7 @@ impl EventCacheInner {
         //
         // At this point, you might be scared about the potential for deadlocking. I am
         // as well, but I'm convinced we're fine:
+        //
         // 1. the lock for `by_room` is usually held only for a short while, and
         //    independently of the other two kinds.
         // 2. the state may acquire the store cross-process lock internally, but only
@@ -522,20 +523,16 @@ impl EventCacheInner {
         //    result, as soon as we've acquired the state locks, the store lock ought to
         //    be free.
         // 3. The store lock is held explicitly only in a small scoped area below.
-        // 4. Then the store lock will be held internally when calling `reset()`, but at
-        //    this point it's only held for a short while each time, so rooms will take
-        //    turn to acquire it.
+        // 4. Then the store lock will be held internally when calling `reset_all()`,
+        //    but at this point it's only held for a short while each time, so rooms
+        //    will take turn to acquire it.
 
-        let caches_for_all_rooms = self.by_room.write().await;
+        let mut all_caches = self.by_room.write().await;
 
-        // Collect all the rooms' state locks, first: we can clear the storage only when
-        // nobody will touch it at the same time.
-        let room_locks = join_all(
-            caches_for_all_rooms
-                .values()
-                .map(|Caches { room }| async move { (room, room.state().write().await) }),
-        )
-        .await;
+        // Prepare to reset all the caches: it ensures nobody is accessing or mutating
+        // them.
+        let resets =
+            try_join_all(all_caches.values_mut().map(|caches| caches.prepare_to_reset())).await?;
 
         // Clear the storage for all the rooms, using the storage facility.
         let store_guard = match self.store.lock().await? {
@@ -544,24 +541,9 @@ impl EventCacheInner {
         };
         store_guard.clear_all_linked_chunks().await?;
 
-        // At this point, all the in-memory linked chunks are desynchronized from the
-        // storage. Resynchronize them manually by calling reset(), and
-        // propagate updates to observers.
-        try_join_all(room_locks.into_iter().map(|(room, state_guard)| async move {
-            let mut state_guard = state_guard?;
-            let updates_as_vector_diffs = state_guard.reset().await?;
-
-            room.update_sender().send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: updates_as_vector_diffs,
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() }),
-            );
-
-            Ok::<_, EventCacheError>(())
-        }))
-        .await?;
+        // At this point, all the in-memory linked chunks are desynchronized from their
+        // storages. Resynchronize them manually by resetting them.
+        try_join_all(resets.into_iter().map(|reset_cache| reset_cache.reset_all())).await?;
 
         Ok(())
     }
