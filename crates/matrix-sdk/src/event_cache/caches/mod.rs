@@ -33,13 +33,13 @@ pub mod thread;
 
 /// A type to hold all the caches for a given room.
 #[derive(Clone)]
-pub struct Caches {
+pub(super) struct Caches {
     pub room: room::RoomEventCache,
 }
 
 impl Caches {
     /// Create a new [`Caches`].
-    pub(super) async fn new(
+    pub async fn new(
         weak_client: &WeakClient,
         room_id: &RoomId,
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
