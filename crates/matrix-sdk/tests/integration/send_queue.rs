@@ -3762,7 +3762,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         .await;
 
     // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().ok_with_unstable_features().mount().await;
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     client.event_cache().subscribe().unwrap();
 

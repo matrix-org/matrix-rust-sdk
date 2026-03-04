@@ -3472,6 +3472,21 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
         self
     }
 
+    /// Indicate that push for encrypted events is supported by this homeserver.
+    pub fn with_push_encrypted_events(self) -> Self {
+        self.with_feature("org.matrix.msc4028", true)
+    }
+
+    /// Indicate that thread subscriptions are supported by this homeserver.
+    pub fn with_thread_subscriptions(self) -> Self {
+        self.with_feature("org.matrix.msc4306", true)
+    }
+
+    /// Indicate that simplified sliding sync is supported by this homeserver.
+    pub fn with_simplified_sliding_sync(self) -> Self {
+        self.with_feature("org.matrix.simplified_msc3575", true)
+    }
+
     /// Set the supported versions in the response of this endpoint.
     pub fn with_versions(mut self, versions: Vec<&'static str>) -> Self {
         self.endpoint.versions = versions;

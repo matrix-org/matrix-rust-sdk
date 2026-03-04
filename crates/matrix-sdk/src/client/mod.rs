@@ -3705,7 +3705,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server.mock_versions().with_push_encrypted_events().ok().mock_once().mount().await;
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
         assert!(msc4028_enabled);

@@ -461,7 +461,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server.mock_versions().with_simplified_sliding_sync().ok().mock_once().mount().await;
 
         let available_versions = client.available_sliding_sync_versions().await;
 
