@@ -3492,19 +3492,6 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
         self.endpoint.versions = versions;
         self
     }
-
-    /// Returns a successful `/_matrix/client/versions` request with the given
-    /// versions and unstable features.
-    pub fn ok_custom(
-        self,
-        versions: &[&str],
-        unstable_features: &BTreeMap<&str, bool>,
-    ) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "unstable_features": unstable_features,
-            "versions": versions,
-        })))
-    }
 }
 
 /// A prebuilt mock for the room summary endpoint.
