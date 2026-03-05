@@ -334,41 +334,13 @@ async fn handle_receipts_extension(
     );
 
     // Process each room concurrently.
-    let futures = room_ids.into_iter().map(|room_id| {
-        let new_sync_events = sync_response
-            .rooms
-            .joined
-            .entry(room_id.to_owned())
-            .or_default()
-            .timeline
-            .events
-            .clone();
+    let futures = room_ids.into_iter().map(|room_id| async {
+        let receipt_event = client
+            .base_client()
+            .process_sliding_sync_receipts_extension_for_room(&room_id, response)
+            .await?;
 
-        async {
-            let Ok((room_event_cache, _drop_handle)) =
-                client.event_cache().for_room(&room_id).await
-            else {
-                tracing::info!(
-                    ?room_id,
-                    "Failed to fetch the `RoomEventCache` when computing unread counts"
-                );
-                return Ok::<_, crate::Error>(None);
-            };
-
-            let previous_events = room_event_cache.events().await?;
-
-            let receipt_event = client
-                .base_client()
-                .process_sliding_sync_receipts_extension_for_room(
-                    &room_id,
-                    response,
-                    new_sync_events,
-                    previous_events,
-                )
-                .await?;
-
-            Ok(Some((room_id, receipt_event)))
-        }
+        Result::<_, crate::Error>::Ok(Some((room_id, receipt_event)))
     });
 
     let updates = try_join_all(futures).await?;
