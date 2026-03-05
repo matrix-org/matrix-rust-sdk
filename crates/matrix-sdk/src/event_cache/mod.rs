@@ -57,6 +57,7 @@ use crate::{
     Client,
     client::{ClientInner, WeakClient},
     paginators::PaginatorError,
+    room::WeakRoom,
 };
 
 mod caches;
@@ -657,9 +658,11 @@ impl EventCacheInner {
 
                 let own_user_id =
                     client.user_id().expect("the user must be logged in, at this point").to_owned();
+                let weak_room = WeakRoom::new(self.client.clone(), room_id.to_owned());
                 let room_state = RoomEventCacheStateLock::new(
                     own_user_id,
                     room_id.to_owned(),
+                    weak_room,
                     room_version_rules,
                     enabled_thread_support,
                     update_sender.clone(),

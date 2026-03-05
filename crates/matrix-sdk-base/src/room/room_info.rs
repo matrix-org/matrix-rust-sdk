@@ -1103,6 +1103,16 @@ impl RoomInfo {
             .is_some_and(|pinned| pinned.contains(&event_id.to_owned()))
     }
 
+    /// Returns the computed read receipts for this room.
+    pub fn read_receipts(&self) -> &RoomReadReceipts {
+        &self.read_receipts
+    }
+
+    /// Set the computed read receipts for this room.
+    pub fn set_read_receipts(&mut self, read_receipts: RoomReadReceipts) {
+        self.read_receipts = read_receipts;
+    }
+
     /// Apply migrations to this `RoomInfo` if needed.
     ///
     /// This should be used to populate new fields with data from the state
