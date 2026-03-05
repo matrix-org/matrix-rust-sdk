@@ -689,6 +689,7 @@ mod tests {
             TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
             event_kind,
             false,
+            false,
         )
     }
 

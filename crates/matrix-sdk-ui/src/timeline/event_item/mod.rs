@@ -86,6 +86,8 @@ pub struct EventTimelineItem {
     ///
     /// May be false when we don't know about the room encryption status yet.
     pub(super) is_room_encrypted: bool,
+    /// Whether a redaction for this event is currently being sent.
+    pub(super) is_being_redacted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +129,7 @@ impl EventTimelineItem {
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
+        is_being_redacted: bool,
     ) -> Self {
         Self {
             sender,
@@ -137,6 +140,7 @@ impl EventTimelineItem {
             content,
             kind,
             is_room_encrypted,
+            is_being_redacted,
         }
     }
 
@@ -493,7 +497,13 @@ impl EventTimelineItem {
             content,
             kind,
             is_room_encrypted: self.is_room_encrypted,
+            is_being_redacted: false,
         }
+    }
+
+    /// Clone the current event item, and update its `is_being_redacted`.
+    pub(super) fn with_is_being_redacted(&self, is_being_redacted: bool) -> Self {
+        Self { is_being_redacted, ..self.clone() }
     }
 
     pub(super) fn handle(&self) -> TimelineItemHandle<'_> {
