@@ -838,7 +838,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
             // non-duplicated event. We don't know which threads might have gappy, so we
             // must invalidate them all :(
-            // TODO(bnjbvr): figure out a better catchup mechanism for threads.
+            // TODO: figure out a better catchup mechanism for threads.
             let mut summaries_to_update = Vec::new();
 
             for (thread_root, thread) in self.state.threads.iter_mut() {
