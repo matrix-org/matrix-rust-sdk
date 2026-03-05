@@ -27,7 +27,7 @@ use super::BaseClient;
 use crate::{
     RequestedRequiredStates,
     error::Result,
-    read_receipts::compute_unread_counts,
+    read_receipts::compute_unread_counts_legacy,
     response_processors as processors,
     room::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
@@ -270,7 +270,7 @@ impl BaseClient {
         if let Some(mut room_info) = self.get_room(room_id).map(|room| room.clone_info()) {
             let prev_read_receipts = room_info.read_receipts.clone();
 
-            compute_unread_counts(
+            compute_unread_counts_legacy(
                 user_id,
                 room_id,
                 context.state_changes.receipts.get(room_id),
