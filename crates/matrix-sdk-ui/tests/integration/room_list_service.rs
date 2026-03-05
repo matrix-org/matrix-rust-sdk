@@ -1971,6 +1971,16 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
+    // All rooms get new messages, so their entries will get updates because of read
+    // receipt updates.
+    //
+    // Starting with r0.
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r0:bar.org" ];
+        end;
+    };
+
     // Now we have:
     //
     // | index | room ID | recency | name |
@@ -1985,6 +1995,13 @@ async fn test_room_sorting() -> Result<(), Error> {
         [stream]
         remove [ 3 ];
         insert [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+
+    // Read receipt update for r1.
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r1:bar.org" ];
         end;
     };
 
@@ -2005,6 +2022,13 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
+    // Read receipt update for r2.
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r2:bar.org" ];
+        end;
+    };
+
     // Now we have:
     //
     // | index | room ID | recency | name |
@@ -2014,23 +2038,6 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 2     | !r1     | 6       | Aaa  |
     // | 3     | !r4     | 5       |      |
     // | 4     | !r3     | 4       |      |
-
-    // Rooms are individually updated.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r0:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r2:bar.org" ];
-        end;
-    };
 
     assert_pending!(stream);
 
@@ -2134,12 +2141,12 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Rooms are individually updated.
     assert_entries_batch! {
         [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
+        set [ 0 ] [ "!r3:bar.org" ];
         end;
     };
     assert_entries_batch! {
         [stream]
-        set [ 0 ] [ "!r3:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
     assert_entries_batch! {
