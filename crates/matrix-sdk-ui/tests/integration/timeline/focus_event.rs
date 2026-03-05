@@ -258,7 +258,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     server.reset().await;
 
     // We only receive one updated for the reaction, from the timeline stream.
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
@@ -330,7 +330,7 @@ async fn test_focused_timeline_local_echoes() {
     // Add a reaction to the focused event, which will cause a local echo to happen.
     timeline.toggle_reaction(&event_item.identifier(), "✨").await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // We immediately get the local echo for the reaction.
@@ -498,7 +498,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         timeline.paginate_backwards(10).await.expect("Could not paginate backwards");
     assert!(!start_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     // The new item loaded is inserted at the start, just after the date divider.
     assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
@@ -532,7 +532,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         timeline.paginate_backwards(10).await.expect("Could not paginate backwards a 2nd time");
     assert!(start_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     // Same as before, the previous event is inserted at the front, after the date
     // divider.
@@ -562,7 +562,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         timeline.paginate_forwards(10).await.expect("Could not paginate forwards");
     assert!(!end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next1");
@@ -591,7 +591,7 @@ async fn test_focused_timeline_handles_threaded_event() {
         timeline.paginate_forwards(10).await.expect("Could not paginate forwards a 2nd time");
     assert!(end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next2");
@@ -670,7 +670,7 @@ async fn test_focused_timeline_handles_thread_root_event_when_forcing_threaded_m
         timeline.paginate_forwards(10).await.expect("Could not paginate forwards");
     assert!(!end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next1");
@@ -698,7 +698,7 @@ async fn test_focused_timeline_handles_thread_root_event_when_forcing_threaded_m
         timeline.paginate_forwards(10).await.expect("Could not paginate forwards a 2nd time");
     assert!(end_of_timeline);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next2");

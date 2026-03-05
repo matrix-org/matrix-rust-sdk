@@ -21,7 +21,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
-    test_utils::logged_in_client_with_server,
+    assert_let_timeout, test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::timeline::{
@@ -630,7 +630,7 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
             }
         };
 
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);

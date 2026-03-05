@@ -9,11 +9,11 @@ use std::{
 
 use anyhow::Result;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
+    assert_let_timeout,
     bytes::Bytes,
     config::SyncSettings,
     room_preview::RoomPreview,
@@ -862,7 +862,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     pin_mut!(alice_rooms);
 
     // First, we observe the initial reset.
-    assert_let!(Ok(Some(diffs)) = timeout(Duration::from_secs(3), alice_rooms.next()).await);
+    assert_let_timeout!(Duration::from_secs(3), Some(diffs) = alice_rooms.next());
     assert_eq!(diffs.len(), 1);
     assert_matches!(
         &diffs[0],
@@ -898,7 +898,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     sleep(Duration::from_secs(2)).await;
 
     // Room has been updated because of the latest event.
-    assert_let!(Ok(Some(diffs)) = timeout(Duration::from_secs(3), alice_rooms.next()).await);
+    assert_let_timeout!(Duration::from_secs(3), Some(diffs) = alice_rooms.next());
     assert_eq!(diffs.len(), 1);
     assert_matches!(
         &diffs[0],

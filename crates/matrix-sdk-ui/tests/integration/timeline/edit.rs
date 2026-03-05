@@ -20,7 +20,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client,
+    Client, assert_let_timeout,
     room::edit::EditedContent,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
@@ -76,7 +76,7 @@ async fn test_edit() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
@@ -110,7 +110,7 @@ async fn test_edit() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 4);
 
     assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
@@ -190,7 +190,7 @@ async fn test_edit_local_echo() {
     // Redacting a local event works.
     timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
@@ -205,7 +205,7 @@ async fn test_edit_local_echo() {
 
     // We haven't set a route for sending events, so this will fail.
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -236,7 +236,7 @@ async fn test_edit_local_echo() {
         .await
         .unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // Observe local echo being replaced.
@@ -256,7 +256,7 @@ async fn test_edit_local_echo() {
     // Re-enable the room's queue.
     timeline.room().send_queue().set_enabled(true);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     // Observe the event being sent, and replacing the local echo.
@@ -660,7 +660,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
@@ -672,7 +672,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
     assert!(date_divider.is_date_divider());
 
     // We haven't set a route for sending events, so this will fail.
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -714,7 +714,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
         .await
         .unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
@@ -819,7 +819,7 @@ async fn test_pending_edit() {
     )
     .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Then I get the edited content immediately.
@@ -879,7 +879,7 @@ async fn test_pending_edit_overrides() {
     )
     .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Then I get the latest edited content immediately.
@@ -930,7 +930,7 @@ async fn test_pending_edit_from_backpagination() {
     )
     .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Then I get the latest edited content immediately.
@@ -995,7 +995,7 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     )
     .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Then I get the edit from the sync, even if the back-pagination happened
@@ -1064,7 +1064,7 @@ async fn test_pending_poll_edit() {
     )
     .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Then I get the edited content immediately.

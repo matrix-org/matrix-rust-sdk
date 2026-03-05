@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, Room, RoomState, ThreadingSupport, assert_next_with_timeout,
+    Client, Room, RoomState, ThreadingSupport, assert_let_timeout, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{
@@ -196,7 +196,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         sleep(Duration::from_secs(1)).await;
 
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 3);
 
         // Local echo is added.
@@ -237,7 +237,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         sleep(Duration::from_secs(1)).await;
 
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         // The reaction is removed.
