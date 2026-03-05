@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     },
     media::{MediaFormat, MediaRequestParameters},
 };
-use ruma::{OwnedUserId, UserId, events::room::MediaSource};
+use ruma::{OwnedUserId, UserId, api::client::error::ErrorKind, events::room::MediaSource};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{Error, Result, Room};
@@ -233,7 +233,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         room.client.keys_query(&req_id, request.device_keys).await?;
     }
 
-    let bundle_content = client
+    let bundle_content = match client
         .media()
         .get_media_content(
             &MediaRequestParameters {
@@ -242,7 +242,31 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
             },
             false,
         )
-        .await?;
+        .await
+    {
+        Ok(bundle_content) => bundle_content,
+        Err(err) => {
+            // If we encountered an HTTP client error, we should check the status code to
+            // see if we have been sent a bogus link.
+            let Some(err) = err
+                .as_ruma_api_error()
+                .and_then(|e| e.as_client_api_error())
+                .and_then(|e| e.error_kind())
+            else {
+                // Some other error occurred, which we may be able to recover from at the next
+                // client startup.
+                return Ok(());
+            };
+
+            if ErrorKind::NotFound == *err {
+                // Clear the pending flag since checking these details again at startup are
+                // guaranteed to fail.
+                olm_machine.store().clear_room_pending_key_bundle(room.room_id()).await?;
+            }
+
+            return Ok(());
+        }
+    };
 
     match serde_json::from_slice(&bundle_content) {
         Ok(bundle) => {
