@@ -403,7 +403,18 @@ impl EventCache {
             }
         }
 
-        state.post_process_new_events(new_events, PostProcessingOrigin::Redecryption).await?;
+        // Read receipt events aren't encrypted, so we can't have decrypted a new one
+        // here. As a result, we don't have any new receipt events to
+        // post-process, so we can just pass `None` here.
+        //
+        // Note: read receipts may be updated anyhow in the post-processing step, as the
+        // back-pagination may have revealed the event pointed to by the latest read
+        // receipt.
+        let receipt_event = None;
+
+        state
+            .post_process_new_events(new_events, PostProcessingOrigin::Redecryption, receipt_event)
+            .await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.
