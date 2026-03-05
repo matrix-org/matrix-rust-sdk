@@ -759,6 +759,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
         let sender = &self.ctx.sender;
 
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::BeaconStop { content },
+        );
+
         // The stop beacon_info has no explicit `relates_to`; find the target
         // live item by matching sender and liveness, then extract its event ID
         // so we can address the aggregation correctly.
@@ -767,15 +772,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 && item.content().as_live_location_state().is_some_and(|s| s.is_live())
         })
         .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned)) else {
-            trace!("no live beacon_info item found for {sender}; ignoring stop event");
+            // The live start item hasn't arrived yet. Stash the stop so it can
+            // be applied when the start item is eventually inserted.
+            trace!(
+                "no live beacon_info item found for {sender}; \
+                 stashing stop event to apply when the start item arrives"
+            );
+            self.meta.aggregations.add_pending_beacon_stop(sender.clone(), aggregation);
             return;
         };
 
         let target = TimelineEventItemId::EventId(target_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::BeaconStop { content },
-        );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -952,6 +959,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut cowed = Cow::Owned(item);
         if let Err(err) = self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
+            &self.ctx.sender,
             &mut cowed,
             self.items,
             &self.meta.room_version_rules,

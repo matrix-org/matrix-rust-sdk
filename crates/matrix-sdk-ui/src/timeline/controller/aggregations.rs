@@ -421,6 +421,22 @@ pub(crate) struct Aggregations {
 
     /// Mapping of a related event identifier to its target.
     inverted_map: HashMap<TimelineEventItemId, TimelineEventItemId>,
+
+    /// A pending beacon-stop aggregation received before the corresponding live
+    /// `beacon_info` start item has arrived.
+    ///
+    /// Keyed by the sender's user ID (the state key of both the start and stop
+    /// `beacon_info` events). At most one stop can be pending per sender at any
+    /// time: `beacon_info` is a state event whose state key is the sender's
+    /// user ID, so there is only ever one live session per sender, and
+    /// therefore only one meaningful pending stop. A later stop simply
+    /// replaces an earlier one.
+    ///
+    /// When the live start item is eventually inserted via `add_item`, the
+    /// entry here is promoted into [`Self::related_events`] under the
+    /// now-known start event ID so that [`Self::apply_all`] can apply the
+    /// stop immediately.
+    pending_beacon_stops: HashMap<OwnedUserId, Aggregation>,
 }
 
 impl Aggregations {
@@ -428,6 +444,32 @@ impl Aggregations {
     pub fn clear(&mut self) {
         self.related_events.clear();
         self.inverted_map.clear();
+        self.pending_beacon_stops.clear();
+    }
+
+    /// Stash a [`AggregationKind::BeaconStop`] that arrived before its target
+    /// live `beacon_info` item. It will be promoted into
+    /// [`Self::related_events`] (and thus picked up by [`Self::apply_all`])
+    /// when the live item is inserted via
+    /// [`Self::promote_pending_beacon_stop`].
+    ///
+    /// If a stop was already stashed for this sender, the new one replaces it:
+    /// the later state event is always authoritative.
+    pub fn add_pending_beacon_stop(&mut self, sender: OwnedUserId, aggregation: Aggregation) {
+        self.pending_beacon_stops.insert(sender, aggregation);
+    }
+
+    /// Promote any stashed beacon-stop aggregations for `sender` into the
+    /// regular aggregation map, now that the live start item's
+    /// `target_event_id` is known.
+    ///
+    /// Should be called from `add_item` just before `apply_all`, when inserting
+    /// a live `beacon_info` item.
+    fn promote_pending_beacon_stop(&mut self, sender: &OwnedUserId, target_event_id: OwnedEventId) {
+        let Some(stop) = self.pending_beacon_stops.remove(sender) else { return };
+
+        let target = TimelineEventItemId::EventId(target_event_id);
+        self.add(target, stop);
     }
 
     /// Add a given aggregation that relates to the [`TimelineItemContent`]
@@ -557,19 +599,31 @@ impl Aggregations {
 
     /// Apply all the aggregations to a [`TimelineItemContent`].
     ///
+    /// If `sender` is provided alongside a remote `item_id`, any
+    /// [`AggregationKind::BeaconStop`] events that arrived out-of-order (i.e.
+    /// before the live `beacon_info` start item) are first promoted from the
+    /// pending-stops stash into the regular aggregation map so they are picked
+    /// up here together with every other pending aggregation for this item.
+    ///
     /// Will return an error at the first aggregation that couldn't be applied;
     /// see [`Aggregation::apply`] which explains under which conditions it can
     /// happen.
-    ///
-    /// Returns a boolean indicating whether at least one aggregation was
-    /// applied.
     pub fn apply_all(
-        &self,
+        &mut self,
         item_id: &TimelineEventItemId,
+        sender: &OwnedUserId,
         event: &mut Cow<'_, EventTimelineItem>,
         items: &mut ObservableItemsTransaction<'_>,
         rules: &RoomVersionRules,
     ) -> Result<(), AggregationError> {
+        // If a beacon-stop arrived before this live start item, it was stashed
+        // in `pending_beacon_stops` keyed by sender. Promote it into
+        // `related_events` under the now-known start event ID so the loop below
+        // applies it together with any other pending aggregations.
+        if let TimelineEventItemId::EventId(event_id) = item_id {
+            self.promote_pending_beacon_stop(sender, event_id.clone());
+        }
+
         let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(());
         };

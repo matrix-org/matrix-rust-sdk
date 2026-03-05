@@ -93,7 +93,7 @@ impl LiveLocationState {
     /// recent one.
     pub(in crate::timeline) fn add_location(&mut self, location: BeaconInfo) {
         match self.locations.binary_search_by_key(&location.ts, |l| l.ts) {
-            Ok(_) => return, // Duplicate timestamp, do nothing.
+            Ok(_) => (), // Duplicate timestamp, do nothing.
             Err(index) => self.locations.insert(index, location),
         }
     }
