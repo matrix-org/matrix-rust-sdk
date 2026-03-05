@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Attempt to import stored room key bundles for rooms awaiting bundles at
+  client startup.
+  ([#6215](https://github.com/matrix-org/matrix-rust-sdk/pull/6215))
 - Add `OAuth::cached_server_metadata()` that caches the authorization server
   metadata for a while.
   ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
