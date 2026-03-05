@@ -397,6 +397,7 @@ mod tests {
         room_id, serde::Raw,
     };
     use serde_json::json;
+    use tokio::task::yield_now;
 
     use super::{Version, VersionBuilder};
     use crate::{
@@ -773,6 +774,30 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT), "{received_reasons:?}");
             }
         );
+
+        // At some point, we receive an update for the `LATEST_EVENT` too, since this is
+        // enabled by default.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        // And another one.
+        // TODO: maybe something to investigate why we receive two in a row?
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        yield_now().await;
+
+        // Then the stream gets quiet.
         assert!(room_info_notable_update_stream.is_empty());
     }
 
