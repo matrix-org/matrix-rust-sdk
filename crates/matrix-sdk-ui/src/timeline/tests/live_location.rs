@@ -331,6 +331,40 @@ async fn test_beacon_stop_preserves_locations() {
     assert_pending!(stream);
 }
 
+/// A stop `beacon_info` that arrives **before** the live start item is stashed
+/// and applied as soon as the start item is inserted. The resulting timeline
+/// item should be non-live from the moment it first appears.
+#[async_test]
+async fn test_beacon_stop_before_start_is_applied_later() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+    let start_id = event_id!("$beacon_start:example.org");
+    let stop_id = event_id!("$beacon_stop:example.org");
+
+    // Send the stop event first — the live start item doesn't exist yet.
+    timeline.send_beacon_info(&ALICE, stop_id, None, Duration::from_secs(3600), false).await;
+
+    // No item should have been added to the timeline yet.
+    assert_pending!(stream);
+    assert!(
+        timeline.live_location_event_items().await.is_empty(),
+        "a stop-only beacon_info must not produce a standalone timeline item"
+    );
+
+    // Now send the live start event.
+    timeline.send_beacon_info(&ALICE, start_id, None, Duration::from_secs(3600), true).await;
+
+    // The item should appear already stopped — a single PushBack, no follow-up Set.
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_eq!(item.event_id().unwrap(), start_id, "the item should carry the start event's ID");
+    assert!(
+        !item.content().as_live_location_state().unwrap().is_live(),
+        "the item should already be non-live because the stop was received first"
+    );
+
+    assert_pending!(stream);
+}
+
 /// Duplicate beacon location updates (same timestamp) are de-duplicated.
 #[async_test]
 async fn test_duplicate_beacon_location_is_deduplicated() {
