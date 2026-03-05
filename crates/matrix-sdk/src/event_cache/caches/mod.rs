@@ -24,7 +24,7 @@ use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
 
 use super::{EventCacheError, Result};
-use crate::{client::WeakClient, event_cache::EventsOrigin};
+use crate::{client::WeakClient, event_cache::EventsOrigin, room::WeakRoom};
 
 pub mod event_focused;
 pub mod event_linked_chunk;
@@ -71,9 +71,12 @@ impl Caches {
         let own_user_id =
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
+        let weak_room = WeakRoom::new(weak_client.clone(), room_id.to_owned());
+
         let room_state = room::RoomEventCacheStateLock::new(
             own_user_id,
             room_id.to_owned(),
+            weak_room,
             room_version_rules,
             enabled_thread_support,
             update_sender.clone(),
