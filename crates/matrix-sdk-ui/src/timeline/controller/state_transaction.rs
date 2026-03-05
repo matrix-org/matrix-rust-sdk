@@ -728,7 +728,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 })
             {
                 // Parse the sender.
-                if let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender")
+                if let Some(sender) = event.sender()
                     && sender == self.meta.own_user_id
                 {
                     let latest = Some(latest_reply.clone());

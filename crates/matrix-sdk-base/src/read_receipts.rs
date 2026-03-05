@@ -127,7 +127,7 @@ use matrix_sdk_common::{
     serde_helpers::extract_thread_root,
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
+    EventId, OwnedEventId, RoomId, UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
         SyncMessageLikeEvent,
@@ -411,7 +411,7 @@ impl ReceiptSelector {
     fn try_match_implicit(&mut self, user_id: &UserId, new_events: &[TimelineEvent]) {
         for ev in new_events {
             // Get the `sender` field, if any, or skip this event.
-            let Ok(Some(sender)) = ev.raw().get_field::<OwnedUserId>("sender") else { continue };
+            let Some(sender) = ev.sender() else { continue };
             if sender == user_id {
                 // Get the event id, if any, or skip this event.
                 let Some(event_id) = ev.event_id() else { continue };

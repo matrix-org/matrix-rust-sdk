@@ -784,6 +784,21 @@ impl TimelineEvent {
         self.kind.event_id()
     }
 
+    /// Get the sender of this [`TimelineEvent`], if available.
+    ///
+    /// Returns `None` if the sender field is missing or failed to deserialize.
+    pub fn sender(&self) -> Option<OwnedUserId> {
+        self.kind.sender()
+    }
+
+    /// Get the event type of this [`TimelineEvent`].
+    ///
+    /// Returns `None` if there isn't an event type or if the event failed to be
+    /// deserialized.
+    pub fn event_type(&self) -> Option<String> {
+        self.kind.event_type()
+    }
+
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this [`TimelineEvent`].
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
@@ -923,6 +938,13 @@ impl TimelineEventKind {
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
+    }
+
+    /// Get the sender of this event, if available.
+    ///
+    /// Returns `None` if the sender field is missing or failed to deserialize.
+    pub fn sender(&self) -> Option<OwnedUserId> {
+        self.raw().get_field::<OwnedUserId>("sender").ok().flatten()
     }
 
     /// Whether we could not decrypt the event (i.e. it is a UTD).
