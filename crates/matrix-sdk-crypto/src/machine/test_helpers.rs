@@ -84,14 +84,14 @@ pub async fn get_prepared_machine_test_helper(
 
     let request = machine
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let account = tr.account().await.unwrap();
             account.generate_fallback_key_if_needed();
             account.update_uploaded_key_count(0);
             account.generate_one_time_keys_if_needed();
             let request =
                 machine.keys_for_upload(account).await.expect("Can't prepare initial key upload");
-            Ok((tr, request))
+            Ok(request)
         })
         .await
         .unwrap();
@@ -332,16 +332,11 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
 
     let decrypted = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap();

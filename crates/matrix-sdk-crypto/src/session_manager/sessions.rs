@@ -830,10 +830,10 @@ mod tests {
 
         let (_, mut session) = manager
             .store
-            .with_transaction(|mut tr| async {
+            .with_transaction(async |tr| {
                 let manager_account = tr.account().await.unwrap();
                 let res = bob.create_session_for_test_helper(manager_account).await;
-                Ok((tr, res))
+                Ok(res)
             })
             .await
             .unwrap();
