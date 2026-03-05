@@ -88,7 +88,7 @@ mod secret_store;
 pub use futures::CreateStore;
 pub use secret_store::SecretStore;
 
-/// Convenicence type alias for the secret-storage specific results.
+/// Convenience type alias for the secret-storage specific results.
 pub type Result<T, E = SecretStorageError> = std::result::Result<T, E>;
 
 /// Error type for errors when importing a secret from secret storage.
@@ -171,6 +171,16 @@ pub enum SecretStorageError {
     /// Error describing a decryption failure of a secret.
     #[error(transparent)]
     Decryption(#[from] DecryptionError),
+
+    /// The private decryption key we found does not match the public key for
+    /// the enabled backup.
+    #[error("The backup decryption key does not match the latest backup version")]
+    InconsistentBackupDecryptionKey,
+
+    /// The private backup decryption key is missing, even though backups are
+    /// enabled.
+    #[error("The backup decryption key is missing")]
+    MissingOrInvalidBackupDecryptionKey,
 }
 
 impl SecretStorageError {
