@@ -474,28 +474,62 @@ impl BundleReceiverTask {
     /// this with bundles held in the crypto store. If all conditions outlined
     /// in [`shared_room_history::maybe_accept_key_bundle`], then the bundle
     /// will be imported.
+    #[tracing::instrument(skip_all)]
     async fn try_import_stored_bundles(client: &WeakClient) {
+        tracing::debug!("Checking for unimported stored room key bundles...");
+
         let Some(client) = client.get() else {
+            // The client was dropped before the worker future was first polled.
             return;
         };
 
         let olm_machine = client.olm_machine().await;
         let Some(olm_machine) = olm_machine.as_ref() else {
-            return;
-        };
-        let Ok(room_details) = olm_machine.store().get_all_rooms_pending_key_bundles().await else {
+            // The Olm machine was not initialized by the time this task is ready
+            // to perform its work. This is likely a bug, as this worker is only
+            // expected to be spawned once the client is fully ready and the
+            // Olm machine is available.
+            tracing::warn!("Skipping startup bundle checks because the Olm machine is unavailable");
             return;
         };
 
+        let room_details = match olm_machine.store().get_all_rooms_pending_key_bundles().await {
+            Ok(room_details) => room_details,
+            Err(e) => {
+                tracing::warn!("Error while fetching rooms pending key bundles: {e:?}");
+                return;
+            }
+        };
+
+        tracing::debug!("Found {} rooms that are still pending key bundles", room_details.len());
+
+        // Iterate over the details that are valid for processing. For each valid
+        // details, check if we have the corresponding key bundle data in the
+        // store. If the data exists, attempt to re-import the bundle.
         for RoomPendingKeyBundleDetails { room_id, inviter, .. } in &room_details {
             let Some(room) = client.get_room(room_id) else {
+                // Skip processing if the room is not cached in the state store.
+                tracing::trace!(?room_id, "Room not available in state store, skipping...");
                 continue;
             };
-            let Ok(Some(bundle)) =
-                olm_machine.store().get_received_room_key_bundle_data(room_id, inviter).await
-            else {
-                continue;
-            };
+            let bundle =
+                match olm_machine.store().get_received_room_key_bundle_data(room_id, inviter).await
+                {
+                    Ok(Some(bundle)) => bundle,
+                    Ok(None) => {
+                        // If the bundle data is not available, skip processing. The listener task
+                        // will handle this case when the bundle arrives.
+                        tracing::trace!(?room_id, "No bundle available, skipping...");
+                        continue;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            ?room_id,
+                            "Failed to fetch received room key bundle data: {err:?}"
+                        );
+                        continue;
+                    }
+                };
             Self::handle_bundle(&room, &(&bundle).into()).await;
         }
     }
@@ -520,7 +554,7 @@ impl BundleReceiverTask {
     #[instrument(skip(room), fields(room_id = %room.room_id()))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
         if shared_room_history::should_accept_key_bundle(room, bundle_info).await {
-            info!("Accepting a late key bundle.");
+            info!(room_id = %room.room_id(), "Accepting a late key bundle.");
 
             if let Err(e) =
                 shared_room_history::maybe_accept_key_bundle(room, &bundle_info.sender).await
