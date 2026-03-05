@@ -701,7 +701,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             chunk_statement.execute((chunk_id, &hashed_linked_chunk_id, &event_id, index))?;
 
                             let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
-                            let event_type = this.encode_key(keys::EVENTS, event_type);
+                            let event_type = this.encode_key(keys::EVENTS, event_type.to_string());
 
                             // Now, insert the event content into the database.
                             let encoded_event = this.encode_event(&event)?;
@@ -728,7 +728,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         };
 
                         let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
-                        let event_type = this.encode_key(keys::EVENTS, event_type);
+                        let event_type = this.encode_key(keys::EVENTS, event_type.to_string());
 
                         // Replace the event's content. Really we'd like to update, but in case the
                         // event id changed, we are a bit lenient here and will allow an insertion
@@ -1428,7 +1428,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
-        let event_type = self.encode_key(keys::EVENTS, event_type);
+        let event_type = self.encode_key(keys::EVENTS, event_type.to_string());
         let session_id = event.kind.session_id().map(|s| self.encode_key(keys::EVENTS, s));
 
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);

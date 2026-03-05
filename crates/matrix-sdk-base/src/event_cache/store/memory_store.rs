@@ -242,8 +242,9 @@ impl EventCacheStore for MemoryStore {
             .items(room_id)
             .map(|(event, _pos)| event.clone())
             .filter(|e| {
-                event_type
-                    .is_none_or(|event_type| Some(event_type) == e.kind.event_type().as_deref())
+                event_type.is_none_or(|event_type| {
+                    e.kind.event_type().map(|t| t.to_string()).as_deref() == Some(event_type)
+                })
             })
             .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
             .collect();

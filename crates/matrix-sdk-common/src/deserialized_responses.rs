@@ -18,7 +18,7 @@ use ruma::{
     DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        MessageLikeEventType, room::encrypted::EncryptedEventScheme,
+        MessageLikeEventType, TimelineEventType, room::encrypted::EncryptedEventScheme,
     },
     push::Action,
     serde::{
@@ -795,7 +795,7 @@ impl TimelineEvent {
     ///
     /// Returns `None` if there isn't an event type or if the event failed to be
     /// deserialized.
-    pub fn event_type(&self) -> Option<String> {
+    pub fn event_type(&self) -> Option<TimelineEventType> {
         self.kind.event_type()
     }
 
@@ -1003,8 +1003,8 @@ impl TimelineEventKind {
     ///
     /// Returns `None` if there isn't an event type or if the event failed to be
     /// deserialized.
-    pub fn event_type(&self) -> Option<String> {
-        self.raw().get_field("type").ok().flatten()
+    pub fn event_type(&self) -> Option<TimelineEventType> {
+        self.raw().get_field::<TimelineEventType>("type").ok().flatten()
     }
 }
 

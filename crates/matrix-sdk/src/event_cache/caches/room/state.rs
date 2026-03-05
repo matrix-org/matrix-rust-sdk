@@ -40,8 +40,8 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
-        relation::RelationType, room::redaction::SyncRoomRedactionEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType, relation::RelationType,
+        room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
 };
@@ -1149,11 +1149,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         // Do not deserialise the entire event if we aren't certain it's a
         // `m.room.redaction`. It saves a non-negligible amount of computations.
-        let Ok(Some(MessageLikeEventType::RoomRedaction)) =
-            raw_event.get_field::<MessageLikeEventType>("type")
-        else {
+        if event.event_type() != Some(TimelineEventType::RoomRedaction) {
             return Ok(());
-        };
+        }
 
         // It is a `m.room.redaction`! We can deserialize it entirely.
 
