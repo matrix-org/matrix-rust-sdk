@@ -33,10 +33,10 @@ pub mod event_cache;
 pub mod latest_event;
 pub mod media;
 pub mod notification_settings;
+pub mod read_receipts;
 mod response_processors;
 mod room;
 
-pub mod read_receipts;
 pub mod sliding_sync;
 
 pub mod store;
