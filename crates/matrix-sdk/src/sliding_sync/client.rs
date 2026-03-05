@@ -384,12 +384,12 @@ async fn handle_receipts_extension(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, ops::Not};
+    use std::{collections::BTreeMap, ops::Not, time::Duration};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
-        notification_settings::RoomNotificationMode,
+        notification_settings::RoomNotificationMode, sleep::sleep,
     };
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -773,6 +773,29 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT), "{received_reasons:?}");
             }
         );
+
+        // At some point, we receive an update for the `LATEST_EVENT` too, since this is
+        // enabled by default.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        // And another one.
+        // TODO: maybe something to investigate why we receive two in a row?
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        // Then the stream gets quiet.
+        sleep(Duration::from_millis(500)).await;
         assert!(room_info_notable_update_stream.is_empty());
     }
 
