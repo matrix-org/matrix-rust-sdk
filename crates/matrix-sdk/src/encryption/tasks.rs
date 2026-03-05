@@ -499,12 +499,22 @@ impl BundleReceiverTask {
             }
         };
 
-        tracing::debug!("Found {} rooms that are still pending key bundles", room_details.len());
+        // Partition the room details into two categories: those that should be
+        // processed and those that should be removed.
+        let (valid, invalid): (Vec<_>, Vec<_>) = room_details.iter().partition(|details| {
+            shared_room_history::should_process_room_pending_key_bundle_details(details)
+        });
+
+        tracing::debug!(
+            "Found {} valid and {} invalid rooms that are still pending key bundles",
+            valid.len(),
+            invalid.len(),
+        );
 
         // Iterate over the details that are valid for processing. For each valid
         // details, check if we have the corresponding key bundle data in the
         // store. If the data exists, attempt to re-import the bundle.
-        for RoomPendingKeyBundleDetails { room_id, inviter, .. } in &room_details {
+        for RoomPendingKeyBundleDetails { room_id, inviter, .. } in valid {
             let Some(room) = client.get_room(room_id) else {
                 // Skip processing if the room is not cached in the state store.
                 tracing::trace!(?room_id, "Room not available in state store, skipping...");
@@ -529,6 +539,15 @@ impl BundleReceiverTask {
                     }
                 };
             Self::handle_bundle(&room, &(&bundle).into()).await;
+        }
+
+        // For each invalid details, clear the pending key bundle information from the
+        // respective room to avoid re-checking it in the future.
+        for RoomPendingKeyBundleDetails { room_id, .. } in &invalid {
+            tracing::trace!(?room_id, "Clearing pending flag for room");
+            if let Err(e) = olm_machine.store().clear_room_pending_key_bundle(room_id).await {
+                tracing::warn!("Error clearing room pending key bundle: {e:?}");
+            }
         }
     }
 
