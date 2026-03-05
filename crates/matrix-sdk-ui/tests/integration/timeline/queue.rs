@@ -19,7 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    Error,
+    Error, assert_let_timeout,
     config::{SyncSettings, SyncToken},
     test_utils::logged_in_client_with_server,
 };
@@ -183,8 +183,13 @@ async fn test_retry_order() {
     });
 
     // Local echoes are updated with the failed send state as soon as
-    // the 404 response is received.
-    assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
+    // the 404 response is received. The send queue uses `short_retry()`
+    // (3 retries) with 500ms minimum exponential backoff, so this can take
+    // up to ~1.5s before the failure is surfaced.
+    assert_let_timeout!(
+        Duration::from_secs(5),
+        Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next()
+    );
     assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { .. });
 
     // Response for first message takes 100ms to respond.
@@ -302,7 +307,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
 
     // Local echoes are updated with the failed send state as soon as the error
     // response has been received.
-    assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next());
     let (error, is_recoverable) = assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { error, is_recoverable } => (error, is_recoverable));
 
     // The error is not recoverable.
@@ -369,11 +374,11 @@ async fn test_clear_with_echoes() {
         // Wait for the first message to fail. Don't use time, but listen for the first
         // timeline item diff to get back signalling the error.
 
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         // 2 updates: date divider and local echo.
         assert_eq!(timeline_updates.len(), 2);
 
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         // 1 updates: local echo replaced with failure.
         assert_eq!(timeline_updates.len(), 1);
     }
@@ -485,7 +490,7 @@ async fn test_no_duplicate_date_divider() {
     // Let the send queue handle the event.
     yield_now().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 3);
 
     // Local echoes are available as soon as `timeline.send` returns.
@@ -501,7 +506,7 @@ async fn test_no_duplicate_date_divider() {
     // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead.
     sleep(Duration::from_millis(500)).await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 8);
 
     // The first item should be updated first.
@@ -554,7 +559,7 @@ async fn test_no_duplicate_date_divider() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);

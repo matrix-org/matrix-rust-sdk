@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
@@ -82,7 +82,7 @@ async fn test_in_reply_to_details() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 3);
 
         // We get the original message.
@@ -123,7 +123,7 @@ async fn test_in_reply_to_details() {
         .await;
 
     let third_unique_id = {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         assert_let!(VectorDiff::Set { value: _read_receipt_update, .. } = &timeline_updates[0]);
@@ -160,7 +160,7 @@ async fn test_in_reply_to_details() {
     timeline.fetch_details_for_event(eid3).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -206,7 +206,7 @@ async fn test_in_reply_to_details() {
     timeline.fetch_details_for_event(eid3).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -297,7 +297,7 @@ async fn test_fetch_details_utd() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply, but with no details.
@@ -323,7 +323,7 @@ async fn test_fetch_details_utd() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -409,7 +409,7 @@ async fn test_fetch_details_poll() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply, but with no details.
@@ -435,7 +435,7 @@ async fn test_fetch_details_poll() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -520,7 +520,7 @@ async fn test_fetch_details_sticker() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply.
@@ -546,7 +546,7 @@ async fn test_fetch_details_sticker() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…

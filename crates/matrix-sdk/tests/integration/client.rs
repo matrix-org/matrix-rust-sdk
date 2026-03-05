@@ -5,6 +5,7 @@ use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
     Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
+    assert_let_timeout,
     authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
     sleep::sleep,
@@ -1304,7 +1305,7 @@ async fn test_rooms_stream() {
     assert!(client.get_room(room_id_3).is_some());
 
     // We receive 3 diffs…
-    assert_let!(Some(diffs) = rooms_stream.next().await);
+    assert_let_timeout!(Some(diffs) = rooms_stream.next());
     assert_eq!(diffs.len(), 3);
 
     // … which map to the new rooms!

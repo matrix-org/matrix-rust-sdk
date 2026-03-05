@@ -234,7 +234,7 @@ async fn test_redact_failed() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 3);
 
     let item_id = {
@@ -262,7 +262,7 @@ async fn test_redact_failed() {
     // We toggle the reaction, which fails with an error.
     timeline.toggle_reaction(&item_id, "😆").await.unwrap_err();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // The local echo is removed (assuming the redaction works)…

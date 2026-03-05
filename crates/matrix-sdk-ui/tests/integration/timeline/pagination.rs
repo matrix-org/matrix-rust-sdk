@@ -95,7 +95,7 @@ async fn test_back_pagination() {
     };
     join(paginate, observe_paginating).await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
     // `m.room.name`
     {
@@ -162,7 +162,7 @@ async fn test_back_pagination() {
 
     // Timeline start is inserted.
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 1);
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
         assert!(value.is_timeline_start());
@@ -216,14 +216,14 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     {
         // Before the event cache returns the items, it will report that we've hit the
         // timeline start.
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 1);
         assert_let!(VectorDiff::PushFront { value: start } = &timeline_updates[0]);
         assert!(start.is_timeline_start());
     }
 
     // Then we get the events from the event cache.
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 60);
 
     for i in 0..30 {
@@ -372,7 +372,7 @@ async fn test_back_pagination_highlighted() {
     timeline.paginate_backwards(10).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
     // `m.room.tombstone`
     {
@@ -807,7 +807,7 @@ async fn test_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
     // `m.room.name`
     {
@@ -917,7 +917,7 @@ async fn test_until_num_items_with_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
     // `m.room.name`
     {
@@ -965,14 +965,14 @@ async fn test_until_num_items_with_empty_chunk() {
     let reached_start = timeline.paginate_backwards(10).await.unwrap();
     assert!(reached_start);
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
     assert!(value.is_timeline_start());
 
     // `m.room.name`: “hello room then”
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[0]);
