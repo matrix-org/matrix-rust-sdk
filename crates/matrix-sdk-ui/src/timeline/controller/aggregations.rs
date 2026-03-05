@@ -44,7 +44,7 @@ use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{
-        AnySyncTimelineEvent,
+        AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
     },
@@ -139,6 +139,15 @@ pub(crate) enum AggregationKind {
 
     /// A location update for a live location sharing session (MSC3489).
     BeaconUpdate { location: BeaconInfo },
+
+    /// A stop event for a live location sharing session (MSC3489).
+    ///
+    /// Carries the new (non-live) [`BeaconInfoEventContent`] that should
+    /// replace the stored content on the target item, flipping
+    /// [`LiveLocationState::is_live`] to `false`.
+    ///
+    /// Unlike [`BeaconUpdate`], a beacon stop is not reversible.
+    BeaconStop { content: BeaconInfoEventContent },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -308,6 +317,14 @@ impl Aggregation {
                     Err(err) => ApplyAggregationResult::Error(err),
                 }
             }
+
+            AggregationKind::BeaconStop { content } => match live_location_state_from_item(event) {
+                Ok(state) => {
+                    state.stop(content.clone());
+                    ApplyAggregationResult::UpdatedItem
+                }
+                Err(err) => ApplyAggregationResult::Error(err),
+            },
         }
     }
 
@@ -386,6 +403,11 @@ impl Aggregation {
                     }
                     Err(err) => ApplyAggregationResult::Error(err),
                 }
+            }
+
+            AggregationKind::BeaconStop { .. } => {
+                // Stopping a live location share is not reversible.
+                ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
             }
         }
     }
@@ -623,7 +645,8 @@ impl Aggregations {
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
                 | AggregationKind::Redaction
-                | AggregationKind::BeaconUpdate { .. } => {
+                | AggregationKind::BeaconUpdate { .. }
+                | AggregationKind::BeaconStop { .. } => {
                     // Nothing particular to do.
                 }
 
@@ -864,6 +887,9 @@ pub(crate) enum AggregationError {
 
     #[error("a redaction can't be unapplied")]
     CantUndoRedaction,
+
+    #[error("a beacon stop can't be unapplied")]
+    CantUndoBeaconStop,
 
     #[error(
         "trying to apply an aggregation of one type to an invalid target: \
