@@ -552,8 +552,9 @@ pub(crate) fn compute_unread_counts<'a>(
     // read receipt. So either there was a previous one further in the past, or
     // none.
     //
-    // In that case, accumulate all events as part of the current batch, and wait
-    // for the next receipt.
+    // In that case, the number of unreads is *at most* the number of processed
+    // events. Reset the number of unreads, and recount them all.
+    read_receipts.reset();
 
     for event in &all_events {
         read_receipts.process_event(event, user_id, threading_support);
@@ -1137,6 +1138,9 @@ mod tests {
         let mut read_receipts = RoomReadReceipts::default();
         assert!(read_receipts.pending.is_empty());
 
+        // Assume we start with a number of 3 unreads.
+        read_receipts.num_unread = 3;
+
         // Given a receipt event that contains a read receipt referring to an unknown
         // event, and some preexisting events with different ids,
         compute_unread_counts(
@@ -1149,8 +1153,8 @@ mod tests {
             ThreadingSupport::Disabled,
         );
 
-        // Then there are no unread events,
-        // TODO(bnjbvr): fix this in the next commit :-)
+        // Then there are 5 unread events, as all events are located *after* the read
+        // receipt event, which is pending.
         assert_eq!(read_receipts.num_unread, 5);
 
         // And the event referred to by the read receipt is in the pending state.
