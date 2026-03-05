@@ -535,7 +535,7 @@ impl RoomEventCacheInner {
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            self.state.write().await?.handle_sync(timeline).await?;
+            self.state.write().await?.handle_sync(timeline, &ephemeral_events).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.

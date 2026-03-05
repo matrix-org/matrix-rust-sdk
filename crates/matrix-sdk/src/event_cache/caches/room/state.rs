@@ -23,7 +23,7 @@ use std::{
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    apply_redaction,
+    RoomInfoNotableUpdateReasons, StateChanges, ThreadingSupport, apply_redaction,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -40,10 +40,14 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
-        relation::RelationType, room::redaction::SyncRoomRedactionEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        MessageLikeEventType,
+        receipt::{ReceiptEventContent, SyncReceiptEvent},
+        relation::RelationType,
+        room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
+    serde::Raw,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, error, instrument, trace, warn};
@@ -68,7 +72,11 @@ use super::{
 };
 use crate::{
     Room,
-    event_cache::{EventFocusThreadMode, caches::event_focused::EventFocusedCache},
+    event_cache::{
+        EventFocusThreadMode,
+        caches::{event_focused::EventFocusedCache, read_receipts::compute_unread_counts},
+    },
+    room::WeakRoom,
 };
 
 /// Key for the event-focused caches.
@@ -86,6 +94,9 @@ pub struct RoomEventCacheState {
 
     /// The room this state relates to.
     pub room_id: OwnedRoomId,
+
+    /// A weak reference to the actual room.
+    pub room: WeakRoom,
 
     /// The user's own user id.
     pub own_user_id: OwnedUserId,
@@ -165,6 +176,7 @@ impl RoomEventCacheStateLock {
     pub async fn new(
         own_user_id: OwnedUserId,
         room_id: OwnedRoomId,
+        room: WeakRoom,
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
@@ -232,6 +244,7 @@ impl RoomEventCacheStateLock {
             own_user_id,
             enabled_thread_support,
             room_id,
+            room,
             store,
             room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
@@ -799,6 +812,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn handle_sync(
         &mut self,
         mut timeline: Timeline,
+        ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
         let mut prev_batch = timeline.prev_batch.take();
 
@@ -892,7 +906,24 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             .room_linked_chunk
             .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
 
-        self.post_process_new_events(events, PostProcessingOrigin::Sync).await?;
+        // Extract a new read receipt, if available.
+        let mut receipt_event = None;
+        for raw_ephemeral in ephemeral_events {
+            match raw_ephemeral.deserialize() {
+                Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                    receipt_event = Some(content);
+                    break;
+                }
+
+                Ok(_) => {}
+
+                Err(err) => {
+                    error!("error when deserializing an ephemeral event from sync: {err}");
+                }
+            }
+        }
+
+        self.post_process_new_events(events, PostProcessingOrigin::Sync, receipt_event).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -930,6 +961,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self,
         events: Vec<Event>,
         post_processing_origin: PostProcessingOrigin,
+        receipt_event: Option<ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
         // Update the store before doing the post-processing.
         self.propagate_changes().await?;
@@ -997,6 +1029,78 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         if self.state.enabled_thread_support {
             self.update_threads(new_events_by_thread, post_processing_origin).await?;
+        }
+
+        self.update_read_receipts(receipt_event.as_ref()).await?;
+
+        Ok(())
+    }
+
+    /// Update read receipts for all events in the room, based on the current
+    /// state of the in-memory linked chunk.
+    pub async fn update_read_receipts(
+        &mut self,
+        receipt_event: Option<&ReceiptEventContent>,
+    ) -> Result<(), EventCacheError> {
+        let Some(room) = self.state.room.get() else {
+            debug!("can't update read receipts: client's closing");
+            return Ok(());
+        };
+
+        // TODO(bnjbvr): avoid cloning all events, eventually? :)
+        let all_events = self
+            .state
+            .room_linked_chunk
+            .events()
+            .map(|(_, event)| event.clone())
+            .collect::<Vec<_>>();
+
+        let user_id = &self.state.own_user_id;
+        let room_id = &self.state.room_id;
+
+        // TODO(bnjbvr): change the signature of `compute_unread_counts` to take a bool
+        // instead (future commit in same PR).
+        let threading_support = if self.state.enabled_thread_support {
+            ThreadingSupport::Enabled { with_subscriptions: false }
+        } else {
+            ThreadingSupport::Disabled
+        };
+
+        let mut room_info = room.clone_info();
+        let prev_read_receipts = room_info.read_receipts().clone();
+        let mut read_receipts = prev_read_receipts.clone();
+
+        compute_unread_counts(
+            user_id,
+            room_id,
+            receipt_event,
+            all_events,
+            &mut read_receipts,
+            threading_support,
+        );
+
+        if prev_read_receipts != read_receipts {
+            // The read receipt has changed! Do a little dance to update the `RoomInfo` in
+            // the state store, and then in the room itself, so that observers
+            // can be notified of the change.
+            let client = room.client();
+
+            // Take the state store lock.
+            let _state_store_lock = client.base_client().state_store_lock().lock().await;
+
+            // Reuse and update the room info from above.
+            room_info.set_read_receipts(read_receipts);
+
+            let mut state_changes = StateChanges::default();
+            state_changes.add_room(room_info.clone());
+
+            // Update the `RoomInfo` in the state store.
+            if let Err(error) = client.state_store().save_changes(&state_changes).await {
+                error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
+            }
+
+            // Update the `RoomInfo` of the room.
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT);
         }
 
         Ok(())
