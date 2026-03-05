@@ -579,10 +579,6 @@ impl Store {
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {
-        // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
-        // - try to take the lock,
-        // - if acquired, look if another process touched the underlying storage,
-        // - if yes, reload everything; if no, return current cache
         Ok(StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await })
     }
 

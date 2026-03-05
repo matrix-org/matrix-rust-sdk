@@ -269,7 +269,7 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
             RoomEventCacheUpdate::AddEphemeralEvents { events } => {
                 trace!("Received new ephemeral events from sync.");
 
-                // TODO: (bnjbvr) ephemeral should be handled by the event cache.
+                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
                 timeline_controller.handle_ephemeral_events(events).await;
             }
 

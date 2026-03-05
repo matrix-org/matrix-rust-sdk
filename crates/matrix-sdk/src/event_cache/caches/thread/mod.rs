@@ -91,8 +91,8 @@ impl ThreadEventCache {
         }
     }
 
-    // TODO(bnjbvr): share more code with `RoomEventCacheState` to avoid the
-    // duplication here too.
+    // TODO: share more code with `RoomEventCacheState` to avoid the duplication
+    // here too.
     fn propagate_changes(&mut self) {
         // This is a lie, at the moment! We're not persisting threads yet, so we're just
         // forwarding all updates to the linked chunk update sender.
@@ -276,8 +276,7 @@ impl ThreadEventCache {
         new_token: Option<String>,
         events: Vec<Event>,
     ) -> Option<BackPaginationOutcome> {
-        // TODO(bnjbvr): consider deduplicating this code (~same for room) at some
-        // point.
+        // TODO: consider deduplicating this code (~same for room) at some point.
         let prev_gap_id = if let Some(token) = prev_token {
             // If the gap id is missing, it means that the gap disappeared during
             // pagination; in this case, early return to the caller.

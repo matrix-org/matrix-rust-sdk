@@ -1536,8 +1536,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     {
         // Her timeline sees a new item for the thread reply, because we don't know yet
         // that the thread reply is part of the thread, as it's encrypted.
-        // TODO(bnjbvr): we should know it, since an encrypted event includes the
-        // relationship?
+        // TODO: we should know it, since an encrypted event includes the relationship?
         let next_item = assert_next_with_timeout!(stream, 5000);
         assert_let!(VectorDiff::PushBack { value } = next_item);
         assert!(value.content().is_unable_to_decrypt());

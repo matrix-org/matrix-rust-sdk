@@ -428,7 +428,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        // TODO(bnjbvr): why not LocalToRemote here?
+        // TODO: why not LocalToRemote here?
         assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
 
         // And since the local event has been sent, it is inserted in the Event

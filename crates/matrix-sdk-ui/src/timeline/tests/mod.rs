@@ -200,7 +200,6 @@ impl TestTimeline {
         key: &str,
     ) -> Result<(), super::Error> {
         if self.controller.toggle_reaction_local(item_id, key).await? {
-            // TODO(bnjbvr): hacky?
             let items = self.controller.items().await;
             if let Some(event_id) = rfind_event_by_item_id(&items, item_id)
                 .and_then(|(_pos, item)| item.event_id().map(ToOwned::to_owned))
