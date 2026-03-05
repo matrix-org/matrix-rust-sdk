@@ -431,24 +431,22 @@ impl BackupDownloadTaskListenerState {
 }
 
 pub(crate) struct BundleReceiverTask {
-    _handle: JoinHandle<()>,
+    _startup_handle: JoinHandle<()>,
+    _listen_handle: JoinHandle<()>,
 }
 
 impl BundleReceiverTask {
     pub async fn new(client: &Client) -> Self {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
         let weak_client = WeakClient::from_client(client);
-        let handle = spawn(Self::listen_task(weak_client, stream));
-
-        Self { _handle: handle }
+        Self {
+            _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
+            _startup_handle: spawn(Self::startup_task(weak_client)),
+        }
     }
 
     async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
         pin_mut!(stream);
-
-        // Before we listen for new bundles, we check if we have existing ones
-        // unimported.
-        Self::try_import_stored_bundles(&client).await;
 
         // TODO: Listening to this stream is not enough for iOS due to the NSE killing
         // our OlmMachine and thus also this stream. We need to add an event handler
@@ -475,7 +473,7 @@ impl BundleReceiverTask {
     /// in [`shared_room_history::maybe_accept_key_bundle`], then the bundle
     /// will be imported.
     #[tracing::instrument(skip_all)]
-    async fn try_import_stored_bundles(client: &WeakClient) {
+    async fn startup_task(client: WeakClient) {
         tracing::debug!("Checking for unimported stored room key bundles...");
 
         let Some(client) = client.get() else {

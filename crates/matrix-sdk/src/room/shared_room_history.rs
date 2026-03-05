@@ -131,30 +131,58 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
 ///
 /// Returns `true` if the key bundle should be accepted, otherwise `false`.
 pub(crate) async fn should_accept_key_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
-    // We accept historic room key bundles up to one day after we have accepted an
-    // invite.
-    const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-
     // If we don't have any invite acceptance details, then this client wasn't the
     // one that accepted the invite.
-    let Ok(Some(RoomPendingKeyBundleDetails { invite_accepted_at, inviter, .. })) =
+    let Ok(Some(details)) =
         room.client.base_client().get_pending_key_bundle_details_for_room(room.room_id()).await
     else {
         debug!("Not accepting key bundle as there are no recorded invite acceptance details");
         return false;
     };
 
+    if !should_process_room_pending_key_bundle_details(&details) {
+        return false;
+    }
+
     let state = room.state();
-    let elapsed_since_join = invite_accepted_at.to_system_time().and_then(|t| t.elapsed().ok());
     let bundle_sender = &bundle_info.sender;
 
-    match (state, elapsed_since_join) {
-        (RoomState::Joined, Some(elapsed_since_join)) => {
-            elapsed_since_join < DAY && bundle_sender == &inviter
-        }
-        (RoomState::Joined, None) => false,
-        (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => false,
+    match state {
+        RoomState::Joined => bundle_sender == &details.inviter,
+        RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned => false,
     }
+}
+
+/// Determines whether the pending key bundle details for a room should be
+/// processed.
+///
+/// This function checks if the invite acceptance timestamp is within the
+/// allowed time window (one day). If the elapsed time since the invite was
+/// accepted exceeds this window, the pending key bundle details will not be
+/// processed.
+///
+/// # Arguments
+///
+/// * `details` - The details of the pending key bundle, including the invite
+///   acceptance timestamp.
+///
+/// # Returns
+///
+/// Returns `true` if the pending key bundle details should be processed,
+/// otherwise `false`.
+pub(crate) fn should_process_room_pending_key_bundle_details(
+    details: &RoomPendingKeyBundleDetails,
+) -> bool {
+    // We accept historic room key bundles up to one day after we have accepted an
+    // invite.
+    const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+    details
+        .invite_accepted_at
+        .to_system_time()
+        .and_then(|t| t.elapsed().ok())
+        .map(|elapsed_since_join| elapsed_since_join < DAY)
+        .unwrap_or(false)
 }
 
 /// Having accepted an invite for the given room from the given user, attempt to
