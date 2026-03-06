@@ -170,7 +170,7 @@ impl SecretStore {
                 let decrypted = self
                     .key
                     .decrypt(
-                        &secret_content.try_into().map_err(|e| {
+                        &secret_content.deserialize_as().map_err(|e| {
                             SecretStorageError::into_import_error(secret_name.clone(), e)
                         })?,
                         &secret_name,
@@ -268,7 +268,9 @@ impl SecretStore {
         let encrypted_secret = self.key.encrypt(secret, &secret_name);
 
         // Insert the encrypted secret into the account data event.
-        secret_content.encrypted.insert(self.key.key_id().to_owned(), encrypted_secret.into());
+        secret_content
+            .encrypted
+            .insert(self.key.key_id().to_owned(), Raw::new(&encrypted_secret)?.cast());
         let secret_content = Raw::from_json(to_raw_value(&secret_content)?);
 
         // Upload the modified account data event, now that the new secret has been
