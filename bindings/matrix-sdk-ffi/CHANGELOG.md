@@ -94,6 +94,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
+  removed from the Matrix specification.
+  ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
 - [**breaking**] The `current_version` field of `ErrorKind::WrongRoomKeysVersion`
   is no longer optional.
   ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
