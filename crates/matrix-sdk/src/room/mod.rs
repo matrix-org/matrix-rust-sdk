@@ -430,7 +430,7 @@ impl Room {
                 match error {
                     // The user is trying to leave a room but doesn't have permissions to do so.
                     // Let's consider the user has left the room.
-                    ErrorKind::Forbidden { .. } => true,
+                    ErrorKind::Forbidden => true,
                     _ => false,
                 }
             } else {
