@@ -783,7 +783,7 @@ impl Backups {
     pub(crate) async fn maybe_enable_backups(
         &self,
         maybe_recovery_key: &str,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, EnableBackupError> {
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
         // Create a future here which allows us to catch any failure that might happen
@@ -879,7 +879,7 @@ impl Backups {
                      this backup version"
                 );
 
-                Ok(false)
+                Err(EnableBackupError::InconsistentBackupDecryptionKey)
             }
         };
 
@@ -932,8 +932,17 @@ impl Backups {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
         for secret in secrets {
-            if self.maybe_enable_backups(&secret.event.content.secret).await? {
-                break;
+            match self.maybe_enable_backups(&secret.event.content.secret).await {
+                Ok(enabled) => {
+                    if enabled {
+                        break;
+                    }
+                }
+                Err(EnableBackupError::InconsistentBackupDecryptionKey) => {
+                    // Ignore a bad backup decryption key here. We already
+                    // logged the details inside maybe_enable_backups().
+                }
+                Err(EnableBackupError::Error(e)) => return Err(e),
             }
         }
 
@@ -1040,6 +1049,25 @@ impl Backups {
         self.set_state(BackupState::Unknown);
 
         Ok(())
+    }
+}
+
+/// An error that happened while we were attempting to enable key backups.
+#[derive(Debug, thiserror::Error)]
+pub enum EnableBackupError {
+    /// The private decryption key we found does not match the public key for
+    /// the enabled backup.
+    #[error("The backup decryption key does not match the latest backup version")]
+    InconsistentBackupDecryptionKey,
+
+    /// A general error occurred while enabling key backup.
+    #[error(transparent)]
+    Error(Error),
+}
+
+impl<T: Into<Error>> From<T> for EnableBackupError {
+    fn from(value: T) -> Self {
+        Self::Error(value.into())
     }
 }
 
