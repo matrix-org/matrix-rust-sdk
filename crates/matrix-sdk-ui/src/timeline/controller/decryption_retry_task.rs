@@ -241,6 +241,7 @@ mod tests {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
                 event_kind,
                 true,
+                false,
             )),
             TimelineUniqueId("local".to_owned()),
         )
@@ -284,6 +285,7 @@ mod tests {
                 )),
                 event_kind,
                 true,
+                false,
             )),
             TimelineUniqueId("local".to_owned()),
         )
@@ -331,6 +333,7 @@ mod tests {
                 ),
                 event_kind,
                 true,
+                false,
             )),
             TimelineUniqueId("local".to_owned()),
         )

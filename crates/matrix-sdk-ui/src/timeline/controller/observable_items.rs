@@ -760,6 +760,7 @@ mod observable_items_tests {
                     origin: RemoteEventOrigin::Sync,
                 }),
                 false,
+                false,
             ),
             TimelineUniqueId(format!("__eid_{event_id}")),
         )
@@ -789,6 +790,7 @@ mod observable_items_tests {
                     transaction_id: transaction_id.into(),
                     send_handle: None,
                 }),
+                false,
                 false,
             ),
             TimelineUniqueId(format!("__tid_{transaction_id}")),

@@ -126,7 +126,12 @@ pub(crate) enum AggregationKind {
     },
 
     /// An event has been redacted.
-    Redaction,
+    Redaction {
+        /// Whether this aggregation results from the local echo of a redaction.
+        /// Local echoes of redactions are applied reversibly whereas remote
+        /// echoes of redactions are applied irreversibly.
+        is_local: bool,
+    },
 
     /// An event has been edited.
     ///
@@ -237,8 +242,15 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Redaction => {
-                if event.content().is_redacted() {
+            AggregationKind::Redaction { is_local } => {
+                if *is_local {
+                    if event.is_being_redacted {
+                        ApplyAggregationResult::LeftItemIntact
+                    } else {
+                        *event = Cow::Owned(event.with_is_being_redacted(true));
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                } else if event.content().is_redacted() {
                     ApplyAggregationResult::LeftItemIntact
                 } else {
                     let new_item = event.redact(&rules.redaction);
@@ -352,9 +364,18 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
-            AggregationKind::Redaction => {
-                // Redactions are not reversible.
-                ApplyAggregationResult::Error(AggregationError::CantUndoRedaction)
+            AggregationKind::Redaction { is_local } => {
+                if *is_local {
+                    if event.is_being_redacted {
+                        *event = Cow::Owned(event.with_is_being_redacted(false));
+                        ApplyAggregationResult::UpdatedItem
+                    } else {
+                        ApplyAggregationResult::LeftItemIntact
+                    }
+                } else {
+                    // Remote redactions are not reversible.
+                    ApplyAggregationResult::Error(AggregationError::CantUndoRedaction)
+                }
             }
 
             AggregationKind::Reaction { key, sender, .. } => {
@@ -477,7 +498,7 @@ impl Aggregations {
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
         // If the aggregation is a redaction, it invalidates all the other aggregations;
         // remove them.
-        if matches!(aggregation.kind, AggregationKind::Redaction) {
+        if matches!(aggregation.kind, AggregationKind::Redaction { .. }) {
             for agg in self.related_events.remove(&related_to).unwrap_or_default() {
                 self.inverted_map.remove(&agg.own_id);
             }
@@ -488,7 +509,7 @@ impl Aggregations {
         if let Some(previous_aggregations) = self.related_events.get(&related_to)
             && previous_aggregations
                 .iter()
-                .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
+                .any(|agg| matches!(agg.kind, AggregationKind::Redaction { .. }))
         {
             return;
         }
@@ -698,7 +719,7 @@ impl Aggregations {
                 AggregationKind::PollResponse { .. }
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
-                | AggregationKind::Redaction
+                | AggregationKind::Redaction { .. }
                 | AggregationKind::BeaconUpdate { .. }
                 | AggregationKind::BeaconStop { .. } => {
                     // Nothing particular to do.

@@ -580,6 +580,63 @@ impl RoomSendQueue {
         .await
     }
 
+    /// Queues a redaction of another event for sending it to this room.
+    ///
+    /// This immediately returns, and will push the redaction to be sent into a
+    /// queue, handled in the background.
+    ///
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
+    /// the [`Self::subscribe()`] method to get updates about the sending of
+    /// that redaction.
+    ///
+    /// By default, if sending failed on the first attempt, it will be retried a
+    /// few times. If sending failed after those retries, the entire
+    /// client's sending queue will be disabled, and it will need to be
+    /// manually re-enabled by the caller (e.g. after network is back, or when
+    /// something has been done about the faulty requests).
+    pub async fn send_redaction(
+        &self,
+        redacts: OwnedEventId,
+        reason: Option<&str>,
+    ) -> Result<SendHandle, RoomSendQueueError> {
+        let Some(room) = self.inner.room.get() else {
+            return Err(RoomSendQueueError::RoomDisappeared);
+        };
+        if room.state() != RoomState::Joined {
+            return Err(RoomSendQueueError::RoomNotJoined);
+        }
+
+        let request = QueuedRequestKind::Redaction {
+            redacts: redacts.clone(),
+            reason: reason.map(str::to_owned),
+        };
+
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+        let transaction_id = self.inner.queue.push(request, created_at).await?;
+        trace!(%transaction_id, "manager sends a redaction event to the background task");
+
+        self.inner.notifier.notify_one();
+
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: transaction_id.clone(),
+            media_handles: vec![],
+            created_at,
+        };
+
+        self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            transaction_id,
+            content: LocalEchoContent::Redaction {
+                redacts,
+                reason: reason.map(str::to_owned),
+                send_handle: send_handle.clone(),
+                send_error: None,
+            },
+        }));
+
+        Ok(send_handle)
+    }
+
     /// Returns the current local requests as well as a receiver to listen to
     /// the send queue updates, as defined in [`RoomSendQueueUpdate`].
     ///
@@ -839,6 +896,21 @@ impl RoomSendQueue {
                                 progress,
                             });
                         }
+
+                        SentRequestKey::Redaction { event_id, .. } => {
+                            send_update(
+                                &global_update_sender,
+                                &update_sender,
+                                room_id,
+                                RoomSendQueueUpdate::SentEvent {
+                                    transaction_id: txn_id,
+                                    event_id: event_id.clone(),
+                                },
+                            );
+
+                            // TODO johannes: Should we save the redaction event
+                            // into the cache?
+                        }
                     },
 
                     Err(err) => {
@@ -1059,6 +1131,19 @@ impl RoomSendQueue {
                         res
                     }
                 }
+            }
+
+            QueuedRequestKind::Redaction { redacts, reason } => {
+                let result = room
+                    .redact(&redacts, reason.as_deref(), Some(request.transaction_id.clone()))
+                    .await?;
+
+                trace!(txn_id = %request.transaction_id, event_id = %result.event_id, "redaction successfully sent");
+
+                Ok((
+                    Some(SentRequestKey::Redaction { event_id: result.event_id, redacts, reason }),
+                    None,
+                ))
             }
         }
     }
@@ -1858,6 +1943,20 @@ impl QueueStorage {
                             // event represented as a dependent request should be sufficient.
                             return None;
                         }
+
+                        QueuedRequestKind::Redaction { redacts, reason } => {
+                            LocalEchoContent::Redaction {
+                                redacts,
+                                reason,
+                                send_handle: SendHandle {
+                                    room: room.clone(),
+                                    transaction_id: queued.transaction_id,
+                                    media_handles: vec![],
+                                    created_at: queued.created_at,
+                                },
+                                send_error: queued.error,
+                            }
+                        }
                     },
                 })
             });
@@ -2326,6 +2425,19 @@ pub enum LocalEchoContent {
         send_handle: SendReactionHandle,
         /// The local echo which has been reacted to.
         applies_to: OwnedTransactionId,
+    },
+
+    /// A local echo of a redaction event.
+    Redaction {
+        /// The ID of the redacted event.
+        redacts: OwnedEventId,
+        /// The reason for the event being redacted.
+        reason: Option<String>,
+        /// A handle to manipulate the sending of the associated event.
+        send_handle: SendHandle,
+        /// Whether trying to send this local echo failed in the past with an
+        /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
+        send_error: Option<QueueWedgeError>,
     },
 }
 

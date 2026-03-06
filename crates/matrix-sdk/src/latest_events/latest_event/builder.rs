@@ -210,6 +210,11 @@ impl Builder {
                 }
 
                 LocalEchoContent::React { .. } => None,
+
+                LocalEchoContent::Redaction { .. } => {
+                    // TODO johannes: Should we apply redactions to the latest event value?
+                    None
+                }
             },
 
             // A local event has been cancelled before being sent.

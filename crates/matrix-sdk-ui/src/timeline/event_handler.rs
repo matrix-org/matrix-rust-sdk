@@ -830,8 +830,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation =
-            Aggregation::new(self.ctx.flow.timeline_item_id(), AggregationKind::Redaction);
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::Redaction {
+                // We can only get here for remote echoes of redactions.
+                is_local: false,
+            },
+        );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -953,6 +958,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             content,
             kind,
             is_room_encrypted,
+            false,
         );
 
         // Apply any pending or stashed aggregations.

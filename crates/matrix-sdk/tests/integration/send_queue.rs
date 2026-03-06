@@ -42,7 +42,7 @@ use ruma::{
             },
         },
     },
-    mxc_uri, owned_mxc_uri, owned_user_id, room_id,
+    mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,
     uint,
 };
@@ -239,6 +239,27 @@ macro_rules! assert_update {
 
         assert_eq!(key, $key);
         assert_eq!(applies_to, $parent_txn_id);
+
+        txn
+    }};
+
+    // Check the next stream event is a local echo for a redaction of an event with ID $redacts and reason $reason.
+    (($global_watch:ident, $watch:ident) => local echo redaction { redacts = $redacts:expr, reason = $reason:expr }) => {{
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                content: LocalEchoContent::Redaction {
+                    redacts,
+                    reason,
+                    send_handle: _,
+                    send_error: _,
+                },
+                transaction_id: txn,
+            }))) = timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent { .. }, .. }));
+
+        assert_eq!(redacts, $redacts);
+        assert_eq!(reason, $reason);
 
         txn
     }};
@@ -1887,6 +1908,51 @@ async fn test_reactions() {
     // Cancelling sending of the third emoji fails because it's been sent already.
     assert!(emoji_handle3.abort().await.unwrap().not());
 
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_redaction() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    client.send_queue().enable_upload_progress(true);
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // ----------------------
+    // Prepare the redaction.
+    let redacts = owned_event_id!("$1");
+    let reason = Some("whatever");
+    let event_id = owned_event_id!("$2");
+
+    // ----------------------
+    // Prepare endpoints.
+    mock.mock_room_redact().ok(event_id.clone()).mount().await;
+
+    // ----------------------
+    // Send the redaction.
+    assert!(watch.is_empty());
+    q.send_redaction(redacts.clone(), reason).await.expect("queuing the redaction works");
+
+    // ----------------------
+    // Observe the local echo.
+    let transaction_id = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = reason.map(str::to_owned) });
+
+    // The redaction event is sent, at some point.
+    assert_update!((global_watch, watch) => sent {
+        txn = transaction_id,
+        event_id = event_id
+    });
+
+    // That's all, folks!
     assert!(watch.is_empty());
 }
 
