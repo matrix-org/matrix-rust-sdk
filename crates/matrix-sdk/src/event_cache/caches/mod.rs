@@ -112,6 +112,16 @@ impl Caches {
     pub async fn prepare_to_reset(&mut self) -> Result<ResetCaches<'_>> {
         ResetCaches::new(self).await
     }
+
+    /// Get all events from all the event caches manged by this [`Cacches`].
+    ///
+    /// Events can be duplicated if present in different event caches.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn all_events(&self) -> Result<impl Iterator<Item = Event>> {
+        let events_from_room = self.room.events().await?;
+
+        Ok(events_from_room.into_iter())
+    }
 }
 
 /// Type holding exclusive locks over all event caches managed by a
