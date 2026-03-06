@@ -35,7 +35,7 @@ jobs:
           - no-encryption-and-sqlite
           - sqlite-cryptostore
           - experimental-encrypted-state-events
-          - rustls-tls
+          - native-tls
           - markdown
           - socks
           - sso-login

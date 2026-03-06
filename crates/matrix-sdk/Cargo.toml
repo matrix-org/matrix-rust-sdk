@@ -15,8 +15,11 @@ version = "0.16.0"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
+[package.metadata.cargo-machete]
+ignored = ["ring", "rustls-pki-types"]
+
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-tls"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -33,7 +36,12 @@ e2e-encryption = [
     # activate on indexeddb if given
     "matrix-sdk-indexeddb?/e2e-encryption",
 ]
-js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
+js = [
+    "matrix-sdk-common/js",
+    "matrix-sdk-base/js",
+    "rustls-pki-types?/web",
+    "ring?/wasm32_unknown_unknown_js"
+]
 
 sqlite = [
     "dep:matrix-sdk-sqlite",
@@ -62,7 +70,7 @@ experimental-encrypted-state-events = [
 
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+rustls-tls = ["reqwest/rustls-no-provider", "dep:rustls", "dep:rustls-pki-types", "dep:ring"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]
@@ -118,9 +126,11 @@ matrix-sdk-test = { workspace = true, optional = true }
 mime.workspace = true
 mime2ext = "0.1.54"
 oauth2.workspace = true
+oauth2-reqwest.workspace = true
 percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
@@ -130,6 +140,8 @@ ruma = { workspace = true, features = [
     "unstable-msc4108",
     "unstable-msc4278",
 ] }
+rustls = { workspace = true, optional = true, features = ["std", "logging"] }
+rustls-pki-types = { workspace = true, optional = true }
 serde.workspace = true
 serde_html_form.workspace = true
 serde_json.workspace = true
@@ -178,6 +190,7 @@ tokio-test = "0.4.4"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+ctor = "0.2.9"
 proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock.workspace = true
