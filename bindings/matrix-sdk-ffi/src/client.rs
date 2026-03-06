@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     path::PathBuf,
+    str::FromStr,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -106,7 +107,7 @@ use ruma::{
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedServerName, OwnedUserId, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -202,6 +203,33 @@ impl From<PushFormat> for RumaPushFormat {
             client::PushFormat::EventIdOnly => Self::EventIdOnly,
         }
     }
+}
+
+#[derive(uniffi::Object)]
+pub struct SecretsBundle {
+    user_id: OwnedUserId,
+    inner: matrix_sdk_base::crypto::types::SecretsBundle,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SecretsBundle {
+    #[uniffi::constructor]
+    pub fn from_str(user_id: &str, bundle: &str) -> Result<Arc<Self>, ClientError> {
+        let user_id = OwnedUserId::from_str(user_id)?;
+        let bundle = serde_json::from_str(bundle)?;
+
+        Ok(Self { user_id, inner: bundle }.into())
+    }
+
+    #[uniffi::constructor]
+    pub fn from_database(database_path: &str) -> Result<Arc<Self>, ClientError> {
+        todo!()
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+pub fn database_contains_secrets_bundle(database_path: &str) -> Result<bool, ClientError> {
+    todo!()
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -419,6 +447,35 @@ impl Client {
 
         Ok(client)
     }
+
+    pub(crate) async fn import_secrets_bundle(
+        &self,
+        secrets_bundle: &SecretsBundle,
+    ) -> Result<(), ClientError> {
+        let user_id = self.inner.user_id().expect(
+            "We should have a user ID available now, this is only called once we're logged in",
+        );
+
+        if user_id == secrets_bundle.user_id {
+            self.inner
+                .encryption()
+                .import_secrets_bundle(&secrets_bundle.inner)
+                .await
+                .map_err(|e| ClientError::from_err(e))?;
+
+            // Upload the device keys, this will ensure that other devices see us as a fully
+            // verified device as soon as this method returns.
+            self.inner.encryption().ensure_device_keys_upload().await?;
+            self.inner.encryption().wait_for_e2ee_initialization_tasks().await;
+
+            Ok(())
+        } else {
+            Err(ClientError::Generic {
+                msg: "Secrets bundle does not belong to the user which was logged in".to_owned(),
+                details: None,
+            })
+        }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -487,15 +544,24 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
         }
+
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
+
         Ok(())
     }
 
@@ -507,6 +573,7 @@ impl Client {
         jwt: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let data = json!({ "token": jwt }).as_object().unwrap().clone();
 
@@ -521,6 +588,11 @@ impl Client {
         }
 
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
+
         Ok(())
     }
 
@@ -531,6 +603,7 @@ impl Client {
         password: String,
         initial_device_name: Option<String>,
         device_id: Option<String>,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
     ) -> Result<(), ClientError> {
         let mut builder = self
             .inner
@@ -546,6 +619,10 @@ impl Client {
         }
 
         builder.send().await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle).await?;
+        }
 
         Ok(())
     }
@@ -638,10 +715,20 @@ impl Client {
     }
 
     /// Completes the OIDC login process.
-    pub async fn login_with_oidc_callback(&self, callback_url: String) -> Result<(), OidcError> {
+    pub async fn login_with_oidc_callback(
+        &self,
+        callback_url: String,
+        secrets_bundle: Option<Arc<SecretsBundle>>,
+    ) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
         self.inner.oauth().finish_login(url.into()).await?;
+
+        if let Some(bundle) = secrets_bundle {
+            self.import_secrets_bundle(&bundle)
+                .await
+                .map_err(|e| OidcError::Generic { message: e.to_string() })?;
+        }
 
         Ok(())
     }
