@@ -157,10 +157,7 @@ use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
     RoomEventCacheUpdate, TimelineVectorDiffs,
-    caches::{
-        Caches,
-        room::{PostProcessingOrigin, RoomEventCacheLinkedChunkUpdate},
-    },
+    caches::room::{PostProcessingOrigin, RoomEventCacheLinkedChunkUpdate},
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
@@ -289,9 +286,9 @@ impl EventCache {
     async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
-        for (room_id, Caches { room: room_cache }) in self.inner.by_room.read().await.iter() {
-            let room_utds: Vec<_> = room_cache
-                .events()
+        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = caches
+                .all_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -327,9 +324,9 @@ impl EventCache {
     ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
-        for (room_id, Caches { room: room_cache }) in self.inner.by_room.read().await.iter() {
-            let room_utds: Vec<_> = room_cache
-                .events()
+        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = caches
+                .all_events()
                 .await
                 .into_iter()
                 .flatten()
