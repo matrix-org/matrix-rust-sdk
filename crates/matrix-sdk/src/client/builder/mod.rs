@@ -387,6 +387,44 @@ impl ClientBuilder {
         self
     }
 
+    /// Set a client certificate (identity) for mutual TLS authentication.
+    ///
+    /// This enables mTLS by providing a client certificate that will be
+    /// presented to the server during the TLS handshake.
+    ///
+    /// Internally this will call the
+    /// [`reqwest::ClientBuilder::identity()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - A [`reqwest::Identity`] containing the client certificate
+    ///   and private key. See [`reqwest::Identity`] documentation for the
+    ///   available constructors for different TLS backends.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use std::fs;
+    /// use matrix_sdk::Client;
+    ///
+    /// // With rustls-tls: use from_pkcs8_pem with separate cert and key
+    /// let cert_pem = fs::read("client-cert.pem")?;
+    /// let key_pem = fs::read("client-key.pem")?;
+    /// let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)?;
+    ///
+    /// // With native-tls: use from_pkcs12_der with PKCS#12 bundle
+    /// // let p12_data = fs::read("client.p12")?;
+    /// // let identity = reqwest::Identity::from_pkcs12_der(&p12_data, "password")?;
+    ///
+    /// let client_config = Client::builder().client_certificate(identity);
+    /// # anyhow::Ok(())
+    /// ```
+    #[cfg(all(not(target_family = "wasm"), any(feature = "native-tls", feature = "rustls-tls")))]
+    pub fn client_certificate(mut self, identity: reqwest::Identity) -> Self {
+        self.http_settings().client_identity = Some(identity);
+        self
+    }
+
     /// Specify a [`reqwest::Client`] instance to handle sending requests and
     /// receiving responses.
     ///
