@@ -91,10 +91,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
+  removed from the Matrix specification. The `ReportedContentScore` type was removed too.
+  ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
 - [**breaking**] `Client::enabled_thread_subscriptions()` is now async and fallible, as it will
   check for both static enablement of the thread subscription feature as well as dynamically
   checking that the user's homeserver supports it.
-  ([#6245](https://github.com/matrix-org/matrix-rust-sdk/pull/6245))
 - [**breaking**] `SessionChange::UnknownToken` is now a tuple variant containing
   an `UnknownTokenErrorData`.
   ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
