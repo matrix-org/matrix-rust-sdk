@@ -324,7 +324,6 @@ impl SecretStore {
                         }
                         EnableBackupError::Error(error) => {
                             SecretStorageError::into_import_error(SecretName::RecoveryKey, error)
-                                .into()
                         }
                     });
 
