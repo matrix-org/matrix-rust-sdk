@@ -778,7 +778,7 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::ConnectionTimeout => Ok(ErrorKind::ConnectionTimeout),
             RumaApiErrorKind::DuplicateAnnotation => Ok(ErrorKind::DuplicateAnnotation),
             RumaApiErrorKind::Exclusive => Ok(ErrorKind::Exclusive),
-            RumaApiErrorKind::Forbidden { .. } => Ok(ErrorKind::Forbidden),
+            RumaApiErrorKind::Forbidden => Ok(ErrorKind::Forbidden),
             RumaApiErrorKind::GuestAccessForbidden => Ok(ErrorKind::GuestAccessForbidden),
             RumaApiErrorKind::IncompatibleRoomVersion(incompatible_room_version) => {
                 Ok(ErrorKind::IncompatibleRoomVersion {

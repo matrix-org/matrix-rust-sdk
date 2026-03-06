@@ -241,7 +241,7 @@ async fn test_login_error() {
                 kind, message, ..
             }) = &api_err.body
             {
-                if !matches!(*kind, client_api::error::ErrorKind::Forbidden { .. }) {
+                if !matches!(*kind, client_api::error::ErrorKind::Forbidden) {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
 
@@ -285,7 +285,7 @@ async fn test_register_error() {
                 kind, message, ..
             }) = &api_err.body
             {
-                if !matches!(*kind, client_api::error::ErrorKind::Forbidden { .. }) {
+                if !matches!(*kind, client_api::error::ErrorKind::Forbidden) {
                     panic!("found the wrong `ErrorKind` {kind:?}, expected `Forbidden");
                 }
 

@@ -43,12 +43,14 @@ use ruma::{
                 PassPhrase, SecretStorageEncryptionAlgorithm, SecretStorageKeyEventContent,
                 SecretStorageV1AesHmacSha2Properties,
             },
-            secret::SecretEncryptedData,
+            secret::{
+                AesHmacSha2EncryptedData as RumaAesHmacSha2EncryptedData, SecretEncryptedData,
+            },
         },
     },
-    serde::Base64,
+    serde::{Base64, JsonCastable},
 };
-use serde::de::Error;
+use serde::{Deserialize, Serialize, de::Error};
 use sha2::Sha512;
 use subtle::ConstantTimeEq;
 use thiserror::Error;
@@ -168,7 +170,8 @@ impl fmt::Debug for SecretStorageKey {
 }
 
 /// Encrypted data for the AES-CTR/HMAC-SHA-256 secret storage algorithm.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(into = "RumaAesHmacSha2EncryptedData", try_from = "RumaAesHmacSha2EncryptedData")]
 pub struct AesHmacSha2EncryptedData {
     /// The initialization vector that was used to encrypt the ciphertext.
     pub iv: [u8; IV_SIZE],
@@ -179,47 +182,42 @@ pub struct AesHmacSha2EncryptedData {
     pub mac: [u8; MAC_SIZE],
 }
 
-impl TryFrom<SecretEncryptedData> for AesHmacSha2EncryptedData {
+impl TryFrom<RumaAesHmacSha2EncryptedData> for AesHmacSha2EncryptedData {
     type Error = serde_json::Error;
 
-    fn try_from(value: SecretEncryptedData) -> Result<Self, Self::Error> {
-        match value {
-            SecretEncryptedData::AesHmacSha2EncryptedData { iv, ciphertext, mac } => {
-                let iv_length = iv.as_bytes().len();
-                let mac_length = mac.as_bytes().len();
+    fn try_from(value: RumaAesHmacSha2EncryptedData) -> Result<Self, Self::Error> {
+        let RumaAesHmacSha2EncryptedData { iv, ciphertext, mac, .. } = value;
+        let iv_length = iv.as_bytes().len();
+        let mac_length = mac.as_bytes().len();
 
-                if iv_length != IV_SIZE {
-                    Err(serde_json::Error::custom(format!(
-                        "Invalid initialization vector length, expected length {IV_SIZE}, got: {iv_length}",
-                    )))
-                } else if mac_length != MAC_SIZE {
-                    Err(serde_json::Error::custom(format!(
-                        "Invalid message authentication tag length, expected length {MAC_SIZE}, got: {mac_length}",
-                    )))
-                } else {
-                    let mut mac_array = [0u8; MAC_SIZE];
-                    let mut iv_array = [0u8; IV_SIZE];
+        if iv_length != IV_SIZE {
+            Err(serde_json::Error::custom(format!(
+                "Invalid initialization vector length, expected length {IV_SIZE}, got: {iv_length}",
+            )))
+        } else if mac_length != MAC_SIZE {
+            Err(serde_json::Error::custom(format!(
+                "Invalid message authentication tag length, expected length {MAC_SIZE}, got: {mac_length}",
+            )))
+        } else {
+            let mut mac_array = [0u8; MAC_SIZE];
+            let mut iv_array = [0u8; IV_SIZE];
 
-                    mac_array.copy_from_slice(mac.as_bytes());
-                    iv_array.copy_from_slice(iv.as_bytes());
+            mac_array.copy_from_slice(mac.as_bytes());
+            iv_array.copy_from_slice(iv.as_bytes());
 
-                    Ok(Self { iv: iv_array, ciphertext, mac: mac_array })
-                }
-            }
-            _ => Err(serde_json::Error::custom("Unsupported secret storage algorithm")),
+            Ok(Self { iv: iv_array, ciphertext, mac: mac_array })
         }
     }
 }
 
-impl From<AesHmacSha2EncryptedData> for SecretEncryptedData {
+impl From<AesHmacSha2EncryptedData> for RumaAesHmacSha2EncryptedData {
     fn from(value: AesHmacSha2EncryptedData) -> Self {
-        SecretEncryptedData::AesHmacSha2EncryptedData {
-            iv: Base64::new(value.iv.to_vec()),
-            ciphertext: value.ciphertext,
-            mac: Base64::new(value.mac.to_vec()),
-        }
+        Self::new(Base64::new(value.iv.to_vec()), value.ciphertext, Base64::new(value.mac.to_vec()))
     }
 }
+
+impl JsonCastable<SecretEncryptedData> for AesHmacSha2EncryptedData {}
+impl JsonCastable<AesHmacSha2EncryptedData> for SecretEncryptedData {}
 
 impl SecretStorageKey {
     const ZERO_MESSAGE: &'static [u8; 32] = &[0u8; 32];
@@ -849,7 +847,7 @@ mod test {
               "mac": "NXeV1dZaOe2JLvQ6Hh6tFto7AgFFdaQnY0l9pruwdtE="
         });
 
-        let content: SecretEncryptedData = serde_json::from_value(json)
+        let content: RumaAesHmacSha2EncryptedData = serde_json::from_value(json)
             .expect("We should be able to deserialize our static JSON content");
 
         let encrypted_data: AesHmacSha2EncryptedData = content.try_into()
@@ -867,11 +865,10 @@ mod test {
             [109, 215, 194, 194, 239, 132, 9, 136, 25, 254, 53, 147, 144, 106, 208, 252]
         );
 
-        let secret_encrypted_data: SecretEncryptedData = encrypted_data.to_owned().into();
+        let secret_encrypted_data: RumaAesHmacSha2EncryptedData = encrypted_data.to_owned().into();
 
         assert_let!(
-            SecretEncryptedData::AesHmacSha2EncryptedData { iv, ciphertext, mac } =
-                secret_encrypted_data
+            RumaAesHmacSha2EncryptedData { iv, ciphertext, mac, .. } = secret_encrypted_data
         );
         assert_eq!(mac.as_bytes(), encrypted_data.mac.as_slice());
         assert_eq!(iv.as_bytes(), encrypted_data.iv.as_slice());
@@ -883,7 +880,7 @@ mod test {
               "mac": "NXeV1dZaOe2JLvQ6Hh6tFtgFFdaQnY0l9pruwdtE"
         });
 
-        let content: SecretEncryptedData = serde_json::from_value(invalid_mac_json)
+        let content: RumaAesHmacSha2EncryptedData = serde_json::from_value(invalid_mac_json)
             .expect("We should be able to deserialize our static JSON content");
 
         let encrypted_data: Result<AesHmacSha2EncryptedData, _> = content.try_into();
@@ -897,7 +894,7 @@ mod test {
               "mac": "NXeV1dZaOe2JLvQ6Hh6tFto7AgFFdaQnY0l9pruwdtE="
         });
 
-        let content: SecretEncryptedData = serde_json::from_value(invalid_iv_json)
+        let content: RumaAesHmacSha2EncryptedData = serde_json::from_value(invalid_iv_json)
             .expect("We should be able to deserialize our static JSON content");
 
         let encrypted_data: Result<AesHmacSha2EncryptedData, _> = content.try_into();

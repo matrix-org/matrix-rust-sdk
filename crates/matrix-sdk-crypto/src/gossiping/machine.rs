@@ -294,7 +294,7 @@ impl GossipMachine {
         event: &SecretRequestEvent,
     ) -> OlmResult<Option<Session>> {
         let secret_name = match &event.content.action {
-            RequestAction::Request(s) => s,
+            RequestAction::Request(r) => &r.name,
             // We ignore cancellations here since there's nothing to serve.
             RequestAction::RequestCancellation => return Ok(None),
             action => {
@@ -1121,7 +1121,9 @@ mod tests {
         DeviceId, RoomId, UserId, device_id,
         events::{
             ToDeviceEvent as RumaToDeviceEvent,
-            secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
+            secret::request::{
+                RequestAction, SecretName, SecretRequestAction, ToDeviceSecretRequestEventContent,
+            },
         },
         owned_event_id, room_id,
         serde::Raw,
@@ -1935,7 +1937,7 @@ mod tests {
         let event = RumaToDeviceEvent::new(
             bob_account.user_id().to_owned(),
             ToDeviceSecretRequestEventContent::new(
-                RequestAction::Request(SecretName::CrossSigningMasterKey),
+                RequestAction::Request(SecretRequestAction::new(SecretName::CrossSigningMasterKey)),
                 bob_account.device_id().to_owned(),
                 "request_id".into(),
             ),
@@ -1973,7 +1975,7 @@ mod tests {
         let event = RumaToDeviceEvent::new(
             alice_id().to_owned(),
             ToDeviceSecretRequestEventContent::new(
-                RequestAction::Request(SecretName::CrossSigningMasterKey),
+                RequestAction::Request(SecretRequestAction::new(SecretName::CrossSigningMasterKey)),
                 second_account.device_id().into(),
                 "request_id".into(),
             ),
@@ -2035,7 +2037,7 @@ mod tests {
         let event = RumaToDeviceEvent::new(
             alice_machine.user_id().to_owned(),
             ToDeviceSecretRequestEventContent::new(
-                RequestAction::Request(SecretName::RecoveryKey),
+                RequestAction::Request(SecretRequestAction::new(SecretName::RecoveryKey)),
                 bob_machine.device_id().to_owned(),
                 request_id,
             ),
