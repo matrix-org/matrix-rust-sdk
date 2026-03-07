@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- [**breaking**] `OtherState` properly supports redacted events that still have fields in the
+  content. The following fields are no longer optional:
+  - `federate` in `OtherState::RoomCreate`.
+  - `history_visibility` in `OtherState::RoomHistoryVisibility`.
+  - `thresholds` in `OtherState::RoomPowerLevels`.
 - `omit_checksums` option is now enabled for the Kotlin bindings in all FFI-exporting crates.
   We enabled them because with JNA direct mapping enabled they result in invalid checks in
   ARM 32bit devices, preventing the SDK from working altogether (see
