@@ -72,26 +72,14 @@ impl TimelineEventCondition {
             Self::MembershipChange => match event {
                 AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
                     SyncStateEvent::Original(ev),
-                )) => {
-                    let change = ev.content.membership_change(
-                        ev.prev_content().as_ref().map(|c| c.details()),
-                        &ev.sender,
-                        &ev.state_key,
-                    );
-                    !matches!(change, MembershipChange::ProfileChanged { .. })
-                }
+                )) => !matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. }),
                 _ => false,
             },
             Self::ProfileChange => match event {
                 AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
                     SyncStateEvent::Original(ev),
                 )) => {
-                    let change = ev.content.membership_change(
-                        ev.prev_content().as_ref().map(|c| c.details()),
-                        &ev.sender,
-                        &ev.state_key,
-                    );
-                    matches!(change, MembershipChange::ProfileChanged { .. })
+                    matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. })
                 }
                 _ => false,
             },
