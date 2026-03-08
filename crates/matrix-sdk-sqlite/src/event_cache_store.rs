@@ -18,6 +18,7 @@ use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_base::{
+    SendOutsideWasm,
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::{
@@ -519,7 +520,8 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     Ok(())
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
@@ -1564,8 +1566,8 @@ fn find_event_relations_transaction(
 /// of the kind SQLITE_BUSY from happening, for transactions that may involve
 /// both reads and writes, and start with a write.
 async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
+    T: SendOutsideWasm + 'static,
+    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + SendOutsideWasm + 'static,
 >(
     this: &SqliteEventCacheStore,
     f: F,
