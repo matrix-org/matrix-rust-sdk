@@ -267,7 +267,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::execute(RefCell::borrow(&self).as_ref(), sql.as_ref(), params)
+            rusqlite::Connection::execute(&RefCell::borrow(&self), sql.as_ref(), params)
         }
     }
 
@@ -283,7 +283,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::execute_batch(RefCell::borrow(&self).as_ref(), sql.as_ref())
+            rusqlite::Connection::execute_batch(&RefCell::borrow(&self), sql.as_ref())
         }
     }
 
@@ -304,7 +304,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            f(rusqlite::Connection::prepare(RefCell::borrow(&self).as_ref(), sql.as_ref())?)
+            f(rusqlite::Connection::prepare(&RefCell::borrow(&self), sql.as_ref())?)
         }
     }
 
@@ -327,12 +327,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::query_row(
-                RefCell::borrow(&self).as_ref(),
-                sql.as_ref(),
-                params,
-                f,
-            )
+            rusqlite::Connection::query_row(&RefCell::borrow(&self), sql.as_ref(), params, f)
         }
     }
 
@@ -360,7 +355,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         {
             {
                 let mut stmt =
-                    rusqlite::Connection::prepare(RefCell::borrow(&self).as_ref(), sql.as_ref())?;
+                    rusqlite::Connection::prepare(&RefCell::borrow(&self), sql.as_ref())?;
                 stmt.query_and_then(params, f)?.collect()
             }
             .await?
@@ -388,7 +383,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             {
-                let txn = rusqlite::Connection::transaction(RefCell::borrow_mut(&self).as_mut())?;
+                let txn = rusqlite::Connection::transaction(&mut RefCell::borrow_mut(&self))?;
                 let result = f(&txn)?;
                 txn.commit()?;
                 Ok(result)
@@ -654,7 +649,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::set_kv(RefCell::borrow(&self).as_ref(), &key, &value)?;
+            rusqlite::Connection::set_kv(&RefCell::borrow(&self), &key, &value)?;
         }
 
         Ok(())
@@ -672,7 +667,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::set_serialized_kv(RefCell::borrow(&self).as_ref(), &key, value)?;
+            rusqlite::Connection::set_serialized_kv(&RefCell::borrow(&self), &key, value)?;
         }
 
         Ok(())
@@ -686,7 +681,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::clear_kv(RefCell::borrow(&self).as_ref(), &key)?;
+            rusqlite::Connection::clear_kv(&RefCell::borrow(&self), &key)?;
         }
 
         Ok(())

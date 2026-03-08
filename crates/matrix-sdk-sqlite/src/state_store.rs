@@ -1132,7 +1132,7 @@ impl SqliteObjectStateStoreExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::set_kv_blob(RefCell::borrow(&self).as_ref(), &key, &value)
+            Ok(rusqlite::Connection::set_kv_blob(&RefCell::borrow(&self), &key, &value)?)
         }
     }
 }
