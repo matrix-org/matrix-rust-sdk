@@ -42,10 +42,11 @@ use ruma::{
     events::secret::request::SecretName,
 };
 use rusqlite::{OptionalExtension, named_params, params_from_iter};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::fs;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 
@@ -115,7 +116,17 @@ impl SqliteCryptoStore {
 
     /// Open the SQLite-based crypto store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let cfg = OpfsSAHPoolCfgBuilder::new()
+                .vfs_name("opfs-sahpool")
+                .directory(config.path.to_string_lossy().as_ref())
+                .build();
+            install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
+        }
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 

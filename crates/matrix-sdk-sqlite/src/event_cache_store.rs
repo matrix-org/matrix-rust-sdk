@@ -37,10 +37,11 @@ use ruma::{
 use rusqlite::{
     OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
 };
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::fs;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
@@ -123,7 +124,17 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let cfg = OpfsSAHPoolCfgBuilder::new()
+                .vfs_name("opfs-sahpool")
+                .directory(config.path.to_string_lossy().as_ref())
+                .build();
+            install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
+        }
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 

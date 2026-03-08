@@ -39,15 +39,18 @@ serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true
 vodozemac.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true }
 rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen", "wasm32-wasi-vfs"] }
+sqlite-wasm-rs = "0.5.2"
+sqlite-wasm-vfs = "0.2.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["fs"] }
 rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint"] }
 
 [dev-dependencies]
