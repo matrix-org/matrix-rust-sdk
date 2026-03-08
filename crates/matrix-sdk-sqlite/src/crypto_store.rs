@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{
     collections::HashMap,
     fmt,
@@ -1654,7 +1656,7 @@ impl CryptoStore for SqliteCryptoStore {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             rusqlite::Connection::execute(
-                self.write().await,
+                RefCell::borrow(&self.write().await).as_ref(),
                 "DELETE FROM kv WHERE key = ?1",
                 (&key,),
             )?;

@@ -14,6 +14,8 @@
 
 //! An SQLite-based backend for the [`EventCacheStore`].
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
@@ -1603,7 +1605,7 @@ async fn with_immediate_transaction<
     }
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
-        let mut conn = this.write().await?;
+        let mut conn = RefCell::borrow_mut(this.write().await?);
 
         // Start the transaction in IMMEDIATE mode since all updates may cause writes,
         // to avoid read transactions upgrading to write mode and causing
@@ -1611,7 +1613,7 @@ async fn with_immediate_transaction<
         conn.set_transaction_behavior(TransactionBehavior::Immediate);
 
         let code = || -> Result<T, Error> {
-            let mut txn = conn.transaction()?;
+            let txn = conn.transaction()?;
             let res = f(&txn)?;
             txn.commit()?;
             Ok(res)

@@ -64,6 +64,8 @@
 //! [spawn_blocking]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sync/src/lib.rs#L113-L131
 //! [WAL]: https://www.sqlite.org/wal.html
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{convert::Infallible, path::PathBuf};
 
 pub use deadpool::managed::reexports::*;
@@ -104,7 +106,11 @@ impl managed::Manager for Manager {
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type Type = SyncWrapper<rusqlite::Connection>;
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    type Type = rusqlite::Connection;
+    // Since `SyncWrapper` provide interior-mutability, we will need a similar API without `Send`
+    // constraint
+    //
+    // As WASM is mostly single-threaded, current implementation of using `RefCell` should suffice
+    type Type = RefCell<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
@@ -116,7 +122,8 @@ impl managed::Manager for Manager {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::open(path)
+            let conn = rusqlite::Connection::open(path)?;
+            Ok(RefCell::new(conn))
         }
     }
 

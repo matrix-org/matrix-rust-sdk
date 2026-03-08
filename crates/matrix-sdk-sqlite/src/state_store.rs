@@ -1,3 +1,5 @@
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -1130,7 +1132,7 @@ impl SqliteObjectStateStoreExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            rusqlite::Connection::set_kv_blob(&self, &key, &value)
+            rusqlite::Connection::set_kv_blob(RefCell::borrow(&self).as_ref(), &key, &value)
         }
     }
 }
