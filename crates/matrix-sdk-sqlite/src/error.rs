@@ -74,7 +74,7 @@ pub enum OpenStoreError {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     /// Failed to setup vfs for wasm environment
     #[error("Failed to setup vfs for WASM environment: {0}")]
-    SetupOpfs(#[source] OpfsSAHError),
+    SetupOpfs(#[from] OpfsSAHError),
 }
 
 #[derive(Debug, Error)]
