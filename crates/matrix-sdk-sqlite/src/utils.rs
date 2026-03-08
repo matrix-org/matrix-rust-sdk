@@ -353,7 +353,8 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            let mut stmt = rusqlite::Connection::prepare(&RefCell::borrow(&self), sql.as_ref())?;
+            let conn = RefCell::borrow(&self);
+            let mut stmt = rusqlite::Connection::prepare(&conn, sql.as_ref())?;
             stmt.query_and_then(params, f)?.collect::<Result<Vec<_>, _>>()
         }
     }

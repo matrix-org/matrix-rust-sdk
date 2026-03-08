@@ -1605,7 +1605,8 @@ async fn with_immediate_transaction<
     }
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
-        let mut conn: RefMut<'_, rusqlite::Connection> = this.write().await?.borrow_mut();
+        let this = this.write().await?;
+        let mut conn: RefMut<'_, rusqlite::Connection> = this.borrow_mut();
 
         // Start the transaction in IMMEDIATE mode since all updates may cause writes,
         // to avoid read transactions upgrading to write mode and causing
