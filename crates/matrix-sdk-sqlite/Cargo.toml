@@ -35,7 +35,6 @@ matrix-sdk-store-encryption.workspace = true
 num_cpus = { version = "1.17.0", default-features = false }
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.37.0", default-features = false, features = ["limits"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
@@ -44,6 +43,12 @@ tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true
 vodozemac.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "buildtime_bindgen", "wasm32-wasi-vfs"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
