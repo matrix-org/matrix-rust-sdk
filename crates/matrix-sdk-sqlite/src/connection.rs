@@ -64,10 +64,13 @@
 //! [spawn_blocking]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sync/src/lib.rs#L113-L131
 //! [WAL]: https://www.sqlite.org/wal.html
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{convert::Infallible, path::PathBuf};
 
 pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics, RecycleError};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::SyncWrapper;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
@@ -100,12 +103,29 @@ impl Manager {
 }
 
 impl managed::Manager for Manager {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type Type = SyncWrapper<rusqlite::Connection>;
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    // Since `SyncWrapper` provide interior-mutability, we will need a similar API
+    // without `Send` constraint
+    //
+    // As WASM is mostly single-threaded, current implementation of using `RefCell`
+    // should suffice
+    type Type = RefCell<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let path = self.database_path.clone();
-        SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let conn = rusqlite::Connection::open(path)?;
+            Ok(RefCell::new(conn))
+        }
     }
 
     async fn recycle(
@@ -113,6 +133,7 @@ impl managed::Manager for Manager {
         conn: &mut Self::Type,
         _: &Metrics,
     ) -> managed::RecycleResult<Self::Error> {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         if conn.is_mutex_poisoned() {
             return Err(RecycleError::Message(
                 "Mutex is poisoned. Connection is considered unusable.".into(),

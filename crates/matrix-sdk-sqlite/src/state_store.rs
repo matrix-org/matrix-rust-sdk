@@ -1,3 +1,5 @@
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefCell;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -37,10 +39,11 @@ use ruma::{
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::fs;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -115,7 +118,17 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let cfg = OpfsSAHPoolCfgBuilder::new()
+                .vfs_name("opfs-sahpool")
+                .directory(config.path.to_string_lossy().as_ref())
+                .build();
+            install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
+        }
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
@@ -871,7 +884,8 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     async fn get_kv_blob(&self, key: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
@@ -1108,14 +1122,23 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
-        Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            Ok(rusqlite::Connection::set_kv_blob(&RefCell::borrow(&self), &key, &value)?)
+        }
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl StateStore for SqliteStateStore {
     type Error = Error;
 
@@ -2508,8 +2531,12 @@ mod migration_tests {
     use rusqlite::Transaction;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
     use tempfile::{TempDir, tempdir};
-    use tokio::{fs, sync::Mutex};
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    use tokio::fs;
+    use tokio::sync::Mutex;
     use zeroize::Zeroizing;
 
     use super::{DATABASE_NAME, SqliteStateStore, init, keys};
@@ -2531,7 +2558,17 @@ mod migration_tests {
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
         let config = SqliteStoreConfig::new(path);
 
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir).unwrap();
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let cfg = OpfsSAHPoolCfgBuilder::new()
+                .vfs_name("opfs-sahpool")
+                .directory(config.path.to_string_lossy().as_ref())
+                .build();
+            install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
+        }
 
         let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
         let conn = pool.get().await?;

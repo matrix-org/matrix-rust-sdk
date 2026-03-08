@@ -23,6 +23,8 @@ use matrix_sdk_base::media::store::MediaStoreError;
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use sqlite_wasm_vfs::sahpool::OpfsSAHError;
 use thiserror::Error;
 use tokio::io;
 
@@ -71,6 +73,11 @@ pub enum OpenStoreError {
     /// Failed to save the store cipher to the DB.
     #[error("Failed to save the store cipher to the DB: {0}")]
     SaveCipher(#[source] rusqlite::Error),
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    /// Failed to setup vfs for wasm environment
+    #[error("Failed to setup vfs for WASM environment: {0}")]
+    SetupOpfs(#[from] OpfsSAHError),
 }
 
 #[derive(Debug, Error)]
