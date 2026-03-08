@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_base::SendOutsideWasm;
@@ -256,18 +257,32 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     where
         P: Params + SendOutsideWasm + 'static,
     {
-        self.interact(move |conn| conn.execute(sql.as_ref(), params))
-            .await
-            .map_err(map_interact_err)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.execute(sql.as_ref(), params))
+                .await
+                .map_err(map_interact_err)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.execute(sql.as_ref(), params).await?
+        }
     }
 
     async fn execute_batch(
         &self,
         sql: impl AsRef<str> + SendOutsideWasm + 'static,
     ) -> rusqlite::Result<()> {
-        self.interact(move |conn| conn.execute_batch(sql.as_ref()))
-            .await
-            .map_err(map_interact_err)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.execute_batch(sql.as_ref()))
+                .await
+                .map_err(map_interact_err)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.execute_batch(sql.as_ref()).await?
+        }
     }
 
     async fn prepare<T, F>(
@@ -279,7 +294,16 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         T: SendOutsideWasm + 'static,
         F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.map_err(map_interact_err)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| f(conn.prepare(sql.as_ref())?))
+                .await
+                .map_err(map_interact_err)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            f(self.prepare(sql.as_ref())?).await?
+        }
     }
 
     async fn query_row<T, P, F>(
@@ -293,9 +317,16 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         P: Params + SendOutsideWasm + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
-            .await
-            .map_err(map_interact_err)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
+                .await
+                .map_err(map_interact_err)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.query_row(sql.as_ref(), params, f).await?
+        }
     }
 
     async fn query_many<T, P, F>(
@@ -309,12 +340,23 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         P: Params + SendOutsideWasm + 'static,
         F: FnMut(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        self.interact(move |conn| {
-            let mut stmt = conn.prepare(sql.as_ref())?;
-            stmt.query_and_then(params, f)?.collect()
-        })
-        .await
-        .map_err(map_interact_err)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| {
+                let mut stmt = conn.prepare(sql.as_ref())?;
+                stmt.query_and_then(params, f)?.collect()
+            })
+            .await
+            .map_err(map_interact_err)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            {
+                let mut stmt = self.prepare(sql.as_ref())?;
+                stmt.query_and_then(params, f)?.collect()
+            }
+            .await?
+        }
     }
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
@@ -323,15 +365,29 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         E: From<rusqlite::Error> + SendOutsideWasm + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + SendOutsideWasm + 'static,
     {
-        self.interact(move |conn| {
-            let txn = conn.transaction()?;
-            let result = f(&txn)?;
-            txn.commit()?;
-            Ok(result)
-        })
-        .await
-        .map_err(map_interact_err)
-        .map_err(E::from)?
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| {
+                let txn = conn.transaction()?;
+                let result = f(&txn)?;
+                txn.commit()?;
+                Ok(result)
+            })
+            .await
+            .map_err(map_interact_err)
+            .map_err(E::from)?
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            {
+                let txn = self.transaction()?;
+                let result = f(&txn)?;
+                txn.commit()?;
+                Ok(result)
+            }
+            .await
+            .map_err(E::from)?
+        }
     }
 
     /// Chunk a large query over some keys.
@@ -357,6 +413,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     }
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 /// Map an [`InteractError`] into a [`rusqlite::Error`].
 ///
 /// An [`InteractError::Panic`] will panic. An [`InteractError::Cancelled`] will
@@ -584,7 +641,14 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
-        self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.set_kv(&key, &value).await?;
+        }
 
         Ok(())
     }
@@ -595,14 +659,28 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         value: T,
     ) -> Result<()> {
         let key = key.to_owned();
-        self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.set_serialized_kv(&key, value).await?;
+        }
 
         Ok(())
     }
 
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
         let key = key.to_owned();
-        self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            self.clear_kv(&key).await?;
+        }
 
         Ok(())
     }

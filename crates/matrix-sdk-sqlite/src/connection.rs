@@ -68,6 +68,7 @@ use std::{convert::Infallible, path::PathBuf};
 
 pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics, RecycleError};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::SyncWrapper;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
@@ -100,12 +101,23 @@ impl Manager {
 }
 
 impl managed::Manager for Manager {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type Type = SyncWrapper<rusqlite::Connection>;
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    type Type = rusqlite::Connection;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let path = self.database_path.clone();
-        SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            rusqlite::Connection::open(path)
+        }
     }
 
     async fn recycle(
