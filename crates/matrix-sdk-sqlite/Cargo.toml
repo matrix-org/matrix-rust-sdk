@@ -45,10 +45,10 @@ vodozemac.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "buildtime_bindgen", "wasm32-wasi-vfs"] }
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen", "wasm32-wasi-vfs"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite = { version = "0.38.0", default-features = false, features = ["limits"] }
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
