@@ -1653,7 +1653,11 @@ impl CryptoStore for SqliteCryptoStore {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.write().await.execute("DELETE FROM kv WHERE key = ?1", (&key,)).await?;
+            rusqlite::Connection::execute(
+                self.write().await,
+                "DELETE FROM kv WHERE key = ?1",
+                (&key,),
+            )?;
         }
         Ok(())
     }

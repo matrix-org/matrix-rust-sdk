@@ -1603,7 +1603,7 @@ async fn with_immediate_transaction<
     }
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
-        let conn = this.write().await?;
+        let mut conn = this.write().await?;
 
         // Start the transaction in IMMEDIATE mode since all updates may cause writes,
         // to avoid read transactions upgrading to write mode and causing
@@ -1611,7 +1611,7 @@ async fn with_immediate_transaction<
         conn.set_transaction_behavior(TransactionBehavior::Immediate);
 
         let code = || -> Result<T, Error> {
-            let txn = conn.transaction()?;
+            let mut txn = conn.transaction()?;
             let res = f(&txn)?;
             txn.commit()?;
             Ok(res)

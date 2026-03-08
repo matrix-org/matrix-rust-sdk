@@ -265,7 +265,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.execute(sql.as_ref(), params).await
+            rusqlite::Connection::execute(&self, sql.as_ref(), params)
         }
     }
 
@@ -281,7 +281,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.execute_batch(sql.as_ref()).await
+            rusqlite::Connection::execute_batch(&self, sql.as_ref())
         }
     }
 
@@ -385,7 +385,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
                 txn.commit()?;
                 Ok(result)
             }
-            .map_err(E::from)?
+            .map_err(E::from)
         }
     }
 
