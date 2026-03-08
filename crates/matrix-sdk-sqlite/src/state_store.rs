@@ -1124,7 +1124,14 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
-        Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            rusqlite::Connection::set_kv_blob(&self, &key, &value)?
+        }
     }
 }
 

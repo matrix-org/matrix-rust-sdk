@@ -265,7 +265,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.execute(sql.as_ref(), params).await?
+            self.execute(sql.as_ref(), params).await
         }
     }
 
@@ -281,7 +281,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.execute_batch(sql.as_ref()).await?
+            self.execute_batch(sql.as_ref()).await
         }
     }
 
@@ -302,7 +302,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            f(self.prepare(sql.as_ref())?).await?
+            f(rusqlite::Connection::prepare(&self, sql.as_ref())?)
         }
     }
 
@@ -325,7 +325,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.query_row(sql.as_ref(), params, f).await?
+            self.query_row(sql.as_ref(), params, f).await
         }
     }
 
@@ -352,7 +352,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             {
-                let mut stmt = self.prepare(sql.as_ref())?;
+                let mut stmt = rusqlite::Connection::prepare(&self, sql.as_ref())?;
                 stmt.query_and_then(params, f)?.collect()
             }
             .await?
@@ -385,7 +385,6 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
                 txn.commit()?;
                 Ok(result)
             }
-            .await
             .map_err(E::from)?
         }
     }
@@ -647,7 +646,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            self.set_kv(&key, &value).await?;
+            rusqlite::Connection::set_kv(&self, &key, &value)?;
         }
 
         Ok(())

@@ -125,6 +125,7 @@ impl managed::Manager for Manager {
         conn: &mut Self::Type,
         _: &Metrics,
     ) -> managed::RecycleResult<Self::Error> {
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         if conn.is_mutex_poisoned() {
             return Err(RecycleError::Message(
                 "Mutex is poisoned. Connection is considered unusable.".into(),
