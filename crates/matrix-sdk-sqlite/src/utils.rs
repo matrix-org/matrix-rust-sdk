@@ -14,7 +14,7 @@
 
 use core::fmt;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
 use std::{
     borrow::{Borrow, Cow},
     cmp::min,
@@ -356,7 +356,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             {
                 let mut stmt =
                     rusqlite::Connection::prepare(&RefCell::borrow(&self), sql.as_ref())?;
-                stmt.query_and_then(params, f)?.collect()
+                stmt.query_and_then(params, f)?.collect::<Vec<_>>()
             }
             .await?
         }
@@ -383,7 +383,8 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             {
-                let txn = rusqlite::Connection::transaction(&mut RefCell::borrow_mut(&self))?;
+                let mut conn: RefMut<'_, rusqlite::Connection> = RefCell::borrow_mut(&self);
+                let txn = rusqlite::Connection::transaction(&mut conn)?;
                 let result = f(&txn)?;
                 txn.commit()?;
                 Ok(result)
