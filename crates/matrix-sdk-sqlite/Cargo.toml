@@ -48,6 +48,7 @@ tokio = { workspace = true }
 rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen", "wasm32-wasi-vfs"] }
 sqlite-wasm-rs = "0.5.2"
 sqlite-wasm-vfs = "0.2.0"
+web-time = { version = "1.1.0", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 deadpool-sync = { version = "0.2", default-features = false }

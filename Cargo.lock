@@ -3591,6 +3591,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vodozemac",
+ "web-time",
  "zeroize",
 ]
 
