@@ -137,8 +137,6 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use crate::ThreadingSupport;
-
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
     /// event.
@@ -148,7 +146,7 @@ trait RoomReadReceiptsExt {
         &mut self,
         event: &TimelineEvent,
         user_id: &UserId,
-        threading_support: ThreadingSupport,
+        with_threading_support: bool,
     );
 
     fn reset(&mut self);
@@ -160,7 +158,7 @@ trait RoomReadReceiptsExt {
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl IntoIterator<Item = &'a TimelineEvent>,
-        threading_support: ThreadingSupport,
+        with_threading_support: bool,
     ) -> bool;
 }
 
@@ -174,11 +172,9 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
         &mut self,
         event: &TimelineEvent,
         user_id: &UserId,
-        threading_support: ThreadingSupport,
+        with_threading_support: bool,
     ) {
-        if matches!(threading_support, ThreadingSupport::Enabled { .. })
-            && extract_thread_root(event.raw()).is_some()
-        {
+        if with_threading_support && extract_thread_root(event.raw()).is_some() {
             return;
         }
 
@@ -220,7 +216,7 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl IntoIterator<Item = &'a TimelineEvent>,
-        threading_support: ThreadingSupport,
+        with_threading_support: bool,
     ) -> bool {
         let mut counting_receipts = false;
 
@@ -240,7 +236,7 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
             }
 
             if counting_receipts {
-                self.process_event(event, user_id, threading_support);
+                self.process_event(event, user_id, with_threading_support);
             }
         }
 
@@ -425,14 +421,15 @@ fn events_intersects<'a>(
 ///
 /// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %room_id))]
-pub(crate) fn compute_unread_counts_legacy(
+#[cfg(test)]
+fn compute_unread_counts_legacy(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
     mut previous_events: Vec<TimelineEvent>,
     new_events: &[TimelineEvent],
     read_receipts: &mut RoomReadReceipts,
-    threading_support: ThreadingSupport,
+    threading_support: matrix_sdk_base::ThreadingSupport,
 ) {
     let all_events = if events_intersects(previous_events.iter(), new_events) {
         // The previous and new events sets can intersect, for instance if we restored
@@ -444,6 +441,11 @@ pub(crate) fn compute_unread_counts_legacy(
     } else {
         previous_events.extend(new_events.iter().cloned());
         previous_events
+    };
+
+    let threading_support = match threading_support {
+        matrix_sdk_base::ThreadingSupport::Enabled { .. } => true,
+        matrix_sdk_base::ThreadingSupport::Disabled => false,
     };
 
     compute_unread_counts(
@@ -471,7 +473,7 @@ pub(crate) fn compute_unread_counts(
     receipt_event: Option<&ReceiptEventContent>,
     all_events: Vec<TimelineEvent>,
     read_receipts: &mut RoomReadReceipts,
-    threading_support: ThreadingSupport,
+    with_threading_support: bool,
 ) {
     debug!(?read_receipts, "Starting");
 
@@ -506,7 +508,12 @@ pub(crate) fn compute_unread_counts(
 
         // The event for the receipt is in `all_events`, so we'll find it and can count
         // safely from here.
-        read_receipts.find_and_process_events(&event_id, user_id, &all_events, threading_support);
+        read_receipts.find_and_process_events(
+            &event_id,
+            user_id,
+            &all_events,
+            with_threading_support,
+        );
 
         debug!(?read_receipts, "after finding a better receipt");
         return;
@@ -521,7 +528,7 @@ pub(crate) fn compute_unread_counts(
     read_receipts.reset();
 
     for event in &all_events {
-        read_receipts.process_event(event, user_id, threading_support);
+        read_receipts.process_event(event, user_id, with_threading_support);
     }
 
     debug!(?read_receipts, "no better receipt");
@@ -737,11 +744,12 @@ mod tests {
         }
 
         let user_id = user_id!("@alice:example.org");
+        let threading_support = false;
 
         // An interesting event from oneself doesn't count as a new unread message.
         let event = make_event(user_id, Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -749,7 +757,7 @@ mod tests {
         // An interesting event from someone else does count as a new unread message.
         let event = make_event(user_id!("@bob:example.org"), Vec::new());
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -757,7 +765,7 @@ mod tests {
         // Push actions computed beforehand are respected.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify]);
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
@@ -767,7 +775,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true))],
         );
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 0);
@@ -777,7 +785,7 @@ mod tests {
             vec![Action::SetTweak(ruma::push::Tweak::Highlight(true)), Action::Notify],
         );
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 1);
@@ -786,7 +794,7 @@ mod tests {
         // make sure to resist against it.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);
         let mut receipts = RoomReadReceipts::default();
-        receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+        receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 1);
@@ -796,13 +804,12 @@ mod tests {
     fn test_find_and_process_events() {
         let ev0 = event_id!("$0");
         let user_id = user_id!("@alice:example.org");
+        let thread_support = false;
 
         // When provided with no events, we report not finding the event to which the
         // receipt relates.
         let mut receipts = RoomReadReceipts::default();
-        assert!(
-            receipts.find_and_process_events(ev0, user_id, &[], ThreadingSupport::Disabled).not()
-        );
+        assert!(receipts.find_and_process_events(ev0, user_id, &[], thread_support).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -829,7 +836,7 @@ mod tests {
                     ev0,
                     user_id,
                     &[make_event(event_id!("$1"))],
-                    ThreadingSupport::Disabled
+                    thread_support
                 )
                 .not()
         );
@@ -846,12 +853,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_process_events(
-            ev0,
-            user_id,
-            &[make_event(ev0)],
-            ThreadingSupport::Disabled
-        ),);
+        assert!(receipts.find_and_process_events(ev0, user_id, &[make_event(ev0)], thread_support),);
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -874,7 +876,7 @@ mod tests {
                         make_event(event_id!("$2")),
                         make_event(event_id!("$3"))
                     ],
-                    ThreadingSupport::Disabled
+                    thread_support
                 )
                 .not()
         );
@@ -899,7 +901,7 @@ mod tests {
                 make_event(event_id!("$2")),
                 make_event(event_id!("$3"))
             ],
-            ThreadingSupport::Disabled
+            thread_support
         ));
         assert_eq!(receipts.num_unread, 2);
         assert_eq!(receipts.num_notifications, 0);
@@ -922,7 +924,7 @@ mod tests {
                 make_event(event_id!("$2")),
                 make_event(event_id!("$3"))
             ],
-            ThreadingSupport::Disabled
+            thread_support
         ));
         assert_eq!(receipts.num_unread, 2);
         assert_eq!(receipts.num_notifications, 0);
@@ -1615,28 +1617,30 @@ mod tests {
         let own_alice = user_id!("@alice:example.org");
         let bob = user_id!("@bob:example.org");
 
+        let threading_support = true;
+
         // Threaded messages from myself or other users shouldn't change the
         // unread counts.
         receipts.process_event(
             &make_event(own_alice, event_id!("$some_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled { with_subscriptions: false },
+            threading_support,
         );
         receipts.process_event(
             &make_event(own_alice, event_id!("$some_other_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled { with_subscriptions: false },
+            threading_support,
         );
 
         receipts.process_event(
             &make_event(bob, event_id!("$some_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled { with_subscriptions: false },
+            threading_support,
         );
         receipts.process_event(
             &make_event(bob, event_id!("$some_other_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled { with_subscriptions: false },
+            threading_support,
         );
 
         assert_eq!(receipts.num_unread, 0);
@@ -1647,7 +1651,7 @@ mod tests {
         receipts.process_event(
             &EventFactory::new().text_msg("A").sender(bob).event_id(event_id!("$ida")).into_event(),
             own_alice,
-            ThreadingSupport::Enabled { with_subscriptions: false },
+            threading_support,
         );
 
         assert_eq!(receipts.num_unread, 1);
