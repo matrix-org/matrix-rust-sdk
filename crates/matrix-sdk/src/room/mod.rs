@@ -99,7 +99,10 @@ use ruma::{
         state::{get_state_event_for_key, send_state_event},
         tag::{create_tag, delete_tag},
         threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
-        typing::create_typing_event::{self, v3::Typing},
+        typing::create_typing_event::{
+            self,
+            v3::{Typing, TypingInfo},
+        },
     },
     assign,
     events::{
@@ -2114,7 +2117,7 @@ impl Room {
                 .write()
                 .unwrap()
                 .insert(self.room_id().to_owned(), Instant::now());
-            Typing::Yes(TYPING_NOTICE_TIMEOUT)
+            Typing::Yes(TypingInfo::new(TYPING_NOTICE_TIMEOUT))
         } else {
             self.client.inner.typing_notice_times.write().unwrap().remove(self.room_id());
             Typing::No
