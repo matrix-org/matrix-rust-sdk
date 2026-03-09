@@ -34,8 +34,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(in super::super) use state::RoomEventCacheStateLock;
-pub(super) use state::RoomEventCacheStateLockWriteGuard;
+pub(super) use state::{RoomEventCacheStateLock, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
@@ -75,7 +74,7 @@ impl fmt::Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    pub(in super::super) fn new(
+    pub(super) fn new(
         client: WeakClient,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
@@ -357,10 +356,7 @@ impl RoomEventCache {
 
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(in super::super) async fn handle_joined_room_update(
-        &self,
-        updates: JoinedRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.inner
             .handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.ambiguity_changes)
             .await?;
@@ -371,10 +367,7 @@ impl RoomEventCache {
 
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(in super::super) async fn handle_left_room_update(
-        &self,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
