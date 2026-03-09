@@ -23,7 +23,7 @@ use std::{
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    RoomInfoNotableUpdateReasons, StateChanges, ThreadingSupport, apply_redaction,
+    RoomInfoNotableUpdateReasons, StateChanges, apply_redaction,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -1058,14 +1058,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let user_id = &self.state.own_user_id;
         let room_id = &self.state.room_id;
 
-        // TODO(bnjbvr): change the signature of `compute_unread_counts` to take a bool
-        // instead (future commit in same PR).
-        let threading_support = if self.state.enabled_thread_support {
-            ThreadingSupport::Enabled { with_subscriptions: false }
-        } else {
-            ThreadingSupport::Disabled
-        };
-
         let mut room_info = room.clone_info();
         let prev_read_receipts = room_info.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
@@ -1076,7 +1068,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             receipt_event,
             all_events,
             &mut read_receipts,
-            threading_support,
+            self.state.enabled_thread_support,
         );
 
         if prev_read_receipts != read_receipts {
