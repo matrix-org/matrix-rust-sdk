@@ -1191,7 +1191,7 @@ mod test {
     async fn test_resuming_backups_when_keys_are_inconsistent_has_no_effect() {
         // Note: this was written when we added new error-surfacing logic to
         // matrix_sdk::encryption::backups::Backups::maybe_enable_backups, and
-        // this test checks that the previous behaviour is perserved: we ignore
+        // this test checks that the previous behaviour is preserved: we ignore
         // inconsistent backup keys when resuming backups. This may not turn out
         // to be the correct behaviour, so this test may need updating if we
         // decide this condition should be handled differently.
@@ -1606,7 +1606,7 @@ mod test {
         };
 
         let gossipped_secret =
-            GossippedSecret { secret_name: SecretName::RecoveryKey, gossip_request, event: event };
+            GossippedSecret { secret_name: SecretName::RecoveryKey, gossip_request, event };
 
         let changes = Changes { secrets: vec![gossipped_secret], ..Default::default() };
 
