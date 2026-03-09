@@ -3329,6 +3329,20 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
         })))
     }
 
+    /// Returns an endpoint that says there is a single room keys backup
+    pub fn exists_with_key(self, public_key: &str) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": public_key,
+                "signatures": {},
+            },
+            "count": 42,
+            "etag": "anopaquestring",
+            "version": "1",
+        })))
+    }
+
     /// Returns an endpoint that says there is no room keys backup
     pub fn none(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
