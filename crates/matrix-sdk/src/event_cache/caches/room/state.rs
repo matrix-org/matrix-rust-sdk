@@ -848,7 +848,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             prev_batch = None;
         }
 
-        if prev_batch.is_some() {
+        let has_new_gap = prev_batch.is_some();
+
+        if has_new_gap {
             // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
             // non-duplicated event. We don't know which threads might have gappy, so we
             // must invalidate them all :(
@@ -887,8 +889,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // room state. We're done!
             return Ok((false, Vec::new()));
         }
-
-        let has_new_gap = prev_batch.is_some();
 
         // If we've never waited for an initial previous-batch token, and we've now
         // inserted a gap, no need to wait for a previous-batch token later.
