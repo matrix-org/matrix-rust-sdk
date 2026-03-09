@@ -1,24 +1,33 @@
-use std::time::Duration;
+use std::{ops::Not as _, time::Duration};
 
 use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     RoomState,
-    room::MessagesOptions,
+    encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
+    event_cache::RoomEventCacheUpdate,
+    latest_events::LatestEventValue,
+    room::{MessagesOptions, edit::EditedContent::RoomMessage},
     ruma::{
-        api::client::room::create_room::v3::Request as CreateRoomRequest,
-        assign, event_id, events,
+        api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+        assign, event_id,
         events::{
-            AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
-            RoomAccountDataEventContent, room::message::RoomMessageEventContent,
+            self, AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
+            Mentions, RoomAccountDataEventContent,
+            room::message::{
+                OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         serde::Raw,
         uint,
     },
     test_utils::assert_event_matches_msg,
 };
+use matrix_sdk_test::TestResult;
+use matrix_sdk_ui::sync_service::SyncService;
 use tokio::{spawn, time::sleep};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::helpers::{TestClientBuilder, wait_for_room};
 
@@ -257,6 +266,202 @@ async fn test_room_account_data() -> Result<()> {
         alice_room.account_data(marked_unread_content.event_type()).await?.unwrap();
     let _content = new_marked_unread_content.deserialize().unwrap().content();
     assert_matches!(marked_unread_content, _content);
+
+    Ok(())
+}
+
+/// Test that UTDs, after having been decrypted, update the unread and
+/// notification counts for a given room.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
+    const RECOVERY_PASSPHRASE: &str = "I am error";
+
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+    };
+
+    // Set up sync for user Alice, and create a room.
+    let alice1 = TestClientBuilder::new("alice")
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+    let alice_user_id = alice1.user_id().unwrap().to_owned();
+
+    let sync_service1 = SyncService::builder(alice1.clone()).build().await?;
+    sync_service1.start().await;
+
+    alice1.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice1.encryption().recovery().enable().with_passphrase(RECOVERY_PASSPHRASE).await?;
+
+    debug!("Creating room…");
+    let room1 = alice1
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state: vec![],
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    let room_id = room1.room_id().to_owned();
+
+    room1.enable_encryption().await?;
+
+    let (original_event_id, edit_event_id) = {
+        let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+        bob.encryption().wait_for_e2ee_initialization_tasks().await;
+
+        let bob_sync_service = SyncService::builder(bob.clone()).build().await?;
+        bob_sync_service.start().await;
+
+        // Alice sends an invite to Bob.
+        room1.invite_user_by_id(bob.user_id().unwrap()).await?;
+
+        // Bob receives and accepts the invite.
+        let bob_room;
+        loop {
+            if let Some(invited_room) = bob.invited_rooms().first() {
+                if invited_room.room_id() == room1.room_id() {
+                    invited_room.join().await?;
+                    bob_room = invited_room.clone();
+                    break;
+                }
+            } else {
+                sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        }
+
+        // Bob sends an intentional mention to Alice.
+        while bob_room.state() != RoomState::Joined {
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        let send_result = bob_room.send(RoomMessageEventContent::text_plain("hi Alyx!")).await?;
+        let original_event_id = send_result.response.event_id;
+
+        // Bob edits that message they sent, and adds intentional mentions in the edit.
+        let mentions = Mentions::with_user_ids([alice_user_id.to_owned()]);
+        let send_edit_result = bob_room
+            .send(
+                bob_room
+                    .make_edit_event(
+                        &original_event_id,
+                        RoomMessage(
+                            RoomMessageEventContentWithoutRelation::text_plain("hi Alice!")
+                                .add_mentions(mentions),
+                        ),
+                    )
+                    .await?,
+            )
+            .await?;
+
+        (original_event_id, send_edit_result.response.event_id)
+    };
+
+    // Alice waits to receive the edit event, which should be decrypted at this
+    // point.
+    loop {
+        if let LatestEventValue::Remote(timeline_event) = room1.latest_event() {
+            if timeline_event.event_id().as_ref() == Some(&edit_event_id) {
+                let message_event = timeline_event
+                    .raw()
+                    .deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>()?;
+                assert_eq!(message_event.content.body(), "* hi Alice!");
+
+                break;
+            }
+
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    // Alright, shutting down alice1 now.
+    sync_service1.stop().await;
+    drop(alice1);
+
+    // Now alice2 comes into play.
+    let alice2 = TestClientBuilder::with_exact_username(alice_user_id.localpart().to_owned())
+        .encryption_settings(encryption_settings)
+        .use_sqlite()
+        .build()
+        .await?;
+
+    // No rooms as of yet, we have not synced with the server as of yet.
+    assert!(alice2.rooms().is_empty());
+
+    alice2.event_cache().subscribe()?;
+
+    let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
+
+    sync_service2.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service2.start().await;
+
+    alice2.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // Let's get the room from the new client.
+    let room2 = wait_for_room(&alice2, &room_id).await;
+
+    assert!(room2.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
+
+    // Paginate events backwards.
+    let (event_cache, _drop_handles) = room2.event_cache().await.unwrap();
+
+    let pagination_outcome = event_cache.pagination().run_backwards_until(100).await?;
+    assert!(pagination_outcome.reached_start, "Pagination should have finished");
+
+    let (events, mut room_updates) = event_cache.subscribe().await?;
+
+    // Last two events in the room cache should be UTDs.
+    let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
+    // Note: events are reverted, because of .rev().
+    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
+    assert!(timeline_tail[0].kind.is_utd());
+    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert!(timeline_tail[1].kind.is_utd());
+
+    // The unread counts should be incorrect.
+
+    // Only 1 message: the edit has clear info that it's an edit.
+    // TODO: we should probably *not* trust it?
+    assert_eq!(room2.num_unread_messages(), 1);
+    assert_eq!(room2.num_unread_mentions(), 0); // This should be 1 (after decryption).
+    // By default, all 1:1 messages are notifications.
+    assert_eq!(room2.num_unread_notifications(), 1);
+
+    // Let's now recover.
+    alice2.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
+    assert_eq!(alice2.encryption().recovery().state(), RecoveryState::Enabled);
+
+    assert_let!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(diff_update)) = room_updates.recv().await
+    );
+
+    let mut events = events.into();
+    for diff in diff_update.diffs {
+        diff.apply(&mut events);
+    }
+
+    // Last two events in the room cache should now be decrypted!
+    let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
+    // Note: events are reverted, because of .rev().
+    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
+    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert!(timeline_tail[0].kind.is_utd().not());
+    assert!(timeline_tail[1].kind.is_utd().not());
+
+    // And the unread count should now be correct.
+
+    // 1 message (the edit still doesn't count).
+    assert_eq!(room2.num_unread_messages(), 1);
+    // 1 intentional mention \o/
+    assert_eq!(room2.num_unread_mentions(), 1);
+    // Both events count for notifications.
+    // TODO: Either the original or the edit should count, but not both, as they
+    // will often result in a single consolidated item in the UI (#6282).
+    assert_eq!(room2.num_unread_notifications(), 2);
 
     Ok(())
 }
