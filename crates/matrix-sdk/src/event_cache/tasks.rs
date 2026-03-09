@@ -34,7 +34,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 
 use super::{
     AutoShrinkChannelPayload, EventCacheError, EventCacheInner, EventsOrigin,
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs, caches::Caches,
+    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs,
 };
 use crate::{
     client::WeakClient,
@@ -141,17 +141,19 @@ pub(super) async fn auto_shrink_linked_chunk_task(
             return;
         };
 
-        let caches = match inner.all_caches_for_room(&room_id).await {
-            Ok(caches) => caches,
-            Err(err) => {
-                warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
-                continue;
-            }
+        let room = {
+            let caches = match inner.all_caches_for_room(&room_id).await {
+                Ok(caches) => caches,
+                Err(err) => {
+                    warn!(for_room = %room_id, "Failed to get the `Caches`: {err}");
+                    continue;
+                }
+            };
+
+            caches.room.clone()
         };
 
-        trace!("waiting for state lock…");
-
-        let Caches { room } = caches;
+        trace!("Waiting for state lock…");
 
         let mut state = match room.state().write().await {
             Ok(state) => state,

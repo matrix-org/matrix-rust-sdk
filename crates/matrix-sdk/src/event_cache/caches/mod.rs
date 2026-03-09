@@ -17,6 +17,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     ThreadingSupport,
     event_cache::{Event, store::EventCacheStoreLock},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
@@ -33,7 +34,7 @@ pub mod room;
 pub mod thread;
 
 /// A type to hold all the caches for a given room.
-#[derive(Clone)]
+#[derive(Debug)]
 pub(super) struct Caches {
     pub room: room::RoomEventCache,
 }
@@ -100,6 +101,24 @@ impl Caches {
         }
 
         Ok(Self { room: room_event_cache })
+    }
+
+    /// Update all the event caches with a [`JoinedRoomUpdate`].
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        let Self { room } = &self;
+
+        room.handle_joined_room_update(updates).await?;
+
+        Ok(())
+    }
+
+    /// Update all the event caches with a [`LeftRoomUpdate`].
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        let Self { room } = &self;
+
+        room.handle_left_room_update(updates).await?;
+
+        Ok(())
     }
 
     /// Try to acquire exclusive locks over all the event caches managed by
