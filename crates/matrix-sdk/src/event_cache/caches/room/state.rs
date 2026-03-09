@@ -1177,19 +1177,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         // Don't redact already redacted events.
         let thread_root = if let Ok(deserialized) = target_event.raw().deserialize() {
-            // TODO: replace with `deserialized.is_redacted()` when
-            // https://github.com/ruma/ruma/pull/2254 has been merged.
-            match deserialized {
-                AnySyncTimelineEvent::MessageLike(ev) => {
-                    if ev.is_redacted() {
-                        return Ok(());
-                    }
-                }
-                AnySyncTimelineEvent::State(ev) => {
-                    if ev.is_redacted() {
-                        return Ok(());
-                    }
-                }
+            if deserialized.is_redacted() {
+                return Ok(());
             }
 
             // If the event is part of a thread, update the thread linked chunk and the
