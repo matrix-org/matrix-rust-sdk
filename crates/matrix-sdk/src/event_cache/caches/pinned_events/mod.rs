@@ -45,7 +45,7 @@ use crate::{
     room::WeakRoom,
 };
 
-pub(in super::super::super) struct PinnedEventCacheState {
+pub(in super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 

@@ -420,7 +420,7 @@ impl RoomEventCache {
 }
 
 /// The (non-cloneable) details of the `RoomEventCache`.
-pub(in super::super) struct RoomEventCacheInner {
+pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
