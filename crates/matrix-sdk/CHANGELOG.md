@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Recovery::recover_and_fix_backup` to automatically fix key storage backup if the
+  private backup decryption key is missing, invalid or inconsistent with the public key.
+  ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
 - Attempt to import stored room key bundles for rooms awaiting bundles at
   client startup.
   ([#6215](https://github.com/matrix-org/matrix-rust-sdk/pull/6215))
