@@ -579,7 +579,7 @@ pub(in super::super) enum PostProcessingOrigin {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_base::event_cache::Event;
+    use matrix_sdk_base::{RoomState, event_cache::Event};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         RoomId, event_id,
@@ -701,7 +701,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -768,7 +768,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -811,7 +811,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -857,6 +857,7 @@ mod timed_tests {
     use eyeball_im::VectorDiff;
     use futures_util::FutureExt;
     use matrix_sdk_base::{
+        RoomState,
         event_cache::{
             Gap,
             store::{EventCacheStore as _, MemoryStore},
@@ -873,8 +874,11 @@ mod timed_tests {
     use ruma::{
         EventId, OwnedUserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-        room_id, user_id,
+        room_id,
+        serde::Raw,
+        user_id,
     };
+    use serde_json::json;
     use tokio::task::yield_now;
 
     use super::{
@@ -907,7 +911,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -984,7 +988,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1126,7 +1130,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1287,7 +1291,7 @@ mod timed_tests {
         // Let's check whether the generic updates are received for the initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1410,7 +1414,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1437,7 +1441,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1603,7 +1607,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -1737,7 +1741,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -1892,7 +1896,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -2024,7 +2028,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -2152,8 +2156,8 @@ mod timed_tests {
             let event_cache_p1 = client_p1.event_cache();
             event_cache_p1.subscribe().unwrap();
 
-            client_p0.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-            client_p1.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let (room_event_cache_p0, _drop_handles) =
                 client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
@@ -2611,19 +2615,11 @@ mod timed_tests {
             let event_cache_p1 = client_p1.event_cache();
             event_cache_p1.subscribe().unwrap();
 
-            client_p0
-                .base_client()
-                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
-            client_p0
-                .base_client()
-                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-            client_p1
-                .base_client()
-                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
-            client_p1
-                .base_client()
-                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
             let (room_event_cache_0_p0, _drop_handles) =
                 client_p0.get_room(room_id_0).unwrap().event_cache().await.unwrap();
@@ -2653,6 +2649,53 @@ mod timed_tests {
 
         // The only way to test this behaviour is to see that the dirty block in
         // `RoomEventCacheStateLock` is covered by this test.
+    }
+
+    #[async_test]
+    async fn test_uniq_read_marker() {
+        let client = MockClientBuilder::new(None).build().await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+
+        event_cache.subscribe().unwrap();
+
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+        assert!(events.is_empty());
+
+        // When sending multiple times the same read marker event,…
+        let read_marker_event = Raw::from_json_string(
+            json!({
+                "content": {
+                    "event_id": "$crepe:saucisse.bzh"
+                },
+                "room_id": "!galette:saucisse.bzh",
+                "type": "m.fully_read"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let account_data = vec![read_marker_event; 100];
+
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
+            .await
+            .unwrap();
+
+        // … there's only one read marker update.
+        assert_matches!(
+            stream.recv().await.unwrap(),
+            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
+        );
+
+        assert!(stream.recv().now_or_never().is_none());
+
+        // None, because an account data doesn't trigger a generic update.
+        assert!(generic_stream.recv().now_or_never().is_none());
     }
 
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {

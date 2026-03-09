@@ -682,11 +682,10 @@ mod tests {
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, serde::Raw, user_id};
-    use serde_json::json;
+    use ruma::{event_id, room_id, user_id};
     use tokio::time::sleep;
 
-    use super::{EventCacheError, RoomEventCacheGenericUpdate, RoomEventCacheUpdate};
+    use super::{EventCacheError, RoomEventCacheGenericUpdate};
     use crate::test_utils::{
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
@@ -705,53 +704,6 @@ mod tests {
         // Then it fails, because one must explicitly call `.subscribe()` on the event
         // cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-    }
-
-    #[async_test]
-    async fn test_uniq_read_marker() {
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-        let event_cache = client.event_cache();
-
-        event_cache.subscribe().unwrap();
-
-        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
-
-        assert!(events.is_empty());
-
-        // When sending multiple times the same read marker event,…
-        let read_marker_event = Raw::from_json_string(
-            json!({
-                "content": {
-                    "event_id": "$crepe:saucisse.bzh"
-                },
-                "room_id": "!galette:saucisse.bzh",
-                "type": "m.fully_read"
-            })
-            .to_string(),
-        )
-        .unwrap();
-        let account_data = vec![read_marker_event; 100];
-
-        room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
-            .await
-            .unwrap();
-
-        // … there's only one read marker update.
-        assert_matches!(
-            stream.recv().await.unwrap(),
-            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
-        );
-
-        assert!(stream.recv().now_or_never().is_none());
-
-        // None, because an account data doesn't trigger a generic update.
-        assert!(generic_stream.recv().now_or_never().is_none());
     }
 
     #[async_test]
