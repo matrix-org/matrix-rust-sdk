@@ -55,7 +55,7 @@ pub struct RoomPagination(Pagination<Arc<RoomEventCacheInner>>);
 
 impl RoomPagination {
     /// Construct a new [`RoomPagination`].
-    pub(in super::super::super) fn new(cache: Arc<RoomEventCacheInner>) -> Self {
+    pub(super) fn new(cache: Arc<RoomEventCacheInner>) -> Self {
         Self(Pagination::new(cache))
     }
 

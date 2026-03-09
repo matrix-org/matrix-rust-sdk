@@ -47,10 +47,7 @@ pub struct ThreadPagination(Pagination<ThreadEventCacheWrapper>);
 
 impl ThreadPagination {
     /// Construct a new [`ThreadPagination`].
-    pub(in super::super::super) fn new(
-        cache: Arc<RoomEventCacheInner>,
-        thread_id: OwnedEventId,
-    ) -> Self {
+    pub(in super::super) fn new(cache: Arc<RoomEventCacheInner>, thread_id: OwnedEventId) -> Self {
         Self(Pagination::new(ThreadEventCacheWrapper {
             cache,
             thread_id,
