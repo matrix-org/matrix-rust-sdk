@@ -70,7 +70,7 @@ rand = { version = "0.8.5", default-features = false, features = ["std", "std_rn
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.12.24", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "c57914accf21f0c7bd12a3504f93e5a8b1d69733", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "2455c71ec8bd16318397865d9c6e231e792cb15e", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
