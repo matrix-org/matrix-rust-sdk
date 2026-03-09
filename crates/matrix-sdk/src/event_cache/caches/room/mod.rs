@@ -27,7 +27,6 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
-    linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -576,15 +575,6 @@ pub(in super::super) enum PostProcessingOrigin {
     Backpagination,
     #[cfg(feature = "e2e-encryption")]
     Redecryption,
-}
-
-/// An enum representing where an event has been found.
-pub(in super::super) enum EventLocation {
-    /// Event lives in memory (and likely in the store!).
-    Memory(Position),
-
-    /// Event lives in the store only, it has not been loaded in memory yet.
-    Store,
 }
 
 #[cfg(test)]

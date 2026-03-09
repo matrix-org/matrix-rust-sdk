@@ -17,6 +17,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     ThreadingSupport,
     event_cache::{Event, store::EventCacheStoreLock},
+    linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
 use ruma::{OwnedRoomId, RoomId};
@@ -191,4 +192,13 @@ pub struct TimelineVectorDiffs {
     pub diffs: Vec<VectorDiff<Event>>,
     /// The origin that triggered this update.
     pub origin: EventsOrigin,
+}
+
+/// An enum representing where an event has been found.
+pub(super) enum EventLocation {
+    /// Event lives in memory (and likely in the store!).
+    Memory(Position),
+
+    /// Event lives in the store only, it has not been loaded in memory yet.
+    Store,
 }
