@@ -391,10 +391,10 @@ mod tests {
         RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
         notification_settings::RoomNotificationMode,
     };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::discovery::get_supported_versions, assign, events::AnySyncTimelineEvent,
-        room_id, serde::Raw,
+        api::client::discovery::get_supported_versions, assign, event_id, room_id, serde::Raw,
+        user_id,
     };
     use serde_json::json;
     use tokio::task::yield_now;
@@ -738,10 +738,10 @@ mod tests {
         // When I send sliding sync response containing a couple of events with no read
         // receipt.
         let room_id = room_id!("!r:e.uk");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@u:h.uk"));
         let events = vec![
-            make_raw_event("m.room.message", "$3"),
-            make_raw_event("m.room.message", "$4"),
-            make_raw_event("m.read", "$5"),
+            f.text_msg("hi").event_id(event_id!("$3")).into_raw_sync(),
+            f.text_msg("hi").event_id(event_id!("$4")).into_raw_sync(),
         ];
         let room = assign!(http::response::Room::new(), {
             timeline: events,
@@ -799,19 +799,5 @@ mod tests {
 
         // Then the stream gets quiet.
         assert!(room_info_notable_update_stream.is_empty());
-    }
-
-    fn make_raw_event(event_type: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
-        Raw::from_json_string(
-            json!({
-                "type": event_type,
-                "event_id": id,
-                "content": { "msgtype": "m.text", "body": "my msg" },
-                "sender": "@u:h.uk",
-                "origin_server_ts": 12344445,
-            })
-            .to_string(),
-        )
-        .unwrap()
     }
 }
