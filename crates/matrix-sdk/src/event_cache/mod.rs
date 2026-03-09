@@ -45,7 +45,7 @@ use matrix_sdk_base::{
 };
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{
-    Mutex, RwLock,
+    Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
@@ -348,7 +348,7 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let Caches { room } = self.inner.all_caches_for_room(room_id).await?;
+        let room = self.inner.all_caches_for_room(room_id).await?.room.clone();
 
         Ok((room, drop_handles))
     }
@@ -402,6 +402,8 @@ impl Default for EventCacheConfig {
     }
 }
 
+type CachesByRoom = HashMap<OwnedRoomId, Caches>;
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
@@ -422,7 +424,9 @@ struct EventCacheInner {
     multiple_room_updates_lock: Mutex<()>,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
-    by_room: RwLock<HashMap<OwnedRoomId, Caches>>,
+    //
+    // It's behind an `Arc` to get owned locks.
+    by_room: Arc<RwLock<CachesByRoom>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
@@ -565,12 +569,12 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let Ok(Caches { room }) = self.all_caches_for_room(&room_id).await else {
+            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
             };
 
-            if let Err(err) = room.handle_left_room_update(left_room_update).await {
+            if let Err(err) = caches.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -580,12 +584,12 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let Ok(Caches { room }) = self.all_caches_for_room(&room_id).await else {
+            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
             };
 
-            if let Err(err) = room.handle_joined_room_update(joined_room_update).await {
+            if let Err(err) = caches.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!(%room_id, "handling joined room update: {err}");
             }
@@ -597,25 +601,32 @@ impl EventCacheInner {
         Ok(())
     }
 
-    /// Return a room-specific view over the [`EventCache`].
-    async fn all_caches_for_room(&self, room_id: &RoomId) -> Result<Caches> {
+    /// Return all the event caches associated to a specific room.
+    async fn all_caches_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<OwnedRwLockReadGuard<CachesByRoom, Caches>> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
-        let by_room_guard = self.by_room.read().await;
+        match OwnedRwLockReadGuard::try_map(self.by_room.clone().read_owned().await, |by_room| {
+            by_room.get(room_id)
+        }) {
+            Ok(caches) => Ok(caches),
 
-        match by_room_guard.get(room_id) {
-            Some(caches) => Ok(caches.clone()),
-
-            None => {
+            Err(by_room_guard) => {
                 // Slow-path: the entry doesn't exist; let's acquire a write lock.
                 drop(by_room_guard);
-                let mut by_room_guard = self.by_room.write().await;
+                let by_room_guard = self.by_room.clone().write_owned().await;
 
                 // In the meanwhile, some other caller might have obtained write access and done
                 // the same, so check for existence again.
-                if let Some(caches) = by_room_guard.get(room_id) {
-                    return Ok(caches.clone());
-                }
+                let mut by_room_guard =
+                    match OwnedRwLockWriteGuard::try_downgrade_map(by_room_guard, |by_room| {
+                        by_room.get(room_id)
+                    }) {
+                        Ok(caches) => return Ok(caches),
+                        Err(by_room_guard) => by_room_guard,
+                    };
 
                 let caches = Caches::new(
                     &self.client,
@@ -631,9 +642,12 @@ impl EventCacheInner {
                 )
                 .await?;
 
-                by_room_guard.insert(room_id.to_owned(), caches.clone());
+                by_room_guard.insert(room_id.to_owned(), caches);
 
-                Ok(caches)
+                Ok(OwnedRwLockWriteGuard::try_downgrade_map(by_room_guard, |by_room| {
+                    by_room.get(room_id)
+                })
+                .expect("`Caches` has just been inserted"))
             }
         }
     }
