@@ -201,7 +201,7 @@ impl EventCache {
 
         let weak_client = WeakClient::from_inner(client);
 
-        let (thread_subscriber_sender, thread_subscriber_receiver) = channel(128);
+        let (thread_subscriber_sender, _thread_subscriber_receiver) = channel(128);
         let thread_subscriber_task = client
             .task_monitor
             .spawn_background_task(
@@ -245,7 +245,8 @@ impl EventCache {
                 _search_indexing_task: search_indexing_task,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
-                thread_subscriber_receiver,
+                #[cfg(feature = "testing")]
+                thread_subscriber_receiver: _thread_subscriber_receiver,
             }),
         }
     }
@@ -264,7 +265,7 @@ impl EventCache {
     /// Subscribes to updates that a thread subscription has been sent.
     ///
     /// For testing purposes only.
-    #[doc(hidden)]
+    #[cfg(feature = "testing")]
     pub fn subscribe_thread_subscriber_updates(&self) -> Receiver<()> {
         self.inner.thread_subscriber_receiver.resubscribe()
     }
@@ -476,6 +477,7 @@ struct EventCacheInner {
     ///
     /// This is helpful for tests to coordinate that a new thread subscription
     /// has been sent or not.
+    #[cfg(feature = "testing")]
     thread_subscriber_receiver: Receiver<()>,
 
     #[cfg(feature = "e2e-encryption")]
