@@ -40,6 +40,9 @@ pub struct Reply {
     pub event_id: OwnedEventId,
     /// Whether to enforce a thread relation.
     pub enforce_thread: EnforceThread,
+    /// Whether to add intentional Mentions. Might be ignored if the reply is
+    /// sent by the same user as the event that it replies to.
+    pub add_mentions: AddMentions,
 }
 
 /// Errors specific to unsupported replies.
@@ -125,7 +128,7 @@ async fn make_reply_event<S: EventSource>(
     // If the replied to event has been written by the current user, let's toggle to
     // `AddMentions::No`.
     let mention_the_sender =
-        if own_user_id == event.sender() { AddMentions::No } else { AddMentions::Yes };
+        if own_user_id == event.sender() { AddMentions::No } else { reply.add_mentions };
 
     let content = match reply.enforce_thread {
         EnforceThread::Threaded(is_reply) => {
@@ -153,7 +156,9 @@ mod tests {
         EventId, OwnedEventId, event_id,
         events::{
             AnySyncTimelineEvent,
-            room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                AddMentions, Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation,
+            },
         },
         serde::Raw,
         user_id,
@@ -198,7 +203,8 @@ mod tests {
                 content,
                 Reply {
                     event_id: event_id!("$2").into(),
-                    enforce_thread: EnforceThread::Unthreaded
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
                 },
             )
             .await,
@@ -239,7 +245,11 @@ mod tests {
                 cache,
                 own_user_id,
                 content,
-                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+                Reply {
+                    event_id: event_id.into(),
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
+                },
             )
             .await,
             Err(ReplyError::Deserialization)
@@ -265,7 +275,11 @@ mod tests {
                 cache,
                 own_user_id,
                 content,
-                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+                Reply {
+                    event_id: event_id.into(),
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
+                },
             )
             .await,
             Err(ReplyError::StateEvent)
@@ -290,7 +304,11 @@ mod tests {
             cache,
             own_user_id,
             content,
-            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::Yes,
+            },
         )
         .await
         .unwrap();
@@ -321,6 +339,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -363,6 +382,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -405,6 +425,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -444,7 +465,11 @@ mod tests {
             cache,
             own_user_id,
             content,
-            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::MaybeThreaded },
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+                add_mentions: AddMentions::Yes,
+            },
         )
         .await
         .unwrap();
@@ -487,6 +512,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await

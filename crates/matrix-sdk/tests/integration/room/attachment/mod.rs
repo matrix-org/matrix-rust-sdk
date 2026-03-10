@@ -13,7 +13,7 @@ use ruma::{
         Mentions,
         room::{
             MediaSource,
-            message::{ReplyWithinThread, TextMessageEventContent},
+            message::{AddMentions, ReplyWithinThread, TextMessageEventContent},
         },
     },
     mxc_uri, owned_mxc_uri, owned_user_id, uint,
@@ -407,6 +407,7 @@ async fn test_room_attachment_reply_outside_thread() {
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
                 })),
         )
         .await
@@ -473,6 +474,7 @@ async fn test_room_attachment_start_thread() {
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                    add_mentions: AddMentions::Yes,
                 })),
         )
         .await
@@ -540,6 +542,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
+                    add_mentions: AddMentions::Yes,
                 })),
         )
         .await
@@ -608,6 +611,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::MaybeThreaded,
+                    add_mentions: AddMentions::Yes,
                 })),
         )
         .await
