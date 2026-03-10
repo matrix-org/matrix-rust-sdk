@@ -74,7 +74,10 @@ use crate::{
     Room,
     event_cache::{
         EventFocusThreadMode,
-        caches::{event_focused::EventFocusedCache, read_receipts::compute_unread_counts},
+        caches::{
+            event_focused::EventFocusedCache,
+            read_receipts::{InterestingUnreadEventCache, compute_unread_counts},
+        },
     },
     room::WeakRoom,
 };
@@ -147,6 +150,13 @@ pub struct RoomEventCacheState {
     /// An atomic count of the current number of subscriber of the
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
+
+    /// A stateful cache of the "interesting unread" events, that is, events
+    /// that count in the number of unread messages in a room.
+    ///
+    /// Basically a cache of event id to the return value of
+    /// `marks_as_unread()`.
+    interesting_unread_cache: InterestingUnreadEventCache,
 }
 
 impl lock::Store for RoomEventCacheState {
@@ -265,6 +275,7 @@ impl RoomEventCacheStateLock {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
+            interesting_unread_cache: Default::default(),
         }))
     }
 }
@@ -798,6 +809,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // TODO: likely must cancel any ongoing back-paginations too
         self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
 
+        // Reset the interesting unread cache, since we don't know about any event
+        // anymore (and they could have been redacted while we've lost sight of them).
+        self.state.interesting_unread_cache.clear();
+
         Ok(())
     }
 
@@ -1055,8 +1070,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             .map(|(_, event)| event.clone())
             .collect::<Vec<_>>();
 
-        let user_id = &self.state.own_user_id;
-        let room_id = &self.state.room_id;
+        let state = &mut *self.state;
+        let user_id = &state.own_user_id;
+        let room_id = &state.room_id;
 
         let mut room_info = room.clone_info();
         let prev_read_receipts = room_info.read_receipts().clone();
@@ -1068,7 +1084,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             receipt_event,
             all_events,
             &mut read_receipts,
-            self.state.enabled_thread_support,
+            state.enabled_thread_support,
+            &mut state.interesting_unread_cache,
         );
 
         if prev_read_receipts != read_receipts {
@@ -1297,6 +1314,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event).await?;
+
+            // Also drop the interesting unread cache entry for this event, if any, since
+            // the redaction will change the result.
+            self.state.interesting_unread_cache.remove(event_id);
 
             // If the redacted event was part of a thread, remove it in the thread linked
             // chunk too, and make sure to update the thread root's summary

@@ -353,6 +353,43 @@ async fn test_redaction_does_not_increment_unread() {
     assert_eq!(room.num_unread_messages(), 0);
 }
 
+/// Test that a redaction coming *after* the message has been seen does subtract
+/// to the number of unreads.
+#[async_test]
+async fn test_posteriori_redaction_lowers_unread_count() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // First we receive a message in the clear.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hi there").event_id(event_id!("$1"))),
+        )
+        .await;
+
+    // It's counted as unread.
+    assert_eq!(room.num_unread_messages(), 1);
+
+    // Later, we do receive a redaction for that message.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.redaction(event_id!("$1")).event_id(event_id!("$2"))),
+        )
+        .await;
+
+    // It's not counted as unread anymore.
+    assert_eq!(room.num_unread_messages(), 0);
+}
+
 /// Test that messages with mentions increment the number of mentions.
 #[async_test]
 async fn test_mentions_increments_unread_mentions() {
