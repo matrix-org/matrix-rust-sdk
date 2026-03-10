@@ -32,6 +32,8 @@ pub enum IndexeddbEventCacheStoreError {
     UnableToLoadChunk,
     #[error("no max chunk id")]
     NoMaxChunkId,
+    #[error("event without id")]
+    EventWithoutId,
     #[error("transaction: {0}")]
     Transaction(#[from] TransactionError),
 }
@@ -68,7 +70,8 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             | ChunksContainCycle
             | ChunksContainDisjointLists
             | NoMaxChunkId
-            | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
+            | UnableToLoadChunk
+            | EventWithoutId => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
         }
     }
