@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
-    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, FullStateEventContent,
+    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, StateEventContentChange,
 };
 
 use crate::{
-    client::JoinRule, event::TimelineEventType, timeline::msg_like::MsgLikeContent,
-    utils::Timestamp,
+    client::JoinRule, event::TimelineEventType, ruma::AssetType,
+    timeline::msg_like::MsgLikeContent, utils::Timestamp,
 };
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
@@ -44,7 +44,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
-                    FullStateEventContent::Original { content, .. } => content.reason.clone(),
+                    StateEventContentChange::Original { content, .. } => content.reason.clone(),
                     _ => None,
                 };
                 TimelineItemContent::RoomMembership {
@@ -94,6 +94,28 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     event_type: event_type.to_string(),
                     state_key,
                     error: error.to_string(),
+                }
+            }
+
+            Content::LiveLocation(state) => {
+                let locations = state
+                    .locations()
+                    .iter()
+                    .map(|location| BeaconInfo {
+                        geo_uri: location.geo_uri().to_owned(),
+                        ts: location.ts().into(),
+                        description: location.description().map(ToOwned::to_owned),
+                    })
+                    .collect();
+
+                TimelineItemContent::LiveLocation {
+                    content: LiveLocationContent {
+                        is_live: state.is_live(),
+                        description: state.description().map(ToOwned::to_owned),
+                        timeout_ms: state.timeout().as_millis() as u64,
+                        asset_type: state.asset_type().into(),
+                        locations,
+                    },
                 }
             }
         }
@@ -184,6 +206,13 @@ pub enum TimelineItemContent {
         event_type: String,
         state_key: String,
         error: String,
+    },
+    /// A live location sharing session (MSC3489).
+    ///
+    /// Represents a `org.matrix.msc3672.beacon_info` state event with all
+    /// aggregated location updates from `org.matrix.msc3672.beacon` events.
+    LiveLocation {
+        content: LiveLocationContent,
     },
 }
 
@@ -310,11 +339,47 @@ pub enum OtherState {
     },
 }
 
-impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
-    fn from(content: &matrix_sdk_ui::timeline::AnyOtherFullStateEventContent) -> Self {
-        use matrix_sdk::ruma::events::FullStateEventContent as FullContent;
-        use matrix_sdk_ui::timeline::AnyOtherFullStateEventContent as Content;
+/// FFI representation of a single location update from a beacon event.
+#[derive(Clone, uniffi::Record)]
+pub struct BeaconInfo {
+    /// The geo URI carrying the user's coordinates
+    /// (e.g. `"geo:51.5008,0.1247;u=35"`).
+    pub geo_uri: String,
 
+    /// Timestamp (ms since Unix Epoch) of this location update.
+    pub ts: Timestamp,
+
+    /// An optional human-readable description of the location.
+    pub description: Option<String>,
+}
+
+/// FFI representation of a live location sharing session (MSC3489).
+///
+/// Corresponds to a `org.matrix.msc3672.beacon_info` state event in the
+/// timeline. Location updates are aggregated here as they arrive.
+#[derive(Clone, uniffi::Record)]
+pub struct LiveLocationContent {
+    /// Whether this sharing session is currently active.
+    pub is_live: bool,
+
+    /// An optional human-readable label for this sharing session.
+    pub description: Option<String>,
+
+    /// Duration of the session in milliseconds.
+    pub timeout_ms: u64,
+
+    /// The asset type of the beacon (e.g. `Sender` for the user's own
+    /// location, `Pin` for a fixed point of interest).
+    pub asset_type: AssetType,
+
+    /// All location updates received so far, sorted oldest-first.
+    pub locations: Vec<BeaconInfo>,
+}
+
+impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherState {
+    fn from(content: &matrix_sdk_ui::timeline::AnyOtherStateEventContentChange) -> Self {
+        use matrix_sdk::ruma::events::StateEventContentChange as FullContent;
+        use matrix_sdk_ui::timeline::AnyOtherStateEventContentChange as Content;
         match content {
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,

@@ -24,8 +24,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     Client, ClientBuildError, Result, RoomState,
     authentication::oauth::{
-        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError, OAuthSession,
-        UrlOrQuery, UserSession,
+        ClientId, OAuthAuthorizationData, OAuthError, OAuthSession, UserSession,
         error::OAuthClientRegistrationError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
@@ -33,6 +32,7 @@ use matrix_sdk::{
     encryption::{CrossSigningResetAuthType, recovery::RecoveryState},
     room::Room,
     ruma::{
+        api::client::discovery::get_authorization_server_metadata::v1::AccountManagementActionData,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
@@ -192,10 +192,13 @@ impl OAuthCli {
                 .build()
                 .await?;
 
-            let query_string =
-                use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();
+            let Some(query_string) = use_auth_url(&url, server_handle).await else {
+                println!("Error: failed to login: missing query string on the redirect URL");
+                println!("Please try again.\n");
+                continue;
+            };
 
-            match oauth.finish_login(UrlOrQuery::Query(query_string)).await {
+            match oauth.finish_login(query_string.into()).await {
                 Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");
@@ -265,10 +268,10 @@ impl OAuthCli {
                     self.account(None).await;
                 }
                 Some("profile") => {
-                    self.account(Some(AccountManagementActionFull::Profile)).await;
+                    self.account(Some(AccountManagementActionData::Profile)).await;
                 }
-                Some("sessions") => {
-                    self.account(Some(AccountManagementActionFull::SessionsList)).await;
+                Some("devices") => {
+                    self.account(Some(AccountManagementActionData::DevicesList)).await;
                 }
                 Some("watch") => match args.next() {
                     Some(sub) => {
@@ -375,18 +378,23 @@ impl OAuthCli {
     }
 
     /// Get the account management URL.
-    async fn account(&self, action: Option<AccountManagementActionFull>) {
-        let Ok(Some(mut url_builder)) = self.client.oauth().fetch_account_management_url().await
-        else {
+    async fn account(&self, action: Option<AccountManagementActionData<'_>>) {
+        let Ok(server_metadata) = self.client.oauth().cached_server_metadata().await else {
+            println!("\nCould not retrieve the server metadata");
+            return;
+        };
+
+        let url = if let Some(action) = action {
+            server_metadata.account_management_url_with_action(action)
+        } else {
+            server_metadata.account_management_uri
+        };
+
+        let Some(url) = url else {
             println!("\nThis homeserver does not provide the URL to manage your account");
             return;
         };
 
-        if let Some(action) = action {
-            url_builder = url_builder.action(action);
-        }
-
-        let url = url_builder.build();
         println!("\nTo manage your account, visit: {url}");
     }
 
@@ -507,8 +515,11 @@ impl OAuthCli {
         tokio::spawn(async move {
             while let Ok(update) = this.client.subscribe_to_session_changes().recv().await {
                 match update {
-                    matrix_sdk::SessionChange::UnknownToken { soft_logout } => {
-                        println!("Received an unknown token error; soft logout? {soft_logout:?}");
+                    matrix_sdk::SessionChange::UnknownToken(unknown_token) => {
+                        println!(
+                            "Received an unknown token error; soft logout? {:?}",
+                            unknown_token.soft_logout
+                        );
                     }
                     matrix_sdk::SessionChange::TokensRefreshed => {
                         // The tokens have been refreshed, persist them to disk.

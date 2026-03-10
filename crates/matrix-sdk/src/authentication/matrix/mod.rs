@@ -38,13 +38,13 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info, instrument};
-use url::Url;
 
 use crate::{
     Client, Error, RefreshTokenError, Result,
     authentication::AuthData,
     client::SessionChange,
     error::{HttpError, HttpResult},
+    utils::UrlOrQuery,
 };
 
 mod login_builder;
@@ -291,26 +291,28 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `callback_url` - The received callback URL carrying the login token.
+    /// * `url_or_query` - The full callback URL carrying the login token, or
+    ///   only its query string.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// use matrix_sdk::Client;
+    /// # use matrix_sdk::utils::UrlOrQuery;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_url = "http://localhost:1234";
-    /// # let callback_url = Url::parse("http://localhost:1234?loginToken=token").unwrap();
+    /// # let url_or_query = UrlOrQuery::Query("loginToken=token".to_owned());
     /// # async {
     /// let client = Client::new(homeserver).await.unwrap();
     /// let auth = client.matrix_auth();
     /// let sso_url = auth.get_sso_login_url(redirect_url, None);
     ///
     /// // Let the user authenticate at the SSO URL.
-    /// // Receive the callback_url.
+    /// // Receive the callback url or query string.
     ///
     /// let response = auth
-    ///     .login_with_sso_callback(callback_url)
+    ///     .login_with_sso_callback(url_or_query)
     ///     .unwrap()
     ///     .initial_device_display_name("My app")
     ///     .await
@@ -322,14 +324,17 @@ impl MatrixAuth {
     /// );
     /// # };
     /// ```
-    pub fn login_with_sso_callback(&self, callback_url: Url) -> Result<LoginBuilder, SsoError> {
+    pub fn login_with_sso_callback(
+        &self,
+        url_or_query: UrlOrQuery,
+    ) -> Result<LoginBuilder, SsoError> {
         #[derive(Deserialize)]
         struct QueryParameters {
             #[serde(rename = "loginToken")]
             login_token: Option<String>,
         }
 
-        let query_string = callback_url.query().unwrap_or_default();
+        let query_string = url_or_query.query().unwrap_or_default();
         let query: QueryParameters =
             serde_html_form::from_str(query_string).map_err(|_| SsoError::CallbackUrlInvalid)?;
         let token = query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;

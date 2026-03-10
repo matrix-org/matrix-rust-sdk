@@ -31,7 +31,7 @@ use tracing::{
 use zeroize::Zeroize;
 
 use super::{DecryptionError, Result, SecretStorageError};
-use crate::Client;
+use crate::{Client, encryption::backups::EnableBackupError};
 
 #[cfg_attr(doc, aquamarine::aquamarine)]
 /// Secure key/value storage for Matrix users.
@@ -170,7 +170,7 @@ impl SecretStore {
                 let decrypted = self
                     .key
                     .decrypt(
-                        &secret_content.try_into().map_err(|e| {
+                        &secret_content.deserialize_as().map_err(|e| {
                             SecretStorageError::into_import_error(secret_name.clone(), e)
                         })?,
                         &secret_name,
@@ -268,7 +268,9 @@ impl SecretStore {
         let encrypted_secret = self.key.encrypt(secret, &secret_name);
 
         // Insert the encrypted secret into the account data event.
-        secret_content.encrypted.insert(self.key.key_id().to_owned(), encrypted_secret.into());
+        secret_content
+            .encrypted
+            .insert(self.key.key_id().to_owned(), Raw::new(&encrypted_secret)?.cast());
         let secret_content = Raw::from_json(to_raw_value(&secret_content)?);
 
         // Upload the modified account data event, now that the new secret has been
@@ -312,10 +314,20 @@ impl SecretStore {
     async fn maybe_enable_backups(&self) -> Result<()> {
         match self.get_secret(SecretName::RecoveryKey).await {
             Ok(Some(mut secret)) => {
-                let ret =
-                    self.client.encryption().backups().maybe_enable_backups(&secret).await.map_err(
-                        |e| SecretStorageError::into_import_error(SecretName::RecoveryKey, e),
-                    );
+                let ret = self
+                    .client
+                    .encryption()
+                    .backups()
+                    .maybe_enable_backups(&secret)
+                    .await
+                    .map_err(|e| match e {
+                        EnableBackupError::InconsistentBackupDecryptionKey => {
+                            SecretStorageError::InconsistentBackupDecryptionKey
+                        }
+                        EnableBackupError::Error(error) => {
+                            SecretStorageError::into_import_error(SecretName::RecoveryKey, error)
+                        }
+                    });
 
                 if let Err(e) = &ret {
                     warn!("Could not enable backups from secret storage: {e:?}");
@@ -327,10 +339,9 @@ impl SecretStore {
             }
             Err(e) => {
                 warn!("Could not enable backups from secret storage: {e:?}");
-
-                Err(e)
+                Err(SecretStorageError::MissingOrInvalidBackupDecryptionKey)
             }
-            _ => {
+            Ok(None) => {
                 info!("No backup recovery key found.");
 
                 Ok(())
@@ -449,7 +460,22 @@ impl SecretStore {
         Ok(())
     }
 
-    pub(super) async fn export_secrets(&self) -> Result<()> {
+    /// Upload well-known secrets to the server
+    ///
+    /// This method uploads all well-known secrets to the account data on the
+    /// Matrix homeserver.
+    ///
+    /// The following secrets are uploaded by this method:
+    ///
+    /// - `m.cross_signing.master`: The master cross-signing key.
+    /// - `m.cross_signing.self_signing`: The self-signing cross-signing key.
+    /// - `m.cross_signing.user_signing`: The user-signing cross-signing key.
+    /// - `m.megolm_backup.v1`: The backup recovery key.
+    ///
+    /// By invoking this method, you ensure that the account data holds a copy
+    /// of the necessary secrets for device and identity verification and key
+    /// storage (if enabled).
+    pub async fn export_secrets(&self) -> Result<()> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
 

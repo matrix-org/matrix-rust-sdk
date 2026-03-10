@@ -109,7 +109,11 @@ use crate::encryption::{
     backups::Backups,
     secret_storage::{SecretStorage, SecretStore},
 };
-use crate::{Client, client::WeakClient, encryption::backups::BackupState};
+use crate::{
+    Client,
+    client::WeakClient,
+    encryption::{backups::BackupState, secret_storage::SecretStorageError},
+};
 
 pub mod futures;
 mod types;
@@ -485,6 +489,65 @@ impl Recovery {
             self.client.encryption().secret_storage().open_secret_store(recovery_key).await?;
 
         store.import_secrets().await?;
+        self.update_recovery_state().await?;
+
+        Ok(())
+    }
+
+    /// Recover all the secrets from the homeserver, and, if the
+    /// key backup information is inconsistent, create a new key backup.
+    ///
+    /// Please read the documentation for [`SecretStore::import_secrets()`]
+    /// for more information about the recovery of identity information.
+    ///
+    /// This will create a new key backup if:
+    ///
+    /// * Key backup is enabled and the backup decryption key is missing from
+    ///   Recovery, or
+    /// * Key backup is enabled and the backup decryption key does not match the
+    ///   public key
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, encryption::recovery::RecoveryState};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let recovery = client.encryption().recovery();
+    ///
+    /// recovery.recover_and_fix_backup("my recovery key or passphrase").await;
+    ///
+    /// assert_eq!(recovery.state(), RecoveryState::Enabled);
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[instrument(skip_all)]
+    pub async fn recover_and_fix_backup(&self, recovery_key: &str) -> Result<()> {
+        let store =
+            self.client.encryption().secret_storage().open_secret_store(recovery_key).await?;
+
+        let delete_and_recreate_backup = match store.import_secrets().await {
+            Ok(()) => false,
+            Err(SecretStorageError::InconsistentBackupDecryptionKey) => {
+                warn!(
+                    "Key storage decryption key does not match the current backup - creating a new key backup"
+                );
+                true
+            }
+            Err(SecretStorageError::MissingOrInvalidBackupDecryptionKey) => {
+                warn!("Missing or invalid backup decryption key - creating a new key backup");
+                true
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        if delete_and_recreate_backup {
+            self.client.encryption().backups().disable_and_delete().await?;
+            self.enable_backup().await?;
+            store.export_secrets().await?;
+        }
+
         self.update_recovery_state().await?;
 
         Ok(())

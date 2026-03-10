@@ -32,6 +32,7 @@ matrix-sdk-test-macros = { version = "0.16.0", path = "../matrix-sdk-test-macros
 ruma = { workspace = true, features = ["client-api-s", "rand", "unstable-msc3381", "unstable-msc4274"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 vodozemac.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -41,7 +42,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 wiremock.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 wasm-bindgen-test.workspace = true
 
 [lints]

@@ -59,13 +59,6 @@ mod keys {
 /// The database name.
 const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
 
-/// Identifier of the latest database version.
-///
-/// This is used to figure whether the SQLite database requires a migration.
-/// Every new SQL migration should imply a bump of this number, and changes in
-/// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 2;
-
 /// An SQLite-based media store.
 #[derive(Clone)]
 pub struct SqliteMediaStore {
@@ -203,18 +196,11 @@ impl SqliteMediaStore {
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
-    if version == 0 {
-        debug!("Creating database");
-    } else if version < DATABASE_VERSION {
-        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
-    } else {
-        return Ok(());
-    }
-
     // Always enable foreign keys for the current connection.
     conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
 
     if version < 1 {
+        debug!("Creating database");
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
@@ -226,6 +212,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 2 {
+        debug!("Upgrading database to version 2");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/media_store/002_lease_locks_with_generation.sql"

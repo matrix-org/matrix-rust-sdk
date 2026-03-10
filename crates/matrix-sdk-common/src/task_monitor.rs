@@ -130,7 +130,7 @@ pub enum BackgroundTaskFailureReason {
     /// The task returned an error.
     Error {
         /// String representation of the error.
-        // TODO(bnjbvr): consider storing a boxed error instead?
+        // TODO: consider storing a boxed error instead?
         error: String,
     },
 

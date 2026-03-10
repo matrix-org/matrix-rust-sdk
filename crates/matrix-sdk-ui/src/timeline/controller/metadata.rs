@@ -208,6 +208,16 @@ impl TimelineMetadata {
         TimelineItem::new(kind, self.next_internal_id())
     }
 
+    /// Returns a new timeline item reusing the recycled internal id, or with a
+    /// fresh internal id.
+    pub fn new_timeline_item_with_internal_id(
+        &mut self,
+        kind: impl Into<TimelineItemKind>,
+        recycled_timeline_id: Option<TimelineUniqueId>,
+    ) -> Arc<TimelineItem> {
+        TimelineItem::new(kind, recycled_timeline_id.unwrap_or_else(|| self.next_internal_id()))
+    }
+
     /// Try to update the read marker item in the timeline.
     pub(crate) fn update_read_marker(&mut self, items: &mut ObservableItemsTransaction<'_>) {
         let Some(fully_read_event) = &self.fully_read_event else { return };
@@ -452,8 +462,8 @@ impl TimelineMetadata {
         let mut thread_root = None;
 
         let in_reply_to = relates_to.and_then(|relation| match relation {
-            RelationWithoutReplacement::Reply { in_reply_to } => {
-                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            RelationWithoutReplacement::Reply(reply) => {
+                Some(InReplyToDetails::new(reply.in_reply_to.event_id, timeline_items))
             }
             RelationWithoutReplacement::Thread(thread) => {
                 thread_root = Some(thread.event_id);

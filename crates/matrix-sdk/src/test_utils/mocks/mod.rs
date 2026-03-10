@@ -1076,7 +1076,7 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
     pub fn mock_versions(&self) -> MockEndpoint<'_, VersionsEndpoint> {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
-        self.mock_endpoint(mock, VersionsEndpoint)
+        self.mock_endpoint(mock, VersionsEndpoint::default())
     }
 
     /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
@@ -3329,6 +3329,20 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
         })))
     }
 
+    /// Returns an endpoint that says there is a single room keys backup
+    pub fn exists_with_key(self, public_key: &str) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": public_key,
+                "signatures": {},
+            },
+            "count": 42,
+            "etag": "anopaquestring",
+            "version": "1",
+        })))
+    }
+
     /// Returns an endpoint that says there is no room keys backup
     pub fn none(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
@@ -3431,54 +3445,66 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
 }
 
 /// A prebuilt mock for `GET /versions` request.
-pub struct VersionsEndpoint;
+pub struct VersionsEndpoint {
+    versions: Vec<&'static str>,
+    features: BTreeMap<&'static str, bool>,
+}
+
+impl VersionsEndpoint {
+    // Get a JSON array of commonly supported versions.
+    fn commonly_supported_versions() -> Vec<&'static str> {
+        vec![
+            "r0.0.1", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2",
+            "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11",
+        ]
+    }
+}
+
+impl Default for VersionsEndpoint {
+    fn default() -> Self {
+        Self { versions: Self::commonly_supported_versions(), features: BTreeMap::new() }
+    }
+}
 
 impl<'a> MockEndpoint<'a, VersionsEndpoint> {
-    // Get a JSON array of commonly supported versions.
-    fn versions() -> Value {
-        json!([
-            "r0.0.1", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2",
-            "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11"
-        ])
-    }
-
     /// Returns a successful `/_matrix/client/versions` request.
     ///
     /// The response will return some commonly supported versions.
-    pub fn ok(self) -> MatrixMock<'a> {
+    pub fn ok(mut self) -> MatrixMock<'a> {
+        let features = std::mem::take(&mut self.endpoint.features);
+        let versions = std::mem::take(&mut self.endpoint.versions);
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "unstable_features": {},
-            "versions": Self::versions()
+            "unstable_features": features,
+            "versions": versions
         })))
     }
 
-    /// Returns a successful `/_matrix/client/versions` request.
-    ///
-    /// The response will return some commonly supported versions and unstable
-    /// features supported by the SDK.
-    pub fn ok_with_unstable_features(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "unstable_features": {
-                "org.matrix.label_based_filtering": true,
-                "org.matrix.e2e_cross_signing": true,
-                "org.matrix.msc4028": true,
-                "org.matrix.simplified_msc3575": true,
-            },
-            "versions": Self::versions()
-        })))
+    /// Set the supported flag for the given unstable feature in the response of
+    /// this endpoint.
+    pub fn with_feature(mut self, feature: &'static str, supported: bool) -> Self {
+        self.endpoint.features.insert(feature, supported);
+        self
     }
 
-    /// Returns a successful `/_matrix/client/versions` request with the given
-    /// versions and unstable features.
-    pub fn ok_custom(
-        self,
-        versions: &[&str],
-        unstable_features: &BTreeMap<&str, bool>,
-    ) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "unstable_features": unstable_features,
-            "versions": versions,
-        })))
+    /// Indicate that push for encrypted events is supported by this homeserver.
+    pub fn with_push_encrypted_events(self) -> Self {
+        self.with_feature("org.matrix.msc4028", true)
+    }
+
+    /// Indicate that thread subscriptions are supported by this homeserver.
+    pub fn with_thread_subscriptions(self) -> Self {
+        self.with_feature("org.matrix.msc4306", true)
+    }
+
+    /// Indicate that simplified sliding sync is supported by this homeserver.
+    pub fn with_simplified_sliding_sync(self) -> Self {
+        self.with_feature("org.matrix.simplified_msc3575", true)
+    }
+
+    /// Set the supported versions in the response of this endpoint.
+    pub fn with_versions(mut self, versions: Vec<&'static str>) -> Self {
+        self.endpoint.versions = versions;
+        self
     }
 }
 

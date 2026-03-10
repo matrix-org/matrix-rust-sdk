@@ -17,8 +17,11 @@ use matrix_sdk_base::event_cache::Event;
 
 use crate::event_cache::EventsOrigin;
 
+pub mod event_focused;
+pub mod event_linked_chunk;
 pub(super) mod lock;
 pub mod pagination;
+pub mod pinned_events;
 pub mod room;
 pub mod thread;
 

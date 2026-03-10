@@ -221,16 +221,11 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
     // Decrypting the first time should succeed.
     let decrypted = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .expect("We should be able to decrypt the event.")
@@ -244,16 +239,11 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
 
     // Replaying the event should now result in a decryption failure.
     bob.store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .expect_err(

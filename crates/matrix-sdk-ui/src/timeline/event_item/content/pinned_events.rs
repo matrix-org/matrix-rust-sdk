@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 use ruma::{
     OwnedEventId,
-    events::{FullStateEventContent, room::pinned_events::RoomPinnedEventsEventContent},
+    events::{StateEventContentChange, room::pinned_events::RoomPinnedEventsEventContent},
 };
 
 #[derive(Clone, Debug)]
@@ -31,10 +31,10 @@ pub enum RoomPinnedEventsChange {
     Changed,
 }
 
-impl From<&FullStateEventContent<RoomPinnedEventsEventContent>> for RoomPinnedEventsChange {
-    fn from(value: &FullStateEventContent<RoomPinnedEventsEventContent>) -> Self {
+impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinnedEventsChange {
+    fn from(value: &StateEventContentChange<RoomPinnedEventsEventContent>) -> Self {
         match value {
-            FullStateEventContent::Original { content, prev_content } => {
+            StateEventContentChange::Original { content, prev_content } => {
                 if let Some(prev_content) = prev_content {
                     let mut new_pinned: HashSet<&OwnedEventId> =
                         HashSet::from_iter(&content.pinned);
@@ -68,7 +68,7 @@ impl From<&FullStateEventContent<RoomPinnedEventsEventContent>> for RoomPinnedEv
                     RoomPinnedEventsChange::Added
                 }
             }
-            FullStateEventContent::Redacted(_) => RoomPinnedEventsChange::Changed,
+            StateEventContentChange::Redacted(_) => RoomPinnedEventsChange::Changed,
         }
     }
 }
@@ -78,29 +78,27 @@ mod tests {
     use assert_matches::assert_matches;
     use ruma::{
         events::{
-            FullStateEventContent,
+            StateEventContentChange,
             room::pinned_events::{
-                PossiblyRedactedRoomPinnedEventsEventContent, RedactedRoomPinnedEventsEventContent,
-                RoomPinnedEventsEventContent,
+                RedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
             },
         },
         owned_event_id,
-        serde::Raw,
     };
-    use serde_json::json;
 
     use crate::timeline::event_item::content::pinned_events::RoomPinnedEventsChange;
 
     #[test]
     fn redacted_pinned_events_content_has_generic_changes() {
-        let content = FullStateEventContent::Redacted(RedactedRoomPinnedEventsEventContent::new());
+        let content =
+            StateEventContentChange::Redacted(RedactedRoomPinnedEventsEventContent::new());
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
     }
 
     #[test]
     fn pinned_events_content_with_no_prev_content_returns_added() {
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
             prev_content: None,
         };
@@ -110,11 +108,9 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_added_ids_returns_added() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(Vec::new());
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
-            prev_content,
+            prev_content: Some(RoomPinnedEventsEventContent::new(Vec::new()).into()),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Added);
@@ -122,11 +118,11 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_removed_ids_returns_removed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1"]);
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(Vec::new()),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Removed);
@@ -134,11 +130,11 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_added_and_removed_ids_returns_changed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1"]);
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$2")]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -146,14 +142,18 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_changed_order_returns_changed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1", "$2"]);
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$2"),
                 owned_event_id!("$1"),
             ]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![
+                    owned_event_id!("$1"),
+                    owned_event_id!("$2"),
+                ])
+                .into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -164,29 +164,20 @@ mod tests {
         // Returning Changed is counter-intuitive, but it makes no sense to display in
         // the timeline 'UserFoo didn't change anything in the pinned events'
 
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1", "$2"]);
-        let content = FullStateEventContent::Original {
+        let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$1"),
                 owned_event_id!("$2"),
             ]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![
+                    owned_event_id!("$1"),
+                    owned_event_id!("$2"),
+                ])
+                .into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
-    }
-
-    fn possibly_redacted_content(
-        ids: Vec<&str>,
-    ) -> Option<PossiblyRedactedRoomPinnedEventsEventContent> {
-        // This is the only way I found to create the PossiblyRedacted content
-        Raw::new(&json!({
-            "pinned": ids,
-        }))
-        .unwrap()
-        .cast_unchecked::<PossiblyRedactedRoomPinnedEventsEventContent>()
-        .deserialize()
-        .ok()
     }
 }

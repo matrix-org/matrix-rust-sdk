@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
+
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
@@ -27,6 +32,9 @@ use matrix_sdk_common::linked_chunk::{
     Position,
 };
 use tracing::trace;
+
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor::ResolvedUtd;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -244,7 +252,7 @@ impl EventLinkedChunk {
     /// might hide some underlying updates to the in-memory chunk; those
     /// updates should be reflected with manual updates to
     /// [`Self::chunks_updates_as_vectordiffs`].
-    pub(super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+    pub(in super::super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
@@ -278,30 +286,37 @@ impl EventLinkedChunk {
             .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
     }
 
+    /// Add a gap (i.e. pagination token) to the end of the linked chunk.
+    ///
+    /// Also make sure to get rid of empty event chunks before the gap, as they
+    /// wouldn't be useful to keep.
+    pub fn push_gap(&mut self, gap: Gap) {
+        // As a tiny optimization: remove the last chunk if it's an empty event
+        // one, as it's not useful to keep it before a gap.
+        let prev_chunk_to_remove = self.rchunks().next().and_then(|chunk| {
+            (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
+        });
+
+        self.chunks.push_gap_back(gap);
+
+        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+            self.chunks
+                .remove_empty_chunk_at(prev_chunk_to_remove)
+                .expect("we just checked the chunk is there, and it's an empty item chunk");
+        }
+    }
+
     /// Add the previous back-pagination token (if present), followed by the
     /// timeline events themselves.
     pub fn push_live_events(&mut self, new_gap: Option<Gap>, events: &[Event]) {
         if let Some(new_gap) = new_gap {
-            // As a tiny optimization: remove the last chunk if it's an empty event
-            // one, as it's not useful to keep it before a gap.
-            let prev_chunk_to_remove = self.rchunks().next().and_then(|chunk| {
-                (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
-            });
-
-            self.chunks.push_gap_back(new_gap);
-
-            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                self.chunks
-                    .remove_empty_chunk_at(prev_chunk_to_remove)
-                    .expect("we just checked the chunk is there, and it's an empty item chunk");
-            }
+            self.push_gap(new_gap);
         }
-
         self.chunks.push_items_back(events.iter().cloned());
     }
 
-    /// Finish a network back-pagination for this linked chunk by updating the
-    /// in-memory linked chunk with the results.
+    /// Add events from a backwards pagination for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
     ///
     /// ## Arguments
     ///
@@ -315,7 +330,7 @@ impl EventLinkedChunk {
     ///
     /// Returns a boolean indicating whether we've hit the start of the
     /// timeline/linked chunk.
-    pub fn finish_back_pagination(
+    pub fn push_backwards_pagination_events(
         &mut self,
         prev_gap_id: Option<ChunkIdentifier>,
         new_gap: Option<Gap>,
@@ -394,6 +409,126 @@ impl EventLinkedChunk {
 
         reached_start
     }
+
+    /// Add events from a forwards paginatino for this linked chunk by updating
+    /// the in-memory linked chunk with the results.
+    ///
+    /// This is similar to [`Self::push_backwards_pagination_events`] but for
+    /// forward pagination where new events are appended at the end.
+    ///
+    /// ## Arguments
+    ///
+    /// - `next_gap_id`: the identifier of the next gap (at the back), if any.
+    /// - `new_gap`: the new gap to insert at the back, if any. If missing,
+    ///   we've likely reached the end of the timeline.
+    /// - `events`: new events to insert, in topological order (oldest to
+    ///   newest).
+    ///
+    /// ## Returns
+    ///
+    /// Returns a boolean indicating whether we've hit the end of the timeline.
+    pub fn push_forwards_pagination_events(
+        &mut self,
+        next_gap_id: Option<ChunkIdentifier>,
+        new_gap: Option<Gap>,
+        events: &[Event],
+    ) -> bool {
+        // First, replace the gap (if any) or append events.
+        if let Some(gap_id) = next_gap_id {
+            // There is a gap at the back, replace it with the new events.
+            trace!("replacing next gap with forward-paginated events");
+
+            self.replace_gap_at(gap_id, events.to_vec())
+                .expect("gap_identifier is a valid chunk id we read previously");
+        } else if !events.is_empty() {
+            // No prior gap, just push the events at the back.
+            trace!("pushing events received from forward-pagination");
+            self.chunks.push_items_back(events.to_vec());
+        }
+
+        // Insert the new gap at the back if needed.
+        let reached_end = new_gap.is_none();
+        if let Some(new_gap) = new_gap {
+            self.chunks.push_gap_back(new_gap);
+        }
+
+        trace!(?reached_end, "finished handling network forward-pagination");
+
+        reached_end
+    }
+
+    /// Find an event in the event linked chunk by its event ID, and return its
+    /// location.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn find_event(&self, event_id: &ruma::EventId) -> Option<(Position, Event)> {
+        for (position, event) in self.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Some((position, event.clone()));
+            }
+        }
+        None
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them.
+    ///
+    /// Returns true if at least one event has been replaced, false otherwise.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn replace_utds(&mut self, events: &[ResolvedUtd]) -> bool {
+        let event_set =
+            self.events().filter_map(|(_pos, ev)| ev.event_id()).collect::<BTreeSet<_>>();
+
+        let mut replaced_some = false;
+
+        for (event_id, decrypted, actions) in events {
+            // As a performance optimization, do a lookup in the current pinned events
+            // check, before looking for the event in the linked chunk.
+
+            if !event_set.contains(event_id) {
+                continue;
+            }
+
+            // The event should be in the linked chunk.
+            let Some((position, mut target_event)) = self.find_event(event_id) else {
+                continue;
+            };
+
+            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+            if let Some(actions) = actions {
+                target_event.set_push_actions(actions.clone());
+            }
+
+            self.replace_event_at(position, target_event.clone())
+                .expect("position should be valid");
+
+            replaced_some = true;
+        }
+
+        replaced_some
+    }
+
+    /// Return the first chunk as a gap, if it's one.
+    pub fn first_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
+        self.chunks().next().and_then(|chunk| {
+            if let ChunkContent::Gap(gap) = chunk.content() {
+                Some((chunk.identifier(), gap.clone()))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Return the last chunk as a gap, if it's one.
+    pub fn last_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
+        self.rchunks().next().and_then(|chunk| {
+            if let ChunkContent::Gap(gap) = chunk.content() {
+                Some((chunk.identifier(), gap.clone()))
+            } else {
+                None
+            }
+        })
+    }
 }
 
 // Methods related to lazy-loading.
@@ -426,7 +561,7 @@ impl EventLinkedChunk {
     ///
     /// This clears all the chunks in memory before resetting to the new chunk,
     /// if provided.
-    pub(super) fn replace_with(
+    pub(in super::super) fn replace_with(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
@@ -439,7 +574,7 @@ impl EventLinkedChunk {
     }
 
     /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
-    pub(super) fn insert_new_chunk_as_first(
+    pub(in super::super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LazyLoaderError> {
@@ -458,7 +593,7 @@ fn chunk_debug_string(
     order_tracker: &OrderTracker<Event, Gap>,
 ) -> String {
     match content {
-        ChunkContent::Gap(Gap { prev_token }) => {
+        ChunkContent::Gap(Gap { token: prev_token }) => {
             format!("gap['{prev_token}']")
         }
         ChunkContent::Items(vec) => {
@@ -494,7 +629,7 @@ fn chunk_debug_string(
 /// that all positions remain valid inside the same chunk while they are being
 /// removed. For the sake of debugability, we also sort by position chunk
 /// identifier, but this is not required.
-pub(super) fn sort_positions_descending(positions: &mut [Position]) {
+pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
     positions.sort_by(|a, b| {
         b.chunk_identifier()
             .cmp(&a.chunk_identifier())
@@ -555,7 +690,7 @@ mod tests {
         let mut linked_chunk = EventLinkedChunk::new();
 
         linked_chunk.chunks.push_items_back([event_0]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "hello".to_owned() });
 
         let gap_chunk_id = linked_chunk
             .chunks()
@@ -595,9 +730,9 @@ mod tests {
         let mut linked_chunk = EventLinkedChunk::new();
 
         linked_chunk.chunks.push_items_back([event_0, event_1]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "middle".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "middle".to_owned() });
         linked_chunk.chunks.push_items_back([event_2]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "end".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "end".to_owned() });
 
         // Remove the first gap.
         let first_gap_id = linked_chunk
@@ -630,7 +765,7 @@ mod tests {
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.chunks.push_items_back([event_0, event_1]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "hello".to_owned() });
         linked_chunk.chunks.push_items_back([event_2, event_3]);
 
         assert_events_eq!(
@@ -703,7 +838,7 @@ mod tests {
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.chunks.push_items_back([event_0, event_1]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "raclette".to_owned() });
         linked_chunk.chunks.push_items_back([event_2]);
 
         // Read the updates as `VectorDiff`.
@@ -758,7 +893,7 @@ mod tests {
                 .into_event(),
             event_factory.text_msg("you").event_id(event_id!("$2")).into_event(),
         ]);
-        linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { token: "raclette".to_owned() });
 
         // Flush updates to the order tracker.
         let _ = linked_chunk.updates_as_vector_diffs();

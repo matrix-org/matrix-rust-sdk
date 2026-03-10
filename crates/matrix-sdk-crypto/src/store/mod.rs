@@ -579,10 +579,6 @@ impl Store {
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {
-        // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
-        // - try to take the lock,
-        // - if acquired, look if another process touched the underlying storage,
-        // - if yes, reload everything; if no, return current cache
         Ok(StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await })
     }
 
@@ -590,18 +586,12 @@ impl Store {
         StoreTransaction::new(self.clone()).await
     }
 
-    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would
-    // take a `&StoreTransaction`, but callers didn't quite like that.
-    pub(crate) async fn with_transaction<
-        T,
-        Fut: Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
-        F: FnOnce(StoreTransaction) -> Fut,
-    >(
+    pub(crate) async fn with_transaction<T>(
         &self,
-        func: F,
+        func: impl AsyncFnOnce(&mut StoreTransaction) -> Result<T, crate::OlmError>,
     ) -> Result<T, crate::OlmError> {
-        let tr = self.transaction().await;
-        let (tr, res) = func(tr).await?;
+        let mut tr = self.transaction().await;
+        let res = func(&mut tr).await?;
         tr.commit().await?;
         Ok(res)
     }

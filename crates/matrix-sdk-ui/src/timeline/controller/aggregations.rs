@@ -44,7 +44,7 @@ use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{
-        AnySyncTimelineEvent,
+        AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
     },
@@ -55,8 +55,8 @@ use tracing::{info, trace, warn};
 
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
-    EventTimelineItem, MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus,
-    TimelineEventItemId, TimelineItem, TimelineItemContent,
+    BeaconInfo, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind, PollState,
+    ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
 
 #[derive(Clone)]
@@ -136,6 +136,18 @@ pub(crate) enum AggregationKind {
     /// `Aggregation::unapply`, and the callers have the responsibility of
     /// considering all the edits and applying only the right one.
     Edit(PendingEdit),
+
+    /// A location update for a live location sharing session (MSC3489).
+    BeaconUpdate { location: BeaconInfo },
+
+    /// A stop event for a live location sharing session (MSC3489).
+    ///
+    /// Carries the new (non-live) [`BeaconInfoEventContent`] that should
+    /// replace the stored content on the target item, flipping
+    /// [`LiveLocationState::is_live`] to `false`.
+    ///
+    /// Unlike [`BeaconUpdate`], a beacon stop is not reversible.
+    BeaconStop { content: BeaconInfoEventContent },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -170,6 +182,26 @@ fn poll_state_from_item<'a>(
     } else {
         Err(AggregationError::InvalidType {
             expected: "a poll".to_owned(),
+            actual: event.content().debug_string().to_owned(),
+        })
+    }
+}
+
+/// Get the [`LiveLocationState`] from a given [`TimelineItemContent`], mutably.
+fn live_location_state_from_item<'a>(
+    event: &'a mut Cow<'_, EventTimelineItem>,
+) -> Result<&'a mut LiveLocationState, AggregationError> {
+    if event.content().is_live_location() {
+        // It was a live location! Now return the state as mutable.
+        let state = event
+            .to_mut()
+            .content_mut()
+            .as_live_location_state_mut()
+            .expect("it was a live location just above");
+        Ok(state)
+    } else {
+        Err(AggregationError::InvalidType {
+            expected: "a live location".to_owned(),
             actual: event.content().debug_string().to_owned(),
         })
     }
@@ -275,6 +307,24 @@ impl Aggregation {
                 // Let the caller handle the edit.
                 ApplyAggregationResult::Edit
             }
+
+            AggregationKind::BeaconUpdate { location } => {
+                match live_location_state_from_item(event) {
+                    Ok(state) => {
+                        state.add_location(location.clone());
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
+
+            AggregationKind::BeaconStop { content } => match live_location_state_from_item(event) {
+                Ok(state) => {
+                    state.stop(content.clone());
+                    ApplyAggregationResult::UpdatedItem
+                }
+                Err(err) => ApplyAggregationResult::Error(err),
+            },
         }
     }
 
@@ -344,6 +394,21 @@ impl Aggregation {
                 // Let the caller handle the edit.
                 ApplyAggregationResult::Edit
             }
+
+            AggregationKind::BeaconUpdate { location } => {
+                match live_location_state_from_item(event) {
+                    Ok(state) => {
+                        state.remove_location(location.ts);
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
+
+            AggregationKind::BeaconStop { .. } => {
+                // Stopping a live location share is not reversible.
+                ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
+            }
         }
     }
 }
@@ -356,6 +421,22 @@ pub(crate) struct Aggregations {
 
     /// Mapping of a related event identifier to its target.
     inverted_map: HashMap<TimelineEventItemId, TimelineEventItemId>,
+
+    /// A pending beacon-stop aggregation received before the corresponding live
+    /// `beacon_info` start item has arrived.
+    ///
+    /// Keyed by the sender's user ID (the state key of both the start and stop
+    /// `beacon_info` events). At most one stop can be pending per sender at any
+    /// time: `beacon_info` is a state event whose state key is the sender's
+    /// user ID, so there is only ever one live session per sender, and
+    /// therefore only one meaningful pending stop. A later stop simply
+    /// replaces an earlier one.
+    ///
+    /// When the live start item is eventually inserted via `add_item`, the
+    /// entry here is promoted into [`Self::related_events`] under the
+    /// now-known start event ID so that [`Self::apply_all`] can apply the
+    /// stop immediately.
+    pending_beacon_stops: HashMap<OwnedUserId, Aggregation>,
 }
 
 impl Aggregations {
@@ -363,6 +444,32 @@ impl Aggregations {
     pub fn clear(&mut self) {
         self.related_events.clear();
         self.inverted_map.clear();
+        self.pending_beacon_stops.clear();
+    }
+
+    /// Stash a [`AggregationKind::BeaconStop`] that arrived before its target
+    /// live `beacon_info` item. It will be promoted into
+    /// [`Self::related_events`] (and thus picked up by [`Self::apply_all`])
+    /// when the live item is inserted via
+    /// [`Self::promote_pending_beacon_stop`].
+    ///
+    /// If a stop was already stashed for this sender, the new one replaces it:
+    /// the later state event is always authoritative.
+    pub fn add_pending_beacon_stop(&mut self, sender: OwnedUserId, aggregation: Aggregation) {
+        self.pending_beacon_stops.insert(sender, aggregation);
+    }
+
+    /// Promote any stashed beacon-stop aggregations for `sender` into the
+    /// regular aggregation map, now that the live start item's
+    /// `target_event_id` is known.
+    ///
+    /// Should be called from `add_item` just before `apply_all`, when inserting
+    /// a live `beacon_info` item.
+    fn promote_pending_beacon_stop(&mut self, sender: &OwnedUserId, target_event_id: OwnedEventId) {
+        let Some(stop) = self.pending_beacon_stops.remove(sender) else { return };
+
+        let target = TimelineEventItemId::EventId(target_event_id);
+        self.add(target, stop);
     }
 
     /// Add a given aggregation that relates to the [`TimelineItemContent`]
@@ -492,19 +599,31 @@ impl Aggregations {
 
     /// Apply all the aggregations to a [`TimelineItemContent`].
     ///
+    /// If `sender` is provided alongside a remote `item_id`, any
+    /// [`AggregationKind::BeaconStop`] events that arrived out-of-order (i.e.
+    /// before the live `beacon_info` start item) are first promoted from the
+    /// pending-stops stash into the regular aggregation map so they are picked
+    /// up here together with every other pending aggregation for this item.
+    ///
     /// Will return an error at the first aggregation that couldn't be applied;
     /// see [`Aggregation::apply`] which explains under which conditions it can
     /// happen.
-    ///
-    /// Returns a boolean indicating whether at least one aggregation was
-    /// applied.
     pub fn apply_all(
-        &self,
+        &mut self,
         item_id: &TimelineEventItemId,
+        sender: &OwnedUserId,
         event: &mut Cow<'_, EventTimelineItem>,
         items: &mut ObservableItemsTransaction<'_>,
         rules: &RoomVersionRules,
     ) -> Result<(), AggregationError> {
+        // If a beacon-stop arrived before this live start item, it was stashed
+        // in `pending_beacon_stops` keyed by sender. Promote it into
+        // `related_events` under the now-known start event ID so the loop below
+        // applies it together with any other pending aggregations.
+        if let TimelineEventItemId::EventId(event_id) = item_id {
+            self.promote_pending_beacon_stop(sender, event_id.clone());
+        }
+
         let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(());
         };
@@ -579,7 +698,9 @@ impl Aggregations {
                 AggregationKind::PollResponse { .. }
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
-                | AggregationKind::Redaction => {
+                | AggregationKind::Redaction
+                | AggregationKind::BeaconUpdate { .. }
+                | AggregationKind::BeaconStop { .. } => {
                     // Nothing particular to do.
                 }
 
@@ -820,6 +941,9 @@ pub(crate) enum AggregationError {
 
     #[error("a redaction can't be unapplied")]
     CantUndoRedaction,
+
+    #[error("a beacon stop can't be unapplied")]
+    CantUndoBeaconStop,
 
     #[error(
         "trying to apply an aggregation of one type to an invalid target: \

@@ -19,6 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    assert_let_timeout,
     room::Receipts,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
@@ -98,7 +99,7 @@ async fn test_read_receipts_updates() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     // We don't list the read receipt of our own user on events.
@@ -195,7 +196,7 @@ async fn test_read_receipts_updates() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 3, value: third_item } = &timeline_updates[0]);
@@ -288,7 +289,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 4);
 
     // We don't list the read receipt of our own user on events.
@@ -361,7 +362,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::Set { index: 1, value: item_a } = &timeline_updates[0]);
@@ -466,7 +467,7 @@ async fn test_read_receipts_updates_on_message_like_events() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     // We don't list the read receipt of our own user on events.
@@ -543,7 +544,7 @@ async fn test_read_receipts_updates_on_message_like_events() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::Set { index: 1, value: item_a } = &timeline_updates[0]);

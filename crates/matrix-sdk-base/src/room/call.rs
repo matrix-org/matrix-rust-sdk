@@ -60,7 +60,7 @@ mod tests {
     use similar_asserts::assert_eq;
 
     use super::super::{Room, RoomState};
-    use crate::{store::MemoryStore, utils::RawSyncStateEventWithKeys};
+    use crate::{store::MemoryStore, utils::RawStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -184,7 +184,7 @@ mod tests {
             let mut res = false;
             for ev in events {
                 res |= info.handle_state_event(
-                    &mut RawSyncStateEventWithKeys::try_from_raw_state_event(ev)
+                    &mut RawStateEventWithKeys::try_from_raw_state_event(ev)
                         .expect("generated state event should be valid"),
                 );
             }

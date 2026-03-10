@@ -19,14 +19,16 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::event_cache::Event;
 use ruma::{OwnedEventId, api::Direction};
 
-use super::super::super::{
-    EventCacheError, Result,
-    caches::pagination::{
-        BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+pub use super::super::pagination::PaginationStatus;
+use super::super::{
+    super::{
+        EventCacheError, Result,
+        caches::pagination::{
+            BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+        },
     },
     room::RoomEventCacheInner,
 };
-pub use super::super::pagination::PaginationStatus;
 use crate::room::{IncludeRelations, RelationsOptions};
 
 /// Intermediate type because the `ThreadEventCache` state is currently owned by
@@ -130,7 +132,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let response = room
             .relations(self.thread_id.clone(), options)
             .await
-            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
 
         Ok(Some((response.chunk, response.next_batch_token)))
     }
@@ -164,7 +166,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             Some(
                 room.load_or_fetch_event(&self.thread_id, None)
                     .await
-                    .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?,
+                    .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?,
             )
         } else {
             None

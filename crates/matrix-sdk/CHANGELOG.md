@@ -8,6 +8,23 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Recovery::recover_and_fix_backup` to automatically fix key storage backup if the
+  private backup decryption key is missing, invalid or inconsistent with the public key.
+  ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
+- Attempt to import stored room key bundles for rooms awaiting bundles at
+  client startup.
+  ([#6215](https://github.com/matrix-org/matrix-rust-sdk/pull/6215))
+- Add `OAuth::cached_server_metadata()` that caches the authorization server
+  metadata for a while.
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
+- Add `QRCodeGrantLoginError::SecureChannel` for secure channel errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::UnexpectedMessage` for protocol message errors
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::LoginFailure` for login failure errors received from the other device
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `QRCodeGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
   upload errors from `/keys/upload`.
   ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
@@ -53,6 +70,15 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- The event cache's thread subscriptions background task won't enable if the server doesn't
+  advertise support for the experimental thread subscription feature. In the past, this would result
+  in sending spurious requests that aren't supported by the user's homeserver.
+  ([#6245](https://github.com/matrix-org/matrix-rust-sdk/pull/6245))
+- Handle race between send queue update and remote echo in latest event computation.
+  ([#6220](https://github.com/matrix-org/matrix-rust-sdk/pull/6220))
+- Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
+  the new device is not returned by the homeserver.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Latest Event is correctly computed when multiple edits exist for the same event candidate.
   ([#6096](https://github.com/matrix-org/matrix-rust-sdk/pull/6096))
 - Restrict which `m.room.member` can be a `LatestEventValue` candidate by relying on `MembershipChange` for more control.
@@ -68,6 +94,30 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
+  module to the `utils` module. It can also be converted from a `QueryString`.
+  ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
+- [**breaking**] `MatrixAuth::login_with_sso_callback()` takes a `UrlOrQuery`
+  instead of a `Url`, to make it more convenient to use with
+  `LocalServerBuilder` / `LocalServerRedirectHandle`.
+  ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
+- [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
+  removed from the Matrix specification. The `ReportedContentScore` type was removed too.
+  ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
+- [**breaking**] `Client::enabled_thread_subscriptions()` is now async and fallible, as it will
+  check for both static enablement of the thread subscription feature as well as dynamically
+  checking that the user's homeserver supports it.
+- [**breaking**] `SessionChange::UnknownToken` is now a tuple variant containing
+  an `UnknownTokenErrorData`.
+  ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
+- [**breaking**] `EventCacheError::BackPaginationError` has been renamed `PaginationError`.
+  ([#6239](https://github.com/matrix-org/matrix-rust-sdk/pull/6239))
+- [**breaking**] The functions on the `OAuth` API to access the account
+  management URL and its actions were removed. The methods available on the
+  `AuthorizationServerMetadata` should be used instead.
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
+- [**breaking**] `QRCodeGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - The `RoomEventCache::paginate_thread_backwards` method is replaced by `RoomEventCache::thread_pagination` which returns a new `ThreadPagination` type, similar to `RoomPagination`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174))
 

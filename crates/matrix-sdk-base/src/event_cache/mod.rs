@@ -24,7 +24,9 @@ pub type Event = TimelineEvent;
 /// The kind of gap the event storage holds.
 #[derive(Clone, Debug)]
 pub struct Gap {
-    /// The token to use in the query, extracted from a previous "from" /
-    /// "end" field of a `/messages` response.
-    pub prev_token: String,
+    /// The token to use in the pagination query as the `from` parameter,
+    /// extracted from a previous `start` / `end` field of a `/messages`
+    /// response, or from the `prev_batch` / `next_batch` field of a `/sync`
+    /// response.
+    pub token: String,
 }

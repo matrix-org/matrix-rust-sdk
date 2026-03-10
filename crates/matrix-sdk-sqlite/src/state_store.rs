@@ -72,13 +72,6 @@ mod keys {
 /// The filename used for the SQLITE database file used by the state store.
 pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
-/// Identifier of the latest database version.
-///
-/// This is used to figure whether the SQLite database requires a migration.
-/// Every new SQL migration should imply a bump of this number, and changes in
-/// the [`SqliteStateStore::run_migrations`] function.
-const DATABASE_VERSION: u8 = 14;
-
 /// An SQLite-based state store.
 #[derive(Clone)]
 pub struct SqliteStateStore {
@@ -169,17 +162,14 @@ impl SqliteStateStore {
     ///
     /// If `to` is `None`, the current database version will be used.
     async fn run_migrations(&self, from: u8, to: Option<u8>) -> Result<()> {
-        let to = to.unwrap_or(DATABASE_VERSION);
-
-        if from < to {
-            debug!(version = from, new_version = to, "Upgrading database");
-        } else {
+        if to == Some(1) {
             return Ok(());
         }
 
         let conn = self.write().await;
 
-        if from < 2 && to >= 2 {
+        if from < 2 {
+            debug!("Upgrading database to version 2");
             let this = self.clone();
             conn.with_transaction(move |txn| {
                 // Create new table.
@@ -216,8 +206,13 @@ impl SqliteStateStore {
             .await?;
         }
 
+        if to == Some(2) {
+            return Ok(());
+        }
+
         // Migration to v3: RoomInfo format has changed.
-        if from < 3 && to >= 3 {
+        if from < 3 {
+            debug!("Upgrading database to version 3");
             let this = self.clone();
             conn.with_transaction(move |txn| {
                 // Migrate data .
@@ -267,7 +262,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 4 && to >= 4 {
+        if to == Some(3) {
+            return Ok(());
+        }
+
+        if from < 4 {
+            debug!("Upgrading database to version 4");
             conn.with_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))?;
@@ -276,7 +276,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 5 && to >= 5 {
+        if to == Some(4) {
+            return Ok(());
+        }
+
+        if from < 5 {
+            debug!("Upgrading database to version 5");
             conn.with_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
@@ -287,7 +292,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 6 && to >= 6 {
+        if to == Some(5) {
+            return Ok(());
+        }
+
+        if from < 6 {
+            debug!("Upgrading database to version 6");
             conn.with_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
@@ -298,7 +308,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 7 && to >= 7 {
+        if to == Some(6) {
+            return Ok(());
+        }
+
+        if from < 7 {
+            debug!("Upgrading database to version 7");
             conn.with_transaction(move |txn| {
                 // Drop media table.
                 txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))?;
@@ -307,7 +322,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 8 && to >= 8 {
+        if to == Some(7) {
+            return Ok(());
+        }
+
+        if from < 8 {
+            debug!("Upgrading database to version 8");
             // Replace all existing wedged events with a generic error.
             let error = QueueWedgeError::GenericApiError {
                 msg: "local echo failed to send in a previous session".into(),
@@ -343,7 +363,12 @@ impl SqliteStateStore {
                 .await?;
         }
 
-        if from < 9 && to >= 9 {
+        if to == Some(8) {
+            return Ok(());
+        }
+
+        if from < 9 {
+            debug!("Upgrading database to version 9");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))?;
@@ -352,7 +377,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 10 && to >= 10 {
+        if to == Some(9) {
+            return Ok(());
+        }
+
+        if from < 10 {
+            debug!("Upgrading database to version 10");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
@@ -363,7 +393,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 11 && to >= 11 {
+        if to == Some(10) {
+            return Ok(());
+        }
+
+        if from < 11 {
+            debug!("Upgrading database to version 11");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
@@ -374,7 +409,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 12 && to >= 12 {
+        if to == Some(11) {
+            return Ok(());
+        }
+
+        if from < 12 {
+            debug!("Upgrading database to version 12");
             // Defragment the DB and optimize its size on the filesystem.
             // This should have been run in the migration for version 7, to reduce the size
             // of the DB as we removed the media cache.
@@ -382,7 +422,12 @@ impl SqliteStateStore {
             conn.set_kv("version", vec![12]).await?;
         }
 
-        if from < 13 && to >= 13 {
+        if to == Some(12) {
+            return Ok(());
+        }
+
+        if from < 13 {
+            debug!("Upgrading database to version 13");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
@@ -393,7 +438,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 14 && to >= 14 {
+        if to == Some(13) {
+            return Ok(());
+        }
+
+        if from < 14 {
+            debug!("Upgrading database to version 14");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
@@ -404,7 +454,12 @@ impl SqliteStateStore {
             .await?;
         }
 
-        if from < 15 && to >= 15 {
+        if to == Some(14) {
+            return Ok(());
+        }
+
+        if from < 15 {
+            debug!("Upgrading database to version 15");
             conn.with_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
@@ -413,6 +468,10 @@ impl SqliteStateStore {
                 txn.set_db_version(15)
             })
             .await?;
+        }
+
+        if to == Some(15) {
+            return Ok(());
         }
 
         Ok(())
@@ -2610,7 +2669,7 @@ mod migration_tests {
             None => RoomCreateEventContent::new_v11(),
         };
 
-        let event_id = EventId::new(server_name!("dummy.local"));
+        let event_id = EventId::new_v1(server_name!("dummy.local"));
         let create_event = json!({
             "content": create_content,
             "event_id": event_id,

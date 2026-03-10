@@ -10,7 +10,7 @@ use matrix_sdk_base::event_cache::{
     store::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, IntoEventCacheStore, MemoryStore},
 };
 use matrix_sdk_test::{ALICE, event_factory::EventFactory};
-use ruma::{EventId, room_id};
+use ruma::room_id;
 use tempfile::tempdir;
 use tokio::runtime::Builder;
 
@@ -33,7 +33,7 @@ fn writing(c: &mut Criterion) {
         .build()
         .expect("Failed to create an asynchronous runtime");
 
-    let room_id = room_id!("!foo:bar.baz");
+    let room_id = room_id!("!fabricandofitfaber:bar.baz");
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
@@ -66,12 +66,7 @@ fn writing(c: &mut Criterion) {
 
             {
                 let mut events = (0..number_of_events)
-                    .map(|nth| {
-                        event_factory
-                            .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
-                            .into_event()
-                    })
+                    .map(|nth| event_factory.text_msg(format!("foo {nth}")).into_event())
                     .peekable();
 
                 let mut gap_nth = 0;
@@ -88,9 +83,8 @@ fn writing(c: &mut Criterion) {
                     }
 
                     {
-                        operations.push(Operation::PushGapBack(Gap {
-                            prev_token: format!("gap{gap_nth}"),
-                        }));
+                        operations
+                            .push(Operation::PushGapBack(Gap { token: format!("gap{gap_nth}") }));
                         gap_nth += 1;
                     }
                 }
@@ -150,7 +144,7 @@ fn reading(c: &mut Criterion) {
         .build()
         .expect("Failed to create an asynchronous runtime");
 
-    let room_id = room_id!("!foo:bar.baz");
+    let room_id = room_id!("!fabricandofitfaber:bar.baz");
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
@@ -178,12 +172,7 @@ fn reading(c: &mut Criterion) {
             // Store some events and gap chunks in the store.
             {
                 let mut events = (0..num_events)
-                    .map(|nth| {
-                        event_factory
-                            .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
-                            .into_event()
-                    })
+                    .map(|nth| event_factory.text_msg(format!("foo {nth}")).into_event())
                     .peekable();
 
                 let mut lc =
@@ -198,7 +187,7 @@ fn reading(c: &mut Criterion) {
                     }
 
                     lc.push_items_back(events_chunk);
-                    lc.push_gap_back(Gap { prev_token: format!("gap{num_gaps}") });
+                    lc.push_gap_back(Gap { token: format!("gap{num_gaps}") });
 
                     num_gaps += 1;
                 }

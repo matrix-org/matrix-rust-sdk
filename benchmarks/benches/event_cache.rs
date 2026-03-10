@@ -9,9 +9,9 @@ use matrix_sdk::{
     test_utils::client::MockClientBuilder,
 };
 use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
-use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, base64_sha256_hash, event_factory::EventFactory};
 use ruma::{
-    EventId, RoomId, event_id,
+    OwnedRoomId, RoomId,
     events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
     room_id,
 };
@@ -40,14 +40,21 @@ fn handle_room_updates(c: &mut Criterion) {
         let mut changes = matrix_sdk::StateChanges::default();
 
         for i in 0..num_rooms {
-            let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap();
+            // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+            let raw_room_id = format!("!firstbatchroom{i:04}:example.com");
+
+            let room_id = if i % 10 == 9 {
+                // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash similar to an
+                // event ID.
+                RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
+            } else {
+                OwnedRoomId::try_from(raw_room_id).unwrap()
+            };
             let event_factory = EventFactory::new().room(&room_id).sender(&ALICE);
 
             let mut joined_room_update = JoinedRoomUpdate::default();
             for j in 0..NUM_EVENTS {
-                let event_id = EventId::parse(format!("$ev{i}_{j}")).unwrap();
-                let event =
-                    event_factory.text_msg(format!("Message {j}")).event_id(&event_id).into();
+                let event = event_factory.text_msg(format!("Message {j}")).into();
                 joined_room_update.timeline.events.push(event);
             }
             room_updates.joined.insert(room_id.clone(), joined_room_update);
@@ -173,8 +180,10 @@ fn find_event_relations(c: &mut Criterion) {
     let mut group = c.benchmark_group("Event cache room updates");
     group.sample_size(10);
 
-    let room_id = room_id!("!room:ben.ch");
-    let other_room_id = room_id!("!other-room:ben.ch");
+    // Room v1-v11 ID.
+    let room_id = room_id!("!initialtestingroom:ben.ch");
+    // Room v12 ID.
+    let other_room_id = room_id!("!ICMDdumUm6RRX_eWYY2wMb2w0CY0Z_5OvlY2gBR6ELc");
 
     // Make the state store aware of the room, so that `client.get_room()` works
     // with it.
@@ -196,43 +205,37 @@ fn find_event_relations(c: &mut Criterion) {
         let mut joined_room_update = JoinedRoomUpdate::default();
 
         // Add the target event.
-        let target_event_id = event_id!("$target");
-        let target_event =
-            event_factory.text_msg("hello world").event_id(target_event_id).into_event();
+        let target_event = event_factory.text_msg("hello world").into_event();
+        let target_event_id =
+            { &target_event.event_id().expect("generated event has an event ID") };
         joined_room_update.timeline.events.push(target_event);
 
         // Add the numerous edits.
         for i in 0..num_related_events {
-            let event_id = EventId::parse(format!("$edit{i}")).unwrap();
             let event = event_factory
                 .text_msg(format!("* edit {i}"))
                 .edit(
                     target_event_id,
                     RoomMessageEventContentWithoutRelation::text_plain(format!("edit {i}")),
                 )
-                .event_id(&event_id)
                 .into();
             joined_room_update.timeline.events.push(event);
         }
 
         // Add other events, in the same room, without a relation.
         for i in 0..NUM_OTHER_EVENTS {
-            let event_id = EventId::parse(format!("$msg{i}")).unwrap();
-            let event =
-                event_factory.text_msg(format!("unrelated message {i}")).event_id(&event_id).into();
+            let event = event_factory.text_msg(format!("unrelated message {i}")).into();
             joined_room_update.timeline.events.push(event);
         }
 
         // Add other events, in the same room, related to other events.
-        let other_target_event_id = event_id!("$other_target");
-        let other_target_event =
-            event_factory.text_msg("hello world").event_id(other_target_event_id).into_event();
+        let other_target_event = event_factory.text_msg("hello world").into_event();
+        let other_target_event_id =
+            other_target_event.event_id().expect("generated event has an event ID");
         joined_room_update.timeline.events.push(other_target_event);
 
-        for i in 0..NUM_OTHER_EVENTS {
-            let event_id = EventId::parse(format!("$unrelated{i}")).unwrap();
-            let event =
-                event_factory.reaction(other_target_event_id, "👍").event_id(&event_id).into();
+        for _i in 0..NUM_OTHER_EVENTS {
+            let event = event_factory.reaction(&other_target_event_id, "👍").into();
             joined_room_update.timeline.events.push(event);
         }
 
@@ -242,8 +245,7 @@ fn find_event_relations(c: &mut Criterion) {
         let mut other_joined_room_update = JoinedRoomUpdate::default();
         let event_factory = event_factory.room(other_room_id);
         for i in 0..NUM_OTHER_EVENTS {
-            let event_id = EventId::parse(format!("$other_room{i}")).unwrap();
-            let event = event_factory.text_msg(format!("hi {i}")).event_id(&event_id).into();
+            let event = event_factory.text_msg(format!("hi {i}")).into();
             other_joined_room_update.timeline.events.push(event);
         }
         room_updates.joined.insert(other_room_id.to_owned(), other_joined_room_update);
@@ -324,7 +326,7 @@ fn find_event_relations(c: &mut Criterion) {
                                     .await
                                     .unwrap()
                                     .unwrap();
-                                assert_eq!(target.event_id().as_deref().unwrap(), target_event_id);
+                                assert_eq!(target.event_id().unwrap(), *target_event_id);
                                 assert_eq!(relations.len(), num_related_events as usize);
                             },
                             criterion::BatchSize::PerIteration,

@@ -8,7 +8,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
-use ruma::{RoomId, owned_device_id, owned_user_id};
+use matrix_sdk_test::base64_sha256_hash;
+use ruma::{OwnedRoomId, RoomId, owned_device_id, owned_user_id};
 use tokio::runtime::Builder;
 
 /// Number of joined rooms in the benchmark.
@@ -24,12 +25,30 @@ pub fn restore_session(c: &mut Criterion) {
     let mut changes = StateChanges::default();
 
     for i in 0..NUM_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap();
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        let raw_room_id = format!("!joinedchamber{i:05}:example.com");
+
+        let room_id = if i % 20 == 19 {
+            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash similar to an
+            // event ID.
+            RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
+        } else {
+            OwnedRoomId::try_from(raw_room_id).unwrap()
+        };
         changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
     }
 
     for i in 0..NUM_STRIPPED_JOINED_ROOMS {
-        let room_id = RoomId::parse(format!("!strippedroom{i}:example.com")).unwrap();
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        let raw_room_id = format!("!strippedlodge{i:05}:example.com");
+
+        let room_id = if i % 20 == 19 {
+            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash similar to an
+            // event ID.
+            RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
+        } else {
+            OwnedRoomId::try_from(raw_room_id).unwrap()
+        };
         changes.add_room(RoomInfo::new(&room_id, RoomState::Invited));
     }
 

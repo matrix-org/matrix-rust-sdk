@@ -167,10 +167,10 @@ async fn test_generate_one_time_keys() {
 
     machine
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let account = tr.account().await.unwrap();
             assert!(account.generate_one_time_keys_if_needed().is_some());
-            Ok((tr, ()))
+            Ok(())
         })
         .await
         .unwrap();
@@ -181,10 +181,10 @@ async fn test_generate_one_time_keys() {
 
     machine
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let account = tr.account().await.unwrap();
             assert!(account.generate_one_time_keys_if_needed().is_some());
-            Ok((tr, ()))
+            Ok(())
         })
         .await
         .unwrap();
@@ -195,11 +195,11 @@ async fn test_generate_one_time_keys() {
 
     machine
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let account = tr.account().await.unwrap();
             assert!(account.generate_one_time_keys_if_needed().is_none());
 
-            Ok((tr, ()))
+            Ok(())
         })
         .await
         .unwrap();
@@ -657,16 +657,11 @@ async fn test_megolm_encryption() {
 
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -768,16 +763,11 @@ async fn megolm_encryption_setup_helper(room_id: &RoomId) -> (OlmMachine, OlmMac
 
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -1314,16 +1304,11 @@ async fn test_query_ratcheted_key() {
 
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -1413,16 +1398,11 @@ async fn test_room_key_over_megolm() {
 
     let decrypt_result = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await;
 
@@ -1729,16 +1709,16 @@ async fn test_unsigned_decryption() {
     // Save the first room key.
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
                 .decrypt_to_device_event(
-                    &mut tr,
+                    tr,
                     &first_room_key_event,
                     &mut Changes::default(),
                     &decryption_settings,
                 )
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -1848,16 +1828,16 @@ async fn test_unsigned_decryption() {
     // Give Bob the second room key.
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
                 .decrypt_to_device_event(
-                    &mut tr,
+                    tr,
                     &second_room_key_event,
                     &mut Changes::default(),
                     &decryption_settings,
                 )
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -1971,16 +1951,16 @@ async fn test_unsigned_decryption() {
     // Give Bob the third room key.
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
                 .decrypt_to_device_event(
-                    &mut tr,
+                    tr,
                     &third_room_key_event,
                     &mut Changes::default(),
                     &decryption_settings,
                 )
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()

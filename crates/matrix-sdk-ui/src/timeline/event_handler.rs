@@ -26,8 +26,9 @@ use ruma::{
     TransactionId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, FullStateEventContent, MessageLikeEventContent, MessageLikeEventType,
-        StateEventType, SyncStateEvent,
+        AnySyncTimelineEvent, MessageLikeEventContent, MessageLikeEventType,
+        StateEventContentChange, StateEventType, SyncStateEvent,
+        beacon_info::BeaconInfoEventContent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
         },
@@ -42,23 +43,25 @@ use ruma::{
 use tracing::{debug, error, field::debug, instrument, trace, warn};
 
 use super::{
-    EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent,
-    MsgLikeKind, OtherState, ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    BeaconInfo, EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails,
+    LiveLocationState, MsgLikeContent, MsgLikeKind, OtherState, ReactionStatus, Sticker,
+    ThreadSummary, TimelineDetails, TimelineItem, TimelineItemContent,
     controller::{
         Aggregation, AggregationKind, ObservableItemsTransaction, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction, find_item_and_apply_aggregation,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
-        AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
+        AnyOtherStateEventContentChange, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
 };
 use crate::{
-    timeline::{controller::aggregations::PendingEdit, event_item::OtherMessageLike},
+    timeline::{
+        TimelineUniqueId, controller::aggregations::PendingEdit, event_item::OtherMessageLike,
+    },
     unable_to_decrypt_hook::UtdHookManager,
 };
 
@@ -153,6 +156,16 @@ pub(super) enum HandleAggregationKind {
 
     /// Ending a related poll.
     PollEnd,
+
+    /// A location update for a live location sharing session (MSC3489).
+    BeaconUpdate { location: BeaconInfo },
+
+    /// A stop event for a live location sharing session (MSC3489).
+    ///
+    /// Sent when the user stops sharing their location. Unlike [`BeaconUpdate`]
+    /// this does not carry a `relates_to` event ID; instead the target live
+    /// item is found by matching the sender.
+    BeaconStop { content: BeaconInfoEventContent },
 }
 
 impl HandleAggregationKind {
@@ -165,6 +178,8 @@ impl HandleAggregationKind {
             HandleAggregationKind::PollResponse { .. } => "a poll response",
             HandleAggregationKind::PollEdit { .. } => "a poll edit",
             HandleAggregationKind::PollEnd => "a poll end",
+            HandleAggregationKind::BeaconUpdate { .. } => "a beacon location update",
+            HandleAggregationKind::BeaconStop { .. } => "a beacon stop",
         }
     }
 }
@@ -289,7 +304,7 @@ impl TimelineAction {
                     SyncStateEvent::Original(ev) => {
                         Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
-                            FullStateEventContent::Original {
+                            StateEventContentChange::Original {
                                 content: ev.content,
                                 prev_content: ev.unsigned.prev_content,
                             },
@@ -299,14 +314,38 @@ impl TimelineAction {
                     SyncStateEvent::Redacted(ev) => {
                         Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
-                            FullStateEventContent::Redacted(ev.content),
+                            StateEventContentChange::Redacted(ev.content),
                             ev.sender,
                         ))
                     }
                 },
+                AnySyncStateEvent::BeaconInfo(ev) => match ev {
+                    SyncStateEvent::Original(ev) => {
+                        if ev.content.is_live() {
+                            Self::add_item(TimelineItemContent::LiveLocation(
+                                LiveLocationState::new(ev.content),
+                            ))
+                        } else {
+                            // A non-live beacon_info is a stop event: it should update the
+                            // existing live item from the same sender rather than creating a
+                            // new timeline item.
+                            Self::HandleAggregation {
+                                // There is no explicit relates_to on a beacon_info state event;
+                                // the target is identified by sender in handle_beacon_stop.
+                                related_event: ev.event_id,
+                                kind: HandleAggregationKind::BeaconStop { content: ev.content },
+                            }
+                        }
+                    }
+                    SyncStateEvent::Redacted(_) => {
+                        Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
+                    }
+                },
                 ev => Self::add_item(TimelineItemContent::OtherState(OtherState {
                     state_key: ev.state_key().to_owned(),
-                    content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                    content: AnyOtherStateEventContentChange::with_event_content(
+                        ev.content_change(),
+                    ),
                 })),
             },
         })
@@ -403,6 +442,17 @@ impl TimelineAction {
                     in_reply_to,
                     thread_summary,
                 ),
+            },
+
+            AnyMessageLikeEventContent::Beacon(content) => Self::HandleAggregation {
+                related_event: content.relates_to.event_id,
+                kind: HandleAggregationKind::BeaconUpdate {
+                    location: BeaconInfo {
+                        geo_uri: content.location.uri,
+                        ts: content.ts,
+                        description: content.location.description,
+                    },
+                },
             },
 
             event => {
@@ -522,6 +572,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
         timeline_action: TimelineAction,
+        recycled_timeline_id: Option<TimelineUniqueId>,
     ) -> bool {
         let span = tracing::Span::current();
 
@@ -548,7 +599,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         match timeline_action {
             TimelineAction::AddItem { content } => {
                 if self.ctx.should_add_new_items {
-                    self.add_item(content);
+                    self.add_item(content, recycled_timeline_id);
                     added_item = true;
                 }
             }
@@ -577,6 +628,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
                 HandleAggregationKind::PollEnd => {
                     self.handle_poll_end(related_event);
+                }
+                HandleAggregationKind::BeaconUpdate { location } => {
+                    self.handle_beacon_update(related_event, location);
+                }
+                HandleAggregationKind::BeaconStop { content } => {
+                    self.handle_beacon_stop(content);
                 }
             },
         }
@@ -695,6 +752,66 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
     }
 
+    /// Handle a stop `beacon_info` state event by finding the existing live
+    /// `LiveLocation` timeline item from the same sender and updating it via
+    /// the aggregation system.
+    #[instrument(skip(self, content))]
+    fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
+        let sender = &self.ctx.sender;
+
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::BeaconStop { content },
+        );
+
+        // The stop beacon_info has no explicit `relates_to`; find the target
+        // live item by matching sender and liveness, then extract its event ID
+        // so we can address the aggregation correctly.
+        let Some(target_event_id) = super::algorithms::rfind_event_item(self.items, |item| {
+            item.sender() == sender
+                && item.content().as_live_location_state().is_some_and(|s| s.is_live())
+        })
+        .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned)) else {
+            // The live start item hasn't arrived yet. Stash the stop so it can
+            // be applied when the start item is eventually inserted.
+            trace!(
+                "no live beacon_info item found for {sender}; \
+                 stashing stop event to apply when the start item arrives"
+            );
+            self.meta.aggregations.add_pending_beacon_stop(sender.clone(), aggregation);
+            return;
+        };
+
+        let target = TimelineEventItemId::EventId(target_event_id);
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version_rules,
+        );
+    }
+
+    /// Handle a location update from a beacon event aggregating onto the
+    /// related `beacon_info` state event's timeline item.
+    #[instrument(skip(self, location))]
+    fn handle_beacon_update(&mut self, beacon_info_event_id: OwnedEventId, location: BeaconInfo) {
+        let target = TimelineEventItemId::EventId(beacon_info_event_id);
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::BeaconUpdate { location },
+        );
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version_rules,
+        );
+    }
+
     /// Looks for the redacted event in all the timeline event items, and
     /// redacts it.
     ///
@@ -769,7 +886,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///    `all_remote_events`,
     /// 2. the lastly added or updated remote event must be associated to the
     ///    timeline item being added here.
-    fn add_item(&mut self, content: TimelineItemContent) {
+    fn add_item(
+        &mut self,
+        content: TimelineItemContent,
+        recycled_timeline_id: Option<TimelineUniqueId>,
+    ) {
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
 
@@ -838,6 +959,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut cowed = Cow::Owned(item);
         if let Err(err) = self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
+            &self.ctx.sender,
             &mut cowed,
             self.items,
             &self.meta.room_version_rules,
@@ -850,7 +972,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
-                let item = self.meta.new_timeline_item(item);
+                let item = self.meta.new_timeline_item_with_internal_id(item, recycled_timeline_id);
 
                 self.items.push_local(item);
             }
@@ -864,6 +986,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     item,
                     event_id,
                     txn_id.as_deref(),
+                    recycled_timeline_id,
                 );
 
                 trace!("Adding new remote timeline item at the start");
@@ -883,6 +1006,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     item,
                     event_id,
                     txn_id.as_deref(),
+                    recycled_timeline_id,
                 );
 
                 let all_remote_events = self.items.all_remote_events();
@@ -938,6 +1062,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     item,
                     event_id,
                     txn_id.as_deref(),
+                    recycled_timeline_id,
                 );
 
                 // Let's find the latest remote event and insert after it
@@ -1027,6 +1152,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut new_item: EventTimelineItem,
         event_id: &EventId,
         transaction_id: Option<&TransactionId>,
+        recycled_timeline_id: Option<TimelineUniqueId>,
     ) -> Arc<TimelineItem> {
         // Detect a local timeline item that matches `event_id` or `transaction_id`.
         if let Some((local_timeline_item_index, local_timeline_item)) = items
@@ -1064,7 +1190,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineItem::new(new_item, recycled.internal_id.clone())
         } else {
             // We haven't found a matching local item to recycle; create a new item.
-            meta.new_timeline_item(new_item)
+            meta.new_timeline_item_with_internal_id(new_item, recycled_timeline_id)
         }
     }
 

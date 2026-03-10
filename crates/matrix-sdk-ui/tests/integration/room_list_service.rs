@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -3024,11 +3024,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
     {
         // The first time, don't advertise support for MSC4306; the extension will NOT
         // enabled in this case, despite the client requesting it.
-        let features_map = BTreeMap::new();
-
         server
             .mock_versions()
-            .ok_custom(&["v1.11"], &features_map)
+            .ok()
             .named("/versions, first time")
             // This used to be a `mock_once()`, but we're not caching the versions in the
             // `RoomListService::new()` method anymore, so we're now doing a couple more requests
@@ -3123,11 +3121,10 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
 
     // Then, advertise support with support for MSC4306; the extension will be
     // enabled in this case.
-    let features_map = BTreeMap::from([("org.matrix.msc4306", true)]);
-
     server
         .mock_versions()
-        .ok_custom(&["v1.11"], &features_map)
+        .with_thread_subscriptions()
+        .ok()
         .named("/versions, second time")
         .up_to_n_times(2)
         .mount()

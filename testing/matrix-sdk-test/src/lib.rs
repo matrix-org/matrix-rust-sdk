@@ -5,8 +5,11 @@ pub use matrix_sdk_test_macros::async_test;
 use ruma::{
     RoomId, UserId,
     api::{IncomingResponse, OutgoingResponse},
-    room_id, user_id,
+    room_id,
+    serde::{Base64, base64::UrlSafe},
+    user_id,
 };
+use sha2::{Digest, Sha256};
 
 /// Create a `Raw<AnyMessageLikeEventContent>` from arbitrary JSON.
 ///
@@ -124,3 +127,12 @@ impl<T: fmt::Display + fmt::Debug> From<T> for TestError {
 }
 
 pub type TestResult = Result<(), TestError>;
+
+/// Compute the sha256 hash of the given bytes and convert it to unpadded
+/// URL-safe base64.
+///
+/// This matches the format of event IDs since room version 4, and of room IDs
+/// since room version 12.
+pub fn base64_sha256_hash(bytes: &[u8]) -> String {
+    Base64::<UrlSafe, _>::new(Sha256::digest(bytes)).encode()
+}

@@ -15,16 +15,12 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::{deserialized_responses::TimelineEventKind, linked_chunk::Position};
 use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
     serde_helpers::extract_relation,
     task_monitor::BackgroundTaskHandle,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::EventId;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
     events::{
@@ -38,16 +34,18 @@ use tracing::{debug, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
-use super::super::{
-    EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate, caches::lock,
-    persistence::send_updates_to_store, room::events::EventLinkedChunk,
+use super::{
+    super::{EventCacheError, EventsOrigin, Result, persistence::send_updates_to_store},
+    event_linked_chunk::EventLinkedChunk,
+    lock,
+    room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorDiffs,
     room::WeakRoom,
 };
 
-pub(in super::super) struct PinnedEventCacheState {
+pub(in super::super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
@@ -120,14 +118,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
             // empty), and return.
             if self.state.chunk.events().next().is_some() {
                 self.state.chunk.reset();
-
-                let diffs = self.state.chunk.updates_as_vector_diffs();
-                if !diffs.is_empty() {
-                    let _ = self
-                        .state
-                        .sender
-                        .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-                }
+                self.notify_subscribers(EventsOrigin::Sync);
             }
 
             return Ok(());
@@ -149,11 +140,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         self.state.chunk.store_updates().take();
 
         // Let observers know about it.
-        let diffs = self.state.chunk.updates_as_vector_diffs();
-        if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-        }
+        self.notify_subscribers(EventsOrigin::Sync);
 
         Ok(())
     }
@@ -176,13 +163,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
         self.state.chunk.push_live_events(None, &new_events);
         self.propagate_changes().await?;
-
-        let diffs = self.state.chunk.updates_as_vector_diffs();
-
-        if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-        }
+        self.notify_subscribers(EventsOrigin::Sync);
 
         Ok(())
     }
@@ -200,30 +181,20 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         )
         .await
     }
+
+    /// Notify subscribers of timeline updates.
+    fn notify_subscribers(&mut self, origin: EventsOrigin) {
+        let diffs = self.state.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.state.sender.send(TimelineVectorDiffs { diffs, origin });
+        }
+    }
 }
 
 impl PinnedEventCacheState {
     /// Return a list of the current event IDs in this linked chunk.
     fn current_event_ids(&self) -> Vec<OwnedEventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
-    }
-
-    /// Find an event in the linked chunk by its event ID, and return its
-    /// location.
-    ///
-    /// Note: the in-memory content is always the same as the one in the store,
-    /// since the store is updated synchronously with changes in the linked
-    /// chunk, so we can afford to only look for the event in the memory
-    /// linked chunk.
-    #[cfg(feature = "e2e-encryption")]
-    fn find_event(&self, event_id: &EventId) -> Option<(Position, Event)> {
-        for (position, event) in self.chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Some((position, event.clone()));
-            }
-        }
-
-        None
     }
 }
 
@@ -238,7 +209,7 @@ pub struct PinnedEventCache {
 
 impl PinnedEventCache {
     /// Creates a new [`PinnedEventCache`] for the given room.
-    pub(super) fn new(
+    pub(in super::super) fn new(
         room: Room,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
@@ -283,45 +254,9 @@ impl PinnedEventCache {
     pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
         let mut guard = self.state.write().await?;
 
-        let pinned_events_set =
-            guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
-
-        let mut replaced_some = false;
-
-        for (event_id, decrypted, actions) in events {
-            // As a performance optimization, do a lookup in the current pinned events
-            // check, before looking for the event in the linked chunk.
-
-            if !pinned_events_set.contains(event_id) {
-                continue;
-            }
-
-            // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = guard.state.find_event(event_id) else {
-                continue;
-            };
-
-            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
-
-            if let Some(actions) = actions {
-                target_event.set_push_actions(actions.clone());
-            }
-
-            guard
-                .state
-                .chunk
-                .replace_event_at(position, target_event.clone())
-                .expect("position should be valid");
-
-            replaced_some = true;
-        }
-
-        if replaced_some {
+        if guard.state.chunk.replace_utds(events) {
             guard.propagate_changes().await?;
-
-            let diffs = guard.state.chunk.updates_as_vector_diffs();
-            let _ =
-                guard.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            guard.notify_subscribers(EventsOrigin::Cache);
         }
 
         Ok(())
@@ -367,7 +302,7 @@ impl PinnedEventCache {
 
     /// Check if any of the given events relate to an event in the pinned events
     /// linked chunk, and append it, in this case.
-    pub(super) async fn maybe_add_live_related_events(
+    pub(in super::super) async fn maybe_add_live_related_events(
         &mut self,
         events: &[Event],
         room_redaction_rules: &RedactionRules,
@@ -412,14 +347,7 @@ impl PinnedEventCache {
             guard.state.chunk.push_live_events(None, &new_relations);
 
             guard.propagate_changes().await?;
-
-            let diffs = guard.state.chunk.updates_as_vector_diffs();
-            if !diffs.is_empty() {
-                let _ = guard
-                    .state
-                    .sender
-                    .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
-            }
+            guard.notify_subscribers(EventsOrigin::Sync);
         }
 
         Ok(())

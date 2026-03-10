@@ -20,7 +20,7 @@ use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
     events::{
-        FullStateEventContent, reaction::RedactedReactionEventContent,
+        StateEventContentChange, reaction::RedactedReactionEventContent,
         room::message::OriginalSyncRoomMessageEvent,
     },
 };
@@ -28,7 +28,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
-    AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent,
+    AnyOtherStateEventContentChange, TimelineDetails, TimelineItemContent,
     event_item::RemoteEventOrigin,
 };
 
@@ -45,7 +45,7 @@ async fn test_redact_state_event() {
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
     assert_matches!(
         state.content,
-        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Original { .. })
+        AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original { .. })
     );
 
     timeline.handle_live_event(f.redaction(item.event_id().unwrap()).sender(&ALICE)).await;
@@ -54,7 +54,7 @@ async fn test_redact_state_event() {
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
     assert_matches!(
         state.content,
-        AnyOtherFullStateEventContent::RoomName(FullStateEventContent::Redacted(_))
+        AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Redacted(_))
     );
 }
 

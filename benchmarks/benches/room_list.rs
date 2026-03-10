@@ -2,12 +2,12 @@ use assert_matches::assert_matches;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures_util::pin_mut;
 use matrix_sdk::{stream::StreamExt, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::EventFactory};
 use matrix_sdk_ui::{
     RoomListService, eyeball_im::VectorDiff, room_list_service::filters::new_filter_non_left,
 };
 use rand::{distributions::Uniform, prelude::Distribution};
-use ruma::{EventId, RoomId, owned_user_id};
+use ruma::{OwnedRoomId, RoomId, owned_user_id};
 use tokio::runtime::Builder;
 
 /// Benchmark the time it takes to create a room list.
@@ -30,15 +30,26 @@ pub fn create(c: &mut Criterion) {
     let server_ts_range = Uniform::from(100..1000);
 
     for room_nth in 0..NUMBER_OF_ROOMS {
-        let room_id = RoomId::parse(format!("!r{room_nth}")).unwrap();
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        let raw_room_id = format!("!arsgratiaartis{room_nth:04}:example.com");
+
+        let room_id = if room_nth % 10 == 9 {
+            // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash similar to an
+            // event ID.
+            RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
+        } else {
+            OwnedRoomId::try_from(raw_room_id).unwrap()
+        };
+
         let first_server_ts = server_ts_range.sample(&mut rand);
         let event_factory = EventFactory::new().room(&room_id).server_ts(first_server_ts);
 
         let events = (0..NUMBER_OF_EVENTS_PER_ROOM)
             .map(|event_nth| {
-                let event_id = EventId::parse(format!("$ev{room_nth}_{event_nth}")).unwrap();
-
-                event_factory.text_msg("a").sender(&sender_id).event_id(&event_id).into_raw_sync()
+                event_factory
+                    .text_msg(format!("a {room_nth}_{event_nth}"))
+                    .sender(&sender_id)
+                    .into_raw_sync()
             })
             .collect::<Vec<_>>();
 

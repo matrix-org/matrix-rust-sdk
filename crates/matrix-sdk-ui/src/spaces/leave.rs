@@ -89,7 +89,7 @@ impl LeaveSpaceHandle {
                     }
                 })
                 .map(|p: (ruma::OwnedUserId, i64)| p.0)
-                .chain(privileged_creator_ids.into_iter());
+                .chain(privileged_creator_ids);
 
             let mut joined_owner_ids = Vec::new();
             for owner_id in owner_ids {

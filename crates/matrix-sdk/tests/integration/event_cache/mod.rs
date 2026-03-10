@@ -1737,7 +1737,7 @@ async fn test_lazy_loading() {
                         previous: Some(ChunkIdentifier::new(0)),
                         new: ChunkIdentifier::new(1),
                         next: None,
-                        gap: Gap { prev_token: "raclette".to_owned() },
+                        gap: Gap { token: "raclette".to_owned() },
                     },
                     // chunk #3
                     Update::NewItemsChunk {
