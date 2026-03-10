@@ -129,7 +129,7 @@ enum FeatureSet {
     NoEncryptionAndSqlite,
     SqliteCryptostore,
     ExperimentalEncryptedStateEvents,
-    RustlsTls,
+    NativeTls,
     Markdown,
     Socks,
     SsoLogin,
@@ -262,7 +262,7 @@ fn check_clippy() -> Result<()> {
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features native-tls,sso-login,sqlite,testing,experimental-element-recent-emojis
+            --features rustls-tls,sso-login,sqlite,testing,experimental-element-recent-emojis
             -- -D warnings"
     )
     .run()?;
@@ -283,21 +283,21 @@ fn check_docs() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sqlite,native-tls,testing"),
+        (FeatureSet::NoEncryption, "--no-default-features --features sqlite,rustls-tls,testing"),
         (
             FeatureSet::NoSqlite,
-            "--no-default-features --features e2e-encryption,native-tls,testing",
+            "--no-default-features --features e2e-encryption,rustls-tls,testing",
         ),
-        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features native-tls,testing"),
+        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features rustls-tls,testing"),
         (
             FeatureSet::SqliteCryptostore,
-            "--no-default-features --features e2e-encryption,sqlite,native-tls,testing",
+            "--no-default-features --features e2e-encryption,sqlite,rustls-tls,testing",
         ),
         (
             FeatureSet::ExperimentalEncryptedStateEvents,
-            "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,native-tls,testing",
+            "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,rustls-tls,testing",
         ),
-        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls,testing"),
+        (FeatureSet::NativeTls, "--no-default-features --features native-tls,testing"),
         (FeatureSet::Markdown, "--features markdown,testing"),
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
