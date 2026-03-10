@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
     iter,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
 };
@@ -40,9 +40,12 @@ use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
-        store::types::{RoomKeyBundleInfo, RoomKeyInfo},
+        store::{
+            SecretImportError,
+            types::{RoomKeyBundleInfo, RoomKeyInfo},
+        },
         types::{
-            SignedKey,
+            SecretsBundle, SignedKey,
             requests::{
                 OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
             },
@@ -104,8 +107,8 @@ pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
     CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
-    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SessionCreationError,
+    SignatureError, VERSION,
     olm::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
@@ -117,6 +120,67 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
+
+/// Error type describinfg failures that can happen while exporting a
+/// [`SecretsBundle`] from a SQLite store.
+#[cfg(feature = "sqlite")]
+#[derive(Debug, thiserror::Error)]
+pub enum BundleExportError {
+    /// The SQLite store couldn't be opened.
+    #[error(transparent)]
+    OpenStoreError(#[from] matrix_sdk_sqlite::OpenStoreError),
+    /// Data from the SQLite store coulnd't be exported.
+    #[error(transparent)]
+    StoreError(#[from] CryptoStoreError),
+    /// The store doesn't contain a secrets bundle or it couldn't be read from
+    /// the store.
+    #[error(transparent)]
+    SecretExport(#[from] matrix_sdk_base::crypto::store::SecretsBundleExportError),
+}
+
+/// Error type describinfg failures that can happen while importing a
+/// [`SecretsBundle`].
+#[derive(Debug, thiserror::Error)]
+pub enum BundleImportError {
+    /// The bundle coulnd't be imported.
+    #[error(transparent)]
+    SecretImport(#[from] SecretImportError),
+    /// The cross-signed device keys coulnd't been uploaded.
+    #[error(transparent)]
+    DeviceKeys(#[from] Error),
+}
+
+/// Attempt to export a [`SecretsBundle`] from a crypto store.
+///
+/// This method can be used to retrieve a [`SecretsBundle`] from an existing
+/// `matrix-sdk`-based client in order to import the [`SecretsBundle`] in
+/// another [`Client`] instance.
+///
+/// This can be useful for migration purposes or to allow existing client
+/// instances create new ones that will be fully verified.
+#[cfg(feature = "sqlite")]
+pub async fn export_secrets_bundle_from_store(
+    database_path: impl AsRef<Path>,
+    passphrase: Option<&str>,
+) -> std::result::Result<Option<(OwnedUserId, SecretsBundle)>, BundleExportError> {
+    use matrix_sdk_base::crypto::store::CryptoStore;
+
+    let store = matrix_sdk_sqlite::SqliteCryptoStore::open(database_path, passphrase).await?;
+    let account =
+        store.load_account().await.map_err(|e| BundleExportError::StoreError(e.into()))?;
+
+    if let Some(account) = account {
+        let machine = OlmMachine::with_store(&account.user_id, &account.device_id, store, None)
+            .await
+            .map_err(BundleExportError::StoreError)?;
+
+        let bundle = machine.store().export_secrets_bundle().await?;
+
+        Ok(Some((account.user_id.to_owned(), bundle)))
+    } else {
+        Ok(None)
+    }
+}
 
 /// All the data related to the encryption state.
 pub(crate) struct EncryptionData {
@@ -834,9 +898,35 @@ impl Encryption {
         }
     }
 
+    /// This method will import all the private cross-signing keys and, if
+    /// available, the private part of a backup key and its accompanying
+    /// version into the store.
+    ///
+    /// Importing all the secrets will mark the device as verified and enable
+    /// backups if a backup key was available in the bundle.
+    ///
+    /// **Warning**: Only import this from a trusted source, i.e. if an existing
+    /// device is sharing this with a new device.
+    ///
+    /// **Warning*: Only call this method before right after logging in and
+    /// before the initial sync has been started.
     pub async fn import_secrets_bundle(
         &self,
-        bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
+        bundle: &SecretsBundle,
+    ) -> Result<(), BundleImportError> {
+        self.import_secrets_bundle_impl(bundle).await?;
+
+        // Upload the device keys, this will ensure that other devices see us as a fully
+        // verified device as soon as this method returns.
+        self.ensure_device_keys_upload().await?;
+        self.wait_for_e2ee_initialization_tasks().await;
+
+        Ok(())
+    }
+
+    pub(crate) async fn import_secrets_bundle_impl(
+        &self,
+        bundle: &SecretsBundle,
     ) -> Result<(), SecretImportError> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine =
@@ -1898,7 +1988,7 @@ impl Encryption {
     /// **Warning**: Do not use this method if we're already calling
     /// [`Client::send_outgoing_request()`]. This method is intended for
     /// explicitly uploading the device keys before starting a sync.
-    pub async fn ensure_device_keys_upload(&self) -> Result<()> {
+    pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
