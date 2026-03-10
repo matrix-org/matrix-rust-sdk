@@ -119,7 +119,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use matrix_sdk_base::read_receipts::{LatestReadReceipt, RoomReadReceipts};
+use matrix_sdk_base::{
+    read_receipts::{LatestReadReceipt, RoomReadReceipts},
+    serde_helpers::extract_relation,
+};
 use matrix_sdk_common::{
     deserialized_responses::TimelineEvent, ring_buffer::RingBuffer,
     serde_helpers::extract_thread_root,
@@ -127,11 +130,9 @@ use matrix_sdk_common::{
 use ruma::{
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
-        SyncMessageLikeEvent,
-        poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
+        AnySyncTimelineEvent, MessageLikeEventType,
         receipt::{ReceiptEventContent, ReceiptThread, ReceiptType},
-        room::message::Relation,
+        relation::RelationType,
     },
     serde::Raw,
 };
@@ -536,94 +537,57 @@ pub(crate) fn compute_unread_counts(
 
 /// Is the event worth marking a room as unread?
 fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
-    let event = match event.deserialize() {
-        Ok(event) => event,
-        Err(err) => {
-            warn!(
-                "couldn't deserialize event {:?}: {err}",
-                event.get_field::<String>("event_id").ok().flatten()
-            );
-            return false;
-        }
-    };
-
-    if event.sender() == user_id {
-        // Not interested in one's own events.
+    // Parse the sender from the raw event.
+    if event.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() == Some(user_id) {
+        tracing::trace!("not interesting because sent by the current user");
         return false;
     }
 
-    match event {
-        AnySyncTimelineEvent::MessageLike(event) => {
-            // Filter out redactions.
-            let Some(content) = event.original_content() else {
-                tracing::trace!("not interesting because redacted");
-                return false;
-            };
+    let Some(event_type) = event.get_field::<MessageLikeEventType>("type").ok().flatten() else {
+        tracing::trace!(
+            "failed to parse event type for event with id {:?}, skipping it",
+            event.get_field::<OwnedEventId>("event_id").ok().flatten()
+        );
+        return false;
+    };
 
-            // Filter out edits.
-            if matches!(
-                content.relation(),
-                Some(ruma::events::room::encrypted::Relation::Replacement(..))
-            ) {
-                tracing::trace!("not interesting because edited");
-                return false;
-            }
+    match event_type {
+        MessageLikeEventType::Message
+        | MessageLikeEventType::PollStart
+        | MessageLikeEventType::UnstablePollStart
+        | MessageLikeEventType::PollEnd
+        | MessageLikeEventType::UnstablePollEnd
+        | MessageLikeEventType::RoomEncrypted
+        | MessageLikeEventType::RoomMessage
+        | MessageLikeEventType::Sticker => {}
 
-            match event {
-                AnySyncMessageLikeEvent::CallAnswer(_)
-                | AnySyncMessageLikeEvent::CallInvite(_)
-                | AnySyncMessageLikeEvent::RtcNotification(_)
-                | AnySyncMessageLikeEvent::CallHangup(_)
-                | AnySyncMessageLikeEvent::CallCandidates(_)
-                | AnySyncMessageLikeEvent::CallNegotiate(_)
-                | AnySyncMessageLikeEvent::CallReject(_)
-                | AnySyncMessageLikeEvent::CallSelectAnswer(_)
-                | AnySyncMessageLikeEvent::PollResponse(_)
-                | AnySyncMessageLikeEvent::UnstablePollResponse(_)
-                | AnySyncMessageLikeEvent::Reaction(_)
-                | AnySyncMessageLikeEvent::RoomRedaction(_)
-                | AnySyncMessageLikeEvent::KeyVerificationStart(_)
-                | AnySyncMessageLikeEvent::KeyVerificationReady(_)
-                | AnySyncMessageLikeEvent::KeyVerificationCancel(_)
-                | AnySyncMessageLikeEvent::KeyVerificationAccept(_)
-                | AnySyncMessageLikeEvent::KeyVerificationDone(_)
-                | AnySyncMessageLikeEvent::KeyVerificationMac(_)
-                | AnySyncMessageLikeEvent::KeyVerificationKey(_) => false,
-
-                // For some reason, Ruma doesn't handle these two in `content.relation()` above.
-                AnySyncMessageLikeEvent::PollStart(SyncMessageLikeEvent::Original(
-                    OriginalSyncMessageLikeEvent {
-                        content:
-                            PollStartEventContent { relates_to: Some(Relation::Replacement(_)), .. },
-                        ..
-                    },
-                ))
-                | AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(
-                    OriginalSyncMessageLikeEvent {
-                        content: UnstablePollStartEventContent::Replacement(_),
-                        ..
-                    },
-                )) => false,
-
-                AnySyncMessageLikeEvent::Message(_)
-                | AnySyncMessageLikeEvent::PollStart(_)
-                | AnySyncMessageLikeEvent::UnstablePollStart(_)
-                | AnySyncMessageLikeEvent::PollEnd(_)
-                | AnySyncMessageLikeEvent::UnstablePollEnd(_)
-                | AnySyncMessageLikeEvent::RoomEncrypted(_)
-                | AnySyncMessageLikeEvent::RoomMessage(_)
-                | AnySyncMessageLikeEvent::Sticker(_) => true,
-
-                _ => {
-                    // What I don't know about, I don't care about.
-                    warn!("unhandled timeline event type: {}", event.event_type());
-                    false
-                }
-            }
+        _ => {
+            tracing::trace!("not interesting because not an interesting message-like");
+            return false;
         }
-
-        AnySyncTimelineEvent::State(_) => false,
     }
+
+    // Filter out edits.
+    if let Some((RelationType::Replacement, _)) = extract_relation(event) {
+        tracing::trace!("not interesting because edited");
+        return false;
+    }
+
+    // Filter out redacted events.
+    #[derive(serde::Deserialize)]
+    struct UnsignedContent {
+        redacted_because: Option<Raw<AnySyncTimelineEvent>>,
+    }
+
+    // Filter out redactions.
+    if let Ok(Some(UnsignedContent { redacted_because: Some(_redaction) })) =
+        event.get_field::<UnsignedContent>("unsigned")
+    {
+        tracing::trace!("not interesting because redacted");
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]
