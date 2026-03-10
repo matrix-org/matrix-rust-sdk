@@ -492,9 +492,17 @@ pub struct TracingConfiguration {
     /// If set, configures rotated log files where to write additional logs.
     write_to_files: Option<TracingFileConfiguration>,
 
-    /// If set, the Sentry DSN to use for error reporting.
+    /// If set, the Sentry configuration to use for error reporting.
     #[cfg(feature = "sentry")]
-    sentry_dsn: Option<String>,
+    sentry_config: Option<SentryConfig>,
+}
+
+#[cfg(feature = "sentry")]
+#[derive(uniffi::Record)]
+pub struct SentryConfig {
+    dsn: String,
+    app_version: String,
+    app_platform: String,
 }
 
 impl TracingConfiguration {
@@ -515,10 +523,10 @@ impl TracingConfiguration {
         {
             // Prepare the Sentry layer, if a DSN is provided.
             let (sentry_layer, sentry_logging_ctx) =
-                if let Some(sentry_dsn) = self.sentry_dsn.take() {
+                if let Some(sentry_config) = self.sentry_config.take() {
                     // Initialize the Sentry client with the given options.
                     let sentry_guard = sentry::init((
-                        sentry_dsn,
+                        sentry_config.dsn,
                         sentry::ClientOptions {
                             traces_sampler: Some(Arc::new(|ctx| {
                                 // Make sure bridge spans are always uploaded
@@ -533,6 +541,11 @@ impl TracingConfiguration {
                             ..sentry::ClientOptions::default()
                         },
                     ));
+
+                    sentry::configure_scope(|scope| {
+                        scope.set_tag("app_version", sentry_config.app_version);
+                        scope.set_tag("app_platform", sentry_config.app_platform);
+                    });
 
                     let sentry_enabled = Arc::new(AtomicBool::new(true));
 
@@ -776,7 +789,7 @@ mod tests {
             write_to_stdout_or_system: true,
             write_to_files: None,
             #[cfg(feature = "sentry")]
-            sentry_dsn: None,
+            sentry_config: None,
         };
 
         let filter = build_tracing_filter(&config);
@@ -822,7 +835,7 @@ mod tests {
             write_to_stdout_or_system: true,
             write_to_files: None,
             #[cfg(feature = "sentry")]
-            sentry_dsn: None,
+            sentry_config: None,
         };
 
         let filter = build_tracing_filter(&config);
@@ -869,7 +882,7 @@ mod tests {
             write_to_stdout_or_system: true,
             write_to_files: None,
             #[cfg(feature = "sentry")]
-            sentry_dsn: None,
+            sentry_config: None,
         };
 
         let filter = build_tracing_filter(&config);
