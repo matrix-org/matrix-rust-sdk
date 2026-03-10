@@ -524,4 +524,67 @@ mod tests {
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
         assert!(thread.is_falling_back);
     }
+
+    #[async_test]
+    async fn test_reply_without_add_mentions() {
+        let event_id = event_id!("$1");
+        let other_user_id = user_id!("@you:saucisse.bzh");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(other_user_id).into(),
+        );
+
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            own_user_id,
+            content,
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::No,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(reply_event.mentions.is_none());
+    }
+
+    #[async_test]
+    async fn test_reply_with_add_mentions() {
+        let event_id = event_id!("$1");
+        let other_user_id = user_id!("@you:saucisse.bzh");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(other_user_id).into(),
+        );
+
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            own_user_id,
+            content,
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::Yes,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(reply_event.mentions.is_some());
+        assert!(reply_event.mentions.unwrap().user_ids.contains(user_id!("@you:saucisse.bzh")));
+    }
 }
