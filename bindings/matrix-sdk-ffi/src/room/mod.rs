@@ -1132,7 +1132,7 @@ impl Room {
                     geo_uri: event.last_location.location.uri.clone().to_string(),
                     description: None,
                     zoom_level: None,
-                    asset: None,
+                    asset: event.beacon_info.as_ref().map(|b| b.asset.type_.clone()).into(),
                 };
 
                 let Some(beacon_info) = event.beacon_info else {
