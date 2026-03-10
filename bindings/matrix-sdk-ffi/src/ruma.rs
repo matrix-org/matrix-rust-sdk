@@ -472,11 +472,7 @@ impl TryFrom<RumaMessageType> for MessageType {
                         geo_uri: c.geo_uri,
                         description,
                         zoom_level: zoom_level.and_then(|z| z.get().try_into().ok()),
-                        asset: c.asset.and_then(|a| match a.type_ {
-                            RumaAssetType::Self_ => Some(AssetType::Sender),
-                            RumaAssetType::Pin => Some(AssetType::Pin),
-                            _ => None,
-                        }),
+                        asset: c.asset.map(|a| a.type_).into(),
                     },
                 }
             }
@@ -927,7 +923,7 @@ pub struct LocationContent {
     pub geo_uri: String,
     pub description: Option<String>,
     pub zoom_level: Option<u8>,
-    pub asset: Option<AssetType>,
+    pub asset: AssetType,
 }
 
 #[derive(Clone, uniffi::Enum)]
@@ -953,6 +949,15 @@ impl From<RumaAssetType> for AssetType {
             RumaAssetType::Self_ => Self::Sender,
             RumaAssetType::Pin => Self::Pin,
             _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<Option<RumaAssetType>> for AssetType {
+    fn from(value: Option<RumaAssetType>) -> Self {
+        match value {
+            None => Self::Sender,
+            Some(asset_type) => asset_type.into(),
         }
     }
 }
