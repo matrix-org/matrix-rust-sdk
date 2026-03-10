@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `room::reply::Event` has a new field `add_mentions` which is passed forward in
+  `room::reply::make_reply_event`.
+  ([#6270](https://github.com/matrix-org/matrix-rust-sdk/pull/6270))
 - Add `Recovery::recover_and_fix_backup` to automatically fix key storage backup if the
   private backup decryption key is missing, invalid or inconsistent with the public key.
   ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
