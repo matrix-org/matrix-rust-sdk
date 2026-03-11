@@ -21,7 +21,8 @@
 //! estimating unread and highlight counts.
 //!
 //! Instead, this module provides facilities to compute the number of unread
-//! messages, unread notifications and unread highlights in a room.
+//! messages, unread notifications (based on the push rules) and unread
+//! highlights in a room.
 //!
 //! Counting unread messages is performed by looking at the latest receipt of
 //! the current user, and inferring which events are following it, according to
@@ -29,7 +30,7 @@
 //!
 //! For notifications and highlights to be precisely accounted for, we also need
 //! to pay attention to the user's notification settings. Fortunately, this is
-//! also something we need to for notifications, so we can reuse this code.
+//! also something we need for notifications, so we can reuse this code.
 //!
 //! Of course, not all events are created equal, and some are less interesting
 //! than others, and shouldn't cause a room to be marked unread. This module's
@@ -43,10 +44,8 @@
 //!
 //! ### Preliminary context
 //!
-//! We do have an unbounded, in-memory cache for sync events, as part of sliding
-//! sync. It's reset as soon as we get a "limited" (gappy) sync for a room. Not
-//! as ideal as an on-disk timeline, but it's sufficient to do some interesting
-//! computations already.
+//! We reuse a room event cache's linked chunk, and iterate over the events that
+//! are stored in memory.
 //!
 //! ### How-to
 //!
@@ -56,14 +55,14 @@
 //! - new events came in.
 //!
 //! A read receipt is considered _active_ if it's been received from sync
-//! *and* it matches a known event in the in-memory sync events cache.
+//! *and* it matches a known event in the in-memory linked chunk.
 //!
 //! The *latest active* receipt is the one that's active, with the latest order
-//! (according to sync ordering, aka position in the sync cache).
+//! (according to the event cache ordering, aka its position in the linked
+//! chunk).
 //!
 //! The problem of keeping a precise read count is thus equivalent to finding
-//! the latest active receipt, and counting interesting events after it (in the
-//! sync ordering).
+//! the latest active receipt, and counting interesting events after it.
 //!
 //! When we get new events, we'll incorporate them into an inverse mapping of
 //! event id -> sync order (`event_id_to_pos`). This gives us a simple way to
@@ -72,6 +71,8 @@
 //! which compares the order of the current best active, to that of the new
 //! event, and records the better one, if applicable.
 //!
+//! TODO: we could reuse the event cache's `OrderTracker` instead.
+//!
 //! When we receive a new receipt event in
 //! `ReceiptSelector::handle_new_receipt`, if we find a {public|private}
 //! {main-threaded|unthreaded} receipt attached to an event, there are two
@@ -79,11 +80,9 @@
 //! - we knew the event, so we can immediately try to select it as a better
 //!   event with `try_select_later`,
 //! - or we don't, which may mean the receipt refers to a past event we lost
-//!   track of (because of a restart of the app — remember the cache is mostly
-//!   memory-only, and a few items on disk), or the receipt refers to a future
-//!   event. To cover for the latter possibility, we stash the receipt and mark
-//!   it as pending (we only keep a limited number of pending read receipts
-//!   using a `RingBuffer`).
+//!   track of, or the receipt refers to a future event. To cover for the latter
+//!   possibility, we stash the receipt and mark it as pending (we only keep a
+//!   limited number of pending read receipts using a `RingBuffer`).
 //!
 //! That means that when we receive new events, we'll check if their id matches
 //! one of the pending receipts in `handle_pending_receipts`; if so, we can
@@ -96,25 +95,10 @@
 //! starting from the event the better active receipt was referring to.
 //!
 //! If we *don't* have a better active receipt, that means that all the events
-//! received in that sync batch aren't referred to by a known read receipt,
-//! _and_ we didn't get a new better receipt that matched known events. In that
-//! case, we can just consider that all the events are new, and count them as
-//! such.
-//!
-//! ### Edge cases
-//!
-//! - `compute_unread_counts` is called after receiving a sliding sync response,
-//!   at a time where we haven't tried to "reconcile" the cached timeline items
-//!   with the new ones. The only kind of reconciliation we'd do anyways is
-//!   clearing the timeline if it was limited, which equates to having common
-//!   events ids in both sets. As a matter of fact, we have to manually handle
-//!   this edge case here. I hope that having an event database will help avoid
-//!   this kind of workaround here later.
-//! - In addition to that, and as noted in the timeline code, it seems that
-//!   sliding sync could return the same event multiple times in a sync
-//!   timeline, leading to incorrect results. We have to take that into account
-//!   by resetting the read counts *every* time we see an event that was the
-//!   target of the latest active read receipt.
+//! received in that batch aren't referred to by a known read receipt, _and_ we
+//! didn't get a new better receipt that matched known events. In that case, we
+//! can just consider that all the events are new, and count them as such.
+
 #![allow(dead_code)] // too many different build configurations, I give up
 
 use std::collections::{BTreeMap, BTreeSet};
