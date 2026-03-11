@@ -90,6 +90,8 @@ experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
 
+unstable-msc3814 = ["matrix-sdk-base/unstable-msc3814"]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }

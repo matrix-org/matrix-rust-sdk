@@ -1,5 +1,7 @@
 mod backups;
 mod cross_signing;
+#[cfg(feature = "unstable-msc3814")]
+mod dehydrated_devices;
 mod recovery;
 mod secret_storage;
 mod shared_history;
