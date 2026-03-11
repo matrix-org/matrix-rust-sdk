@@ -1085,8 +1085,8 @@ async fn assert_event_received(
     );
     assert_let!(MsgLikeContent { kind: MsgLikeKind::Message(message), .. } = msg_like_content);
     assert_eq!(
-        message.body(),
         expected_content,
+        message.body(),
         "The decrypted event should match the message Bob has sent"
     );
 
@@ -1094,10 +1094,13 @@ async fn assert_event_received(
 }
 
 /**
- * Assert that the given event is a UTD, with a withheld code of
- * "history_not_shared", and an appropriate UtdCause.
+ * Assert that the given event is a UTD with a given withheld code.
  */
-async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) {
+async fn assert_utd_with_withheld_code(
+    timeline: &Timeline,
+    event_id: &EventId,
+    withheld_code: Option<WithheldCode>,
+) {
     let timeline_item = wait_for_timeline_event(timeline, event_id)
         .await
         .unwrap_or_else(|| panic!("Timeout waiting for Bob's withheld event {event_id} to arrive"));
@@ -1112,31 +1115,36 @@ async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) 
     assert_let!(EncryptedMessage::MegolmV1AesSha2 { cause, .. } = encrypted);
     // It should be reported in the UI as a regular "You don't have access to this
     // event".
-    assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
+    assert_eq!(UtdCause::SentBeforeWeJoined, *cause);
 
     // The timeline interface doesn't expose the raw withheld code, so call
     // `Room::event` to find it.
     let event =
         timeline.room().event(event_id, None).await.expect("Should receive Bob's withheld event");
     assert_let!(TimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind);
-    assert_eq!(
-        utd_info.reason,
-        MissingMegolmSession { withheld_code: Some(WithheldCode::HistoryNotShared) }
-    );
+    assert_eq!(MissingMegolmSession { withheld_code }, utd_info.reason,);
+}
+
+/**
+ * Assert that the given event is a UTD, with a withheld code of
+ * "history_not_shared", and an appropriate UtdCause.
+ */
+async fn assert_utd_history_not_shared(timeline: &Timeline, event_id: &EventId) {
+    assert_utd_with_withheld_code(timeline, event_id, Some(WithheldCode::HistoryNotShared)).await;
 }
 
 /// Asserts that the given `sync_response` contains exactly one to-device event
 /// and that the event is a decrypted room key bundle.
 fn assert_received_room_key_bundle(sync_response: matrix_sdk::sync::SyncResponse) {
-    assert_eq!(sync_response.to_device.len(), 1, "Expected exactly one to-device event");
+    assert_eq!(1, sync_response.to_device.len(), "Expected exactly one to-device event");
     let to_device_event = &sync_response.to_device[0];
     assert_let!(
         ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event,
         "Expected the to-device event to be decrypted"
     );
     assert_eq!(
-        raw.get_field::<String>("type").unwrap().unwrap(),
         "io.element.msc4268.room_key_bundle",
+        raw.get_field::<String>("type").unwrap().unwrap(),
         "Expected the event type to be 'io.element.msc4268.room_key_bundle'"
     );
 }
