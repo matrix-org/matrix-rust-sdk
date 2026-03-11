@@ -51,14 +51,12 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
     }
 
     // 0.b. We should only share room history if the *current* visibility allows it.
-    if room
-        .history_visibility()
-        .map(|visibility| {
-            matches!(visibility, HistoryVisibility::Joined | HistoryVisibility::Invited)
-        })
-        // Err on the side of caution if we can't find the event.
-        .unwrap_or(true)
-    {
+    //      Note: the specification states we should assume `shared` if no event
+    //      exists, see https://spec.matrix.org/v1.17/client-server-api/#server-behaviour-7.
+    if matches!(
+        room.history_visibility_or_default(),
+        HistoryVisibility::Joined | HistoryVisibility::Invited
+    ) {
         debug!("Not sharing message history as the room history visibility is currently unshared");
         return Ok(());
     }
