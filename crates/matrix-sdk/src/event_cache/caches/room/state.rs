@@ -729,6 +729,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
     async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
         let updates = self.state.room_linked_chunk.store_updates().take();
+
         self.send_updates_to_store(updates).await
     }
 
@@ -751,6 +752,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), EventCacheError> {
         let linked_chunk_id = OwnedLinkedChunkId::Room(self.state.room_id.clone());
+
         send_updates_to_store(
             &self.store,
             linked_chunk_id,
@@ -785,7 +787,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         //
         // Clear the threads.
         for thread in self.state.threads.values_mut() {
-            thread.clear();
+            thread.clear().await?;
         }
 
         self.propagate_changes().await?;
@@ -859,7 +861,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
             for (thread_root, thread) in self.state.threads.iter_mut() {
                 // Empty the thread's linked chunk.
-                thread.clear();
+                thread.clear().await?;
 
                 summaries_to_update.push(thread_root.clone());
             }
@@ -942,11 +944,11 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
     /// Subscribe to thread for a given root event, and get a (maybe empty)
     /// initially known list of events for that thread.
-    pub fn subscribe_to_thread(
+    pub async fn subscribe_to_thread(
         &mut self,
         root: OwnedEventId,
-    ) -> (Vec<Event>, Receiver<TimelineVectorDiffs>) {
-        self.get_or_reload_thread(root).subscribe()
+    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
+        self.get_or_reload_thread(root).subscribe().await
     }
 
     // --------------------------------------------
@@ -1100,14 +1102,18 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    pub fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
+    pub(in super::super) fn get_or_reload_thread(
+        &mut self,
+        root_event_id: OwnedEventId,
+    ) -> &mut ThreadEventCache {
         // TODO: when there's persistent storage, try to lazily reload from disk, if
         // missing from memory.
         let room_id = self.state.room_id.clone();
         let linked_chunk_update_sender = self.state.linked_chunk_update_sender.clone();
+        let store = self.state.store.clone();
 
         self.state.threads.entry(root_event_id.clone()).or_insert_with(|| {
-            ThreadEventCache::new(room_id, root_event_id, linked_chunk_update_sender)
+            ThreadEventCache::new(room_id, root_event_id, store, linked_chunk_update_sender)
         })
     }
 
@@ -1120,9 +1126,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         for (thread_root, new_events) in new_events_by_thread {
             let thread_cache = self.get_or_reload_thread(thread_root.clone());
 
-            thread_cache.add_live_events(new_events);
+            thread_cache.add_live_events(new_events).await?;
 
-            let mut latest_event_id = thread_cache.latest_event_id();
+            let mut latest_event_id = thread_cache.latest_event_id().await?;
 
             // If there's an edit to the latest event in the thread, use the latest edit
             // event id as the latest event id for the thread summary.
@@ -1310,11 +1316,12 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             if let Some(thread_root) = thread_root
                 && let Some(thread_cache) = self.state.threads.get_mut(&thread_root)
             {
-                thread_cache.remove_if_present(event_id);
+                thread_cache.remove_if_present(event_id).await?;
 
                 // The number of replies may have changed, so update the thread summary if
                 // needs be.
-                let latest_event_id = thread_cache.latest_event_id();
+                let latest_event_id = thread_cache.latest_event_id().await?;
+
                 self.maybe_update_thread_summary(
                     thread_root,
                     latest_event_id,

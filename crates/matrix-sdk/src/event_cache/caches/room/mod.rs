@@ -141,7 +141,8 @@ impl RoomEventCache {
         thread_root: OwnedEventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let mut state = self.inner.state.write().await?;
-        Ok(state.subscribe_to_thread(thread_root))
+
+        state.subscribe_to_thread(thread_root).await
     }
 
     /// Subscribe to the pinned event cache for this room.
