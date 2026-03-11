@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
+  the event cache. As a result, it is necessary to enable the event cache if you want to keep a
+  precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
+  be available even if you used a previous version of sync (v2), as long as you've enabled the
+  event cache beforehand.
+  ([#6253](https://github.com/matrix-org/matrix-rust-sdk/pull/6253))
 - [**breaking**] `room::reply::Event` has a new field `add_mentions` which is passed forward in
   `room::reply::make_reply_event`.
   ([#6270](https://github.com/matrix-org/matrix-rust-sdk/pull/6270))
