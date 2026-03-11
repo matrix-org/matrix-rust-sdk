@@ -99,9 +99,7 @@
 //! didn't get a new better receipt that matched known events. In that case, we
 //! can just consider that all the events are new, and count them as such.
 
-#![allow(dead_code)] // too many different build configurations, I give up
-
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, RoomReadReceipts},
@@ -385,70 +383,9 @@ impl ReceiptSelector {
     }
 }
 
-/// Returns true if there's an event common to both groups of events, based on
-/// their event id.
-fn events_intersects<'a>(
-    previous_events: impl Iterator<Item = &'a TimelineEvent>,
-    new_events: &[TimelineEvent],
-) -> bool {
-    let previous_events_ids = BTreeSet::from_iter(previous_events.filter_map(|ev| ev.event_id()));
-    new_events
-        .iter()
-        .any(|ev| ev.event_id().is_some_and(|event_id| previous_events_ids.contains(&event_id)))
-}
-
 /// Given a set of events coming from sync, for a room, update the
 /// [`RoomReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
-///
-/// A provider of previous events may be required to reconcile a read receipt
-/// that has been just received for an event that came in a previous sync.
-///
-/// See this module's documentation for more information.
-#[instrument(skip_all, fields(room_id = %room_id))]
-#[cfg(test)]
-fn compute_unread_counts_legacy(
-    user_id: &UserId,
-    room_id: &RoomId,
-    receipt_event: Option<&ReceiptEventContent>,
-    mut previous_events: Vec<TimelineEvent>,
-    new_events: &[TimelineEvent],
-    read_receipts: &mut RoomReadReceipts,
-    threading_support: matrix_sdk_base::ThreadingSupport,
-) {
-    let all_events = if events_intersects(previous_events.iter(), new_events) {
-        // The previous and new events sets can intersect, for instance if we restored
-        // previous events from the disk cache, or a timeline was limited. This
-        // means the old events will be cleared, because we don't reconcile
-        // timelines in the event cache (yet). As a result, forget
-        // about the previous events.
-        new_events.to_owned()
-    } else {
-        previous_events.extend(new_events.iter().cloned());
-        previous_events
-    };
-
-    let threading_support = match threading_support {
-        matrix_sdk_base::ThreadingSupport::Enabled { .. } => true,
-        matrix_sdk_base::ThreadingSupport::Disabled => false,
-    };
-
-    compute_unread_counts(
-        user_id,
-        room_id,
-        receipt_event,
-        all_events,
-        read_receipts,
-        threading_support,
-    );
-}
-
-/// Given a set of events coming from sync, for a room, update the
-/// [`RoomReadReceipts`]'s counts of unread messages, notifications and
-/// highlights' in place.
-///
-/// A provider of previous events may be required to reconcile a read receipt
-/// that has been just received for an event that came in a previous sync.
 ///
 /// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %room_id))]
@@ -578,7 +515,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
 
-    use matrix_sdk_base::{ThreadingSupport, read_receipts::RoomReadReceipts};
+    use matrix_sdk_base::read_receipts::RoomReadReceipts;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
@@ -589,13 +526,11 @@ mod tests {
         },
         owned_event_id, owned_user_id,
         push::Action,
-        room_id, user_id,
+        user_id,
     };
 
     use super::{ReceiptSelector, marks_as_unread};
-    use crate::event_cache::caches::read_receipts::{
-        RoomReadReceiptsExt as _, compute_unread_counts_legacy as compute_unread_counts,
-    };
+    use crate::event_cache::caches::read_receipts::RoomReadReceiptsExt as _;
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -879,59 +814,6 @@ mod tests {
         assert_eq!(receipts.num_mentions, 0);
     }
 
-    /// Smoke test for `compute_unread_counts`.
-    #[test]
-    fn test_basic_compute_unread_counts() {
-        let user_id = user_id!("@alice:example.org");
-        let other_user_id = user_id!("@bob:example.org");
-        let room_id = room_id!("!room:example.org");
-        let receipt_event_id = event_id!("$1");
-
-        let mut previous_events = Vec::new();
-
-        let f = EventFactory::new();
-        let ev1 = f.text_msg("A").sender(other_user_id).event_id(receipt_event_id).into_event();
-        let ev2 = f.text_msg("A").sender(other_user_id).event_id(event_id!("$2")).into_event();
-
-        let receipt_event = f
-            .read_receipts()
-            .add(receipt_event_id, user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            previous_events.clone(),
-            &[ev1.clone(), ev2.clone()],
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // It did find the receipt event (ev1).
-        assert_eq!(read_receipts.num_unread, 1);
-
-        // Receive the same receipt event, with a new sync event.
-        previous_events.push(ev1);
-        previous_events.push(ev2);
-
-        let new_event =
-            f.text_msg("A").sender(other_user_id).event_id(event_id!("$3")).into_event();
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            previous_events,
-            &[new_event],
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Only the new event should be added.
-        assert_eq!(read_receipts.num_unread, 2);
-    }
-
     fn make_test_events(user_id: &UserId) -> Vec<TimelineEvent> {
         let f = EventFactory::new().sender(user_id);
         let ev1 = f.text_msg("With the lights out, it's less dangerous").event_id(event_id!("$1"));
@@ -940,173 +822,6 @@ mod tests {
         let ev4 = f.text_msg("Here we are now, entertain us").event_id(event_id!("$4"));
         let ev5 = f.text_msg("Hello, hello, hello, how low?").event_id(event_id!("$5"));
         [ev1, ev2, ev3, ev4, ev5].into_iter().map(Into::into).collect()
-    }
-
-    /// Test that when multiple receipts come in a single event, we can still
-    /// find the latest one according to the sync order.
-    #[test]
-    fn test_compute_unread_counts_multiple_receipts_in_one_event() {
-        let user_id = user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let all_events = make_test_events(user_id!("@bob:example.org"));
-        let head_events: Vec<_> = all_events.iter().take(2).cloned().collect();
-        let tail_events: Vec<_> = all_events.iter().skip(2).cloned().collect();
-
-        // Given a receipt event marking events 1-3 as read using a combination of
-        // different thread and privacy types,
-        let f = EventFactory::new();
-        for receipt_type_1 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
-            for receipt_thread_1 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
-                for receipt_type_2 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
-                    for receipt_thread_2 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
-                        let receipt_event = f
-                            .read_receipts()
-                            .add(
-                                event_id!("$2"),
-                                user_id,
-                                receipt_type_1.clone(),
-                                receipt_thread_1.clone(),
-                            )
-                            .add(
-                                event_id!("$3"),
-                                user_id,
-                                receipt_type_2.clone(),
-                                receipt_thread_2.clone(),
-                            )
-                            .add(
-                                event_id!("$1"),
-                                user_id,
-                                receipt_type_1.clone(),
-                                receipt_thread_2.clone(),
-                            )
-                            .into_content();
-
-                        // When I compute the notifications for this room (with no new events),
-                        let mut read_receipts = RoomReadReceipts::default();
-
-                        compute_unread_counts(
-                            user_id,
-                            room_id,
-                            Some(&receipt_event),
-                            all_events.clone(),
-                            &[],
-                            &mut read_receipts,
-                            ThreadingSupport::Disabled,
-                        );
-
-                        assert!(
-                            read_receipts != Default::default(),
-                            "read receipts have been updated"
-                        );
-
-                        // Then events 1-3 are considered read, but 4 and 5 are not.
-                        assert_eq!(read_receipts.num_unread, 2);
-                        assert_eq!(read_receipts.num_mentions, 0);
-                        assert_eq!(read_receipts.num_notifications, 0);
-
-                        // And when I compute notifications again, with some old and new events,
-                        let mut read_receipts = RoomReadReceipts::default();
-                        compute_unread_counts(
-                            user_id,
-                            room_id,
-                            Some(&receipt_event),
-                            head_events.clone(),
-                            &tail_events,
-                            &mut read_receipts,
-                            ThreadingSupport::Disabled,
-                        );
-
-                        assert!(
-                            read_receipts != Default::default(),
-                            "read receipts have been updated"
-                        );
-
-                        // Then events 1-3 are considered read, but 4 and 5 are not.
-                        assert_eq!(read_receipts.num_unread, 2);
-                        assert_eq!(read_receipts.num_mentions, 0);
-                        assert_eq!(read_receipts.num_notifications, 0);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Updating the pending list should cause a change in the
-    /// `RoomReadReceipts` fields, and `compute_unread_counts` should return
-    /// true then.
-    #[test]
-    fn test_compute_unread_counts_updated_after_field_tracking() {
-        let user_id = owned_user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        let receipt_event = EventFactory::new()
-            .read_receipts()
-            .add(event_id!("$6"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-        assert!(read_receipts.pending.is_empty());
-
-        // Assume we start with a number of 3 unreads.
-        read_receipts.num_unread = 3;
-
-        // Given a receipt event that contains a read receipt referring to an unknown
-        // event, and some preexisting events with different ids,
-        compute_unread_counts(
-            &user_id,
-            room_id,
-            Some(&receipt_event),
-            events,
-            &[], // no new events
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Then there are 5 unread events, as all events are located *after* the read
-        // receipt event, which is pending.
-        assert_eq!(read_receipts.num_unread, 5);
-
-        // And the event referred to by the read receipt is in the pending state.
-        assert_eq!(read_receipts.pending.len(), 1);
-        assert!(read_receipts.pending.iter().any(|ev| ev == event_id!("$6")));
-    }
-
-    #[test]
-    fn test_compute_unread_counts_limited_sync() {
-        let user_id = owned_user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        let receipt_event = EventFactory::new()
-            .read_receipts()
-            .add(event_id!("$1"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        // Sync with a read receipt *and* a single event that was already known: in that
-        // case, only consider the new events in isolation, and compute the
-        // correct count.
-        let mut read_receipts = RoomReadReceipts::default();
-        assert!(read_receipts.pending.is_empty());
-
-        let ev0 = events[0].clone();
-
-        compute_unread_counts(
-            &user_id,
-            room_id,
-            Some(&receipt_event),
-            events,
-            &[ev0], // duplicate event!
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // All events are unread, and there's no pending receipt.
-        assert_eq!(read_receipts.num_unread, 0);
-        assert!(read_receipts.pending.is_empty());
     }
 
     #[test]
@@ -1489,64 +1204,6 @@ mod tests {
         // Then my last sent event counts as a read receipt.
         let best_receipt = selector.select();
         assert_eq!(best_receipt.unwrap().event_id, event_id!("$6"));
-    }
-
-    #[test]
-    fn test_compute_unread_counts_with_implicit_receipt() {
-        let user_id = user_id!("@alice:example.org");
-        let bob = user_id!("@bob:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        // Given a set of events sent by Bob,
-        let mut events = make_test_events(bob);
-
-        // One by me,
-        let f = EventFactory::new();
-        events.push(
-            f.text_msg("A mulatto, an albino")
-                .sender(user_id)
-                .event_id(event_id!("$6"))
-                .into_event(),
-        );
-
-        // And others by Bob,
-        events.push(
-            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
-        );
-        events.push(
-            f.text_msg("A denial, a denial").sender(bob).event_id(event_id!("$8")).into_event(),
-        );
-
-        let events: Vec<_> = events.into_iter().collect();
-
-        // I have a read receipt attached to one of Bob's event sent before my message,
-        let receipt_event = f
-            .read_receipts()
-            .add(event_id!("$3"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-
-        // And I compute the unread counts for all those new events (no previous events
-        // in that room),
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            Vec::new(),
-            &events,
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Only the last two events sent by Bob count as unread.
-        assert_eq!(read_receipts.num_unread, 2);
-
-        // There are no pending receipts.
-        assert!(read_receipts.pending.is_empty());
-
-        // And the active receipt is the implicit one on my event.
-        assert_eq!(read_receipts.latest_active.unwrap().event_id, event_id!("$6"));
     }
 
     #[test]
