@@ -1047,7 +1047,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        // TODO(bnjbvr): avoid cloning all events, eventually? :)
+        // TODO: avoid cloning all events, eventually? :) We could iterate over these in
+        // the `compute_unread_counts` function in the future, and even start
+        // background network paginations from there, in the future.
         let all_events = self
             .state
             .room_linked_chunk
