@@ -64,31 +64,18 @@
 //! The problem of keeping a precise read count is thus equivalent to finding
 //! the latest active receipt, and counting interesting events after it.
 //!
-//! When we get new events, we'll incorporate them into an inverse mapping of
-//! event id -> sync order (`event_id_to_pos`). This gives us a simple way to
-//! select a "better" active receipt, using the `ReceiptSelector`. An event that
-//! has a read receipt can be passed to `ReceiptSelector::try_select_later`,
-//! which compares the order of the current best active, to that of the new
-//! event, and records the better one, if applicable.
+//! When we need to recompute the unread counts, we go through all the linked
+//! chunk's events to select a "better" active receipt, using the following
+//! rules:
 //!
-//! TODO: we could reuse the event cache's `OrderTracker` instead.
-//!
-//! When we receive a new receipt event in
-//! `ReceiptSelector::handle_new_receipt`, if we find a {public|private}
-//! {main-threaded|unthreaded} receipt attached to an event, there are two
-//! possibilities:
-//! - we knew the event, so we can immediately try to select it as a better
-//!   event with `try_select_later`,
-//! - or we don't, which may mean the receipt refers to a past event we lost
-//!   track of, or the receipt refers to a future event. To cover for the latter
-//!   possibility, we stash the receipt and mark it as pending (we only keep a
-//!   limited number of pending read receipts using a `RingBuffer`).
-//!
-//! That means that when we receive new events, we'll check if their id matches
-//! one of the pending receipts in `handle_pending_receipts`; if so, we can
-//! remove it from the pending set, and try to consider it a better receipt with
-//! `try_select_later`. If not, it's still pending, until it'll be forgotten or
-//! matched.
+//! - an event we sent counts as a read receipt (it's called the implicit read
+//!   receipt in the spec),
+//! - an event which is referenced in the read receipt event content (either a
+//!   private or a public read receipt, of type unthreaded or main, to keep
+//!   maximal compatibility with thread-unaware clients),
+//! - a previously stashed read receipt we've received from a read receipt event
+//!   content, but for which we couldn't find the corresponding event. It's
+//!   possible that a read receipt is received before the corresponding event.
 //!
 //! Once we have a new *better active receipt*, we'll save it in the
 //! `RoomReadReceipt` data (stored in `RoomInfo`), and we'll compute the counts,
@@ -119,6 +106,8 @@ use ruma::{
     serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
+
+use crate::event_cache::caches::event_linked_chunk::EventLinkedChunk;
 
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
@@ -383,6 +372,71 @@ impl ReceiptSelector {
     }
 }
 
+/// Return a new better (i.e. more recent) receipt based on a search of the
+/// linked chunk.
+///
+/// A receipt is better if:
+///
+/// - it's an implicit read receipt (i.e. an event we've sent),
+/// - it's holding onto a new read receipt we've just received,
+/// - it was a pending receipt for which we found the event now.
+fn select_best_receipt(
+    user_id: &UserId,
+    linked_chunk: &EventLinkedChunk,
+    pending_receipts: &mut RingBuffer<OwnedEventId>,
+    new_receipt_event: Option<&ReceiptEventContent>,
+) -> Option<OwnedEventId> {
+    if let Some(receipt_event) = new_receipt_event {
+        for (event_id, receipts) in &receipt_event.0 {
+            for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+                if let Some(receipts) = receipts.get(&ty)
+                    && let Some(receipt) = receipts.get(user_id)
+                    && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
+                {
+                    // Add it to the pending receipts list.
+                    pending_receipts.push(event_id.clone());
+                }
+            }
+        }
+    }
+
+    let mut found = None;
+
+    for (event, event_id) in
+        linked_chunk.revents().filter_map(|(_pos, ev)| Some((ev, ev.event_id()?)))
+    {
+        // Try to find an implicit read receipt.
+        if found.is_none()
+            && event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
+                == Some(user_id)
+        {
+            found = Some(event_id.clone());
+        }
+
+        // Early exit condition.
+        if found.is_some() && pending_receipts.is_empty() {
+            break;
+        }
+
+        // Clean up older pending receipts.
+        pending_receipts.retain(|pending| {
+            if *pending == event_id {
+                if found.is_none() {
+                    found = Some(event_id.clone());
+                }
+                // Don't keep the pending receipt in the pending list: we've already identified
+                // a better, more recent receipt at this point.
+                false
+            } else {
+                // Keep the receipt, in case the associated event shows up later.
+                true
+            }
+        });
+    }
+
+    found
+}
+
 /// Given a set of events coming from sync, for a room, update the
 /// [`RoomReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
@@ -393,28 +447,16 @@ pub(crate) fn compute_unread_counts(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
-    all_events: Vec<TimelineEvent>,
+    linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
 ) {
     debug!(?read_receipts, "Starting");
 
-    let new_receipt = {
-        let mut selector = ReceiptSelector::new(
-            &all_events,
-            read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id),
-        );
-
-        selector.try_match_implicit(user_id, &all_events);
-        selector.handle_pending_receipts(&mut read_receipts.pending);
-        if let Some(receipt_event) = receipt_event {
-            let new_pending = selector.handle_new_receipt(user_id, receipt_event);
-            if !new_pending.is_empty() {
-                read_receipts.pending.extend(new_pending);
-            }
-        }
-        selector.select()
-    };
+    let new_receipt =
+        select_best_receipt(user_id, linked_chunk, &mut read_receipts.pending, receipt_event)
+            .map(|event_id| LatestReadReceipt { event_id })
+            .or_else(|| read_receipts.latest_active.clone());
 
     if let Some(new_receipt) = new_receipt {
         // We've found the id of an event to which the receipt attaches. The associated
@@ -428,12 +470,12 @@ pub(crate) fn compute_unread_counts(
         trace!(%event_id, "Saving a new active read receipt");
         read_receipts.latest_active = Some(new_receipt);
 
-        // The event for the receipt is in `all_events`, so we'll find it and can count
-        // safely from here.
+        // The event for the receipt is in the linked chunk, so we'll find it and can
+        // count safely from here.
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            &all_events,
+            linked_chunk.events().map(|(_pos, event)| event),
             with_threading_support,
         );
 
@@ -449,7 +491,7 @@ pub(crate) fn compute_unread_counts(
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
-    for event in &all_events {
+    for (_pos, event) in linked_chunk.events() {
         read_receipts.process_event(event, user_id, with_threading_support);
     }
 

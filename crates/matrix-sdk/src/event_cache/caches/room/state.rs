@@ -1047,18 +1047,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        // TODO: avoid cloning all events, eventually? :) We could iterate over these in
-        // the `compute_unread_counts` function in the future, and even start
-        // background network paginations from there, in the future.
-        let all_events = self
-            .state
-            .room_linked_chunk
-            .events()
-            .map(|(_, event)| event.clone())
-            .collect::<Vec<_>>();
-
-        let user_id = &self.state.own_user_id;
-        let room_id = &self.state.room_id;
+        let state = &mut *self.state;
+        let user_id = &state.own_user_id;
+        let room_id = &state.room_id;
 
         let mut room_info = room.clone_info();
         let prev_read_receipts = room_info.read_receipts().clone();
@@ -1068,9 +1059,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             user_id,
             room_id,
             receipt_event,
-            all_events,
+            &state.room_linked_chunk,
             &mut read_receipts,
-            self.state.enabled_thread_support,
+            state.enabled_thread_support,
         );
 
         if prev_read_receipts != read_receipts {
