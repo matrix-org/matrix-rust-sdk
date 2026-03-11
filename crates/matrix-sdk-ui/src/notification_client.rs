@@ -1019,7 +1019,12 @@ impl NotificationItem {
             }
         }
 
-        let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
+        let is_noisy = push_actions.map(|actions| {
+            actions.iter().any(|a| a.sound().is_some() || a.should_notify())
+                && !actions.iter().any(|a| {
+                    a.sound().is_some_and(|s| s.is_empty() || s.eq_ignore_ascii_case("none"))
+                })
+        });
         let has_mention = push_actions.map(|actions| actions.iter().any(|a| a.is_highlight()));
         let thread_id = event.thread_id().clone();
 

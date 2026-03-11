@@ -957,7 +957,10 @@ impl Client {
 
                 async move {
                     // Extract information about the actions
-                    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
+                    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some() || a.should_notify())
+                        && !notification.actions.iter().any(|a| {
+                            a.sound().is_some_and(|s| s.is_empty() || s.eq_ignore_ascii_case("none"))
+                        });
                     let has_mention = notification.actions.iter().any(|a| a.is_highlight());
 
                     // Convert SDK actions to FFI type
