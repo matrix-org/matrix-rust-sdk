@@ -50,6 +50,7 @@ use ruma::{
             tombstone::PossiblyRedactedRoomTombstoneEventContent,
             topic::PossiblyRedactedRoomTopicEventContent,
         },
+        rtc::notification::CallIntent,
         tag::{TagEventContent, TagName, Tags},
     },
     room::RoomType,
@@ -1056,6 +1057,37 @@ impl RoomInfo {
     /// "m.room" in this room.
     pub fn has_active_room_call(&self) -> bool {
         !self.active_room_call_memberships().is_empty()
+    }
+
+    /// Get the call intent for the current call, based on what members are
+    /// advertising. If one or more members disagree on the current call
+    /// intent, or nobody specifies one then `undefined` is returned.
+    ///
+    /// If all members that specify call intent agree, that value is returned.
+    ///
+    /// A call intent, or `None` if no consensus or not given.
+    pub fn active_room_call_consensus_intent(&self) -> Option<CallIntent> {
+        let memberships = self.active_room_call_memberships();
+
+        // Get the first intent to use as a reference
+        let mut consensus: Option<CallIntent> = None;
+
+        for (_, data) in memberships.iter() {
+            if let Some(intent) = data.call_intent() {
+                match consensus {
+                    // First intent found, set it as consensus
+                    None => consensus = Some(intent.clone()),
+                    // Check if this intent matches the consensus
+                    Some(ref current) if current == intent => {
+                        // Matches, continue
+                    }
+                    // Intents differ, no consensus
+                    Some(_) => return None,
+                }
+            }
+        }
+
+        consensus
     }
 
     /// Returns a Vec of userId's that participate in the room call.
