@@ -22,7 +22,11 @@ use matrix_sdk_base::{
     },
     media::{MediaFormat, MediaRequestParameters},
 };
-use ruma::{OwnedUserId, UserId, api::client::error::ErrorKind, events::room::MediaSource};
+use ruma::{
+    OwnedUserId, UserId,
+    api::client::error::ErrorKind,
+    events::room::{MediaSource, history_visibility::HistoryVisibility},
+};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{Error, Result, Room};
@@ -35,7 +39,7 @@ use crate::{Error, Result, Room};
 pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
     let client = &room.client;
 
-    // 0. We can only share room history if our user has set up cross signing
+    // 0.a. We can only share room history if our user has set up cross signing
     let own_identity = match client.user_id() {
         Some(own_user) => client.encryption().get_user_identity(own_user).await?,
         None => None,
@@ -43,6 +47,19 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
 
     if own_identity.is_none() {
         warn!("Not sharing message history as cross-signing is not set up");
+        return Ok(());
+    }
+
+    // 0.b. We should only share room history if the *current* visibility allows it.
+    if room
+        .history_visibility()
+        .map(|visibility| {
+            matches!(visibility, HistoryVisibility::Joined | HistoryVisibility::Invited)
+        })
+        // Err on the side of caution if we can't find the event.
+        .unwrap_or(true)
+    {
+        debug!("Not sharing message history as the room history visibility is currently unshared");
         return Ok(());
     }
 
