@@ -16,7 +16,7 @@
 
 pub mod pagination;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
@@ -35,7 +35,11 @@ use super::{
 };
 
 /// All the information related to a single thread.
-pub(crate) struct ThreadEventCache {
+pub(super) struct ThreadEventCache {
+    inner: Arc<ThreadEventCacheInner>,
+}
+
+struct ThreadEventCacheInner {
     /// The room owning this thread.
     room_id: OwnedRoomId,
 
@@ -56,6 +60,12 @@ pub(crate) struct ThreadEventCache {
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
+impl fmt::Debug for ThreadEventCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThreadEventCache").finish_non_exhaustive()
+    }
+}
+
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
     pub fn new(
@@ -64,11 +74,13 @@ impl ThreadEventCache {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self {
-            chunk: EventLinkedChunk::new(),
-            sender: Sender::new(32),
-            room_id,
-            thread_root,
-            linked_chunk_update_sender,
+            inner: Arc::new(ThreadEventCacheInner {
+                chunk: EventLinkedChunk::new(),
+                sender: Sender::new(32),
+                room_id,
+                thread_root,
+                linked_chunk_update_sender,
+            }),
         }
     }
 
@@ -83,11 +95,12 @@ impl ThreadEventCache {
 
     /// Clear a thread, after a gappy sync for instance.
     pub fn clear(&mut self) {
-        self.chunk.reset();
+        self.inner.chunk.reset();
 
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            let _ =
+                self.inner.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
         }
     }
 
@@ -96,13 +109,13 @@ impl ThreadEventCache {
     fn propagate_changes(&mut self) {
         // This is a lie, at the moment! We're not persisting threads yet, so we're just
         // forwarding all updates to the linked chunk update sender.
-        let updates = self.chunk.store_updates().take();
+        let updates = self.inner.chunk.store_updates().take();
 
-        let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+        let _ = self.inner.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
             updates,
             linked_chunk_id: OwnedLinkedChunkId::Thread(
-                self.room_id.clone(),
-                self.thread_root.clone(),
+                self.inner.room_id.clone(),
+                self.inner.thread_root.clone(),
             ),
         });
     }
@@ -131,13 +144,14 @@ impl ThreadEventCache {
 
         let events = deduplication.all_events;
 
-        self.chunk.push_live_events(None, &events);
+        self.inner.chunk.push_live_events(None, &events);
 
         self.propagate_changes();
 
-        let diffs = self.chunk.updates_as_vector_diffs();
+        let diffs = self.inner.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
+            let _ =
+                self.inner.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
         }
     }
 
@@ -146,14 +160,14 @@ impl ThreadEventCache {
     /// If the event has been found and removed, then an update will be
     /// propagated to observers.
     pub(crate) fn remove_if_present(&mut self, event_id: &EventId) {
-        let Some(pos) = self.chunk.events().find_map(|(pos, event)| {
+        let Some(pos) = self.inner.chunk.events().find_map(|(pos, event)| {
             (event.event_id().as_deref() == Some(event_id)).then_some(pos)
         }) else {
             // Event not found in the linked chunk, nothing to do.
             return;
         };
 
-        if let Err(err) = self.chunk.remove_events_by_position(vec![pos]) {
+        if let Err(err) = self.inner.chunk.remove_events_by_position(vec![pos]) {
             error!(%err, "a thread linked chunk position was valid a few lines above, but invalid when deleting");
             return;
         }
@@ -161,9 +175,10 @@ impl ThreadEventCache {
         // We've touched the linked chunk; propagate changes to storage and observers.
         self.propagate_changes();
 
-        let diffs = self.chunk.updates_as_vector_diffs();
+        let diffs = self.inner.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
+            let _ =
+                self.inner.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Sync });
         }
     }
 
@@ -174,7 +189,7 @@ impl ThreadEventCache {
     pub fn load_more_events_backwards(&self) -> LoadMoreEventsBackwardsOutcome {
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
-        if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.token) {
+        if let Some(prev_token) = self.inner.chunk.rgap().map(|gap| gap.token) {
             trace!(%prev_token, "thread chunk has at least a gap");
             return LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
@@ -186,11 +201,11 @@ impl ThreadEventCache {
 
         // If we don't have a gap, then the first event should be the the thread's root;
         // otherwise, we'll restart a pagination from the end.
-        if let Some((_pos, event)) = self.chunk.events().next() {
+        if let Some((_pos, event)) = self.inner.chunk.events().next() {
             let first_event_id =
                 event.event_id().expect("a linked chunk only stores events with IDs");
 
-            if first_event_id == self.thread_root {
+            if first_event_id == self.inner.thread_root {
                 trace!("thread chunk is fully loaded and non-empty: reached_start=true");
                 return LoadMoreEventsBackwardsOutcome::StartOfTimeline;
             }
@@ -220,6 +235,7 @@ impl ThreadEventCache {
         });
 
         let in_memory_duplicated_event_ids: Vec<_> = self
+            .inner
             .chunk
             .events()
             .filter_map(|(position, event)| {
@@ -255,7 +271,8 @@ impl ThreadEventCache {
         in_memory_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
     ) {
         // Remove the duplicated events from the thread chunk.
-        self.chunk
+        self.inner
+            .chunk
             .remove_events_by_position(
                 in_memory_duplicated_event_ids
                     .iter()
@@ -280,7 +297,7 @@ impl ThreadEventCache {
         let prev_gap_id = if let Some(token) = prev_token {
             // If the gap id is missing, it means that the gap disappeared during
             // pagination; in this case, early return to the caller.
-            let gap_id = self.chunk.chunk_identifier(|chunk| {
+            let gap_id = self.inner.chunk.chunk_identifier(|chunk| {
                     matches!(chunk.content(), ChunkContent::Gap(Gap { token: prev_token }) if *prev_token == token)
                 })?;
 
@@ -313,15 +330,16 @@ impl ThreadEventCache {
 
         // Add the paginated events to the thread chunk.
         let reached_start =
-            self.chunk.push_backwards_pagination_events(prev_gap_id, new_gap, &events);
+            self.inner.chunk.push_backwards_pagination_events(prev_gap_id, new_gap, &events);
 
         self.propagate_changes();
 
         // Notify observers about the updates.
-        let updates = self.chunk.updates_as_vector_diffs();
+        let updates = self.inner.chunk.updates_as_vector_diffs();
         if !updates.is_empty() {
             // Send the updates to the listeners.
             let _ = self
+                .inner
                 .sender
                 .send(TimelineVectorDiffs { diffs: updates, origin: EventsOrigin::Pagination });
         }
@@ -331,6 +349,6 @@ impl ThreadEventCache {
 
     /// Returns the latest event ID in this thread, if any.
     pub fn latest_event_id(&self) -> Option<OwnedEventId> {
-        self.chunk.revents().next().and_then(|(_position, event)| event.event_id())
+        self.inner.chunk.revents().next().and_then(|(_position, event)| event.event_id())
     }
 }
