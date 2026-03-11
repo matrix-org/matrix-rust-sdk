@@ -1265,12 +1265,15 @@ impl Room {
             chunk: roots
                 .chunk
                 .into_iter()
-                .filter_map(|timeline_event| {
-                    timeline_event
-                        .raw()
+                .filter_map(|event| {
+                    let timeline_event: TimelineEvent = event
+                        .kind
+                        .into_raw()
                         .deserialize()
-                        .ok()
-                        .map(|any_timeline_event| TimelineEvent(Box::new(any_timeline_event)))
+                        .ok()?
+                        .into_full_event(self.inner.room_id().to_owned())
+                        .into();
+                    Some(Arc::new(timeline_event))
                 })
                 .collect(),
             prev_batch_token: roots.prev_batch_token,
@@ -1349,11 +1352,22 @@ pub enum IncludeThreads {
 #[derive(uniffi::Object)]
 pub struct ThreadRoots {
     /// The events that are thread roots in the current batch.
-    pub chunk: Vec<TimelineEvent>,
+    pub chunk: Vec<Arc<TimelineEvent>>,
 
     /// Token to paginate backwards in a subsequent query to
     /// [`Room::list_threads`].
     pub prev_batch_token: Option<String>,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl ThreadRoots {
+    fn chunk(&self) -> Vec<Arc<TimelineEvent>> {
+        self.chunk.clone()
+    }
+
+    fn prev_batch_token(&self) -> Option<String> {
+        self.prev_batch_token.clone()
+    }
 }
 
 /// A listener for receiving new live location shares in a room.
