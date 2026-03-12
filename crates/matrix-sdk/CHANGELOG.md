@@ -79,6 +79,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Only share historic room keys on invite if the current room history is shared.
+  ([#6275](https://github.com/matrix-org/matrix-rust-sdk/pull/6275))
 - The event cache's thread subscriptions background task won't enable if the server doesn't
   advertise support for the experimental thread subscription feature. In the past, this would result
   in sending spurious requests that aren't supported by the user's homeserver.
