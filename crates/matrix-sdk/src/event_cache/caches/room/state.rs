@@ -1074,6 +1074,25 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         );
 
         if prev_read_receipts != read_receipts {
+            if prev_read_receipts.latest_active == read_receipts.latest_active {
+                // If the latest active read receipt hasn't changed, but the number of unread
+                // has *decreased*, then it means that we've recomputed receipts
+                // after a gap. Ditch the new values, as they're likely
+                // incorrect.
+                //
+                // TODO: use automatic back-pagination in this case, instead of ditching the new
+                // values.
+                if read_receipts.num_unread < prev_read_receipts.num_unread {
+                    read_receipts.num_unread = prev_read_receipts.num_unread;
+                }
+                if read_receipts.num_notifications < prev_read_receipts.num_notifications {
+                    read_receipts.num_notifications = prev_read_receipts.num_notifications;
+                }
+                if read_receipts.num_mentions < prev_read_receipts.num_mentions {
+                    read_receipts.num_mentions = prev_read_receipts.num_mentions;
+                }
+            }
+
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in
             // the state store, and then in the room itself, so that observers
             // can be notified of the change.

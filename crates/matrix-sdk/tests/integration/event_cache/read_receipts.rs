@@ -482,8 +482,10 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
     // The gappy sync cleared "$1" and "$2" from the linked chunk, so this sync
-    // only sees "$3" when recomputing → unread count drops to 1.
-    assert_eq!(room.num_unread_messages(), 1);
+    // only sees "$3" when recomputing the unread count, yielding 1. But this is
+    // incorrect, as the number should be *at least* 2, and the SDK should keep
+    // on showing this number in this case.
+    assert_eq!(room.num_unread_messages(), 2);
 }
 
 /// Test that messages with mentions increment the number of mentions.
