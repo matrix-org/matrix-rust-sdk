@@ -244,7 +244,7 @@ pub struct SecretsBundleWithUserId {
     inner: matrix_sdk_base::crypto::types::SecretsBundle,
 }
 
-/// Error type describinfg failures that can happen while exporting a
+/// Error type describing failures that can happen while exporting a
 /// [`SecretsBundle`] from a SQLite store.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum BundleExportError {
