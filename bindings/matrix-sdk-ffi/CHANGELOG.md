@@ -36,6 +36,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `HumanQrLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used to
+  complete a login.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)
+- Add `HumanQrGrantLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used
+  to grant a login.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)
 - Add the `QrCodeData::base_url` and `QrCodeData::intent` methods.
   ([#6283](https://github.com/matrix-org/matrix-rust-sdk/pull/6283))
 - Add `Encryption::recover_and_fix_backup` to automatically fix key storage backup if the

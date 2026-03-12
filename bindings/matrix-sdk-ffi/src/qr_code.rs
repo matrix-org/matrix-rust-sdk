@@ -332,6 +332,8 @@ pub enum HumanQrLoginError {
     CheckCodeCannotBeSent,
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
@@ -362,8 +364,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_)
-                | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
+                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::UnsupportedQrCodeType => {
+                    HumanQrLoginError::UnsupportedQrCodeType
+                }
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode
@@ -442,6 +446,10 @@ pub enum HumanQrGrantLoginError {
     /// devices.
     #[error("A secure connection could not have been established between the two devices.")]
     ConnectionInsecure,
+
+    /// The QR code specifies an unsupported protocol version.
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
@@ -463,8 +471,8 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_)
-                | SecureChannelError::UnsupportedQrCodeType => Self::Unknown(e.to_string()),
+                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode
