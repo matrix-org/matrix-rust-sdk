@@ -239,7 +239,7 @@ impl From<encryption::VerificationState> for VerificationState {
 /// Struct containing the bundle of secrets to fully activate a new devices for
 /// end-to-end encryption.
 #[derive(uniffi::Object)]
-pub struct SecretsBundle {
+pub struct SecretsBundleWithUserId {
     user_id: OwnedUserId,
     inner: matrix_sdk_base::crypto::types::SecretsBundle,
 }
@@ -280,7 +280,7 @@ impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl SecretsBundle {
+impl SecretsBundleWithUserId {
     /// Attempt to create a [`SecretsBundle`] from a previously JSON serialized
     /// bundle.
     #[uniffi::constructor]
@@ -311,7 +311,7 @@ impl SecretsBundle {
             )
             .await?
         {
-            Ok(SecretsBundle { user_id, inner }.into())
+            Ok(SecretsBundleWithUserId { user_id, inner }.into())
         } else {
             Err(BundleExportError::StoreEmpty)
         };
@@ -611,7 +611,7 @@ impl Encryption {
 
     pub async fn import_secrets_bundle(
         &self,
-        secrets_bundle: &SecretsBundle,
+        secrets_bundle: &SecretsBundleWithUserId,
     ) -> Result<(), ClientError> {
         let user_id = self._client.inner.user_id().expect(
             "We should have a user ID available now, this is only called once we're logged in",
