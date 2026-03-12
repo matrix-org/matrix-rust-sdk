@@ -61,8 +61,7 @@ use tokio::sync::Mutex;
 use tracing::{error, warn};
 use uuid::Uuid;
 
-use self::content::TimelineItemContent;
-pub use self::msg_like::MessageContent;
+pub use self::{content::TimelineItemContent, msg_like::MessageContent};
 use crate::{
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
@@ -79,6 +78,7 @@ pub mod configuration;
 mod content;
 mod msg_like;
 mod reply;
+pub mod threads;
 
 use matrix_sdk::utils::formatted_body_from;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
