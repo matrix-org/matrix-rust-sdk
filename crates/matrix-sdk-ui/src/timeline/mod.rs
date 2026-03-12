@@ -79,6 +79,7 @@ mod subscriber;
 mod tasks;
 #[cfg(test)]
 mod tests;
+pub mod threads;
 mod traits;
 mod virtual_item;
 
