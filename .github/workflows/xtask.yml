@@ -20,6 +20,8 @@ on:
         description: "The cache key for the macos build artifact"
         value: "${{ jobs.xtask.outputs.cachekey-macos }}"
 
+permissions: {}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -43,7 +45,9 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Calculate cache key
         id: cachekey
@@ -53,7 +57,7 @@ jobs:
           echo "cachekey-${{ matrix.cachekey-id }}=xtask-${{ matrix.cachekey-id }}-${{ hashFiles('Cargo.toml', 'xtask/**') }}" >> $GITHUB_OUTPUT
 
       - name: Check xtask cache
-        uses: actions/cache@v5
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         id: xtask-cache
         with:
           path: target/debug/xtask
@@ -64,7 +68,7 @@ jobs:
 
       - name: Install Rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'
