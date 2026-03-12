@@ -113,6 +113,7 @@ pub enum QrCodeIntentData<'a> {
 /// The different intents have an explicit one-byte identifier which gets added
 /// to the QR code data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum QrCodeIntent {
     /// Enum variant for the case where the new device is displaying the QR
     /// code.

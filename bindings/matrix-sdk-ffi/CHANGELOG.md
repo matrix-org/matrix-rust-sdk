@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add the `QrCodeData::base_url` and `QrCodeData::intent` methods.
+  ([#6283](https://github.com/matrix-org/matrix-rust-sdk/pull/6283))
 - Add `Encryption::recover_and_fix_backup` to automatically fix key storage backup if the
   private backup decryption key is missing, invalid or inconsistent with the public key.
   ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
