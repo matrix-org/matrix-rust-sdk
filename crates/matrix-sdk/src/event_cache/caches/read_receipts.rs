@@ -559,7 +559,7 @@ mod tests {
 
     use matrix_sdk_base::read_receipts::RoomReadReceipts;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::event_factory::EventFactory;
+    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
         EventId, UserId, event_id,
         events::{
@@ -568,11 +568,14 @@ mod tests {
         },
         owned_event_id, owned_user_id,
         push::Action,
-        user_id,
+        room_id, user_id,
     };
 
     use super::{ReceiptSelector, marks_as_unread};
-    use crate::event_cache::caches::read_receipts::RoomReadReceiptsExt as _;
+    use crate::event_cache::caches::{
+        event_linked_chunk::EventLinkedChunk,
+        read_receipts::{RoomReadReceiptsExt as _, select_best_receipt},
+    };
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -1304,5 +1307,213 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
+    }
+
+    #[test]
+    fn test_select_best_receipt_noop() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And no new receipt,
+        let new_receipt_event = None;
+
+        // Then there's no best receipt.
+        let result =
+            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        assert!(result.is_none());
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_implicit() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with one message sent by the current user,
+        // which will act as an implicit read receipt.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).sender(own_user_id).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And no new receipt,
+        let new_receipt_event = None;
+
+        // Then there's a new best receipt, which is the implicit one.
+        let result =
+            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_new_receipt_event() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And a new receipt event which points to $2,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .into_content(),
+        );
+
+        // Then there's a new best receipt, which is the explicit one from the event
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_stashes_pending_receipts() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+
+        // And a new receipt event, for an event we don't know about,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$4"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .into_content(),
+        );
+
+        // Then there's no new best receipts.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert!(result.is_none());
+        // And there's a new pending receipt for $4.
+        assert_eq!(pending_receipts.len(), 1);
+        assert_eq!(pending_receipts.get(0).unwrap(), event_id!("$4"));
+    }
+
+    #[test]
+    fn test_select_best_receipt_matched_pending_receipt() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there is a pending receipt for $2,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        pending_receipts.push(owned_event_id!("$2"));
+
+        // And no new receipt event,
+        let new_receipt_event = None;
+
+        // Then there's a new best receipt, which is the matched pending receipt.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no more pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_mixed() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with one message sent by the current user,
+        // which will act as an implicit read receipt.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).sender(own_user_id).into_event(),
+            f.text_msg("Event 4").event_id(event_id!("$4")).into_event(),
+            f.text_msg("Event 5").event_id(event_id!("$5")).into_event(),
+        ]);
+
+        // When there is a pending receipt for $2, and $6,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        pending_receipts.push(owned_event_id!("$2"));
+        pending_receipts.push(owned_event_id!("$6"));
+
+        // And a new receipt event pointing at $4 and $6,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$4"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .add(event_id!("$7"), own_user_id, ReceiptType::ReadPrivate, ReceiptThread::Main)
+                .into_content(),
+        );
+
+        // Then there's a new best receipt, which is the most advanced in the linked
+        // chunk: $4.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$4"));
+
+        // Receipt 6 is still pending, and there's a new pending receipt for 7 too. ($2
+        // has been cleaned because it has been seen).
+        assert_eq!(pending_receipts.len(), 2);
+        assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
+        assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));
     }
 }
