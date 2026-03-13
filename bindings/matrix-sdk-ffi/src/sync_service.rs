@@ -128,6 +128,26 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
+    /// Set a custom Sliding Sync connection ID for the room list service.
+    ///
+    /// By default "room-list" is used. Set a different value for secondary
+    /// processes such as iOS Share Extensions that are not meant to reuse the
+    /// main app's connection.
+    pub fn with_room_list_conn_id(self: Arc<Self>, conn_id: String) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_room_list_conn_id(conn_id);
+        Arc::new(Self { builder, ..this })
+    }
+
+    /// Set a custom timeline limit for the room list service.
+    ///
+    /// When set, overrides the default timeline limit of 0.
+    pub fn with_room_list_timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_room_list_timeline_limit(limit);
+        Arc::new(Self { builder, ..this })
+    }
+
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
         Ok(Arc::new(SyncService {
