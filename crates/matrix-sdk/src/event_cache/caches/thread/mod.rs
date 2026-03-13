@@ -28,13 +28,18 @@ use tracing::error;
 use super::{
     super::Result, EventsOrigin, TimelineVectorDiffs, room::RoomEventCacheLinkedChunkUpdate,
 };
+use crate::room::WeakRoom;
 
 /// All the information related to a single thread.
 pub(super) struct ThreadEventCache {
     inner: Arc<ThreadEventCacheInner>,
 }
 
+/// The (non-cloneable) details of the `RoomEventCache`.
 struct ThreadEventCacheInner {
+    /// The room where this thread belongs to.
+    weak_room: WeakRoom,
+
     /// State for this thread's event cache.
     state: ThreadEventCacheStateLock,
 }
@@ -50,11 +55,13 @@ impl ThreadEventCache {
     pub fn new(
         room_id: OwnedRoomId,
         thread_root: OwnedEventId,
+        weak_room: WeakRoom,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self {
             inner: Arc::new(ThreadEventCacheInner {
+                weak_room,
                 state: ThreadEventCacheStateLock::new(
                     room_id,
                     thread_root,

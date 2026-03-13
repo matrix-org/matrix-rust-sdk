@@ -75,19 +75,19 @@ impl fmt::Debug for RoomEventCache {
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
-        client: WeakClient,
+        room_id: OwnedRoomId,
+        weak_room: WeakRoom,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
-                client,
+                room_id,
+                weak_room,
                 state,
                 pagination_status,
-                room_id,
                 auto_shrink_sender,
                 update_sender,
             )),
@@ -449,17 +449,15 @@ impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
     fn new(
-        client: WeakClient,
+        room_id: OwnedRoomId,
+        weak_room: WeakRoom,
         state: RoomEventCacheStateLock,
         pagination_status: SharedObservable<PaginationStatus>,
-        room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
-        let weak_room = WeakRoom::new(client, room_id);
-
         Self {
-            room_id: weak_room.room_id().to_owned(),
+            room_id,
             weak_room,
             state,
             update_sender,

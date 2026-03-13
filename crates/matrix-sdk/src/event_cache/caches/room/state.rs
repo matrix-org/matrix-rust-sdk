@@ -60,24 +60,19 @@ use super::{
             persistence::send_updates_to_store,
         },
         EventLocation, TimelineVectorDiffs,
+        event_focused::{EventFocusThreadMode, EventFocusedCache},
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::LoadMoreEventsBackwardsOutcome,
         pinned_events::PinnedEventCache,
+        read_receipts::compute_unread_counts,
         thread::ThreadEventCache,
     },
     EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{
-    Room,
-    event_cache::{
-        EventFocusThreadMode,
-        caches::{event_focused::EventFocusedCache, read_receipts::compute_unread_counts},
-    },
-    room::WeakRoom,
-};
+use crate::{Room, room::WeakRoom};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -96,7 +91,7 @@ pub struct RoomEventCacheState {
     pub room_id: OwnedRoomId,
 
     /// A weak reference to the actual room.
-    pub room: WeakRoom,
+    weak_room: WeakRoom,
 
     /// The user's own user id.
     pub own_user_id: OwnedUserId,
@@ -176,7 +171,7 @@ impl RoomEventCacheStateLock {
     pub async fn new(
         own_user_id: OwnedUserId,
         room_id: OwnedRoomId,
-        room: WeakRoom,
+        weak_room: WeakRoom,
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
@@ -244,7 +239,7 @@ impl RoomEventCacheStateLock {
             own_user_id,
             enabled_thread_support,
             room_id,
-            room,
+            weak_room,
             store,
             room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
@@ -1044,7 +1039,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self,
         receipt_event: Option<&ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
-        let Some(room) = self.state.room.get() else {
+        let Some(room) = self.state.weak_room.get() else {
             debug!("can't update read receipts: client's closing");
             return Ok(());
         };
@@ -1109,11 +1104,18 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // TODO: when there's persistent storage, try to lazily reload from disk, if
         // missing from memory.
         let room_id = self.state.room_id.clone();
+        let weak_room = self.state.weak_room.clone();
         let linked_chunk_update_sender = self.state.linked_chunk_update_sender.clone();
         let store = self.state.store.clone();
 
         self.state.threads.entry(root_event_id.clone()).or_insert_with(|| {
-            ThreadEventCache::new(room_id, root_event_id, store, linked_chunk_update_sender)
+            ThreadEventCache::new(
+                room_id,
+                root_event_id,
+                weak_room,
+                store,
+                linked_chunk_update_sender,
+            )
         })
     }
 
