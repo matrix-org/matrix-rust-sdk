@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
   `Room::latest_event()`, so room summaries still show the last live location
   sharing session after it ends.
   ([#6437](https://github.com/matrix-org/matrix-rust-sdk/pull/6437))
+- Allow setting a custom Sliding Sync connection ID and timeline limit on `RoomListService`.
+  ([#6289](https://github.com/matrix-org/matrix-rust-sdk/pull/6289))
 - Don't show a "sent in clear" shield on live location timeline items in
   encrypted rooms, since `beacon_info` is a state event that cannot be
   encrypted by design.
