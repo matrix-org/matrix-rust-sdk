@@ -33,8 +33,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 # we have `pos` and `timeout`. We must consider they are
                 # optional.
                 (
-                    .*
-                    \spos="(?<pos>[^"]+)"
+                    .*?
+                    (\spos="(?<pos>[^"]+)")?
                     \stimeout=(?<timeout>\d+)
                 )?
             \}
