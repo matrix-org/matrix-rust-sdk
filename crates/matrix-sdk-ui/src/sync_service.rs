@@ -47,7 +47,9 @@ use tracing::{Instrument, Level, Span, error, info, instrument, trace, warn};
 
 use crate::{
     encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService},
-    room_list_service::{self, RoomListService},
+    room_list_service::{
+        self, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT, RoomListService,
+    },
 };
 
 /// Current state of the application.
@@ -773,6 +775,16 @@ pub struct SyncServiceBuilder {
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     with_share_pos: bool,
 
+    /// Custom connection ID for the room list service.
+    /// Defaults to [`room_list_service::DEFAULT_CONNECTION_ID`]. Use a
+    /// different value for secondary processes such as iOS share extensions
+    /// that are not meant to reuse the main app's connection.
+    room_list_conn_id: String,
+
+    /// Custom timeline limit for the room list service. Defaults to
+    /// [`room_list_service::DEFAULT_LIST_TIMELINE_LIMIT`].
+    room_list_timeline_limit: u32,
+
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
@@ -783,7 +795,14 @@ pub struct SyncServiceBuilder {
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self { client, with_offline_mode: false, with_share_pos: true, parent_span: Span::none() }
+        Self {
+            client,
+            with_offline_mode: false,
+            with_share_pos: true,
+            room_list_conn_id: DEFAULT_CONNECTION_ID.to_owned(),
+            room_list_timeline_limit: DEFAULT_LIST_TIMELINE_LIMIT,
+            parent_span: Span::none(),
+        }
     }
 
     /// Enable the "offline" mode for the [`SyncService`].
@@ -803,6 +822,18 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Set a custom conn_id for the room list sliding sync connection.
+    pub fn with_room_list_conn_id(mut self, conn_id: String) -> Self {
+        self.room_list_conn_id = conn_id;
+        self
+    }
+
+    /// Set a custom timeline limit for the room list service.
+    pub fn with_room_list_timeline_limit(mut self, limit: u32) -> Self {
+        self.room_list_timeline_limit = limit;
+        self
+    }
+
     /// Set the parent tracing span to be used for the tasks within this
     /// service.
     pub fn with_parent_span(mut self, parent_span: Span) -> Self {
@@ -816,11 +847,24 @@ impl SyncServiceBuilder {
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self { client, with_offline_mode, with_share_pos, parent_span } = self;
+        let Self {
+            client,
+            with_offline_mode,
+            with_share_pos,
+            room_list_conn_id,
+            room_list_timeline_limit,
+            parent_span,
+        } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new_with_share_pos(client.clone(), with_share_pos).await?;
+        let room_list = RoomListService::new_with(
+            client.clone(),
+            with_share_pos,
+            &room_list_conn_id,
+            room_list_timeline_limit,
+        )
+        .await?;
 
         let encryption_sync = Arc::new(EncryptionSyncService::new(client, None).await?);
 

@@ -128,6 +128,28 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
+    /// Set a custom Sliding Sync connection ID for the room list service.
+    ///
+    /// By default [`matrix_sdk_ui::room_list_service::DEFAULT_CONNECTION_ID`]
+    /// is used. Set a different value for secondary processes such as iOS
+    /// Share Extensions that are not meant to reuse the main app's
+    /// connection.
+    pub fn with_room_list_connection_id(self: Arc<Self>, connection_id: String) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_room_list_conn_id(connection_id);
+        Arc::new(Self { builder, ..this })
+    }
+
+    /// Set a custom timeline limit for the room list service.
+    ///
+    /// When set, overrides the default timeline limit of
+    /// [`matrix_sdk_ui::room_list_service::DEFAULT_LIST_TIMELINE_LIMIT`].
+    pub fn with_room_list_timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_room_list_timeline_limit(limit);
+        Arc::new(Self { builder, ..this })
+    }
+
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
         Ok(Arc::new(SyncService {
