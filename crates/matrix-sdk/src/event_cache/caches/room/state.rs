@@ -30,8 +30,8 @@ use matrix_sdk_base::{
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
     linked_chunk::{
-        ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId,
-        Position, Update, lazy_loader,
+        ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position,
+        Update, lazy_loader,
     },
     serde_helpers::{extract_edit_target, extract_thread_root},
     sync::Timeline,
@@ -63,7 +63,6 @@ use super::{
         event_focused::{EventFocusThreadMode, EventFocusedCache},
         event_linked_chunk::EventLinkedChunk,
         lock,
-        pagination::LoadMoreEventsBackwardsOutcome,
         pinned_events::PinnedEventCache,
         read_receipts::compute_unread_counts,
         thread::ThreadEventCache,
@@ -453,7 +452,12 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     }
 
     /// Get the `waited_for_initial_prev_token` value.
-    pub fn waited_for_initial_prev_token(&mut self) -> &mut bool {
+    pub fn waited_for_initial_prev_token(&self) -> bool {
+        self.state.waited_for_initial_prev_token
+    }
+
+    /// Get a mutable reference to the `waited_for_initial_prev_token` value.
+    pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
     }
 
@@ -493,117 +497,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             &self.store,
         )
         .await
-    }
-
-    /// Load more events backwards if the last chunk is **not** a gap.
-    pub async fn load_more_events_backwards(
-        &mut self,
-    ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
-        // If any in-memory chunk is a gap, don't load more events, and let the caller
-        // resolve the gap.
-        if let Some(prev_token) = self.state.room_linked_chunk.rgap().map(|gap| gap.token) {
-            return Ok(LoadMoreEventsBackwardsOutcome::Gap {
-                prev_token: Some(prev_token),
-                waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
-            });
-        }
-
-        let prev_first_chunk =
-            self.state.room_linked_chunk.chunks().next().expect("a linked chunk is never empty");
-
-        // The first chunk is not a gap, we can load its previous chunk.
-        let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
-        let new_first_chunk = match self
-            .store
-            .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
-            .await
-        {
-            Ok(Some(new_first_chunk)) => {
-                // All good, let's continue with this chunk.
-                new_first_chunk
-            }
-
-            Ok(None) => {
-                // If we never received events for this room, this means we've never received a
-                // sync for that room, because every room must have *at least* a room creation
-                // event. Otherwise, we have reached the start of the timeline.
-
-                if self.state.room_linked_chunk.events().next().is_some() {
-                    // If there's at least one event, this means we've reached the start of the
-                    // timeline, since the chunk is fully loaded.
-                    trace!("chunk is fully loaded and non-empty: reached_start=true");
-                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
-                }
-
-                // Otherwise, start back-pagination from the end of the room.
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
-                    prev_token: None,
-                    waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
-                });
-            }
-
-            Err(err) => {
-                error!("error when loading the previous chunk of a linked chunk: {err}");
-
-                // Clear storage for this room.
-                self.store
-                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                    .await?;
-
-                // Return the error.
-                return Err(err.into());
-            }
-        };
-
-        let chunk_content = new_first_chunk.content.clone();
-
-        // We've reached the start on disk, if and only if, there was no chunk prior to
-        // the one we just loaded.
-        //
-        // This value is correct, if and only if, it is used for a chunk content of kind
-        // `Items`.
-        let reached_start = new_first_chunk.previous.is_none();
-
-        if let Err(err) = self.state.room_linked_chunk.insert_new_chunk_as_first(new_first_chunk) {
-            error!("error when inserting the previous chunk into its linked chunk: {err}");
-
-            // Clear storage for this room.
-            self.store
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(&self.state.room_id),
-                    vec![Update::Clear],
-                )
-                .await?;
-
-            // Return the error.
-            return Err(err.into());
-        }
-
-        // ⚠️ Let's not propagate the updates to the store! We already have these data
-        // in the store! Let's drain them.
-        let _ = self.state.room_linked_chunk.store_updates().take();
-
-        // However, we want to get updates as `VectorDiff`s.
-        let timeline_event_diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
-
-        Ok(match chunk_content {
-            ChunkContent::Gap(gap) => {
-                trace!("reloaded chunk from disk (gap)");
-                LoadMoreEventsBackwardsOutcome::Gap {
-                    prev_token: Some(gap.token),
-                    waited_for_initial_prev_token: self.state.waited_for_initial_prev_token,
-                }
-            }
-
-            ChunkContent::Items(events) => {
-                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                }
-            }
-        })
     }
 
     /// If storage is enabled, unload all the chunks, then reloads only the
