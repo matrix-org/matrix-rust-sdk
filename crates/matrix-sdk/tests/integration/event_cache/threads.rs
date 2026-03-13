@@ -113,6 +113,8 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -446,6 +448,8 @@ async fn test_deduplication() {
 
     room_event_cache
         .thread_pagination(thread_root.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -703,6 +707,8 @@ async fn test_auto_subscribe_on_thread_paginate() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -792,6 +798,8 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();

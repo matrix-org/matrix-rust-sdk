@@ -73,6 +73,7 @@ pub use caches::{
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
         RoomEventCacheUpdate, pagination::RoomPagination,
     },
+    thread::pagination::ThreadPagination,
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};

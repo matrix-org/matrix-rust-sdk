@@ -19,6 +19,7 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap, store::EventCacheStoreLock},
     linked_chunk::{OwnedLinkedChunkId, Position, Update},
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::Sender;
 use tracing::instrument;
@@ -38,7 +39,7 @@ pub struct ThreadEventCacheState {
 
     /// The ID of the thread root event, which is the first event in the thread
     /// (and eventually the first in the linked chunk).
-    pub thread_root: OwnedEventId,
+    thread_id: OwnedEventId,
 
     /// Reference to the underlying backing store.
     store: EventCacheStoreLock,
@@ -54,6 +55,12 @@ pub struct ThreadEventCacheState {
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+
+    /// Have we ever waited for a previous-batch-token to come from sync, in
+    /// the context of pagination? We do this at most once per room/thread (?),
+    /// the first time we try to run backward pagination. We reset
+    /// that upon clearing the timeline events.
+    waited_for_initial_prev_token: bool,
 }
 
 impl lock::Store for ThreadEventCacheState {
@@ -81,17 +88,18 @@ impl ThreadEventCacheStateLock {
     /// [`ThreadPagination`]: super::pagination::ThreadPagination
     pub fn new(
         room_id: OwnedRoomId,
-        thread_root: OwnedEventId,
+        thread_id: OwnedEventId,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self::new_inner(ThreadEventCacheState {
             room_id,
-            thread_root,
+            thread_id,
             store,
             thread_linked_chunk: EventLinkedChunk::new(),
             sender: Sender::new(32),
             linked_chunk_update_sender,
+            waited_for_initial_prev_token: false,
         })
     }
 }
@@ -129,6 +137,11 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
     }
+
+    /// Get the `waited_for_initial_prev_token` value.
+    pub fn waited_for_initial_prev_token(&self) -> bool {
+        self.state.waited_for_initial_prev_token
+    }
 }
 
 impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
@@ -140,6 +153,11 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// Return a mutable reference to the underlying thread linked chunk.
     pub fn thread_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.thread_linked_chunk
+    }
+
+    /// Get the `waited_for_initial_prev_token` value.
+    pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
+        &mut self.state.waited_for_initial_prev_token
     }
 
     pub async fn handle_sync(&mut self, events: Vec<Event>) -> Result<Vec<VectorDiff<Event>>> {
@@ -169,6 +187,26 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         Ok(timeline_event_diffs)
     }
 
+    /// Save events into the database, without notifying observers.
+    pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        let store = self.store.clone();
+        let room_id = self.state.room_id.clone();
+        let events = events.into_iter().collect::<Vec<_>>();
+
+        // Spawn a task so the save is uninterrupted by task cancellation.
+        spawn(async move {
+            for event in events {
+                store.save_event(&room_id, event).await?;
+            }
+
+            Result::Ok(())
+        })
+        .await
+        .expect("joining failed")?;
+
+        Ok(())
+    }
+
     /// Reset this data structure as if it were brand new.
     ///
     /// Return a single diff update that is a clear of all events; as a
@@ -190,6 +228,11 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         self.state.thread_linked_chunk.reset();
 
         self.propagate_changes().await?;
+
+        // Reset the pagination state too: pretend we never waited for the initial
+        // prev-batch token, and indicate that we're not at the start of the
+        // timeline, since we don't know about that anymore.
+        self.state.waited_for_initial_prev_token = false;
 
         Ok(())
     }
@@ -231,7 +274,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         // TODO: call the `persistence::send_updates_to_store` function
         let linked_chunk_id =
-            OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_root.clone());
+            OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_id.clone());
 
         let _ = self
             .state

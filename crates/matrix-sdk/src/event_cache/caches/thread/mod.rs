@@ -25,6 +25,7 @@ pub(super) use state::ThreadEventCacheStateLock;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
+use self::pagination::ThreadPagination;
 use super::{
     super::Result, EventsOrigin, TimelineVectorDiffs, room::RoomEventCacheLinkedChunkUpdate,
 };
@@ -37,6 +38,9 @@ pub(super) struct ThreadEventCache {
 
 /// The (non-cloneable) details of the `RoomEventCache`.
 struct ThreadEventCacheInner {
+    /// The thread root ID.
+    thread_id: OwnedEventId,
+
     /// The room where this thread belongs to.
     weak_room: WeakRoom,
 
@@ -54,17 +58,18 @@ impl ThreadEventCache {
     /// Create a new empty thread event cache.
     pub fn new(
         room_id: OwnedRoomId,
-        thread_root: OwnedEventId,
+        thread_id: OwnedEventId,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self {
             inner: Arc::new(ThreadEventCacheInner {
+                thread_id: thread_id.clone(),
                 weak_room,
                 state: ThreadEventCacheStateLock::new(
                     room_id,
-                    thread_root,
+                    thread_id,
                     store,
                     linked_chunk_update_sender,
                 ),
@@ -82,6 +87,12 @@ impl ThreadEventCache {
         let recv = state.state.sender.subscribe();
 
         Ok((events, recv))
+    }
+
+    /// Return a [`ThreadPagination`] useful for running back-pagination queries
+    /// in this thread.
+    pub fn pagination(&self) -> ThreadPagination {
+        ThreadPagination::new(self.inner.clone())
     }
 
     /// Clear a thread, after a gappy sync for instance.

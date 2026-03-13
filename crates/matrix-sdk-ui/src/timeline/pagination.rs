@@ -66,6 +66,8 @@ impl super::Timeline {
             TimelineFocusKind::Thread { root_event_id } => Ok(self
                 .event_cache
                 .thread_pagination(root_event_id.to_owned())
+                .await
+                .map_err(PaginationError::EventCache)?
                 .run_backwards_once(num_events)
                 .await
                 .map(|outcome| outcome.reached_start)?),
