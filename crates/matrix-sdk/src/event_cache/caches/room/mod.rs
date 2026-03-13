@@ -875,12 +875,13 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{lock::Reload as _, pagination::LoadMoreEventsBackwardsOutcome},
+        super::{
+            super::TimelineVectorDiffs, lock::Reload as _,
+            pagination::LoadMoreEventsBackwardsOutcome,
+        },
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
-    use crate::{
-        assert_let_timeout, event_cache::TimelineVectorDiffs, test_utils::client::MockClientBuilder,
-    };
+    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -1465,7 +1466,7 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         {
-            let mut state = room_event_cache.inner.state.write().await.unwrap();
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             let mut num_gaps = 0;
             let mut num_events = 0;
@@ -1481,15 +1482,20 @@ mod timed_tests {
             // the events.
             assert_eq!(num_gaps, 0);
             assert_eq!(num_events, 1);
+        }
 
-            // But if I manually reload more of the chunk, the gap will be present.
-            assert_matches!(
-                state.load_more_events_backwards().await.unwrap(),
-                LoadMoreEventsBackwardsOutcome::Gap { .. }
-            );
+        // But if I manually reload more of the chunk, the gap will be present.
+        assert_matches!(
+            room_event_cache.pagination().load_more_events_backwards().await.unwrap(),
+            LoadMoreEventsBackwardsOutcome::Gap { .. }
+        );
 
-            num_gaps = 0;
-            num_events = 0;
+        {
+            let state = room_event_cache.inner.state.read().await.unwrap();
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
             for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),

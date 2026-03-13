@@ -99,7 +99,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
     }
 
     async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()> {
-        *self.cache.state.write().await?.waited_for_initial_prev_token() = true;
+        *self.cache.state.write().await?.waited_for_initial_prev_token_mut() = true;
 
         Ok(())
     }
