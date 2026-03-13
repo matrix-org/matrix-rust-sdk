@@ -71,6 +71,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
+  so it has access to `MsgLikeContent` `reactions`.
+  ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
 - [**breaking**] Rename `AnyOtherFullStateEventContent` to `AnyOtherStateEventContentChange`
   to match the name change in the upstream types.
   ([#6218](https://github.com/matrix-org/matrix-rust-sdk/pull/6218))

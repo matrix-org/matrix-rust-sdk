@@ -15,7 +15,10 @@
 use as_variant::as_variant;
 use ruma::OwnedEventId;
 
-use super::{EmbeddedEvent, EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
+use super::{
+    EmbeddedEvent, EncryptedMessage, InReplyToDetails, LiveLocationState, Message, PollState,
+    Sticker,
+};
 use crate::timeline::{
     ReactionsByKeyBySender, TimelineDetails, event_item::content::other::OtherMessageLike,
 };
@@ -39,6 +42,9 @@ pub enum MsgLikeKind {
 
     /// A custom message like event.
     Other(OtherMessageLike),
+
+    /// A live location sharing session (MSC3489).
+    LiveLocation(LiveLocationState),
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +93,7 @@ impl MsgLikeContent {
             MsgLikeKind::Redacted => "a redacted message",
             MsgLikeKind::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
             MsgLikeKind::Other(_) => "a custom message-like event",
+            MsgLikeKind::LiveLocation(_) => "a live location share",
         }
     }
 
