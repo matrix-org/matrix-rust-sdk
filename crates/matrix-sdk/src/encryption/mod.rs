@@ -921,6 +921,14 @@ impl Encryption {
         self.ensure_device_keys_upload().await?;
         self.wait_for_e2ee_initialization_tasks().await;
 
+        // If our initialization tasks completed before we imported the secrets bundle,
+        // backups might not have been enabled.
+        //
+        // In this case attempt to enable them again.
+        if !self.backups().are_enabled().await {
+            self.backups().maybe_resume_backups().await?;
+        }
+
         Ok(())
     }
 
