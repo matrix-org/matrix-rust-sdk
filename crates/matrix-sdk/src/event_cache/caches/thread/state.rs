@@ -271,6 +271,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         self.send_updates_to_store(updates).await
     }
 
+    #[allow(clippy::unused_async)] // TODO: remove once persistent storage is implemented
     async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         // TODO: call the `persistence::send_updates_to_store` function
         let linked_chunk_id =
