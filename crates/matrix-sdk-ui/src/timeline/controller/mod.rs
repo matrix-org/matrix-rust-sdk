@@ -1269,8 +1269,21 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.handle_local_reaction(key, send_handle, applies_to).await;
             }
 
-            LocalEchoContent::Redaction { .. } => {
-                // TODO: Handle local redactions in the timeline.
+            LocalEchoContent::Redaction { redacts, send_error, .. } => {
+                self.handle_local_redaction(echo.transaction_id.clone(), redacts).await;
+
+                if let Some(send_error) = send_error {
+                    self.update_event_send_state(
+                        &echo.transaction_id,
+                        EventSendState::SendingFailed {
+                            error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+                                send_error,
+                            ))),
+                            is_recoverable: false,
+                        },
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -1298,6 +1311,34 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 timestamp: MilliSecondsSinceUnixEpoch::now(),
                 reaction_status,
             },
+        );
+
+        tr.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(
+            &tr.meta.aggregations,
+            &mut tr.items,
+            &target,
+            aggregation,
+            &tr.meta.room_version_rules,
+        );
+
+        tr.commit();
+    }
+
+    /// Applies a local echo of a redaction.
+    pub(super) async fn handle_local_redaction(
+        &self,
+        txn_id: OwnedTransactionId,
+        redacts: OwnedEventId,
+    ) {
+        let mut state = self.state.write().await;
+        let mut tr = state.transaction();
+
+        let target = TimelineEventItemId::EventId(redacts);
+
+        let aggregation = Aggregation::new(
+            TimelineEventItemId::TransactionId(txn_id),
+            AggregationKind::Redaction { is_local: true },
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());

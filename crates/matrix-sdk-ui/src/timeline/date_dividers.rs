@@ -687,6 +687,7 @@ mod tests {
             None,
             timestamp,
             TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
+            None,
             event_kind,
             false,
         )

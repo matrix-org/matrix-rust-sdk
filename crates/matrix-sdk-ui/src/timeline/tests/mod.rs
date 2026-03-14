@@ -173,6 +173,12 @@ impl TestTimeline {
         txn_id
     }
 
+    async fn handle_local_redaction(&self, redacts: OwnedEventId) -> OwnedTransactionId {
+        let txn_id = TransactionId::new();
+        self.controller.handle_local_redaction(txn_id.clone(), redacts).await;
+        txn_id
+    }
+
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::from_plaintext(event.cast());
         self.controller
