@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Enable sending redaction events through the send queue via `RoomSendQueue::send_redaction`.
+  This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
+  variant.
+  ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also

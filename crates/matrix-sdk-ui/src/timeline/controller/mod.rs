@@ -1268,6 +1268,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
             LocalEchoContent::React { key, send_handle, applies_to } => {
                 self.handle_local_reaction(key, send_handle, applies_to).await;
             }
+
+            LocalEchoContent::Redaction { .. } => {
+                // TODO: Handle local redactions in the timeline.
+            }
         }
     }
 
