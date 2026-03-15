@@ -38,7 +38,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
-    cross_process_lock::CrossProcessLockError,
+    cross_process_lock::{CrossProcessLockError, CrossProcessLockState},
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
         store::types::{RoomKeyBundleInfo, RoomKeyInfo},
@@ -1754,34 +1754,6 @@ impl Encryption {
         Ok(())
     }
 
-    /// Maybe reload the `OlmMachine` after acquiring the lock for the first
-    /// time.
-    ///
-    /// Returns the current generation number.
-    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
-        let olm_machine_guard = self.client.olm_machine().await;
-        if let Some(olm_machine) = olm_machine_guard.as_ref() {
-            let (new_gen, generation_number) = olm_machine
-                .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
-                .await?;
-            // If the crypto store generation has changed,
-            if new_gen {
-                // (get rid of the reference to the current crypto store first)
-                drop(olm_machine_guard);
-                // Recreate the OlmMachine.
-                self.client.base_client().regenerate_olm(None).await?;
-            }
-            Ok(generation_number)
-        } else {
-            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
-            // been initialised by the time we get here. Ideally we'd panic, or return an
-            // error, but for now I'm just adding some logging to check if it
-            // happens, and returning the magic number 0.
-            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
-            Ok(0)
-        }
-    }
-
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// spin-waits until the lock is available.
     ///
@@ -1792,7 +1764,7 @@ impl Encryption {
         max_backoff: Option<u32>,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = lock
+            let state = lock
                 .spin_lock(max_backoff)
                 .await
                 .map_err(|err| {
@@ -1801,12 +1773,17 @@ impl Encryption {
                     )))
                 })?
                 .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;
-
-            let generation = self.on_lock_newly_acquired().await?;
-
+            let guard = match state {
+                CrossProcessLockState::Clean(guard) => guard,
+                CrossProcessLockState::Dirty(guard) => {
+                    self.client.base_client().regenerate_olm(None).await?;
+                    guard.clear_dirty();
+                    guard
+                }
+            };
             Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard.into_guard(),
-                generation,
+                _guard: guard,
+                generation: lock.generation(),
             }))
         } else {
             Ok(None)
@@ -1821,17 +1798,18 @@ impl Encryption {
         &self,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let lock_result = lock.try_lock_once().await?;
-
-            let Some(guard) = lock_result.ok() else {
-                return Ok(None);
+            let guard = match lock.try_lock_once().await? {
+                Ok(CrossProcessLockState::Clean(guard)) => guard,
+                Ok(CrossProcessLockState::Dirty(guard)) => {
+                    self.client.base_client().regenerate_olm(None).await?;
+                    guard.clear_dirty();
+                    guard
+                }
+                Err(_) => return Ok(None),
             };
-
-            let generation = self.on_lock_newly_acquired().await?;
-
             Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard.into_guard(),
-                generation,
+                _guard: guard,
+                generation: lock.generation(),
             }))
         } else {
             Ok(None)
