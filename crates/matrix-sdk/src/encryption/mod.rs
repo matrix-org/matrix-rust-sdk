@@ -1791,15 +1791,17 @@ impl Encryption {
     pub async fn try_lock_store_once(
         &self,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+        let wrap_err = |e: CryptoStoreError| {
+            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Box::new(e))))
+        };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = match lock.try_lock_once().await? {
-                Ok(CrossProcessLockState::Clean(guard)) => guard,
-                Ok(CrossProcessLockState::Dirty(guard)) => {
+            let guard = match lock.try_lock_once().await.map_err(wrap_err)?? {
+                CrossProcessLockState::Clean(guard) => guard,
+                CrossProcessLockState::Dirty(guard) => {
                     self.client.base_client().regenerate_olm(None).await?;
                     guard.clear_dirty();
                     guard
                 }
-                Err(_) => return Ok(None),
             };
             Ok(Some(CrossProcessLockStoreGuardWithGeneration {
                 _guard: guard,
@@ -2111,7 +2113,7 @@ mod tests {
     };
 
     use crate::{
-        Client, assert_next_matches_with_timeout,
+        Client, Error, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{
             DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
@@ -2233,8 +2235,8 @@ mod tests {
         assert!(client1.encryption().backups().are_enabled().await);
 
         // The other client can't take the lock too.
-        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
-        assert!(acquired2.is_none());
+        let error = client2.encryption().try_lock_store_once().await.unwrap_err();
+        assert!(matches!(error, Error::CrossProcessLockError(_)));
 
         // Now have the first client release the lock,
         drop(acquired1);
