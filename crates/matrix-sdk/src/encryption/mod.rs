@@ -1738,17 +1738,11 @@ impl Encryption {
         &self,
         max_backoff: Option<u32>,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+        let wrap_err = |e: CryptoStoreError| {
+            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
+        };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let state = lock
-                .spin_lock(max_backoff)
-                .await
-                .map_err(|err| {
-                    Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(
-                        Arc::new(err),
-                    )))
-                })?
-                .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;
-            let guard = match state {
+            let guard = match lock.spin_lock(max_backoff).await.map_err(wrap_err)?? {
                 CrossProcessLockState::Clean(guard) => guard,
                 CrossProcessLockState::Dirty(guard) => {
                     self.client.base_client().regenerate_olm(None).await?;
