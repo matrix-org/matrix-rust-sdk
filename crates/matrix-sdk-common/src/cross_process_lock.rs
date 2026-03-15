@@ -272,6 +272,11 @@ where
         self.is_dirty.store(false, Ordering::SeqCst);
     }
 
+    /// Determine the generation of this cross-process lock.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
     /// Try to lock once, returns whether the lock was obtained or not.
     ///
     /// The lock can be obtained but it can be dirty. In all cases, the renew
