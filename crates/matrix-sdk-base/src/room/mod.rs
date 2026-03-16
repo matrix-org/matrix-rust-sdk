@@ -161,7 +161,14 @@ impl Room {
         self.info.read().room_type().map(ToOwned::to_owned)
     }
 
-    /// Get the unread notification counts.
+    /// Get the unread notification counts computed server-side.
+    ///
+    /// Note: these might be incorrect for encrypted rooms, since the server
+    /// doesn't know which events are relevant standalone messages or not,
+    /// nor can it inspect mentions. If you need more precise counts for
+    /// encrypted rooms, consider using the client-side computed counts in
+    /// [`Self::num_unread_messages`], [`Self::num_unread_notifications`] and
+    /// [`Self::num_unread_mentions`].
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
         self.info.read().notification_counts
     }
@@ -172,11 +179,6 @@ impl Room {
     /// encrypted rooms.
     pub fn num_unread_messages(&self) -> u64 {
         self.info.read().read_receipts.num_unread
-    }
-
-    /// Get the detailed information about read receipts for the room.
-    pub fn read_receipts(&self) -> RoomReadReceipts {
-        self.info.read().read_receipts.clone()
     }
 
     /// Get the number of unread notifications (computed client-side).
@@ -194,6 +196,11 @@ impl Room {
     /// encrypted rooms.
     pub fn num_unread_mentions(&self) -> u64 {
         self.info.read().read_receipts.num_mentions
+    }
+
+    /// Get the detailed information about read receipts for the room.
+    pub fn read_receipts(&self) -> RoomReadReceipts {
+        self.info.read().read_receipts.clone()
     }
 
     /// Check if the room states have been synced
