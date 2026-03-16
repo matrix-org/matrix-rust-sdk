@@ -36,7 +36,7 @@ use ruma::{
 };
 pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
-use tokio::sync::{Notify, broadcast::Receiver, mpsc};
+use tokio::sync::{Mutex, Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
 pub use updates::{
     RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
@@ -54,7 +54,10 @@ use super::{
 };
 use crate::{
     client::WeakClient,
-    event_cache::{EventFocusThreadMode, caches::event_focused::EventFocusedCache},
+    event_cache::{
+        EventFocusThreadMode,
+        caches::{event_focused::EventFocusedCache, pagination::SharedPagination},
+    },
     room::WeakRoom,
 };
 
@@ -443,6 +446,9 @@ pub(super) struct RoomEventCacheInner {
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
+
+    /// An owned task for the current pagination request.
+    current_pagination_request: Mutex<Option<SharedPagination>>,
 }
 
 impl RoomEventCacheInner {
@@ -464,6 +470,7 @@ impl RoomEventCacheInner {
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
+            current_pagination_request: Mutex::new(None),
         }
     }
 

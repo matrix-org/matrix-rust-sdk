@@ -103,11 +103,6 @@ pub enum EventCacheError {
     #[error(transparent)]
     InitialPaginationError(#[from] PaginatorError),
 
-    /// Back-pagination was already happening in a given room, where we tried to
-    /// back-paginate again.
-    #[error("We were already back-paginating.")]
-    AlreadyBackpaginating,
-
     /// An error happening when interacting with storage.
     #[error(transparent)]
     Storage(#[from] EventCacheStoreError),

@@ -26,6 +26,7 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkContent, LinkedChunkId, Update},
 };
 use ruma::api::Direction;
+use tokio::sync::Mutex;
 use tracing::{error, trace};
 
 pub use super::super::pagination::PaginationStatus;
@@ -42,7 +43,7 @@ use super::{
     },
     PostProcessingOrigin, RoomEventCacheInner, RoomEventCacheUpdate,
 };
-use crate::room::MessagesOptions;
+use crate::{event_cache::caches::pagination::SharedPagination, room::MessagesOptions};
 
 /// An API object to run pagination queries on a [`RoomEventCache`].
 ///
@@ -99,6 +100,10 @@ impl RoomPagination {
 }
 
 impl PaginatedCache for Arc<RoomEventCacheInner> {
+    fn current_request(&self) -> &Mutex<Option<SharedPagination>> {
+        &self.current_pagination_request
+    }
+
     fn status(&self) -> &SharedObservable<PaginationStatus> {
         &self.pagination_status
     }
