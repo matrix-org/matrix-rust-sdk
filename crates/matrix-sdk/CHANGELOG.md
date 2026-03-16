@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
+  specification.
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
