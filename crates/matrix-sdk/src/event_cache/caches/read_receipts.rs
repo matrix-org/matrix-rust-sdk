@@ -77,6 +77,11 @@
 //!   content, but for which we couldn't find the corresponding event. It's
 //!   possible that a read receipt is received before the corresponding event.
 //!
+//! The read receipt that wins is always the one that points to the most recent
+//! in the linked chunk ordering. In other words, the receipt type (as described
+//! above) doesn't matter; it's the relative position in the linked chunk
+//! ordering which does.
+//!
 //! Once we have a new *better active receipt*, we'll save it in the
 //! `RoomReadReceipt` data (stored in `RoomInfo`), and we'll compute the counts,
 //! starting from the event the better active receipt was referring to.
@@ -228,6 +233,8 @@ fn select_best_receipt(
     pending_receipts: &mut RingBuffer<OwnedEventId>,
     new_receipt_event: Option<&ReceiptEventContent>,
 ) -> Option<OwnedEventId> {
+    // If we had a new receipt event, add the main/unthreaded receipts it contains
+    // to the pending receipts list. We'll try to chase them later.
     if let Some(receipt_event) = new_receipt_event {
         for (event_id, receipts) in &receipt_event.0 {
             for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
@@ -242,12 +249,23 @@ fn select_best_receipt(
         }
     }
 
+    // This loop folds two actions at once:
+    // - try to find the most recent receipt, by looking at the events in reverse
+    //   order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk, so
+    //   as to shrink the stash of pending receipts.
+    //
+    // We can early exit out of this loop, as soon as there's no more work to do,
+    // i.e., we've found a better receipt, *and* there's no more pending receipt
+    // to try to match against events in the linked chunk.
+
     let mut found = None;
 
     for (event, event_id) in
         linked_chunk.revents().filter_map(|(_pos, ev)| Some((ev, ev.event_id()?)))
     {
-        // Try to find an implicit read receipt.
+        // Try to find an implicit read receipt (i.e. an event sent by the current
+        // user).
         if found.is_none()
             && event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
                 == Some(user_id)
@@ -255,19 +273,23 @@ fn select_best_receipt(
             found = Some(event_id.clone());
         }
 
-        // Early exit condition.
+        // Early exit condition (see the comment above): we've already found a most
+        // recent receipt, and there's no other pending receipts to match against known
+        // events.
         if found.is_some() && pending_receipts.is_empty() {
             break;
         }
 
-        // Clean up older pending receipts.
+        // Try to match pending receipts to events known in the linked chunk. If we
+        // haven't found any receipt yet, the first matched pending receipt is a better
+        // one!
         pending_receipts.retain(|pending| {
             if *pending == event_id {
                 if found.is_none() {
                     found = Some(event_id.clone());
                 }
                 // Don't keep the pending receipt in the pending list: we've already identified
-                // a better, more recent receipt at this point.
+                // a better, more recent receipt at this point (found == Some).
                 false
             } else {
                 // Keep the receipt, in case the associated event shows up later.
