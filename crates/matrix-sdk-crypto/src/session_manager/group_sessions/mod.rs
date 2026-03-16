@@ -159,7 +159,7 @@ impl GroupSessionManager {
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
-        if let Some(s) = self.sessions.get(room_id) {
+        if let Some(s) = self.sessions.get_or_load(room_id).await {
             s.invalidate_session();
 
             let mut changes = Changes::default();

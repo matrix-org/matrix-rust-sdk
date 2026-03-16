@@ -65,7 +65,10 @@ use ruma::{
         uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
     },
     assign,
-    events::room::{MediaSource, ThumbnailInfo},
+    events::room::{
+        MediaSource, ThumbnailInfo,
+        member::{MembershipChange, OriginalSyncRoomMemberEvent},
+    },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -87,7 +90,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -1875,6 +1878,8 @@ impl Encryption {
         }));
 
         tasks.receive_historic_room_key_bundles = bundle_receiver_task;
+
+        self.setup_room_membership_session_discard_handler();
     }
 
     /// Waits for end-to-end encryption initialization tasks to finish, if any
@@ -1946,6 +1951,40 @@ impl Encryption {
                 self.client.inner.verification_state.set(VerificationState::Unknown);
             }
         }
+    }
+
+    /// Sets up a handler to rotate room keys when a user leaves a room.
+    fn setup_room_membership_session_discard_handler(&self) {
+        let client = WeakClient::from_client(&self.client);
+        self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
+            let Some(client) = client.get() else {
+                // The main client has been dropped.
+                return;
+            };
+            let Some(user_id) = client.user_id() else {
+                // We aren't logged in, so this shouldn't ever happen.
+                return;
+            };
+            let olm = client.olm_machine().await;
+            let Some(olm) = olm.as_ref() else {
+                warn!("Cannot discard session - Olm machine is not available");
+                return;
+            };
+
+            if !matches!(ev.membership_change(), MembershipChange::Left) || ev.sender == user_id {
+                // We can ignore non-leave events and those that we sent.
+                return;
+            }
+
+            debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
+
+            if let Err(e) = olm.discard_room_key(room.room_id()).await {
+                warn!(
+                    room_id = ?room.room_id(),
+                    "Error discarding room key after member leave: {e:?}"
+                );
+            }
+        });
     }
 
     /// Encrypts then send the given content via the `/sendToDevice` end-point
