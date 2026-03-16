@@ -110,6 +110,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- `Client::new` no longer unnecessarily instantiates an `OAuth` component if `CrossProcessLockConfig::SingleProcess` 
+  is used. ([#6293](https://github.com/matrix-org/matrix-rust-sdk/pull/6293))
 - [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
   removed from the Matrix specification.
   ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))

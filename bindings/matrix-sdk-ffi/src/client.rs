@@ -392,9 +392,7 @@ impl Client {
                 }
                 client.inner.oauth().enable_cross_process_refresh_lock(holder_name.clone()).await?;
             }
-            CrossProcessLockConfig::SingleProcess => {
-                client.inner.oauth();
-            }
+            CrossProcessLockConfig::SingleProcess => {}
         }
 
         if let Some(session_delegate) = session_delegate {
