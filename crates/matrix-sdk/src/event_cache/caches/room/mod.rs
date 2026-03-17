@@ -36,7 +36,7 @@ use ruma::{
 };
 pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
-use tokio::sync::{Mutex, Notify, broadcast::Receiver, mpsc};
+use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
 pub use updates::{
     RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
@@ -44,10 +44,7 @@ pub use updates::{
 };
 
 use super::{
-    super::{
-        AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
-        RoomPagination,
-    },
+    super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     thread::pagination::ThreadPagination,
@@ -56,7 +53,7 @@ use crate::{
     client::WeakClient,
     event_cache::{
         EventFocusThreadMode,
-        caches::{event_focused::EventFocusedCache, pagination::SharedPagination},
+        caches::{event_focused::EventFocusedCache, pagination::SharedPaginationStatus},
     },
     room::WeakRoom,
 };
@@ -81,7 +78,7 @@ impl RoomEventCache {
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
         state: LockedRoomEventCacheState,
-        pagination_status: SharedObservable<PaginationStatus>,
+        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
@@ -90,7 +87,7 @@ impl RoomEventCache {
                 room_id,
                 weak_room,
                 state,
-                pagination_status,
+                shared_pagination_status,
                 auto_shrink_sender,
                 update_sender,
             )),
@@ -436,7 +433,7 @@ pub(super) struct RoomEventCacheInner {
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
-    pub pagination_status: SharedObservable<PaginationStatus>,
+    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -446,9 +443,6 @@ pub(super) struct RoomEventCacheInner {
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
-
-    /// An owned task and future for a shared pagination request.
-    shared_pagination_request: Mutex<Option<SharedPagination>>,
 }
 
 impl RoomEventCacheInner {
@@ -458,7 +452,7 @@ impl RoomEventCacheInner {
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
         state: LockedRoomEventCacheState,
-        pagination_status: SharedObservable<PaginationStatus>,
+        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
@@ -469,8 +463,7 @@ impl RoomEventCacheInner {
             update_sender,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
-            pagination_status,
-            shared_pagination_request: Mutex::new(None),
+            shared_pagination_status,
         }
     }
 

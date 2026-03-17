@@ -22,17 +22,14 @@ use std::{fmt, sync::Arc};
 use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
 use ruma::{EventId, OwnedEventId, OwnedRoomId};
 pub(super) use state::LockedThreadEventCacheState;
-use tokio::sync::{
-    Mutex,
-    broadcast::{Receiver, Sender},
-};
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
 use self::pagination::ThreadPagination;
 use super::{
     super::Result, EventsOrigin, TimelineVectorDiffs, room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{event_cache::caches::pagination::SharedPagination, room::WeakRoom};
+use crate::room::WeakRoom;
 
 /// All the information related to a single thread.
 pub(super) struct ThreadEventCache {
@@ -49,9 +46,6 @@ struct ThreadEventCacheInner {
 
     /// State for this thread's event cache.
     state: LockedThreadEventCacheState,
-
-    /// An owned task and future for a shared pagination request.
-    shared_pagination_request: Mutex<Option<SharedPagination>>,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -79,7 +73,6 @@ impl ThreadEventCache {
                     store,
                     linked_chunk_update_sender,
                 ),
-                shared_pagination_request: Mutex::new(None),
             }),
         }
     }
