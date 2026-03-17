@@ -41,12 +41,11 @@ impl super::Timeline {
                     }
                     None => {
                         // We could adjust the skip count to a lower value, while passing the
-                        // requested number of events. We *may* have reached
-                        // the start of the timeline, but since
-                        // we're fulfilling the caller's request, assume it's not the case and
-                        // return false here. A subsequent call will go to
-                        // the `Some()` arm of this match, and cause a call
-                        // to the event cache's pagination.
+                        // requested number of events. We *may* have reached the start of the
+                        // timeline, but since we're fulfilling the caller's request, assume it's
+                        // not the case and return false here. A subsequent call will go to the
+                        // `Some()` arm of this match, and cause a call to the event cache's
+                        // pagination.
                         return Ok(false);
                     }
                 }
@@ -109,14 +108,17 @@ impl super::Timeline {
         loop {
             match self.event_cache.pagination().run_backwards_once(batch_size).await {
                 Ok(outcome) => {
-                    // As an exceptional contract, restart the back-pagination if we received an
-                    // empty chunk.
-                    if outcome.reached_start || !outcome.events.is_empty() {
-                        if outcome.reached_start {
-                            self.controller.insert_timeline_start_if_missing().await;
-                        }
-                        return Ok(outcome.reached_start);
+                    if outcome.reached_start {
+                        self.controller.insert_timeline_start_if_missing().await;
+                        return Ok(true);
                     }
+
+                    if !outcome.events.is_empty() {
+                        return Ok(false);
+                    }
+
+                    // Fallthrough: as a special contract, restart pagination,
+                    // if it returned 0 events.
                 }
 
                 // Propagate errors as such.
