@@ -154,9 +154,9 @@ impl lock::Store for RoomEventCacheState {
 ///
 /// This contains all the inner mutable states that ought to be updated at
 /// the same time.
-pub type RoomEventCacheStateLock = lock::StateLock<RoomEventCacheState>;
+pub type LockedRoomEventCacheState = lock::StateLock<RoomEventCacheState>;
 
-impl RoomEventCacheStateLock {
+impl LockedRoomEventCacheState {
     /// Create a new state, or reload it from storage if it's been enabled.
     ///
     /// Not all events are going to be loaded. Only a portion of them. The

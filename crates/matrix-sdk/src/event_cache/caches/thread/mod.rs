@@ -21,7 +21,7 @@ use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
 use ruma::{EventId, OwnedEventId, OwnedRoomId};
-pub(super) use state::ThreadEventCacheStateLock;
+pub(super) use state::LockedThreadEventCacheState;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
@@ -45,7 +45,7 @@ struct ThreadEventCacheInner {
     weak_room: WeakRoom,
 
     /// State for this thread's event cache.
-    state: ThreadEventCacheStateLock,
+    state: LockedThreadEventCacheState,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -67,7 +67,7 @@ impl ThreadEventCache {
             inner: Arc::new(ThreadEventCacheInner {
                 thread_id: thread_id.clone(),
                 weak_room,
-                state: ThreadEventCacheStateLock::new(
+                state: LockedThreadEventCacheState::new(
                     room_id,
                     thread_id,
                     store,

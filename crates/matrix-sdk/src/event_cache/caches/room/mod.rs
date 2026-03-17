@@ -34,7 +34,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{RoomEventCacheStateLock, RoomEventCacheStateLockWriteGuard};
+pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
@@ -77,7 +77,7 @@ impl RoomEventCache {
     pub(super) fn new(
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
-        state: RoomEventCacheStateLock,
+        state: LockedRoomEventCacheState,
         pagination_status: SharedObservable<PaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
@@ -351,7 +351,7 @@ impl RoomEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &RoomEventCacheStateLock {
+    pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
         &self.inner.state
     }
 
@@ -428,7 +428,7 @@ pub(super) struct RoomEventCacheInner {
     pub weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: RoomEventCacheStateLock,
+    pub state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
@@ -451,7 +451,7 @@ impl RoomEventCacheInner {
     fn new(
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
-        state: RoomEventCacheStateLock,
+        state: LockedRoomEventCacheState,
         pagination_status: SharedObservable<PaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
