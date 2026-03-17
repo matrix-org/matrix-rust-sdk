@@ -73,7 +73,7 @@ impl Caches {
         let own_user_id =
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
-        let room_state = room::RoomEventCacheStateLock::new(
+        let room_state = room::LockedRoomEventCacheState::new(
             own_user_id,
             room_id.to_owned(),
             weak_room.clone(),

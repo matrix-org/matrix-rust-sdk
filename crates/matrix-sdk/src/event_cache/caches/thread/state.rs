@@ -73,9 +73,9 @@ impl lock::Store for ThreadEventCacheState {
 ///
 /// This contains all the inner mutable states that ought to be updated at
 /// the same time.
-pub type ThreadEventCacheStateLock = lock::StateLock<ThreadEventCacheState>;
+pub type LockedThreadEventCacheState = lock::StateLock<ThreadEventCacheState>;
 
-impl ThreadEventCacheStateLock {
+impl LockedThreadEventCacheState {
     /// Create a new state, or reload it from storage if it's been enabled.
     ///
     /// Not all events are going to be loaded. Only a portion of them. The
