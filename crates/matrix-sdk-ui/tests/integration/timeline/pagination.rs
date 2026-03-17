@@ -1027,11 +1027,16 @@ async fn test_back_pagination_aborted() {
     // Abort the pagination!
     paginate.abort();
 
-    // The task should finish with a cancellation.
+    // The spawned task should finish with a cancellation.
     assert!(paginate.await.unwrap_err().is_cancelled());
 
-    // The timeline should automatically reset to idle.
-    assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: false });
+    // But since the pagination task is owned by the event cache, it continues in
+    // the background!
+    assert_let_timeout!(
+        Duration::from_secs(10),
+        Some(PaginationStatus::Idle { hit_timeline_start }) = back_pagination_status.next()
+    );
+    assert!(hit_timeline_start.not());
 
     // And there should be no other pending pagination status updates.
     assert!(back_pagination_status.next().now_or_never().is_none());
