@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
@@ -126,6 +128,36 @@ async fn test_local_sent_in_clear_shield() {
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
+}
+
+#[async_test]
+/// A `beacon_info` state event cannot be encrypted (state events are always
+/// sent in the clear), so a live-location timeline item must not show a
+/// "sent in clear" shield in an encrypted room.
+async fn test_live_location_no_sent_in_clear_shield() {
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let mut stream = timeline.subscribe_events().await;
+    let beacon_id = event_id!("$beacon_info:example.org");
+
+    let event = timeline
+        .factory
+        .beacon_info(None, Duration::from_secs(3600), true, None)
+        .sender(&ALICE)
+        .state_key(&**ALICE)
+        .event_id(beacon_id);
+    timeline.handle_live_event(event).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(
+        item.content().is_live_location(),
+        "timeline item should be a live location"
+    );
+
+    let shield = item.get_shield(false);
+    assert_eq!(shield, TimelineEventShieldState::None);
+
+    let shield_strict = item.get_shield(true);
+    assert_eq!(shield_strict, TimelineEventShieldState::None);
 }
 
 #[async_test]

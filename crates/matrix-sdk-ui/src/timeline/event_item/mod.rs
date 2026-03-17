@@ -359,6 +359,14 @@ impl EventTimelineItem {
             return TimelineEventShieldState::None;
         }
 
+        // A live-location item originates from a `beacon_info` *state* event,
+        // which cannot be encrypted per the Matrix spec.  The actual location
+        // updates (`beacon` events) *are* encrypted, so showing a "sent in
+        // clear" warning on the parent item would be misleading.
+        if self.content().is_live_location() {
+            return TimelineEventShieldState::None;
+        }
+
         match self.encryption_info() {
             Some(info) => {
                 if strict {
