@@ -352,6 +352,18 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
+            let Self { client, device_creation_timeout, state, msc_4388_support } = self;
+            let rendezvous_server_supported = async {
+                client
+                    .oauth()
+                    .msc_4388_rendezvous_server_supported()
+                    .await
+                    .map_err(SecureChannelError::from)
+            };
+
+            // If MSC4388 support is enabled and the server supports it, then prefer it.
+            let use_msc_4388 = msc_4388_support && rendezvous_server_supported.await?;
+
             // Create a new ephemeral key pair and a rendezvous session to grant a
             // login with.
             // -- MSC4108 Secure channel setup steps 1 & 2
@@ -359,15 +371,14 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             let http_client = self.client.inner.http_client.clone();
             let secrets_bundle = export_secrets_bundle(self.client).await?;
             let channel =
-                SecureChannel::reciprocate(http_client, &homeserver_url, self.msc_4388_support)
-                    .await?;
+                SecureChannel::reciprocate(http_client, &homeserver_url, use_msc_4388).await?;
 
             // Extract the QR code data and emit an update so that the caller can
             // present the QR code for scanning by the new device.
             // -- MSC4108 Secure channel setup step 3
-            self.state.set(GrantLoginProgress::EstablishingSecureChannel(
-                GeneratedQrProgress::QrReady(channel.qr_code_data().clone()),
-            ));
+            state.set(GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
+                channel.qr_code_data().clone(),
+            )));
 
             // Wait for the secure channel to connect. The other device now needs to scan
             // the QR code and send us the LoginInitiateMessage which we respond to
@@ -379,7 +390,7 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             // user to enter the checkcode and feed it back to us.
             // -- MSC4108 Secure channel setup step 6
             let (tx, rx) = tokio::sync::oneshot::channel();
-            self.state.set(GrantLoginProgress::EstablishingSecureChannel(
+            state.set(GrantLoginProgress::EstablishingSecureChannel(
                 GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx)),
             ));
             let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
@@ -396,11 +407,11 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
             // Proceed with granting the login.
             // -- MSC4108 OAuth 2.0 login remaining steps
             finish_login_grant(
-                self.client,
+                client,
                 &mut channel,
-                self.device_creation_timeout,
+                device_creation_timeout,
                 &secrets_bundle,
-                &self.state,
+                &state,
             )
             .await
         })
