@@ -66,7 +66,7 @@ use crate::{
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
-        threads::{ListThreadsOptions, ThreadList, ThreadSubscription},
+        threads::{ListThreadsOptions, ThreadList, ThreadListService, ThreadSubscription},
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
@@ -1254,6 +1254,17 @@ impl Room {
     ) -> Result<ThreadList, ClientError> {
         let thread_list = self.inner.load_thread_list(opts.into()).await?;
         Ok(thread_list.into())
+    }
+
+    /// Creates a new [`ThreadListService`] for this room.
+    ///
+    /// The returned service provides a reactive, paginated list of thread roots
+    /// for the room. Use [`ThreadListService::paginate`] to load pages and
+    /// [`ThreadListService::subscribe_to_items_updates`] /
+    /// [`ThreadListService::subscribe_to_pagination_state_updates`] to observe
+    /// changes.
+    pub fn thread_list_service(&self) -> Arc<ThreadListService> {
+        Arc::new(ThreadListService::new(&self.inner))
     }
 
     /// Either loads the event associated with the `event_id` from the event
