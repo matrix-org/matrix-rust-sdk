@@ -455,21 +455,27 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
     async fn establish_secure_channel(
         &self,
     ) -> Result<EstablishedSecureChannel, SecureChannelError> {
-        let http_client = self.client.inner.http_client.clone();
+        let Self { client, registration_data: _, state, msc_4388_support } = self;
+
+        let http_client = client.inner.http_client.clone();
+        let rendezvous_server_supported =
+            async { client.oauth().msc_4388_rendezvous_server_supported().await };
+
+        // If MSC4388 support is enabled and the server supports it, then prefer it.
+        let use_msc_4388 = *msc_4388_support && rendezvous_server_supported.await?;
 
         // Create a new ephemeral key pair and a rendezvous session to request a login
         // with.
         // -- MSC4108 Secure channel setup steps 1 & 2
         let secure_channel =
-            SecureChannel::login(http_client, &self.client.homeserver(), self.msc_4388_support)
-                .await?;
+            SecureChannel::login(http_client, &client.homeserver(), use_msc_4388).await?;
 
         // Extract the QR code data and emit a progress update so that the caller can
         // present the QR code for scanning by the other device.
         // -- MSC4108 Secure channel setup step 3
         let qr_code_data = secure_channel.qr_code_data().clone();
         trace!("Generated QR code.");
-        self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
+        state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
             qr_code_data,
         )));
 
@@ -484,7 +490,7 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         // -- MSC4108 Secure channel setup step 6
         trace!("Waiting for checkcode.");
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
+        state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
             CheckCodeSender::new(tx),
         )));
 
