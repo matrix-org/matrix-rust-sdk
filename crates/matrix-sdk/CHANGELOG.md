@@ -122,6 +122,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `EventCache` now owns pagination tasks, and will run them to completion, even
+  if a manual caller stopped polling the called future.
+  ([#6304](https://github.com/matrix-org/matrix-rust-sdk/pull/6304))
 - [**breaking**] `RoomEventCache::thread_pagination` is now async and fallible.
   ([#6280](https://github.com/matrix-org/matrix-rust-sdk/pull/6280))
 - [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
