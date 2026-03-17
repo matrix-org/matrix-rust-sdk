@@ -2919,6 +2919,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 
 [[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3392,7 +3402,9 @@ dependencies = [
  "eyeball-im",
  "futures-executor",
  "futures-util",
+ "jni",
  "language-tags",
+ "libloading",
  "log-panics",
  "matrix-sdk",
  "matrix-sdk-base",
@@ -3401,8 +3413,10 @@ dependencies = [
  "matrix-sdk-ui",
  "mime",
  "oauth2",
+ "once_cell",
  "paranoid-android",
  "ruma",
+ "rustls-platform-verifier",
  "sentry",
  "sentry-tracing",
  "serde",
@@ -3973,9 +3987,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.3"
+version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "oneshot"
