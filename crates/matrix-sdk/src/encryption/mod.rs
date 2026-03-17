@@ -37,10 +37,15 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
-    cross_process_lock::{CrossProcessLockError, CrossProcessLockState},
+    cross_process_lock::{
+        AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError, CrossProcessLockState,
+    },
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
-        store::types::{RoomKeyBundleInfo, RoomKeyInfo},
+        store::{
+            LockableCryptoStore,
+            types::{RoomKeyBundleInfo, RoomKeyInfo},
+        },
         types::{
             SignedKey,
             requests::{
@@ -1734,43 +1739,43 @@ impl Encryption {
     ///
     /// May reload the `OlmMachine`, after obtaining the lock but not on the
     /// first time.
+    ///
+    /// Returns a guard to the lock, if it was obtained.
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
-        let wrap_err = |e: CryptoStoreError| {
-            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
-        };
-        if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = match lock.spin_lock(max_backoff).await.map_err(wrap_err)?? {
-                CrossProcessLockState::Clean(guard) => guard,
-                CrossProcessLockState::Dirty(guard) => {
-                    self.client.base_client().regenerate_olm(None).await?;
-                    guard.clear_dirty();
-                    guard
-                }
-            };
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard,
-                generation: lock.generation(),
-            }))
-        } else {
-            Ok(None)
-        }
+        self.lock_store(async move |lock| lock.spin_lock(max_backoff).await).await
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// attempts to lock it once.
     ///
+    /// May reload the `OlmMachine`, after obtaining the lock but not on the
+    /// first time.
+    ///
     /// Returns a guard to the lock, if it was obtained.
     pub async fn try_lock_store_once(
         &self,
     ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+        self.lock_store(CrossProcessLock::try_lock_once).await
+    }
+
+    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
+    /// locks the store with the given function, `acquire`.
+    ///
+    /// Reloads the `OlmMachine` after obtaining the lock, if the lock is dirty.
+    ///
+    /// Returns a guard to the lock if it was obtained.
+    pub async fn lock_store<F: AcquireCrossProcessLockFn<LockableCryptoStore>>(
+        &self,
+        acquire: F,
+    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
         let wrap_err = |e: CryptoStoreError| {
-            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Box::new(e))))
+            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
         };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = match lock.try_lock_once().await.map_err(wrap_err)?? {
+            let guard = match acquire(lock).await.map_err(wrap_err)?? {
                 CrossProcessLockState::Clean(guard) => guard,
                 CrossProcessLockState::Dirty(guard) => {
                     self.client.base_client().regenerate_olm(None).await?;

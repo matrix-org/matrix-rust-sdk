@@ -62,6 +62,31 @@ use crate::{
 /// This is used to know if a lock has been dirtied.
 pub type CrossProcessLockGeneration = u64;
 
+/// A trait that represents any function which can be used to
+/// acquire the underlying lock of a [`CrossProcessLock`].
+///
+/// For example, this can be useful when writing a function which
+/// is parameterized to acquire the underlying lock through either
+/// [`CrossProcessLock::spin_lock`] or [`CrossProcessLock::try_lock_once`].
+pub trait AcquireCrossProcessLockFn<L>
+where
+    Self: AsyncFn(&CrossProcessLock<L>) -> AcquireCrossProcessLockResult<L::LockError>,
+    L: TryLock + Clone + SendOutsideWasm + 'static,
+{
+}
+
+impl<L, T> AcquireCrossProcessLockFn<L> for T
+where
+    T: AsyncFn(&CrossProcessLock<L>) -> AcquireCrossProcessLockResult<L::LockError>,
+    L: TryLock + Clone + SendOutsideWasm + 'static,
+{
+}
+
+/// A convenience type for the [`Result`] returned from calling
+/// or [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
+pub type AcquireCrossProcessLockResult<E> =
+    Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, E>;
+
 /// Trait used to try to take a lock. Foundation of [`CrossProcessLock`].
 pub trait TryLock {
     #[cfg(not(target_family = "wasm"))]
