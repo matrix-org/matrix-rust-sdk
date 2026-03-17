@@ -100,8 +100,8 @@ impl RoomPagination {
 }
 
 impl PaginatedCache for Arc<RoomEventCacheInner> {
-    fn current_request(&self) -> &Mutex<Option<SharedPagination>> {
-        &self.current_pagination_request
+    fn shared_pagination(&self) -> &Mutex<Option<SharedPagination>> {
+        &self.shared_pagination_request
     }
 
     fn status(&self) -> &SharedObservable<PaginationStatus> {

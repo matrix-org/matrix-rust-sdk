@@ -447,8 +447,8 @@ pub(super) struct RoomEventCacheInner {
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
 
-    /// An owned task for the current pagination request.
-    current_pagination_request: Mutex<Option<SharedPagination>>,
+    /// An owned task and future for a shared pagination request.
+    shared_pagination_request: Mutex<Option<SharedPagination>>,
 }
 
 impl RoomEventCacheInner {
@@ -470,7 +470,7 @@ impl RoomEventCacheInner {
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
-            current_pagination_request: Mutex::new(None),
+            shared_pagination_request: Mutex::new(None),
         }
     }
 

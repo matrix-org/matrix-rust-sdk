@@ -107,7 +107,7 @@ where
         // First, ensure there's no other ongoing back-pagination.
         let status_observable = self.cache.status();
 
-        let shared_pagination_lock = self.cache.current_request();
+        let shared_pagination_lock = self.cache.shared_pagination();
         let mut shared_pagination_guard = shared_pagination_lock.lock().await;
 
         let prev_status = status_observable.set(PaginationStatus::Paginating);
@@ -117,7 +117,7 @@ where
         {
             // There was already a back-pagination request in progress; wait for it to
             // finish and return its result.
-            return shared_pagination.fut.clone().await;
+            return shared_pagination.wait_for_completion().await;
         }
 
         // If the previous status wasn't idle, but there was no shared future, we've hit
@@ -153,7 +153,7 @@ where
 
         let shared_task = fut.shared();
 
-        // Start polling in the background.
+        // Start polling in the background, in a spawned task.
         let shared_task_clone = shared_task.clone();
         let cloned_cache = self.cache.clone();
         let join_handle = spawn(async move {
@@ -162,13 +162,13 @@ where
             }
 
             // Reset the pagination to `None`, independently of the result.
-            *cloned_cache.current_request().lock().await = None;
+            *cloned_cache.shared_pagination().lock().await = None;
         });
 
         *shared_pagination_guard =
             Some(SharedPagination { fut: shared_task.clone(), _join_handle: join_handle });
 
-        // Release the shared lock before polling the task (it's going to hit network).
+        // Release the shared lock before waiting for the task to complete.
         drop(shared_pagination_guard);
 
         shared_task.await
@@ -303,9 +303,17 @@ pub(in super::super) struct SharedPagination {
     _join_handle: JoinHandle<()>,
 }
 
+impl SharedPagination {
+    /// Given that the shared request already exists, wait for it to complete,
+    /// and return the same (cloned) result.
+    async fn wait_for_completion(&self) -> Result<Option<BackPaginationOutcome>> {
+        self.fut.clone().await
+    }
+}
+
 pub(in super::super) trait PaginatedCache {
     fn status(&self) -> &SharedObservable<PaginationStatus>;
-    fn current_request(&self) -> &Mutex<Option<SharedPagination>>;
+    fn shared_pagination(&self) -> &Mutex<Option<SharedPagination>>;
 
     fn load_more_events_backwards(
         &self,
