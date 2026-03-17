@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types and methods used to interact with the homeserver Thread List API
+//! and convert the sdk crate level responses to UI crate level object.
+//! [MSC3856](https://github.com/matrix-org/matrix-spec-proposals/pull/3856)
+
 use futures_util::future::join_all;
 use matrix_sdk::{Result, Room, deserialized_responses::TimelineEvent, room::ListThreadsOptions};
 use ruma::{
@@ -28,6 +32,8 @@ use crate::timeline::{
     traits::RoomDataProvider,
 };
 
+/// A structure wrapping a Thread List endpoint response i.e.
+/// [`ThreadListItem`]s and the current pagination token.
 pub struct ThreadList {
     /// The list items
     pub items: Vec<ThreadListItem>,
@@ -37,6 +43,7 @@ pub struct ThreadList {
     pub prev_batch_token: Option<String>,
 }
 
+/// An individual Thread as retrieved from through Thread List API.
 pub struct ThreadListItem {
     /// The thread's root event identifier.
     pub root_event_id: OwnedEventId,
