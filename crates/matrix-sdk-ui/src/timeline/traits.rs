@@ -38,6 +38,7 @@ use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{
     self, Timeline, TimelineReadReceiptTracking,
     latest_event::LatestEventValue,
+    thread_list_service::ThreadListService,
     threads::{ThreadList, load_thread_list},
 };
 
@@ -69,6 +70,13 @@ pub trait RoomExt {
         &self,
         opts: ListThreadsOptions,
     ) -> impl Future<Output = Result<ThreadList>> + SendOutsideWasm;
+
+    /// Create a [`ThreadListService`] for this room.
+    ///
+    /// The returned service provides a paginated, observable list of thread
+    /// roots for the room and can be used to page through threads and
+    /// subscribe to updates.
+    fn thread_list_service(&self) -> ThreadListService;
 }
 
 impl RoomExt for Room {
@@ -92,6 +100,10 @@ impl RoomExt for Room {
 
     async fn load_thread_list(&self, opts: ListThreadsOptions) -> Result<ThreadList> {
         load_thread_list(self, opts).await
+    }
+
+    fn thread_list_service(&self) -> ThreadListService {
+        ThreadListService::new(self.clone())
     }
 }
 

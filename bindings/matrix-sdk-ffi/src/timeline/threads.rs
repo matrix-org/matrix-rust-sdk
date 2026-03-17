@@ -102,11 +102,10 @@ impl From<IncludeThreads> for SdkIncludeThreads {
 /// [`ThreadListItem`]s and the current pagination token.
 #[derive(uniffi::Record)]
 pub struct ThreadList {
-    /// The events that are thread roots in the current batch.
+    /// The thread-root events that belong to this page of results.
     pub items: Vec<ThreadListItem>,
 
-    /// Token to paginate backwards in a subsequent query to
-    /// [`Room::list_threads`].
+    /// Opaque pagination token returned by the homeserver.
     pub prev_batch_token: Option<String>,
 }
 
@@ -119,14 +118,48 @@ impl From<UIThreadList> for ThreadList {
     }
 }
 
-/// An individual Thread as retrieved from through Thread List API.
+/// Each `ThreadListItem` represents one thread root event in the room. The
+/// fields are pre-resolved from the raw homeserver response: the sender's
+/// profile is fetched eagerly and the event content is parsed into a
+/// `TimelineItemContent` so that consumers can render the item without any
+/// additional work.
+///
+/// `ThreadListItem`s are produced page by page via `Room::load_thread_list()`
+/// and are accumulated inside the `ThreadListService` as pages are fetched
+/// through `ThreadListService::paginate()`.
 #[derive(uniffi::Record)]
 pub struct ThreadListItem {
+    /// The event ID of the thread's root message.
+    ///
+    /// Use this to open a per-thread `Timeline` or to navigate the user to
+    /// the thread view.
     root_event_id: String,
+
+    /// The `origin_server_ts` of the thread root event.
+    ///
+    /// Suitable for display as a "last active" timestamp or for sorting
+    /// threads in the UI.
     timestamp: Timestamp,
+
+    /// The Matrix user ID of the thread root event's sender.
     sender: String,
+
+    /// The sender's profile (display name and avatar URL) at the time the
+    /// event was received.
+    ///
+    /// This is fetched eagerly when the item is built. It will be
+    /// `ProfileDetails.Unavailable` if the profile could not be retrieved.
     sender_profile: ProfileDetails,
+
+    /// Whether the thread root was sent by the current user.
     is_own: bool,
+
+    /// The parsed content of the thread root event, if available.
+    ///
+    /// `None` when the event could not be deserialized into a known
+    /// `TimelineItemContent` variant (e.g. an unsupported or redacted event
+    /// type). Callers should handle `None` gracefully, for example by
+    /// rendering a generic placeholder.
     content: Option<TimelineItemContent>,
 }
 

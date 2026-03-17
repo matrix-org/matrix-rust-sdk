@@ -34,16 +34,25 @@ use crate::timeline::{
 
 /// A structure wrapping a Thread List endpoint response i.e.
 /// [`ThreadListItem`]s and the current pagination token.
+#[derive(Clone, Debug)]
 pub struct ThreadList {
-    /// The list items
+    /// The thread-root events that belong to this page of results.
     pub items: Vec<ThreadListItem>,
 
-    /// Token to paginate backwards in a subsequent query to
-    /// [`super::Room::list_threads`].
+    /// Opaque pagination token returned by the homeserver.
     pub prev_batch_token: Option<String>,
 }
 
-/// An individual Thread as retrieved from through Thread List API.
+/// Each `ThreadListItem` represents one thread root event in the room. The
+/// fields are pre-resolved from the raw homeserver response: the sender's
+/// profile is fetched eagerly and the event content is parsed into a
+/// [`TimelineItemContent`] so that consumers can render the item without any
+/// additional work.
+///
+/// `ThreadListItem`s are produced by [`load_thread_list`] and are accumulated
+/// inside [`super::thread_list_service::ThreadListService`] as pages are
+/// fetched via [`super::thread_list_service::ThreadListService::paginate`].
+#[derive(Clone, Debug)]
 pub struct ThreadListItem {
     /// The thread's root event identifier.
     pub root_event_id: OwnedEventId,
@@ -51,16 +60,20 @@ pub struct ThreadListItem {
     /// The timestamp of the remote event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
 
-    /// The sender of the remote event.
+    /// The Matrix user ID of the thread root event's sender.
     pub sender: OwnedUserId,
 
-    /// Has this event been sent by the current logged user?
+    /// Whether the thread root was sent by the current user.
     pub is_own: bool,
 
-    /// The sender's profile.
+    /// The sender's profile (display name and avatar URL)
     pub sender_profile: TimelineDetails<Profile>,
 
-    /// The content of the remote event.
+    /// The parsed content of the thread root event, if available.
+    ///
+    /// `None` when the event could not be deserialized into a known
+    /// [`TimelineItemContent`] variant (e.g. an unsupported or redacted event
+    /// type)
     pub content: Option<TimelineItemContent>,
 }
 
