@@ -79,6 +79,7 @@ mod subscriber;
 mod tasks;
 #[cfg(test)]
 mod tests;
+pub mod thread_list_service;
 pub mod threads;
 mod traits;
 mod virtual_item;
@@ -99,6 +100,7 @@ pub use self::{
     },
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     latest_event::{LatestEventValue, LatestEventValueLocalState},
+    thread_list_service::{ThreadListPaginationState, ThreadListService},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
