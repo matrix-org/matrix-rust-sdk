@@ -16,7 +16,10 @@ use std::collections::BTreeSet;
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    event_cache::{Event, Gap, store::EventCacheStoreLock},
+    event_cache::{
+        Event, Gap,
+        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    },
     linked_chunk::{OwnedLinkedChunkId, Position, Update},
 };
 use matrix_sdk_common::executor::spawn;
@@ -86,13 +89,26 @@ impl LockedThreadEventCacheState {
     ///
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     /// [`ThreadPagination`]: super::pagination::ThreadPagination
-    pub fn new(
+    pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Self {
-        Self::new_inner(ThreadEventCacheState {
+    ) -> Result<Self> {
+        let _store_guard = match store.lock().await? {
+            // Lock is clean: all good!
+            EventCacheStoreLockState::Clean(guard) => guard,
+
+            // Lock is dirty, not a problem, it's the first time we are creating this state, no
+            // need to refresh.
+            EventCacheStoreLockState::Dirty(guard) => {
+                EventCacheStoreLockGuard::clear_dirty(&guard);
+
+                guard
+            }
+        };
+
+        Ok(Self::new_inner(ThreadEventCacheState {
             room_id,
             thread_id,
             store,
@@ -100,7 +116,7 @@ impl LockedThreadEventCacheState {
             sender: Sender::new(32),
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
-        })
+        }))
     }
 }
 
