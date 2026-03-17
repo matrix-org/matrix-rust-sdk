@@ -20,15 +20,18 @@ use matrix_sdk_base::{
         Event, Gap,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
-    linked_chunk::{OwnedLinkedChunkId, Position, Update},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader},
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::Sender;
-use tracing::instrument;
+use tracing::{error, instrument};
 
 use super::super::{
-    super::{EventsOrigin, Result, deduplicator::DeduplicationOutcome},
+    super::{
+        EventCacheError, EventsOrigin, Result, deduplicator::DeduplicationOutcome,
+        persistence::load_linked_chunk_metadata,
+    },
     TimelineVectorDiffs,
     event_linked_chunk::EventLinkedChunk,
     lock,
@@ -95,7 +98,7 @@ impl LockedThreadEventCacheState {
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
-        let _store_guard = match store.lock().await? {
+        let store_guard = match store.lock().await? {
             // Lock is clean: all good!
             EventCacheStoreLockState::Clean(guard) => guard,
 
@@ -108,11 +111,57 @@ impl LockedThreadEventCacheState {
             }
         };
 
+        let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
+
+        // Load the full linked chunk's metadata, so as to feed the order tracker.
+        //
+        // If loading the full linked chunk failed, we'll clear the event cache, as it
+        // indicates that at some point, there's some malformed data.
+        let full_linked_chunk_metadata =
+            match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
+                Ok(metas) => metas,
+                Err(err) => {
+                    error!("error when loading a linked chunk's metadata from the store: {err}");
+
+                    // Try to clear storage for this room.
+                    store_guard
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    None
+                }
+            };
+
+        let linked_chunk = match store_guard
+            .load_last_chunk(linked_chunk_id)
+            .await
+            .map_err(EventCacheError::from)
+            .and_then(|(last_chunk, chunk_identifier_generator)| {
+                lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
+                    .map_err(EventCacheError::from)
+            }) {
+            Ok(linked_chunk) => linked_chunk,
+            Err(err) => {
+                error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // Try to clear storage for this room.
+                store_guard
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                None
+            }
+        };
+
         Ok(Self::new_inner(ThreadEventCacheState {
             room_id,
             thread_id,
             store,
-            thread_linked_chunk: EventLinkedChunk::new(),
+            thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
+                linked_chunk,
+                full_linked_chunk_metadata,
+            ),
             sender: Sender::new(32),
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
