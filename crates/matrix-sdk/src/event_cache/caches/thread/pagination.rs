@@ -21,10 +21,8 @@ use matrix_sdk_base::{
     linked_chunk::ChunkContent,
 };
 use ruma::api::Direction;
-use tokio::sync::Mutex;
 use tracing::trace;
 
-pub use super::super::pagination::PaginationStatus;
 use super::{
     super::super::{
         EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
@@ -35,7 +33,7 @@ use super::{
     ThreadEventCacheInner,
 };
 use crate::{
-    event_cache::caches::pagination::SharedPagination,
+    event_cache::caches::pagination::SharedPaginationStatus,
     room::{IncludeRelations, RelationsOptions},
 };
 
@@ -44,9 +42,10 @@ use crate::{
 #[derive(Clone)]
 struct ThreadEventCacheWrapper {
     cache: Arc<ThreadEventCacheInner>,
+
     // Threads do not support pagination status for the moment but we need one, so let's use a
     // dummy one for now.
-    dummy_pagination_status: SharedObservable<PaginationStatus>,
+    dummy_pagination_status: SharedObservable<SharedPaginationStatus>,
 }
 
 /// An API object to run pagination queries on a `ThreadEventCache`.
@@ -58,7 +57,7 @@ impl ThreadPagination {
     pub(super) fn new(cache: Arc<ThreadEventCacheInner>) -> Self {
         Self(Pagination::new(ThreadEventCacheWrapper {
             cache,
-            dummy_pagination_status: SharedObservable::new(PaginationStatus::Idle {
+            dummy_pagination_status: SharedObservable::new(SharedPaginationStatus::Idle {
                 hit_timeline_start: false,
             }),
         }))
@@ -91,11 +90,7 @@ impl ThreadPagination {
 }
 
 impl PaginatedCache for ThreadEventCacheWrapper {
-    fn shared_pagination(&self) -> &Mutex<Option<SharedPagination>> {
-        &self.cache.shared_pagination_request
-    }
-
-    fn status(&self) -> &SharedObservable<PaginationStatus> {
+    fn status(&self) -> &SharedObservable<SharedPaginationStatus> {
         &self.dummy_pagination_status
     }
 

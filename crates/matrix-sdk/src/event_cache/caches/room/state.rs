@@ -55,7 +55,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use super::{
     super::{
         super::{
-            EventCacheError, PaginationStatus,
+            EventCacheError,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
         },
@@ -71,7 +71,7 @@ use super::{
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{Room, room::WeakRoom};
+use crate::{Room, event_cache::caches::pagination::SharedPaginationStatus, room::WeakRoom};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -117,7 +117,7 @@ pub struct RoomEventCacheState {
     /// Cache for pinned events in this room, initialized on-demand.
     pinned_event_cache: OnceLock<PinnedEventCache>,
 
-    pagination_status: SharedObservable<PaginationStatus>,
+    pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// A clone of [`super::RoomEventCacheInner::update_sender`].
     ///
@@ -176,7 +176,7 @@ impl LockedRoomEventCacheState {
         update_sender: RoomEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
-        pagination_status: SharedObservable<PaginationStatus>,
+        pagination_status: SharedObservable<SharedPaginationStatus>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -540,9 +540,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         }
 
         // Let pagination observers know that we may have not reached the start of the
-        // timeline.
-        // TODO: likely need to cancel any ongoing pagination.
-        self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
+        // timeline. This may cancel an ongoing pagination.
+        self.state
+            .pagination_status
+            .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
         // Don't propagate those updates to the store; this is only for the in-memory
         // representation that we're doing this. Let's drain those store updates.
@@ -685,8 +686,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // timeline, since we don't know about that anymore.
         self.state.waited_for_initial_prev_token = false;
 
-        // TODO: likely must cancel any ongoing back-paginations too
-        self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
+        // Note: this may cancel an ongoing pagination.
+        self.state
+            .pagination_status
+            .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
         Ok(())
     }
