@@ -246,27 +246,6 @@ pub(crate) struct ClientLocks {
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
-
-    /// Latest "generation" of data known by the crypto store.
-    ///
-    /// This is a counter that only increments, set in the database (and can
-    /// wrap). It's incremented whenever some process acquires a lock for the
-    /// first time. *This assumes the crypto store lock is being held, to
-    /// avoid data races on writing to this value in the store*.
-    ///
-    /// The current process will maintain this value in local memory and in the
-    /// DB over time. Observing a different value than the one read in
-    /// memory, when reading from the store indicates that somebody else has
-    /// written into the database under our feet.
-    ///
-    /// TODO: this should live in the `OlmMachine`, since it's information
-    /// related to the lock. As of today (2023-07-28), we blow up the entire
-    /// olm machine when there's a generation mismatch. So storing the
-    /// generation in the olm machine would make the client think there's
-    /// *always* a mismatch, and that's why we need to store the generation
-    /// outside the `OlmMachine`.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 pub(crate) struct ClientInner {

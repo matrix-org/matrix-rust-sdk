@@ -1734,22 +1734,6 @@ impl Encryption {
             CrossProcessLockConfig::multi_process(lock_value.to_owned()),
         );
 
-        // Gently try to initialize the crypto store generation counter.
-        //
-        // If we don't get the lock immediately, then it is already acquired by another
-        // process, and we'll get to reload next time we acquire the lock.
-        {
-            let lock_result = lock.try_lock_once().await?;
-
-            if lock_result.is_ok() {
-                olm_machine
-                    .initialize_crypto_store_generation(
-                        &self.client.locks().crypto_store_generation,
-                    )
-                    .await?;
-            }
-        }
-
         self.client
             .locks()
             .cross_process_crypto_store_lock
@@ -2318,6 +2302,15 @@ mod tests {
         assert!(initial_olm_machine.same_as(&after_enabling_lock));
 
         {
+            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            assert!(acquired.is_some());
+        }
+
+        // Taking the lock the first time will not update the olm machine.
+        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(initial_olm_machine.same_as(&after_taking_lock_first_time));
+
+        {
             // Simulate that another client hold the lock before.
             let client2 = Client::builder()
                 .homeserver_url("http://localhost:1234")
@@ -2350,9 +2343,9 @@ mod tests {
             assert!(acquired.is_some());
         }
 
-        // Taking the lock the first time will update the olm machine.
-        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
+        // Taking the lock the second time updates the olm machine.
+        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(!after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
 
         {
             let acquired = client.encryption().try_lock_store_once().await.unwrap();
@@ -2360,8 +2353,8 @@ mod tests {
         }
 
         // Re-taking the lock doesn't update the olm machine.
-        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
+        let after_taking_lock_third_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(after_taking_lock_second_time.same_as(&after_taking_lock_third_time));
     }
 
     #[async_test]
