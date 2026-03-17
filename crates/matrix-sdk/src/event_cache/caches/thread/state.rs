@@ -31,11 +31,12 @@ use tracing::{debug, error, instrument};
 
 use super::super::{
     super::{
-        EventCacheError, EventsOrigin, Result, deduplicator::DeduplicationOutcome,
-        persistence::load_linked_chunk_metadata,
+        EventCacheError, EventsOrigin, Result,
+        deduplicator::DeduplicationOutcome,
+        persistence::{load_linked_chunk_metadata, send_updates_to_store},
     },
     TimelineVectorDiffs,
-    event_linked_chunk::EventLinkedChunk,
+    event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     lock,
     room::RoomEventCacheLinkedChunkUpdate,
 };
@@ -284,7 +285,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         }
 
         // Remove the duplicated events from the thread chunk.
-        self.remove_events(deduplication.in_memory_duplicated_event_ids).await?;
+        self.remove_events(deduplication.in_memory_duplicated_event_ids, vec![]).await?;
         assert!(
             deduplication.in_store_duplicated_event_ids.is_empty(),
             "persistent storage for threads is not implemented yet"
@@ -355,13 +356,27 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     ///
     /// This method is purposely isolated because it must ensure that
     /// positions are sorted appropriately or it can be disastrous.
-    ///
-    /// TODO: support store.
     #[instrument(skip_all)]
     pub async fn remove_events(
         &mut self,
         in_memory_events: Vec<(OwnedEventId, Position)>,
+        in_store_events: Vec<(OwnedEventId, Position)>,
     ) -> Result<()> {
+        // In-store events.
+        if !in_store_events.is_empty() {
+            let mut positions = in_store_events
+                .into_iter()
+                .map(|(_event_id, position)| position)
+                .collect::<Vec<_>>();
+
+            sort_positions_descending(&mut positions);
+
+            let updates =
+                positions.into_iter().map(|pos| Update::RemoveItem { at: pos }).collect::<Vec<_>>();
+
+            self.apply_store_only_updates(updates).await?;
+        }
+
         // In-memory events.
         if in_memory_events.is_empty() {
             // Nothing else to do, return early.
@@ -385,18 +400,28 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         self.send_updates_to_store(updates).await
     }
 
-    #[allow(clippy::unused_async)] // TODO: remove once persistent storage is implemented
+    /// Apply some updates that are effective only on the store itself.
+    ///
+    /// This method should be used only for updates that happen *outside*
+    /// the in-memory linked chunk. Such updates must be applied
+    /// onto the ordering tracker as well as to the persistent
+    /// storage.
+    async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        self.state.thread_linked_chunk.order_tracker.map_updates(&updates);
+        self.send_updates_to_store(updates).await
+    }
+
     async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        // TODO: call the `persistence::send_updates_to_store` function
         let linked_chunk_id =
             OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_id.clone());
 
-        let _ = self
-            .state
-            .linked_chunk_update_sender
-            .send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
-
-        Ok(())
+        send_updates_to_store(
+            &self.store,
+            linked_chunk_id,
+            &self.state.linked_chunk_update_sender,
+            updates,
+        )
+        .await
     }
 
     /// Find duplicates in a thread, until there's persistent storage for
