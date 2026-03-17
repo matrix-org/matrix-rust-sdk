@@ -443,6 +443,7 @@ pub(super) mod test {
         post_guard: MockGuard,
         put_guard: MockGuard,
         get_guard: MockGuard,
+        discover_guard: Option<MockGuard>,
     }
 
     impl MockedRendezvousServer {
@@ -578,6 +579,7 @@ pub(super) mod test {
                 get_guard,
                 homeserver_url,
                 rendezvous_url,
+                discover_guard: None,
             }
         }
 
@@ -620,6 +622,16 @@ pub(super) mod test {
                                 "expires_in_ms": 100_000,
                             }))
                         }),
+                )
+                .await;
+
+            let discover_guard = server
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path("/_matrix/client/unstable/io.element.msc4388/rendezvous"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": true,
+                        }))),
                 )
                 .await;
 
@@ -725,6 +737,7 @@ pub(super) mod test {
                 get_guard,
                 homeserver_url,
                 rendezvous_url,
+                discover_guard: Some(discover_guard),
             }
         }
     }
