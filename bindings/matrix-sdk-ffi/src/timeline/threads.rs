@@ -39,7 +39,7 @@ impl From<ThreadSubscription> for SdkThreadSubscription {
     }
 }
 
-/// Options for [Room::list_threads].
+/// Options for [`Room::load_thread_list`].
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ListThreadsOptions {
     /// An extra filter to select which threads should be returned.
@@ -47,8 +47,8 @@ pub struct ListThreadsOptions {
 
     /// The token to start returning events from.
     ///
-    /// This token can be obtained from a [`ThreadRoots::prev_batch_token`]
-    /// returned by a previous call to [`Room::list_threads()`].
+    /// This token can be obtained from a [`ThreadList::prev_batch_token`]
+    /// returned by a previous call to [`Room::load_thread_list()`].
     ///
     /// If `from` isn't provided the homeserver shall return a list of thread
     /// roots from end of the timeline history.
@@ -98,10 +98,8 @@ impl From<IncludeThreads> for SdkIncludeThreads {
     }
 }
 
-/// The result of a [`Room::list_threads`] query.
-///
-/// This is a wrapper around the Ruma equivalent, with events decrypted if needs
-/// be.
+/// A structure wrapping a Thread List endpoint response i.e.
+/// [`ThreadListItem`]s and the current pagination token.
 #[derive(uniffi::Record)]
 pub struct ThreadList {
     /// The events that are thread roots in the current batch.
@@ -121,6 +119,7 @@ impl From<UIThreadList> for ThreadList {
     }
 }
 
+/// An individual Thread as retrieved from through Thread List API.
 #[derive(uniffi::Record)]
 pub struct ThreadListItem {
     root_event_id: String,
