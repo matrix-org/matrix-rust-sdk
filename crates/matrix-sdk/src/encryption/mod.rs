@@ -1954,6 +1954,24 @@ impl Encryption {
     }
 
     /// Sets up a handler to rotate room keys when a user leaves a room.
+    ///
+    /// Previously, it was sufficient to check if we need to rotate the room key
+    /// prior to sending a message. However, the history sharing feature
+    /// ([MSC4268]) breaks this logic:
+    ///
+    /// 1. Alice sends a message M1 in room X;
+    /// 2. Bob invites Charlie, who joins and immediately leaves the room;
+    /// 3. Alice sends another message M2 in room X.
+    ///
+    /// Under the old logic, Alice would not rotate her key after Charlie
+    /// leaves, resulting in M2 being encrypted with the same session as M1.
+    /// This would allow Charlie to decrypt M2 if he ever gains access to
+    /// the event.
+    ///
+    /// This handler listens for changes to the room membership, and discards
+    /// the current room key if the event is a `leave` event.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
         let client = WeakClient::from_client(&self.client);
         self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
@@ -1978,6 +1996,8 @@ impl Encryption {
 
             debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
 
+            // Attempt to discard the current room key. This won't do anything if we don't have one,
+            // but that's fine since we will create a new room key whenever we try to send a message.
             if let Err(e) = olm.discard_room_key(room.room_id()).await {
                 warn!(
                     room_id = ?room.room_id(),
