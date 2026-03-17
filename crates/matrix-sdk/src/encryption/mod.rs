@@ -1709,20 +1709,13 @@ impl Encryption {
             CrossProcessLockConfig::multi_process(lock_value.to_owned()),
         );
 
-        // Gently try to initialize the crypto store generation counter.
+        // Gently try to initialize the crypto store generation counter by acquiring
+        // the cross-process lock.
         //
         // If we don't get the lock immediately, then it is already acquired by another
         // process, and we'll get to reload next time we acquire the lock.
         {
-            let lock_result = lock.try_lock_once().await?;
-
-            if lock_result.is_ok() {
-                olm_machine
-                    .initialize_crypto_store_generation(
-                        &self.client.locks().crypto_store_generation,
-                    )
-                    .await?;
-            }
+            let _ = lock.try_lock_once().await?;
         }
 
         self.client
