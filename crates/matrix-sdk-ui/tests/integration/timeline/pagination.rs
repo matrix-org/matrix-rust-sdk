@@ -217,7 +217,7 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         // Before the event cache returns the items, it will report that we've hit the
         // timeline start.
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 1);
+        assert_eq!(dbg!(&timeline_updates).len(), 1);
         assert_let!(VectorDiff::PushFront { value: start } = &timeline_updates[0]);
         assert!(start.is_timeline_start());
     }
@@ -966,20 +966,18 @@ async fn test_until_num_items_with_empty_chunk() {
     assert!(reached_start);
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
-    assert!(value.is_timeline_start());
+    assert_eq!(timeline_updates.len(), 2);
 
     // `m.room.name`: “hello room then”
     {
-        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 1);
-
-        assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[0]);
+        assert_let!(VectorDiff::Insert { index: 1, value: message } = &timeline_updates[0]);
         assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello room then");
     }
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_timeline_start());
 
     assert_pending!(timeline_stream);
 }
@@ -1269,17 +1267,9 @@ async fn test_lazy_back_pagination() {
         // The start of the timeline is inserted as its own timeline update.
         assert_timeline_stream! {
             [timeline_stream]
+            insert[1] "$ev201";
+            insert[2] "$ev200";
             prepend --- timeline start ---;
-        };
-
-        // Receive 3 new items.
-        //
-        // They are inserted after the date divider and start of timeline, hence the
-        // indices 2 and 3.
-        assert_timeline_stream! {
-            [timeline_stream]
-            insert[2] "$ev201";
-            insert[3] "$ev200";
         };
 
         // So cool.
