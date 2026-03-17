@@ -146,7 +146,7 @@ impl ThreadEventCache {
             return Ok(());
         };
 
-        if let Err(err) = state.remove_events(vec![(event_id.to_owned(), position)]).await {
+        if let Err(err) = state.remove_events(vec![(event_id.to_owned(), position)], vec![]).await {
             error!(%err, "a thread linked chunk position was valid a few lines above, but invalid when deleting");
             return Err(err);
         }

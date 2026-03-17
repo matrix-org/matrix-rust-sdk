@@ -241,7 +241,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 deduplication.in_store_duplicated_event_ids.is_empty(),
                 "persistent storage for threads is not implemented yet"
             );
-            state.remove_events(deduplication.in_memory_duplicated_event_ids).await?;
+            state.remove_events(deduplication.in_memory_duplicated_event_ids, vec![]).await?;
 
             // Keep events and the gap.
             (deduplication.all_events, new_gap)
