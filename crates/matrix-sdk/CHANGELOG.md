@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- The `beacon_info` start event ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
+  is now included when computing the latest event for a room, so live location sharing
+  sessions can be surfaced as a room's most recent activity.
+  ([#6295](https://github.com/matrix-org/matrix-rust-sdk/pull/6295))
 - [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
   types as `Clone`able, and wrapping a few other error variants with `Arc`.
   ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
