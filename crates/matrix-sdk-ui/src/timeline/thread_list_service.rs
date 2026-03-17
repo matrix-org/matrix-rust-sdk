@@ -23,6 +23,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::timeline::{threads::ThreadListItem, traits::RoomExt};
 
 /// The pagination state of a [`ThreadListService`].
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ThreadListPaginationState {
     /// The list is idle (not currently loading).
