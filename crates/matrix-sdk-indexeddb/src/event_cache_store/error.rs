@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+use std::sync::Arc;
+
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use serde::de::Error;
 use thiserror::Error;
@@ -83,7 +85,9 @@ impl From<TransactionError> for EventCacheStoreError {
 
         match value {
             DomException { .. } => Self::InvalidData { details: value.to_string() },
-            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            Serialization(e) => {
+                Self::Serialization(Arc::new(serde_json::Error::custom(e.to_string())))
+            }
             ItemIsNotUnique | ItemNotFound | NumericalOverflow => {
                 Self::InvalidData { details: value.to_string() }
             }

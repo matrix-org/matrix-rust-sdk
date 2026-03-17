@@ -97,7 +97,7 @@ impl EventCacheStore for MemoryStore {
         inner
             .events
             .apply_updates(linked_chunk_id, updates)
-            .map_err(|e| Self::Error::Backend(Box::new(e)))?;
+            .map_err(|e| Self::Error::Backend(Arc::new(e)))?;
 
         Ok(())
     }

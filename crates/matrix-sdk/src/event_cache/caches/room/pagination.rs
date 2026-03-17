@@ -125,7 +125,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         let response = room
             .messages(options)
             .await
-            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.end)))
     }
