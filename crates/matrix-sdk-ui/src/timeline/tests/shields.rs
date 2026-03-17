@@ -148,10 +148,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
     timeline.handle_live_event(event).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert!(
-        item.content().is_live_location(),
-        "timeline item should be a live location"
-    );
+    assert!(item.content().is_live_location(), "timeline item should be a live location");
 
     let shield = item.get_shield(false);
     assert_eq!(shield, TimelineEventShieldState::None);
