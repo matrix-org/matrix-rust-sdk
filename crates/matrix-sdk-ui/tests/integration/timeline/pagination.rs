@@ -986,20 +986,22 @@ async fn test_until_num_items_with_empty_chunk() {
 
 #[async_test]
 async fn test_back_pagination_aborted() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.event_cache().subscribe().unwrap();
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch"),
+        )
+        .await;
 
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
@@ -1010,9 +1012,9 @@ async fn test_back_pagination_aborted() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(&*ROOM_MESSAGES_BATCH_1)
-                .set_delay(Duration::from_secs(5)),
+                .set_delay(Duration::from_secs(1)),
         )
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let paginate = spawn({
@@ -1022,18 +1024,18 @@ async fn test_back_pagination_aborted() {
         }
     });
 
-    assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+    assert_let_timeout!(Some(PaginationStatus::Paginating) = back_pagination_status.next());
 
-    // Abort the pagination!
+    // Abort the pagination task.
     paginate.abort();
 
     // The spawned task should finish with a cancellation.
     assert!(paginate.await.unwrap_err().is_cancelled());
 
     // But since the pagination task is owned by the event cache, it continues in
-    // the background!
+    // the background.
     assert_let_timeout!(
-        Duration::from_secs(10),
+        Duration::from_secs(2),
         Some(PaginationStatus::Idle { hit_timeline_start }) = back_pagination_status.next()
     );
     assert!(hit_timeline_start.not());
