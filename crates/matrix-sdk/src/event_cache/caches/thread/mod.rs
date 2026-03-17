@@ -56,14 +56,14 @@ impl fmt::Debug for ThreadEventCache {
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
-    pub fn new(
+    pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             inner: Arc::new(ThreadEventCacheInner {
                 thread_id: thread_id.clone(),
                 weak_room,
@@ -72,9 +72,10 @@ impl ThreadEventCache {
                     thread_id,
                     store,
                     linked_chunk_update_sender,
-                ),
+                )
+                .await?,
             }),
-        }
+        })
     }
 
     /// Subscribe to live events from this thread.

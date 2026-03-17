@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
+    ops::DerefMut,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -935,7 +936,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self,
         root: OwnedEventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        self.get_or_reload_thread(root).subscribe().await
+        self.get_or_reload_thread(root).await?.subscribe().await
     }
 
     // --------------------------------------------
@@ -1084,26 +1085,37 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    pub(in super::super) fn get_or_reload_thread(
+    pub(in super::super) async fn get_or_reload_thread(
         &mut self,
         root_event_id: OwnedEventId,
-    ) -> &mut ThreadEventCache {
+    ) -> Result<&mut ThreadEventCache, EventCacheError> {
         // TODO: when there's persistent storage, try to lazily reload from disk, if
         // missing from memory.
-        let room_id = self.state.room_id.clone();
-        let weak_room = self.state.weak_room.clone();
-        let linked_chunk_update_sender = self.state.linked_chunk_update_sender.clone();
-        let store = self.state.store.clone();
+        let RoomEventCacheState {
+            room_id,
+            weak_room,
+            store,
+            linked_chunk_update_sender,
+            threads,
+            ..
+        } = self.state.deref_mut();
 
-        self.state.threads.entry(root_event_id.clone()).or_insert_with(|| {
-            ThreadEventCache::new(
-                room_id,
-                root_event_id,
-                weak_room,
-                store,
-                linked_chunk_update_sender,
-            )
-        })
+        match threads.entry(root_event_id.clone()) {
+            Entry::Vacant(entry) => {
+                let thread_event_cache = ThreadEventCache::new(
+                    room_id.clone(),
+                    root_event_id,
+                    weak_room.clone(),
+                    store.clone(),
+                    linked_chunk_update_sender.clone(),
+                )
+                .await?;
+
+                Ok(entry.insert(thread_event_cache))
+            }
+
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+        }
     }
 
     #[instrument(skip_all)]
@@ -1113,7 +1125,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         post_processing_origin: PostProcessingOrigin,
     ) -> Result<(), EventCacheError> {
         for (thread_root, new_events) in new_events_by_thread {
-            let thread_cache = self.get_or_reload_thread(thread_root.clone());
+            let thread_cache = self.get_or_reload_thread(thread_root.clone()).await?;
 
             thread_cache.add_live_events(new_events).await?;
 
