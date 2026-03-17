@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
+  types as `Clone`able, and wrapping a few other error variants with `Arc`.
+  ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
 - The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
   specification.
   ([#6291](https://github.com/matrix-org/matrix-rust-sdk/pull/6291))
