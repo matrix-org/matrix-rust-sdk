@@ -408,3 +408,80 @@ pub enum CheckCodeSenderError {
     #[error("check code cannot be sent.")]
     CannotSend,
 }
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::async_test;
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    use crate::test_utils::mocks::MatrixMockServer;
+
+    #[async_test]
+    async fn test_msc_4388_rendezvous_server_supported() {
+        const URL: &str = "/_matrix/client/unstable/io.element.msc4388/rendezvous";
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().logged_in_with_oauth().build().await;
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(200))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(supported, "The rendezvous server should be supported");
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(404))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(!supported, "The rendezvous server should not be supported");
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(500))
+                        .expect(1),
+                )
+                .await;
+
+            client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect_err("We should return an error if the homeserver can't tell us if the endpoint is supported or not");
+        }
+    }
+}
