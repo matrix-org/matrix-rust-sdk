@@ -156,7 +156,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let response = room
             .relations(self.cache.thread_id.clone(), options)
             .await
-            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.next_batch_token)))
     }
@@ -190,7 +190,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             Some(
                 room.load_or_fetch_event(&self.cache.thread_id, None)
                     .await
-                    .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?,
+                    .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?,
             )
         } else {
             None

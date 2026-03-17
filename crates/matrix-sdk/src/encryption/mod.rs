@@ -1769,7 +1769,7 @@ impl Encryption {
                 .await
                 .map_err(|err| {
                     Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(
-                        Box::new(err),
+                        Arc::new(err),
                     )))
                 })?
                 .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;

@@ -17,7 +17,10 @@
 //! makes it possible to paginate forward or backward, from that event, until
 //! one end of the timeline (front or back) is reached.
 
-use std::{future::Future, sync::Mutex};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
@@ -402,7 +405,7 @@ impl PaginableRoom for Room {
                     }
 
                     // Otherwise, just return a wrapped error.
-                    return Err(PaginatorError::SdkError(Box::new(err)));
+                    return Err(PaginatorError::SdkError(Arc::new(err)));
                 }
             };
 
@@ -410,7 +413,7 @@ impl PaginableRoom for Room {
     }
 
     async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Box::new(err)))
+        self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Arc::new(err)))
     }
 }
 

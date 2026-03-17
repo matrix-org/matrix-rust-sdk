@@ -92,7 +92,7 @@ impl CrossProcessRefreshManager {
             .spin_lock(Some(60000))
             .await
             .map_err(|err| {
-                CrossProcessRefreshLockError::LockError(CrossProcessLockError::TryLock(Box::new(
+                CrossProcessRefreshLockError::LockError(CrossProcessLockError::TryLock(Arc::new(
                     err,
                 )))
             })?

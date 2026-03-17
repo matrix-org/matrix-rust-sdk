@@ -84,7 +84,7 @@ impl MediaStoreError {
 
 impl From<MediaStoreError> for CrossProcessLockError {
     fn from(value: MediaStoreError) -> Self {
-        Self::TryLock(Box::new(value))
+        Self::TryLock(Arc::new(value))
     }
 }
 
