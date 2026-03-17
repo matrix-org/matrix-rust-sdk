@@ -2296,8 +2296,8 @@ impl Client {
     /// and homeserver support all the necessary APIs for the QR code login
     /// to work.
     pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
-        // We need to be using OAuth 2.0 API + Device Authorization Grant available
-        // and either MSC4108 or MSC4388 available.
+        // We need to be using OAuth 2.0 API + Device Authorization Grant
+        // available and either MSC4108 or MSC4388 available.
 
         // We need to be using the OAuth 2.0 API
         if !matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_))) {

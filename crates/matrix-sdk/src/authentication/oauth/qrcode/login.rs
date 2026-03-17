@@ -501,7 +501,8 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         let rendezvous_server_supported =
             async { client.oauth().msc_4388_rendezvous_server_supported().await };
 
-        // If MSC4388 support is enabled and the server supports it, then prefer it.
+        // If MSC4388 support is enabled and the server supports it, then prefer
+        // it.
         let use_msc_4388 = *msc_4388_support && rendezvous_server_supported.await?;
 
         // Create a new ephemeral key pair and a rendezvous session to request a
