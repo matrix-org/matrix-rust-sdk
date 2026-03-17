@@ -106,7 +106,10 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991)
-- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207)) 
+- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207))
+- Add `RoomInfo::active_room_call_consensus_intent`, the optional call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 
 ### Refactor
 
