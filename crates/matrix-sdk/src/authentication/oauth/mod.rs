@@ -370,6 +370,33 @@ impl OAuth {
         as_variant!(data, AuthData::OAuth)
     }
 
+    /// Check if the homeserver supports the [MSC4388] variant of the rendezvous
+    /// server.
+    ///
+    /// Returns `Ok(true)` if the rendezvous discovery endpoint returns a 200 OK
+    /// HTTP response, `Ok(false)` if the endpoint returns a 404 NOT_FOUND or
+    /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, crate::HttpError> {
+        use http::StatusCode;
+        use ruma::api::client::rendezvous::discover_rendezvous;
+
+        match self.client.send(discover_rendezvous::unstable::Request::new()).await {
+            Ok(response) => Ok(response.create_available),
+            Err(e) => {
+                if e.as_client_api_error().is_some_and(|err| {
+                    matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
+                }) {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
     /// Log in this device using a QR code.
     ///
     /// # Arguments
