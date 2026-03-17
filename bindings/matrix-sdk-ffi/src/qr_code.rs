@@ -14,15 +14,12 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::{
-    authentication::oauth::{
-        qrcode::{
-            self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-            DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
-        },
-        OAuth,
+use matrix_sdk::authentication::oauth::{
+    qrcode::{
+        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
+        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
     },
-    encryption::vodozemac::hpke::DigitMode,
+    OAuth,
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -123,7 +120,8 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let mut login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        login.with_msc4388_support();
 
         let mut progress = login.subscribe_to_progress();
 
@@ -217,7 +215,8 @@ impl GrantLoginWithQrCodeHandler {
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().generate();
+        let mut grant = self.oauth.grant_login_with_qr_code().generate();
+        grant.with_msc4388_support();
 
         let mut progress = grant.subscribe_to_progress();
 
