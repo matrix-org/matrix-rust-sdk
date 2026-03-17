@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Added `android_platform.rs` for fixing the `rustls` integration on Android, which was broken. 
+  ([#6306](https://github.com/matrix-org/matrix-rust-sdk/pull/6306)) 
 - [**breaking**] `OtherState` properly supports redacted events that still have fields in the
   content. The following fields are no longer optional:
   - `federate` in `OtherState::RoomCreate`.
