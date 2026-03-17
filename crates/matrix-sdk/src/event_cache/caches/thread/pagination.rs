@@ -47,7 +47,6 @@ struct ThreadEventCacheWrapper {
     // Threads do not support pagination status for the moment but we need one, so let's use a
     // dummy one for now.
     dummy_pagination_status: SharedObservable<PaginationStatus>,
-    current_pagination_request: Arc<Mutex<Option<SharedPagination>>>,
 }
 
 /// An API object to run pagination queries on a `ThreadEventCache`.
@@ -62,7 +61,6 @@ impl ThreadPagination {
             dummy_pagination_status: SharedObservable::new(PaginationStatus::Idle {
                 hit_timeline_start: false,
             }),
-            current_pagination_request: Arc::new(Mutex::new(None)),
         }))
     }
 
@@ -93,8 +91,8 @@ impl ThreadPagination {
 }
 
 impl PaginatedCache for ThreadEventCacheWrapper {
-    fn current_request(&self) -> &Mutex<Option<SharedPagination>> {
-        &self.current_pagination_request
+    fn shared_pagination(&self) -> &Mutex<Option<SharedPagination>> {
+        &self.cache.shared_pagination_request
     }
 
     fn status(&self) -> &SharedObservable<PaginationStatus> {
