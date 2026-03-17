@@ -603,6 +603,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
+
         let (last_chunk, chunk_identifier_generator) =
             match self.store.load_last_chunk(linked_chunk_id).await {
                 Ok(pair) => pair,

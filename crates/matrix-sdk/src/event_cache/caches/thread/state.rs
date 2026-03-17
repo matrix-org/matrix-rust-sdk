@@ -20,12 +20,14 @@ use matrix_sdk_base::{
         Event, Gap,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
-    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader},
+    linked_chunk::{
+        ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
+    },
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::Sender;
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument};
 
 use super::super::{
     super::{
@@ -40,7 +42,6 @@ use super::super::{
 
 pub struct ThreadEventCacheState {
     /// The room owning this thread.
-    #[allow(dead_code)] // for the persistent storage
     room_id: OwnedRoomId,
 
     /// The ID of the thread root event, which is the first event in the thread
@@ -184,7 +185,7 @@ pub type ThreadEventCacheStateLockWriteGuard<'a> =
 impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<()> {
-        self.state.thread_linked_chunk.reset();
+        self.shrink_to_last_chunk().await?;
 
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
@@ -223,6 +224,54 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
+    }
+
+    /// If storage is enabled, unload all the chunks, then reloads only the
+    /// last one.
+    ///
+    /// If storage's enabled, return a diff update that starts with a clear
+    /// of all events; as a result, the caller may override any
+    /// pending diff updates with the result of this function.
+    ///
+    /// Otherwise, returns `None`.
+    pub async fn shrink_to_last_chunk(&mut self) -> Result<()> {
+        // Attempt to load the last chunk.
+        let linked_chunk_id = LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id);
+
+        let (last_chunk, chunk_identifier_generator) =
+            match self.store.load_last_chunk(linked_chunk_id).await {
+                Ok(pair) => pair,
+
+                Err(err) => {
+                    // If loading the last chunk failed, clear the entire linked chunk.
+                    error!("error when reloading a linked chunk from memory: {err}");
+
+                    // Clear storage for this room.
+                    self.store
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    (None, ChunkIdentifierGenerator::new_from_scratch())
+                }
+            };
+
+        debug!("unloading the linked chunk, and resetting it to its last chunk");
+
+        // Remove all the chunks from the linked chunks, except for the last one, and
+        // updates the chunk identifier generator.
+        if let Err(err) =
+            self.state.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
+        {
+            error!("error when replacing the linked chunk: {err}");
+            return self.reset_internal().await;
+        }
+
+        // Don't propagate those updates to the store; this is only for the in-memory
+        // representation that we're doing this. Let's drain those store updates.
+        let _ = self.state.thread_linked_chunk.store_updates().take();
+
+        Ok(())
     }
 
     pub async fn handle_sync(&mut self, events: Vec<Event>) -> Result<Vec<VectorDiff<Event>>> {
