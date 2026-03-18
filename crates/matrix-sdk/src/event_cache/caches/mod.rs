@@ -23,8 +23,8 @@ use matrix_sdk_base::{
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
 
-use super::{EventCacheError, Result};
-use crate::{client::WeakClient, event_cache::EventsOrigin, room::WeakRoom};
+use super::{EventCacheError, EventsOrigin, Result};
+use crate::{client::WeakClient, room::WeakRoom};
 
 pub mod event_focused;
 pub mod event_linked_chunk;
@@ -55,13 +55,15 @@ impl Caches {
             return Err(EventCacheError::ClientDropped);
         };
 
-        let pagination_status =
-            SharedObservable::new(pagination::PaginationStatus::Idle { hit_timeline_start: false });
+        let weak_room = WeakRoom::new(weak_client.clone(), room_id.to_owned());
 
         let room = client
             .get_room(room_id)
             .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
         let room_version_rules = room.clone_info().room_version_rules_or_default();
+
+        let pagination_status =
+            SharedObservable::new(pagination::PaginationStatus::Idle { hit_timeline_start: false });
 
         let enabled_thread_support =
             matches!(client.base_client().threading_support, ThreadingSupport::Enabled { .. });
@@ -71,12 +73,10 @@ impl Caches {
         let own_user_id =
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
-        let weak_room = WeakRoom::new(weak_client.clone(), room_id.to_owned());
-
-        let room_state = room::RoomEventCacheStateLock::new(
+        let room_state = room::LockedRoomEventCacheState::new(
             own_user_id,
             room_id.to_owned(),
-            weak_room,
+            weak_room.clone(),
             room_version_rules,
             enabled_thread_support,
             update_sender.clone(),
@@ -90,10 +90,10 @@ impl Caches {
             room_state.read().await?.room_linked_chunk().revents().next().is_some();
 
         let room_event_cache = room::RoomEventCache::new(
-            weak_client.clone(),
+            room_id.to_owned(),
+            weak_room,
             room_state,
             pagination_status,
-            room_id.to_owned(),
             auto_shrink_sender,
             update_sender,
         );

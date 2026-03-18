@@ -34,7 +34,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{RoomEventCacheStateLock, RoomEventCacheStateLockWriteGuard};
+pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
@@ -75,19 +75,19 @@ impl fmt::Debug for RoomEventCache {
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
-        client: WeakClient,
-        state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
+        weak_room: WeakRoom,
+        state: LockedRoomEventCacheState,
+        pagination_status: SharedObservable<PaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
-                client,
+                room_id,
+                weak_room,
                 state,
                 pagination_status,
-                room_id,
                 auto_shrink_sender,
                 update_sender,
             )),
@@ -141,7 +141,8 @@ impl RoomEventCache {
         thread_root: OwnedEventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let mut state = self.inner.state.write().await?;
-        Ok(state.subscribe_to_thread(thread_root))
+
+        state.subscribe_to_thread(thread_root).await
     }
 
     /// Subscribe to the pinned event cache for this room.
@@ -238,16 +239,16 @@ impl RoomEventCache {
         Ok(self.inner.state.read().await?.get_event_focused_cache(event_id, thread_mode))
     }
 
-    /// Return a [`RoomPagination`] API object useful for running
-    /// back-pagination queries in the current room.
+    /// Return a [`RoomPagination`] type useful for running back-pagination
+    /// queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination::new(self.inner.clone())
     }
 
-    /// Return a `ThreadPagination` API object useful for running
-    /// back-pagination queries in the `thread_id` thread.
-    pub fn thread_pagination(&self, thread_id: OwnedEventId) -> ThreadPagination {
-        ThreadPagination::new(self.inner.clone(), thread_id)
+    /// Return a [`ThreadPagination`] type useful for running back-pagination
+    /// queries in the `thread_id` thread.
+    pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
+        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).pagination())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -350,7 +351,7 @@ impl RoomEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &RoomEventCacheStateLock {
+    pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
         &self.inner.state
     }
 
@@ -427,7 +428,7 @@ pub(super) struct RoomEventCacheInner {
     pub weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: RoomEventCacheStateLock,
+    pub state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
@@ -448,17 +449,15 @@ impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
     fn new(
-        client: WeakClient,
-        state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
+        weak_room: WeakRoom,
+        state: LockedRoomEventCacheState,
+        pagination_status: SharedObservable<PaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
-        let weak_room = WeakRoom::new(client, room_id);
-
         Self {
-            room_id: weak_room.room_id().to_owned(),
+            room_id,
             weak_room,
             state,
             update_sender,
@@ -875,12 +874,13 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{lock::Reload as _, pagination::LoadMoreEventsBackwardsOutcome},
+        super::{
+            super::TimelineVectorDiffs, lock::Reload as _,
+            pagination::LoadMoreEventsBackwardsOutcome,
+        },
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
-    use crate::{
-        assert_let_timeout, event_cache::TimelineVectorDiffs, test_utils::client::MockClientBuilder,
-    };
+    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -1465,7 +1465,7 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         {
-            let mut state = room_event_cache.inner.state.write().await.unwrap();
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             let mut num_gaps = 0;
             let mut num_events = 0;
@@ -1481,15 +1481,20 @@ mod timed_tests {
             // the events.
             assert_eq!(num_gaps, 0);
             assert_eq!(num_events, 1);
+        }
 
-            // But if I manually reload more of the chunk, the gap will be present.
-            assert_matches!(
-                state.load_more_events_backwards().await.unwrap(),
-                LoadMoreEventsBackwardsOutcome::Gap { .. }
-            );
+        // But if I manually reload more of the chunk, the gap will be present.
+        assert_matches!(
+            room_event_cache.pagination().load_more_events_backwards().await.unwrap(),
+            LoadMoreEventsBackwardsOutcome::Gap { .. }
+        );
 
-            num_gaps = 0;
-            num_events = 0;
+        {
+            let state = room_event_cache.inner.state.read().await.unwrap();
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
             for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),

@@ -73,12 +73,13 @@ pub use caches::{
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
         RoomEventCacheUpdate, pagination::RoomPagination,
     },
+    thread::pagination::ThreadPagination,
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 /// An error observed in the [`EventCache`].
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum EventCacheError {
     /// The [`EventCache`] instance hasn't been initialized with
     /// [`EventCache::subscribe`]
@@ -96,7 +97,7 @@ pub enum EventCacheError {
 
     /// An error has been observed while back- or forward- paginating.
     #[error(transparent)]
-    PaginationError(Box<crate::Error>),
+    PaginationError(Arc<crate::Error>),
 
     /// An error has been observed while initiating an event-focused timeline.
     #[error(transparent)]

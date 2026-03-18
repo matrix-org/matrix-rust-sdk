@@ -10,6 +10,8 @@ on:
     types:
       - completed
 
+permissions: {}
+
 jobs:
   coverage:
     name: Upload coverage report
@@ -18,7 +20,7 @@ jobs:
     steps:
       - name: 'Fetch coverage report from artifacts'
         id: prepare_report
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             var fs = require('fs');
@@ -58,13 +60,14 @@ jobs:
           echo "override_commit=$(<commit_sha.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ steps.parse_previous_artifacts.outputs.override_commit || '' }}
           path: repo_root
+          persist-credentials: false
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
           fail_ci_if_error: true
@@ -79,7 +82,7 @@ jobs:
           directory: ${{ github.workspace }}
 
       - name: Upload test results to Codecov
-        uses: codecov/test-results-action@v1
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
         with:
           token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
           fail_ci_if_error: true

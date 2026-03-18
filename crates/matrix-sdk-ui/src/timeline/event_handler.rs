@@ -322,9 +322,13 @@ impl TimelineAction {
                 AnySyncStateEvent::BeaconInfo(ev) => match ev {
                     SyncStateEvent::Original(ev) => {
                         if ev.content.is_live() {
-                            Self::add_item(TimelineItemContent::LiveLocation(
-                                LiveLocationState::new(ev.content),
-                            ))
+                            Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
+                                reactions: Default::default(),
+                                thread_root: None,
+                                in_reply_to: None,
+                                thread_summary: None,
+                            }))
                         } else {
                             // A non-live beacon_info is a stop event: it should update the
                             // existing live item from the same sender rather than creating a

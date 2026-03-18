@@ -23,9 +23,10 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::{ChunkContent, LinkedChunkId},
+    linked_chunk::{ChunkContent, LinkedChunkId, Update},
 };
 use ruma::api::Direction;
+use tracing::{error, trace};
 
 pub use super::super::pagination::PaginationStatus;
 use super::{
@@ -88,6 +89,13 @@ impl RoomPagination {
     pub fn status(&self) -> Subscriber<PaginationStatus> {
         self.0.cache.status().subscribe()
     }
+
+    #[cfg(test)]
+    pub(super) async fn load_more_events_backwards(
+        &self,
+    ) -> Result<LoadMoreEventsBackwardsOutcome> {
+        self.0.cache.load_more_events_backwards().await
+    }
 }
 
 impl PaginatedCache for Arc<RoomEventCacheInner> {
@@ -96,11 +104,121 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
     }
 
     async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
-        self.state.write().await?.load_more_events_backwards().await
+        let mut state = self.state.write().await?;
+
+        // If any in-memory chunk is a gap, don't load more events, and let the caller
+        // resolve the gap.
+        if let Some(prev_token) = state.room_linked_chunk().rgap().map(|gap| gap.token) {
+            return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                prev_token: Some(prev_token),
+                waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+            });
+        }
+
+        let prev_first_chunk =
+            state.room_linked_chunk().chunks().next().expect("a linked chunk is never empty");
+
+        // The first chunk is not a gap, we can load its previous chunk.
+        let linked_chunk_id = LinkedChunkId::Room(&state.state.room_id);
+        let new_first_chunk = match state
+            .store
+            .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
+            .await
+        {
+            Ok(Some(new_first_chunk)) => {
+                // All good, let's continue with this chunk.
+                new_first_chunk
+            }
+
+            Ok(None) => {
+                // If we never received events for this room, this means we've never received a
+                // sync for that room, because every room must have *at least* a room creation
+                // event. Otherwise, we have reached the start of the timeline.
+
+                if state.room_linked_chunk().events().next().is_some() {
+                    // If there's at least one event, this means we've reached the start of the
+                    // timeline, since the chunk is fully loaded.
+                    trace!("chunk is fully loaded and non-empty: reached_start=true");
+                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                }
+
+                // Otherwise, start back-pagination from the end of the room.
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: None,
+                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                });
+            }
+
+            Err(err) => {
+                error!("error when loading the previous chunk of a linked chunk: {err}");
+
+                // Clear storage for this room.
+                state
+                    .store
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                // Return the error.
+                return Err(err.into());
+            }
+        };
+
+        let chunk_content = new_first_chunk.content.clone();
+
+        // We've reached the start on disk, if and only if, there was no chunk prior to
+        // the one we just loaded.
+        //
+        // This value is correct, if and only if, it is used for a chunk content of kind
+        // `Items`.
+        let reached_start = new_first_chunk.previous.is_none();
+
+        if let Err(err) = state.room_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk) {
+            error!("error when inserting the previous chunk into its linked chunk: {err}");
+
+            // Clear storage for this room.
+            state
+                .store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(&state.state.room_id),
+                    vec![Update::Clear],
+                )
+                .await?;
+
+            // Return the error.
+            return Err(err.into());
+        }
+
+        // ⚠️ Let's not propagate the updates to the store! We already have these data
+        // in the store! Let's drain them.
+        let _ = state.room_linked_chunk_mut().store_updates().take();
+
+        // However, we want to get updates as `VectorDiff`s.
+        let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+
+        Ok(match chunk_content {
+            ChunkContent::Gap(gap) => {
+                trace!("reloaded chunk from disk (gap)");
+
+                LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: Some(gap.token),
+                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                }
+            }
+
+            ChunkContent::Items(events) => {
+                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+
+                LoadMoreEventsBackwardsOutcome::Events {
+                    events,
+                    timeline_event_diffs,
+                    reached_start,
+                }
+            }
+        })
     }
 
     async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()> {
-        *self.state.write().await?.waited_for_initial_prev_token() = true;
+        *self.state.write().await?.waited_for_initial_prev_token_mut() = true;
 
         Ok(())
     }
@@ -125,7 +243,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         let response = room
             .messages(options)
             .await
-            .map_err(|err| EventCacheError::PaginationError(Box::new(err)))?;
+            .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.end)))
     }

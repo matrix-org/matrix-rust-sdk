@@ -64,31 +64,23 @@
 //! The problem of keeping a precise read count is thus equivalent to finding
 //! the latest active receipt, and counting interesting events after it.
 //!
-//! When we get new events, we'll incorporate them into an inverse mapping of
-//! event id -> sync order (`event_id_to_pos`). This gives us a simple way to
-//! select a "better" active receipt, using the `ReceiptSelector`. An event that
-//! has a read receipt can be passed to `ReceiptSelector::try_select_later`,
-//! which compares the order of the current best active, to that of the new
-//! event, and records the better one, if applicable.
+//! When we need to recompute the unread counts, we go through all the linked
+//! chunk's events to select a "better" active receipt, using the following
+//! rules:
 //!
-//! TODO: we could reuse the event cache's `OrderTracker` instead.
+//! - an event we sent counts as a read receipt (it's called the implicit read
+//!   receipt in the spec),
+//! - an event which is referenced in the read receipt event content (either a
+//!   private or a public read receipt, of type unthreaded or main, to keep
+//!   maximal compatibility with thread-unaware clients),
+//! - a previously stashed read receipt we've received from a read receipt event
+//!   content, but for which we couldn't find the corresponding event. It's
+//!   possible that a read receipt is received before the corresponding event.
 //!
-//! When we receive a new receipt event in
-//! `ReceiptSelector::handle_new_receipt`, if we find a {public|private}
-//! {main-threaded|unthreaded} receipt attached to an event, there are two
-//! possibilities:
-//! - we knew the event, so we can immediately try to select it as a better
-//!   event with `try_select_later`,
-//! - or we don't, which may mean the receipt refers to a past event we lost
-//!   track of, or the receipt refers to a future event. To cover for the latter
-//!   possibility, we stash the receipt and mark it as pending (we only keep a
-//!   limited number of pending read receipts using a `RingBuffer`).
-//!
-//! That means that when we receive new events, we'll check if their id matches
-//! one of the pending receipts in `handle_pending_receipts`; if so, we can
-//! remove it from the pending set, and try to consider it a better receipt with
-//! `try_select_later`. If not, it's still pending, until it'll be forgotten or
-//! matched.
+//! The read receipt that wins is always the one that points to the most recent
+//! in the linked chunk ordering. In other words, the receipt type (as described
+//! above) doesn't matter; it's the relative position in the linked chunk
+//! ordering which does.
 //!
 //! Once we have a new *better active receipt*, we'll save it in the
 //! `RoomReadReceipt` data (stored in `RoomInfo`), and we'll compute the counts,
@@ -98,10 +90,6 @@
 //! received in that batch aren't referred to by a known read receipt, _and_ we
 //! didn't get a new better receipt that matched known events. In that case, we
 //! can just consider that all the events are new, and count them as such.
-
-#![allow(dead_code)] // too many different build configurations, I give up
-
-use std::collections::{BTreeMap, BTreeSet};
 
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, RoomReadReceipts},
@@ -121,6 +109,8 @@ use ruma::{
     serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
+
+use crate::event_cache::caches::event_linked_chunk::EventLinkedChunk;
 
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
@@ -229,226 +219,91 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
     }
 }
 
-/// Small helper to select the "best" receipt (that with the biggest sync
-/// order).
-struct ReceiptSelector {
-    /// Mapping of known event IDs to their sync order.
-    event_id_to_pos: BTreeMap<OwnedEventId, usize>,
-    /// The event with the greatest sync order, for which we had a read-receipt,
-    /// so far.
-    latest_event_with_receipt: Option<OwnedEventId>,
-    /// The biggest sync order attached to the `best_receipt`.
-    latest_event_pos: Option<usize>,
-}
-
-impl ReceiptSelector {
-    fn new<'a>(
-        all_events: impl IntoIterator<Item = &'a TimelineEvent> + 'a,
-        latest_active_receipt_event: Option<&EventId>,
-    ) -> Self {
-        let event_id_to_pos = Self::create_sync_index(all_events);
-
-        let best_pos =
-            latest_active_receipt_event.and_then(|event_id| event_id_to_pos.get(event_id)).copied();
-
-        // Note: `best_receipt` isn't initialized to the latest active receipt, if set,
-        // so that `finish` will return only *new* better receipts, making it
-        // possible to take the fast path in `compute_unread_counts` where every
-        // event is considered new.
-        Self { latest_event_pos: best_pos, latest_event_with_receipt: None, event_id_to_pos }
-    }
-
-    /// Create a mapping of `event_id` -> sync order for all events that have an
-    /// `event_id`.
-    fn create_sync_index<'a>(
-        events: impl IntoIterator<Item = &'a TimelineEvent> + 'a,
-    ) -> BTreeMap<OwnedEventId, usize> {
-        // TODO: this should be cached and incrementally updated.
-        BTreeMap::from_iter(
-            events
-                .into_iter()
-                .enumerate()
-                .filter_map(|(pos, event)| event.event_id().map(|event_id| (event_id, pos))),
-        )
-    }
-
-    /// Consider the current event and its position as a better read receipt.
-    #[instrument(skip(self), fields(prev_pos = ?self.latest_event_pos, prev_receipt = ?self.latest_event_with_receipt))]
-    fn try_select_later(&mut self, event_id: &EventId, event_pos: usize) {
-        // We now have a position for an event that had a read receipt, but wasn't found
-        // before. Consider if it is the most recent now.
-        if let Some(best_pos) = self.latest_event_pos.as_mut() {
-            // Note: by using a lax comparison here, we properly handle the case where we
-            // received events that we have already seen with a persisted read
-            // receipt.
-            if event_pos >= *best_pos {
-                *best_pos = event_pos;
-                self.latest_event_with_receipt = Some(event_id.to_owned());
-                debug!("saving better");
-            } else {
-                trace!("not better, keeping previous");
-            }
-        } else {
-            // We didn't have a previous receipt, this is the first one we
-            // store: remember it.
-            self.latest_event_pos = Some(event_pos);
-            self.latest_event_with_receipt = Some(event_id.to_owned());
-            debug!("saving for the first time");
-        }
-    }
-
-    /// Try to match pending receipts against new events.
-    #[instrument(skip_all)]
-    fn handle_pending_receipts(&mut self, pending: &mut RingBuffer<OwnedEventId>) {
-        // Try to match stashed receipts against the new events.
-        pending.retain(|event_id| {
-            if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
-                // Maybe select this read receipt as it might be better than the ones we had.
-                trace!(%event_id, "matching event against its stashed receipt");
-                self.try_select_later(event_id, *event_pos);
-
-                // Remove this stashed read receipt from the pending list, as it's been
-                // reconciled with its event.
-                false
-            } else {
-                // Keep it for further iterations.
-                true
-            }
-        });
-    }
-
-    /// Try to match the receipts inside a receipt event against any of the
-    /// events we know about.
-    ///
-    /// If we find a receipt (for the current user) for an event we know, call
-    /// `try_select_later` to see whether this is our new latest receipted
-    /// event.
-    ///
-    /// Returns any receipts (for the current user) that we could not match
-    /// against any event - these are "pending".
-    #[instrument(skip_all)]
-    fn handle_new_receipt(
-        &mut self,
-        user_id: &UserId,
-        receipt_event: &ReceiptEventContent,
-    ) -> Vec<OwnedEventId> {
-        let mut pending = Vec::new();
-        // Now consider new receipts.
+/// Return a new better (i.e. more recent) receipt based on a search of the
+/// linked chunk.
+///
+/// A receipt is better if:
+///
+/// - it's an implicit read receipt (i.e. an event we've sent),
+/// - it's holding onto a new read receipt we've just received,
+/// - it was a pending receipt for which we found the event now.
+fn select_best_receipt(
+    user_id: &UserId,
+    linked_chunk: &EventLinkedChunk,
+    pending_receipts: &mut RingBuffer<OwnedEventId>,
+    new_receipt_event: Option<&ReceiptEventContent>,
+) -> Option<OwnedEventId> {
+    // If we had a new receipt event, add the main/unthreaded receipts it contains
+    // to the pending receipts list. We'll try to chase them later.
+    if let Some(receipt_event) = new_receipt_event {
         for (event_id, receipts) in &receipt_event.0 {
             for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
                 if let Some(receipts) = receipts.get(&ty)
                     && let Some(receipt) = receipts.get(user_id)
                     && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
                 {
-                    trace!(%event_id, "found new candidate");
-                    if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
-                        self.try_select_later(event_id, *event_pos);
-                    } else {
-                        // It's a new pending receipt.
-                        trace!(%event_id, "stashed as pending");
-                        pending.push(event_id.clone());
-                    }
-                }
-            }
-        }
-        pending
-    }
-
-    /// Try to match an implicit receipt, that is, the one we get for events we
-    /// sent ourselves.
-    #[instrument(skip_all)]
-    fn try_match_implicit<'a>(
-        &mut self,
-        user_id: &UserId,
-        all_events: impl IntoIterator<Item = &'a TimelineEvent> + 'a,
-    ) {
-        for ev in all_events {
-            // Get the `sender` field, if any, or skip this event.
-            let Ok(Some(sender)) = ev.raw().get_field::<OwnedUserId>("sender") else { continue };
-            if sender == user_id {
-                // Get the event id, if any, or skip this event.
-                let Some(event_id) = ev.event_id() else { continue };
-                if let Some(event_pos) = self.event_id_to_pos.get(&event_id) {
-                    trace!(%event_id, "found an implicit receipt candidate");
-                    self.try_select_later(&event_id, *event_pos);
+                    // Add it to the pending receipts list.
+                    pending_receipts.push(event_id.clone());
                 }
             }
         }
     }
 
-    /// Returns the event id referred to by a new later active read receipt.
-    ///
-    /// If it's not set, we can consider that each new event is *after* the
-    /// previous active read receipt.
-    fn select(self) -> Option<LatestReadReceipt> {
-        self.latest_event_with_receipt.map(|event_id| LatestReadReceipt { event_id })
+    // This loop folds two actions at once:
+    // - try to find the most recent receipt, by looking at the events in reverse
+    //   order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk, so
+    //   as to shrink the stash of pending receipts.
+    //
+    // We can early exit out of this loop, as soon as there's no more work to do,
+    // i.e., we've found a better receipt, *and* there's no more pending receipt
+    // to try to match against events in the linked chunk.
+
+    let mut found = None;
+
+    for (event, event_id) in
+        linked_chunk.revents().filter_map(|(_pos, ev)| Some((ev, ev.event_id()?)))
+    {
+        // Try to find an implicit read receipt (i.e. an event sent by the current
+        // user).
+        if found.is_none()
+            && event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
+                == Some(user_id)
+        {
+            found = Some(event_id.clone());
+        }
+
+        // Early exit condition (see the comment above): we've already found a most
+        // recent receipt, and there's no other pending receipts to match against known
+        // events.
+        if found.is_some() && pending_receipts.is_empty() {
+            break;
+        }
+
+        // Try to match pending receipts to events known in the linked chunk. If we
+        // haven't found any receipt yet, the first matched pending receipt is a better
+        // one!
+        pending_receipts.retain(|pending| {
+            if *pending == event_id {
+                if found.is_none() {
+                    found = Some(event_id.clone());
+                }
+                // Don't keep the pending receipt in the pending list: we've already identified
+                // a better, more recent receipt at this point (found == Some).
+                false
+            } else {
+                // Keep the receipt, in case the associated event shows up later.
+                true
+            }
+        });
     }
-}
 
-/// Returns true if there's an event common to both groups of events, based on
-/// their event id.
-fn events_intersects<'a>(
-    previous_events: impl Iterator<Item = &'a TimelineEvent>,
-    new_events: &[TimelineEvent],
-) -> bool {
-    let previous_events_ids = BTreeSet::from_iter(previous_events.filter_map(|ev| ev.event_id()));
-    new_events
-        .iter()
-        .any(|ev| ev.event_id().is_some_and(|event_id| previous_events_ids.contains(&event_id)))
+    found
 }
 
 /// Given a set of events coming from sync, for a room, update the
 /// [`RoomReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
-///
-/// A provider of previous events may be required to reconcile a read receipt
-/// that has been just received for an event that came in a previous sync.
-///
-/// See this module's documentation for more information.
-#[instrument(skip_all, fields(room_id = %room_id))]
-#[cfg(test)]
-fn compute_unread_counts_legacy(
-    user_id: &UserId,
-    room_id: &RoomId,
-    receipt_event: Option<&ReceiptEventContent>,
-    mut previous_events: Vec<TimelineEvent>,
-    new_events: &[TimelineEvent],
-    read_receipts: &mut RoomReadReceipts,
-    threading_support: matrix_sdk_base::ThreadingSupport,
-) {
-    let all_events = if events_intersects(previous_events.iter(), new_events) {
-        // The previous and new events sets can intersect, for instance if we restored
-        // previous events from the disk cache, or a timeline was limited. This
-        // means the old events will be cleared, because we don't reconcile
-        // timelines in the event cache (yet). As a result, forget
-        // about the previous events.
-        new_events.to_owned()
-    } else {
-        previous_events.extend(new_events.iter().cloned());
-        previous_events
-    };
-
-    let threading_support = match threading_support {
-        matrix_sdk_base::ThreadingSupport::Enabled { .. } => true,
-        matrix_sdk_base::ThreadingSupport::Disabled => false,
-    };
-
-    compute_unread_counts(
-        user_id,
-        room_id,
-        receipt_event,
-        all_events,
-        read_receipts,
-        threading_support,
-    );
-}
-
-/// Given a set of events coming from sync, for a room, update the
-/// [`RoomReadReceipts`]'s counts of unread messages, notifications and
-/// highlights' in place.
-///
-/// A provider of previous events may be required to reconcile a read receipt
-/// that has been just received for an event that came in a previous sync.
 ///
 /// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %room_id))]
@@ -456,28 +311,16 @@ pub(crate) fn compute_unread_counts(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
-    all_events: Vec<TimelineEvent>,
+    linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
 ) {
     debug!(?read_receipts, "Starting");
 
-    let new_receipt = {
-        let mut selector = ReceiptSelector::new(
-            &all_events,
-            read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id),
-        );
-
-        selector.try_match_implicit(user_id, &all_events);
-        selector.handle_pending_receipts(&mut read_receipts.pending);
-        if let Some(receipt_event) = receipt_event {
-            let new_pending = selector.handle_new_receipt(user_id, receipt_event);
-            if !new_pending.is_empty() {
-                read_receipts.pending.extend(new_pending);
-            }
-        }
-        selector.select()
-    };
+    let new_receipt =
+        select_best_receipt(user_id, linked_chunk, &mut read_receipts.pending, receipt_event)
+            .map(|event_id| LatestReadReceipt { event_id })
+            .or_else(|| read_receipts.latest_active.clone());
 
     if let Some(new_receipt) = new_receipt {
         // We've found the id of an event to which the receipt attaches. The associated
@@ -491,12 +334,12 @@ pub(crate) fn compute_unread_counts(
         trace!(%event_id, "Saving a new active read receipt");
         read_receipts.latest_active = Some(new_receipt);
 
-        // The event for the receipt is in `all_events`, so we'll find it and can count
-        // safely from here.
+        // The event for the receipt is in the linked chunk, so we'll find it and can
+        // count safely from here.
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            &all_events,
+            linked_chunk.events().map(|(_pos, event)| event),
             with_threading_support,
         );
 
@@ -512,7 +355,7 @@ pub(crate) fn compute_unread_counts(
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
-    for event in &all_events {
+    for (_pos, event) in linked_chunk.events() {
         read_receipts.process_event(event, user_id, with_threading_support);
     }
 
@@ -578,23 +421,24 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
 
-    use matrix_sdk_base::{ThreadingSupport, read_receipts::RoomReadReceipts};
+    use matrix_sdk_base::read_receipts::RoomReadReceipts;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::event_factory::EventFactory;
+    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
         EventId, UserId, event_id,
         events::{
             receipt::{ReceiptThread, ReceiptType},
             room::{member::MembershipState, message::MessageType},
         },
-        owned_event_id, owned_user_id,
+        owned_event_id,
         push::Action,
         room_id, user_id,
     };
 
-    use super::{ReceiptSelector, marks_as_unread};
-    use crate::event_cache::caches::read_receipts::{
-        RoomReadReceiptsExt as _, compute_unread_counts_legacy as compute_unread_counts,
+    use super::marks_as_unread;
+    use crate::event_cache::caches::{
+        event_linked_chunk::EventLinkedChunk,
+        read_receipts::{RoomReadReceiptsExt as _, select_best_receipt},
     };
 
     #[test]
@@ -879,676 +723,6 @@ mod tests {
         assert_eq!(receipts.num_mentions, 0);
     }
 
-    /// Smoke test for `compute_unread_counts`.
-    #[test]
-    fn test_basic_compute_unread_counts() {
-        let user_id = user_id!("@alice:example.org");
-        let other_user_id = user_id!("@bob:example.org");
-        let room_id = room_id!("!room:example.org");
-        let receipt_event_id = event_id!("$1");
-
-        let mut previous_events = Vec::new();
-
-        let f = EventFactory::new();
-        let ev1 = f.text_msg("A").sender(other_user_id).event_id(receipt_event_id).into_event();
-        let ev2 = f.text_msg("A").sender(other_user_id).event_id(event_id!("$2")).into_event();
-
-        let receipt_event = f
-            .read_receipts()
-            .add(receipt_event_id, user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            previous_events.clone(),
-            &[ev1.clone(), ev2.clone()],
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // It did find the receipt event (ev1).
-        assert_eq!(read_receipts.num_unread, 1);
-
-        // Receive the same receipt event, with a new sync event.
-        previous_events.push(ev1);
-        previous_events.push(ev2);
-
-        let new_event =
-            f.text_msg("A").sender(other_user_id).event_id(event_id!("$3")).into_event();
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            previous_events,
-            &[new_event],
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Only the new event should be added.
-        assert_eq!(read_receipts.num_unread, 2);
-    }
-
-    fn make_test_events(user_id: &UserId) -> Vec<TimelineEvent> {
-        let f = EventFactory::new().sender(user_id);
-        let ev1 = f.text_msg("With the lights out, it's less dangerous").event_id(event_id!("$1"));
-        let ev2 = f.text_msg("Here we are now, entertain us").event_id(event_id!("$2"));
-        let ev3 = f.text_msg("I feel stupid and contagious").event_id(event_id!("$3"));
-        let ev4 = f.text_msg("Here we are now, entertain us").event_id(event_id!("$4"));
-        let ev5 = f.text_msg("Hello, hello, hello, how low?").event_id(event_id!("$5"));
-        [ev1, ev2, ev3, ev4, ev5].into_iter().map(Into::into).collect()
-    }
-
-    /// Test that when multiple receipts come in a single event, we can still
-    /// find the latest one according to the sync order.
-    #[test]
-    fn test_compute_unread_counts_multiple_receipts_in_one_event() {
-        let user_id = user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let all_events = make_test_events(user_id!("@bob:example.org"));
-        let head_events: Vec<_> = all_events.iter().take(2).cloned().collect();
-        let tail_events: Vec<_> = all_events.iter().skip(2).cloned().collect();
-
-        // Given a receipt event marking events 1-3 as read using a combination of
-        // different thread and privacy types,
-        let f = EventFactory::new();
-        for receipt_type_1 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
-            for receipt_thread_1 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
-                for receipt_type_2 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
-                    for receipt_thread_2 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
-                        let receipt_event = f
-                            .read_receipts()
-                            .add(
-                                event_id!("$2"),
-                                user_id,
-                                receipt_type_1.clone(),
-                                receipt_thread_1.clone(),
-                            )
-                            .add(
-                                event_id!("$3"),
-                                user_id,
-                                receipt_type_2.clone(),
-                                receipt_thread_2.clone(),
-                            )
-                            .add(
-                                event_id!("$1"),
-                                user_id,
-                                receipt_type_1.clone(),
-                                receipt_thread_2.clone(),
-                            )
-                            .into_content();
-
-                        // When I compute the notifications for this room (with no new events),
-                        let mut read_receipts = RoomReadReceipts::default();
-
-                        compute_unread_counts(
-                            user_id,
-                            room_id,
-                            Some(&receipt_event),
-                            all_events.clone(),
-                            &[],
-                            &mut read_receipts,
-                            ThreadingSupport::Disabled,
-                        );
-
-                        assert!(
-                            read_receipts != Default::default(),
-                            "read receipts have been updated"
-                        );
-
-                        // Then events 1-3 are considered read, but 4 and 5 are not.
-                        assert_eq!(read_receipts.num_unread, 2);
-                        assert_eq!(read_receipts.num_mentions, 0);
-                        assert_eq!(read_receipts.num_notifications, 0);
-
-                        // And when I compute notifications again, with some old and new events,
-                        let mut read_receipts = RoomReadReceipts::default();
-                        compute_unread_counts(
-                            user_id,
-                            room_id,
-                            Some(&receipt_event),
-                            head_events.clone(),
-                            &tail_events,
-                            &mut read_receipts,
-                            ThreadingSupport::Disabled,
-                        );
-
-                        assert!(
-                            read_receipts != Default::default(),
-                            "read receipts have been updated"
-                        );
-
-                        // Then events 1-3 are considered read, but 4 and 5 are not.
-                        assert_eq!(read_receipts.num_unread, 2);
-                        assert_eq!(read_receipts.num_mentions, 0);
-                        assert_eq!(read_receipts.num_notifications, 0);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Updating the pending list should cause a change in the
-    /// `RoomReadReceipts` fields, and `compute_unread_counts` should return
-    /// true then.
-    #[test]
-    fn test_compute_unread_counts_updated_after_field_tracking() {
-        let user_id = owned_user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        let receipt_event = EventFactory::new()
-            .read_receipts()
-            .add(event_id!("$6"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-        assert!(read_receipts.pending.is_empty());
-
-        // Assume we start with a number of 3 unreads.
-        read_receipts.num_unread = 3;
-
-        // Given a receipt event that contains a read receipt referring to an unknown
-        // event, and some preexisting events with different ids,
-        compute_unread_counts(
-            &user_id,
-            room_id,
-            Some(&receipt_event),
-            events,
-            &[], // no new events
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Then there are 5 unread events, as all events are located *after* the read
-        // receipt event, which is pending.
-        assert_eq!(read_receipts.num_unread, 5);
-
-        // And the event referred to by the read receipt is in the pending state.
-        assert_eq!(read_receipts.pending.len(), 1);
-        assert!(read_receipts.pending.iter().any(|ev| ev == event_id!("$6")));
-    }
-
-    #[test]
-    fn test_compute_unread_counts_limited_sync() {
-        let user_id = owned_user_id!("@alice:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        let receipt_event = EventFactory::new()
-            .read_receipts()
-            .add(event_id!("$1"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        // Sync with a read receipt *and* a single event that was already known: in that
-        // case, only consider the new events in isolation, and compute the
-        // correct count.
-        let mut read_receipts = RoomReadReceipts::default();
-        assert!(read_receipts.pending.is_empty());
-
-        let ev0 = events[0].clone();
-
-        compute_unread_counts(
-            &user_id,
-            room_id,
-            Some(&receipt_event),
-            events,
-            &[ev0], // duplicate event!
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // All events are unread, and there's no pending receipt.
-        assert_eq!(read_receipts.num_unread, 0);
-        assert!(read_receipts.pending.is_empty());
-    }
-
-    #[test]
-    fn test_receipt_selector_create_sync_index() {
-        let uid = user_id!("@bob:example.org");
-
-        let events = make_test_events(uid);
-
-        // An event with no id.
-        let ev6 = EventFactory::new().text_msg("yolo").sender(uid).no_event_id().into_event();
-
-        let index = ReceiptSelector::create_sync_index(events.iter().chain(&[ev6]));
-
-        assert_eq!(*index.get(event_id!("$1")).unwrap(), 0);
-        assert_eq!(*index.get(event_id!("$2")).unwrap(), 1);
-        assert_eq!(*index.get(event_id!("$3")).unwrap(), 2);
-        assert_eq!(*index.get(event_id!("$4")).unwrap(), 3);
-        assert_eq!(*index.get(event_id!("$5")).unwrap(), 4);
-        assert_eq!(index.get(event_id!("$6")), None);
-
-        assert_eq!(index.len(), 5);
-
-        // Sync order are set according to the position in the vector.
-        let index = ReceiptSelector::create_sync_index(
-            [events[1].clone(), events[2].clone(), events[4].clone()].iter(),
-        );
-
-        assert_eq!(*index.get(event_id!("$2")).unwrap(), 0);
-        assert_eq!(*index.get(event_id!("$3")).unwrap(), 1);
-        assert_eq!(*index.get(event_id!("$5")).unwrap(), 2);
-
-        assert_eq!(index.len(), 3);
-    }
-
-    #[test]
-    fn test_receipt_selector_try_select_later() {
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        {
-            // No initial active receipt, so the first receipt we get *will* win.
-            let mut selector = ReceiptSelector::new([], None);
-            selector.try_select_later(event_id!("$1"), 0);
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
-        }
-
-        {
-            // $3 is at pos 2, $1 at position 0, so $3 wins => no new change.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$3")));
-            selector.try_select_later(event_id!("$1"), 0);
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-
-        {
-            // The initial active receipt is returned, when it's part of the scanned
-            // elements.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
-            selector.try_select_later(event_id!("$1"), 0);
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
-        }
-
-        {
-            // $3 is at pos 2, $4 at position 3, so $4 wins.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$3")));
-            selector.try_select_later(event_id!("$4"), 3);
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$4"));
-        }
-    }
-
-    #[test]
-    fn test_receipt_selector_handle_pending_receipts_noop() {
-        let sender = user_id!("@bob:example.org");
-        let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events = &[ev1, ev2][..];
-
-        {
-            // No pending receipt => no better receipt.
-            let mut selector = ReceiptSelector::new(events, None);
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            selector.handle_pending_receipts(&mut pending);
-
-            assert!(pending.is_empty());
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-
-        {
-            // No pending receipt, and there was an active last receipt => no better
-            // receipt.
-            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            selector.handle_pending_receipts(&mut pending);
-
-            assert!(pending.is_empty());
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-    }
-
-    #[test]
-    fn test_receipt_selector_handle_pending_receipts_doesnt_match_known_events() {
-        let sender = user_id!("@bob:example.org");
-        let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events = &[ev1, ev2][..];
-
-        {
-            // A pending receipt for an event that is still missing => no better receipt.
-            let mut selector = ReceiptSelector::new(events, None);
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$3"));
-            selector.handle_pending_receipts(&mut pending);
-
-            assert_eq!(pending.len(), 1);
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-
-        {
-            // Ditto but there was an active receipt => no better receipt.
-            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$3"));
-            selector.handle_pending_receipts(&mut pending);
-
-            assert_eq!(pending.len(), 1);
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-    }
-
-    #[test]
-    fn test_receipt_selector_handle_pending_receipts_matches_known_events_no_initial() {
-        let sender = user_id!("@bob:example.org");
-        let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events = &[ev1, ev2][..];
-
-        {
-            // A pending receipt for an event that is present => better receipt.
-            let mut selector = ReceiptSelector::new(events, None);
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$2"));
-            selector.handle_pending_receipts(&mut pending);
-
-            // The receipt for $2 has been found.
-            assert!(pending.is_empty());
-
-            // The new receipt has been returned.
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$2"));
-        }
-
-        {
-            // Mixed found and not found receipt => better receipt.
-            let mut selector = ReceiptSelector::new(events, None);
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$1"));
-            pending.push(owned_event_id!("$3"));
-            selector.handle_pending_receipts(&mut pending);
-
-            // The receipt for $1 has been found, but not that for $3.
-            assert_eq!(pending.len(), 1);
-            assert!(pending.iter().any(|ev| ev == event_id!("$3")));
-
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
-        }
-    }
-
-    #[test]
-    fn test_receipt_selector_handle_pending_receipts_matches_known_events_with_initial() {
-        let sender = user_id!("@bob:example.org");
-        let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events = &[ev1, ev2][..];
-
-        {
-            // Same, and there was an initial receipt that was less good than the one we
-            // selected => better receipt.
-            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$2"));
-            selector.handle_pending_receipts(&mut pending);
-
-            // The receipt for $2 has been found.
-            assert!(pending.is_empty());
-
-            // The new receipt has been returned.
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$2"));
-        }
-
-        {
-            // Same, but the previous receipt was better => no better receipt.
-            let mut selector = ReceiptSelector::new(events, Some(event_id!("$2")));
-
-            let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
-            pending.push(owned_event_id!("$1"));
-            selector.handle_pending_receipts(&mut pending);
-
-            // The receipt for $1 has been found.
-            assert!(pending.is_empty());
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-    }
-
-    #[test]
-    fn test_receipt_selector_handle_new_receipt() {
-        let myself = user_id!("@alice:example.org");
-        let events = make_test_events(user_id!("@bob:example.org"));
-
-        let f = EventFactory::new();
-        {
-            // Thread receipts are ignored.
-            let mut selector = ReceiptSelector::new(&events, None);
-
-            let receipt_event = f
-                .read_receipts()
-                .add(
-                    event_id!("$5"),
-                    myself,
-                    ReceiptType::Read,
-                    ReceiptThread::Thread(owned_event_id!("$2")),
-                )
-                .into_content();
-
-            let pending = selector.handle_new_receipt(myself, &receipt_event);
-            assert!(pending.is_empty());
-
-            let best_receipt = selector.select();
-            assert!(best_receipt.is_none());
-        }
-
-        for receipt_type in [ReceiptType::Read, ReceiptType::ReadPrivate] {
-            for receipt_thread in [ReceiptThread::Main, ReceiptThread::Unthreaded] {
-                {
-                    // Receipt for an event we don't know about => it's pending, and no better
-                    // receipt.
-                    let mut selector = ReceiptSelector::new(&events, None);
-
-                    let receipt_event = f
-                        .read_receipts()
-                        .add(event_id!("$6"), myself, receipt_type.clone(), receipt_thread.clone())
-                        .into_content();
-
-                    let pending = selector.handle_new_receipt(myself, &receipt_event);
-                    assert_eq!(pending[0], event_id!("$6"));
-                    assert_eq!(pending.len(), 1);
-
-                    let best_receipt = selector.select();
-                    assert!(best_receipt.is_none());
-                }
-
-                {
-                    // Receipt for an event we knew about, no initial active receipt => better
-                    // receipt.
-                    let mut selector = ReceiptSelector::new(&events, None);
-
-                    let receipt_event = f
-                        .read_receipts()
-                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
-                        .into_content();
-
-                    let pending = selector.handle_new_receipt(myself, &receipt_event);
-                    assert!(pending.is_empty());
-
-                    let best_receipt = selector.select();
-                    assert_eq!(best_receipt.unwrap().event_id, event_id!("$3"));
-                }
-
-                {
-                    // Receipt for an event we knew about, initial active receipt was better => no
-                    // better receipt.
-                    let mut selector = ReceiptSelector::new(&events, Some(event_id!("$4")));
-
-                    let receipt_event = f
-                        .read_receipts()
-                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
-                        .into_content();
-
-                    let pending = selector.handle_new_receipt(myself, &receipt_event);
-                    assert!(pending.is_empty());
-
-                    let best_receipt = selector.select();
-                    assert!(best_receipt.is_none());
-                }
-
-                {
-                    // Receipt for an event we knew about, initial active receipt was less good =>
-                    // new better receipt.
-                    let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
-
-                    let receipt_event = f
-                        .read_receipts()
-                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
-                        .into_content();
-
-                    let pending = selector.handle_new_receipt(myself, &receipt_event);
-                    assert!(pending.is_empty());
-
-                    let best_receipt = selector.select();
-                    assert_eq!(best_receipt.unwrap().event_id, event_id!("$3"));
-                }
-            }
-        } // end for
-
-        {
-            // Final boss: multiple receipts in the receipt event, the best one is used =>
-            // new better receipt.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
-
-            let receipt_event = f
-                .read_receipts()
-                .add(event_id!("$4"), myself, ReceiptType::ReadPrivate, ReceiptThread::Unthreaded)
-                .add(event_id!("$6"), myself, ReceiptType::ReadPrivate, ReceiptThread::Main)
-                .add(event_id!("$3"), myself, ReceiptType::Read, ReceiptThread::Main)
-                .into_content();
-
-            let pending = selector.handle_new_receipt(myself, &receipt_event);
-            assert_eq!(pending.len(), 1);
-            assert_eq!(pending[0], event_id!("$6"));
-
-            let best_receipt = selector.select();
-            assert_eq!(best_receipt.unwrap().event_id, event_id!("$4"));
-        }
-    }
-
-    #[test]
-    fn test_try_match_implicit() {
-        let myself = owned_user_id!("@alice:example.org");
-        let bob = user_id!("@bob:example.org");
-
-        let mut events = make_test_events(bob);
-
-        // When the selector sees only other users' events,
-        let mut selector = ReceiptSelector::new(&events, None);
-        // And I search for my implicit read receipt,
-        selector.try_match_implicit(&myself, &events);
-        // Then I don't find any.
-        let best_receipt = selector.select();
-        assert!(best_receipt.is_none());
-
-        // Now, if there are events I've written too...
-        let f = EventFactory::new();
-        events.push(
-            f.text_msg("A mulatto, an albino")
-                .sender(&myself)
-                .event_id(event_id!("$6"))
-                .into_event(),
-        );
-        events.push(
-            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
-        );
-
-        let mut selector = ReceiptSelector::new(&events, None);
-        // And I search for my implicit read receipt,
-        selector.try_match_implicit(&myself, &events);
-        // Then my last sent event counts as a read receipt.
-        let best_receipt = selector.select();
-        assert_eq!(best_receipt.unwrap().event_id, event_id!("$6"));
-    }
-
-    #[test]
-    fn test_compute_unread_counts_with_implicit_receipt() {
-        let user_id = user_id!("@alice:example.org");
-        let bob = user_id!("@bob:example.org");
-        let room_id = room_id!("!room:example.org");
-
-        // Given a set of events sent by Bob,
-        let mut events = make_test_events(bob);
-
-        // One by me,
-        let f = EventFactory::new();
-        events.push(
-            f.text_msg("A mulatto, an albino")
-                .sender(user_id)
-                .event_id(event_id!("$6"))
-                .into_event(),
-        );
-
-        // And others by Bob,
-        events.push(
-            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
-        );
-        events.push(
-            f.text_msg("A denial, a denial").sender(bob).event_id(event_id!("$8")).into_event(),
-        );
-
-        let events: Vec<_> = events.into_iter().collect();
-
-        // I have a read receipt attached to one of Bob's event sent before my message,
-        let receipt_event = f
-            .read_receipts()
-            .add(event_id!("$3"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-            .into_content();
-
-        let mut read_receipts = RoomReadReceipts::default();
-
-        // And I compute the unread counts for all those new events (no previous events
-        // in that room),
-        compute_unread_counts(
-            user_id,
-            room_id,
-            Some(&receipt_event),
-            Vec::new(),
-            &events,
-            &mut read_receipts,
-            ThreadingSupport::Disabled,
-        );
-
-        // Only the last two events sent by Bob count as unread.
-        assert_eq!(read_receipts.num_unread, 2);
-
-        // There are no pending receipts.
-        assert!(read_receipts.pending.is_empty());
-
-        // And the active receipt is the implicit one on my event.
-        assert_eq!(read_receipts.latest_active.unwrap().event_id, event_id!("$6"));
-    }
-
     #[test]
     fn test_compute_unread_counts_with_threading_enabled() {
         fn make_event(user_id: &UserId, thread_root: &EventId) -> TimelineEvent {
@@ -1605,5 +779,213 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
+    }
+
+    #[test]
+    fn test_select_best_receipt_noop() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And no new receipt,
+        let new_receipt_event = None;
+
+        // Then there's no best receipt.
+        let result =
+            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        assert!(result.is_none());
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_implicit() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with one message sent by the current user,
+        // which will act as an implicit read receipt.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).sender(own_user_id).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And no new receipt,
+        let new_receipt_event = None;
+
+        // Then there's a new best receipt, which is the implicit one.
+        let result =
+            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_new_receipt_event() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And a new receipt event which points to $2,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .into_content(),
+        );
+
+        // Then there's a new best receipt, which is the explicit one from the event
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_stashes_pending_receipts() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+
+        // And a new receipt event, for an event we don't know about,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$4"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .into_content(),
+        );
+
+        // Then there's no new best receipts.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert!(result.is_none());
+        // And there's a new pending receipt for $4.
+        assert_eq!(pending_receipts.len(), 1);
+        assert_eq!(pending_receipts.get(0).unwrap(), event_id!("$4"));
+    }
+
+    #[test]
+    fn test_select_best_receipt_matched_pending_receipt() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        // When there is a pending receipt for $2,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        pending_receipts.push(owned_event_id!("$2"));
+
+        // And no new receipt event,
+        let new_receipt_event = None;
+
+        // Then there's a new best receipt, which is the matched pending receipt.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no more pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_mixed() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // Create a non-empty linked chunk, with one message sent by the current user,
+        // which will act as an implicit read receipt.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).sender(own_user_id).into_event(),
+            f.text_msg("Event 4").event_id(event_id!("$4")).into_event(),
+            f.text_msg("Event 5").event_id(event_id!("$5")).into_event(),
+        ]);
+
+        // When there is a pending receipt for $2, and $6,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        pending_receipts.push(owned_event_id!("$2"));
+        pending_receipts.push(owned_event_id!("$6"));
+
+        // And a new receipt event pointing at $4 and $6,
+        let new_receipt_event = Some(
+            f.read_receipts()
+                .add(event_id!("$4"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                .add(event_id!("$7"), own_user_id, ReceiptType::ReadPrivate, ReceiptThread::Main)
+                .into_content(),
+        );
+
+        // Then there's a new best receipt, which is the most advanced in the linked
+        // chunk: $4.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event.as_ref(),
+        );
+        assert_eq!(result.unwrap(), event_id!("$4"));
+
+        // Receipt 6 is still pending, and there's a new pending receipt for 7 too. ($2
+        // has been cleaned because it has been seen).
+        assert_eq!(pending_receipts.len(), 2);
+        assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
+        assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));
     }
 }

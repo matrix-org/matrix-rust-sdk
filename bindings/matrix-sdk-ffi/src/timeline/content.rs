@@ -96,28 +96,6 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     error: error.to_string(),
                 }
             }
-
-            Content::LiveLocation(state) => {
-                let locations = state
-                    .locations()
-                    .iter()
-                    .map(|location| BeaconInfo {
-                        geo_uri: location.geo_uri().to_owned(),
-                        ts: location.ts().into(),
-                        description: location.description().map(ToOwned::to_owned),
-                    })
-                    .collect();
-
-                TimelineItemContent::LiveLocation {
-                    content: LiveLocationContent {
-                        is_live: state.is_live(),
-                        description: state.description().map(ToOwned::to_owned),
-                        timeout_ms: state.timeout().as_millis() as u64,
-                        asset_type: state.asset_type().into(),
-                        locations,
-                    },
-                }
-            }
         }
     }
 }
@@ -206,13 +184,6 @@ pub enum TimelineItemContent {
         event_type: String,
         state_key: String,
         error: String,
-    },
-    /// A live location sharing session (MSC3489).
-    ///
-    /// Represents a `org.matrix.msc3672.beacon_info` state event with all
-    /// aggregated location updates from `org.matrix.msc3672.beacon` events.
-    LiveLocation {
-        content: LiveLocationContent,
     },
 }
 

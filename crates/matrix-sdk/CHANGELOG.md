@@ -12,6 +12,16 @@ All notable changes to this project will be documented in this file.
   This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
   variant.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
+- The `beacon_info` start event ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
+  is now included when computing the latest event for a room, so live location sharing
+  sessions can be surfaced as a room's most recent activity.
+  ([#6295](https://github.com/matrix-org/matrix-rust-sdk/pull/6295))
+- [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
+  types as `Clone`able, and wrapping a few other error variants with `Arc`.
+  ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
+- The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
+  specification.
+  ([#6291](https://github.com/matrix-org/matrix-rust-sdk/pull/6291))
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
@@ -109,6 +119,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `RoomEventCache::thread_pagination` is now async and fallible.
+  ([#6280](https://github.com/matrix-org/matrix-rust-sdk/pull/6280))
 - [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
   module to the `utils` module. It can also be converted from a `QueryString`.
   ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))

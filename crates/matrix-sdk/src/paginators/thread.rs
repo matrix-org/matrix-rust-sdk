@@ -16,7 +16,11 @@
 //!
 //! See also the documentation for the [`ThreadedEventsLoader`] struct.
 
-use std::{fmt::Formatter, future::Future, sync::Mutex};
+use std::{
+    fmt::Formatter,
+    future::Future,
+    sync::{Arc, Mutex},
+};
 
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
 use ruma::{EventId, OwnedEventId, UInt, api::Direction};
@@ -109,7 +113,7 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
             .room
             .relations(self.root_event_id.to_owned(), options)
             .await
-            .map_err(|error| PaginatorError::SdkError(Box::new(error)))?;
+            .map_err(|error| PaginatorError::SdkError(Arc::new(error)))?;
 
         let hit_end_of_timeline = result.next_batch_token.is_none();
 
@@ -129,7 +133,7 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
                 .room
                 .load_event(&self.root_event_id)
                 .await
-                .map_err(|err| PaginatorError::SdkError(Box::new(err)))?;
+                .map_err(|err| PaginatorError::SdkError(Arc::new(err)))?;
 
             result.chunk.push(root_event);
         }
@@ -167,7 +171,7 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
             .room
             .relations(self.root_event_id.to_owned(), options)
             .await
-            .map_err(|error| PaginatorError::SdkError(Box::new(error)))?;
+            .map_err(|error| PaginatorError::SdkError(Arc::new(error)))?;
 
         let hit_end_of_timeline = result.next_batch_token.is_none();
 

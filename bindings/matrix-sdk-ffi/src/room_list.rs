@@ -183,15 +183,6 @@ impl RoomList {
         page_size: u32,
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
-        self.entries_with_dynamic_adapters_with(page_size, false, listener)
-    }
-
-    fn entries_with_dynamic_adapters_with(
-        self: Arc<Self>,
-        page_size: u32,
-        enable_latest_event_sorter: bool,
-        listener: Box<dyn RoomListEntriesListener>,
-    ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
         let this = self;
 
         // The following code deserves a bit of explanation.
@@ -228,7 +219,7 @@ impl RoomList {
 
         // Get a reference to `this`. It is only borrowed, it's not moved.
         let this =
-            // SAFETY: `ptr` is correct aligned, the `this` field is correctly aligned,
+            // SAFETY: `ptr` is correctly aligned, the `this` field is correctly aligned,
             // is dereferenceable and points to a correctly initialized value as done
             // in the previous line.
             unsafe { addr_of_mut!((*ptr).this).as_ref() }
@@ -239,10 +230,7 @@ impl RoomList {
         // borrowing `this`, which is going to live long enough since it will live as
         // long as `entries_stream` and `dynamic_entries_controller`.
         let (entries_stream, dynamic_entries_controller) =
-            this.inner.entries_with_dynamic_adapters_with(
-                page_size.try_into().unwrap(),
-                enable_latest_event_sorter,
-            );
+            this.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
 
         // FFI dance to make those values consumable by foreign language, nothing fancy
         // here, that's the real code for this method.

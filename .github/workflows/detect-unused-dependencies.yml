@@ -2,11 +2,15 @@ name: Detects unused dependencies
 on:
   pull_request: { branches: "*" }
 
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - name: Machete
-        uses: bnjbvr/cargo-machete@8a8e0cd1046f54206f6d2e050cf028e6db9dbc75
+        uses: bnjbvr/cargo-machete@2e2703d664c176156a22936b9203c38cc7a273dd

@@ -595,11 +595,7 @@ impl IdentityResetHandle {
     /// 3. Go through the cross-signing key reset flow
     /// 4. Finally, re-enable key backups only if they were enabled before
     pub async fn reset(&self, auth: Option<AuthData>) -> Result<(), ClientError> {
-        if let Some(auth) = auth {
-            self.inner.reset(Some(auth.into())).await.map_err(ClientError::from_err)
-        } else {
-            self.inner.reset(None).await.map_err(ClientError::from_err)
-        }
+        self.inner.reset(auth.map(Into::into)).await.map_err(ClientError::from_err)
     }
 
     pub async fn cancel(&self) {
