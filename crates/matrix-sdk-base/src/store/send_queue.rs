@@ -447,8 +447,7 @@ impl SentRequestKey {
     /// Converts the current parent key into an event id, if possible.
     pub fn into_event_id(self) -> Option<OwnedEventId> {
         match self {
-            Self::Event { event_id, .. } => Some(event_id),
-            Self::Redaction { event_id, .. } => Some(event_id),
+            Self::Event { event_id, .. } | Self::Redaction { event_id, .. } => Some(event_id),
             _ => None,
         }
     }
