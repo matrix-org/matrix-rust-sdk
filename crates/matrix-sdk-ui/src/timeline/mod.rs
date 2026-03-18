@@ -80,7 +80,6 @@ mod tasks;
 #[cfg(test)]
 mod tests;
 pub mod thread_list_service;
-pub mod threads;
 mod traits;
 mod virtual_item;
 

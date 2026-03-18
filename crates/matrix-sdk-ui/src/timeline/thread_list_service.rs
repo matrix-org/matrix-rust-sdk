@@ -16,11 +16,60 @@ use std::sync::Arc;
 
 use eyeball::{ObservableWriteGuard, SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
+use futures_util::future::join_all;
 use imbl::Vector;
-use matrix_sdk::{Room, locks::Mutex, paginators::PaginationToken, room::ListThreadsOptions};
+use matrix_sdk::{
+    Result, Room, deserialized_responses::TimelineEvent, locks::Mutex, paginators::PaginationToken,
+    room::ListThreadsOptions,
+};
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    events::{
+        AnyMessageLikeEventContent, relation::Replacement, room::message::RoomMessageEventContent,
+    },
+};
 use tokio::sync::Mutex as AsyncMutex;
+use tracing::error;
 
-use crate::timeline::{threads::ThreadListItem, traits::RoomExt};
+use crate::timeline::{
+    Profile, TimelineDetails, TimelineItemContent,
+    event_handler::{HandleAggregationKind, TimelineAction},
+    traits::RoomDataProvider,
+};
+
+/// Each `ThreadListItem` represents one thread root event in the room. The
+/// fields are pre-resolved from the raw homeserver response: the sender's
+/// profile is fetched eagerly and the event content is parsed into a
+/// [`TimelineItemContent`] so that consumers can render the item without any
+/// additional work.
+///
+/// `ThreadListItem`s are accumulated inside
+/// [`super::thread_list_service::ThreadListService`] as pages are fetched via
+/// [`super::thread_list_service::ThreadListService::paginate`].
+#[derive(Clone, Debug)]
+pub struct ThreadListItem {
+    /// The thread's root event identifier.
+    pub root_event_id: OwnedEventId,
+
+    /// The timestamp of the remote event.
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+
+    /// The Matrix user ID of the thread root event's sender.
+    pub sender: OwnedUserId,
+
+    /// Whether the thread root was sent by the current user.
+    pub is_own: bool,
+
+    /// The sender's profile (display name and avatar URL)
+    pub sender_profile: TimelineDetails<Profile>,
+
+    /// The parsed content of the thread root event, if available.
+    ///
+    /// `None` when the event could not be deserialized into a known
+    /// [`TimelineItemContent`] variant (e.g. an unsupported or redacted event
+    /// type)
+    pub content: Option<TimelineItemContent>,
+}
 
 /// The pagination state of a [`ThreadListService`].
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -158,7 +207,7 @@ impl ThreadListService {
 
         let opts = ListThreadsOptions { from, ..Default::default() };
 
-        match self.room.load_thread_list(opts).await {
+        match self.load_thread_list(opts).await {
             Ok(thread_list) => {
                 // Update the pagination token based on whether there are more pages.
                 *pagination_token = match &thread_list.prev_batch_token {
@@ -199,6 +248,98 @@ impl ThreadListService {
 
         self.pagination_state.set(ThreadListPaginationState::Idle { end_reached: false });
     }
+
+    async fn load_thread_list(&self, opts: ListThreadsOptions) -> Result<ThreadList> {
+        let thread_roots = self.room.list_threads(opts).await?;
+
+        let list_items = join_all(
+            thread_roots
+                .chunk
+                .iter()
+                .map(|timeline_event| self.build_thread_list_item(timeline_event.clone()))
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
+
+        Ok(ThreadList { items: list_items, prev_batch_token: thread_roots.prev_batch_token })
+    }
+
+    pub(super) async fn build_thread_list_item(
+        &self,
+        timeline_event: TimelineEvent,
+    ) -> Option<ThreadListItem> {
+        let raw_any_sync_timeline_event = timeline_event.into_raw();
+        let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
+            error!("Failed deserializing thread root event");
+            return None;
+        };
+
+        let root_event_id = any_sync_timeline_event.event_id().to_owned();
+        let timestamp = any_sync_timeline_event.origin_server_ts();
+        let sender = any_sync_timeline_event.sender().to_owned();
+        let is_own = self.room.own_user_id() == sender;
+
+        let profile = self
+            .room
+            .profile_from_user_id(&sender)
+            .await
+            .map(TimelineDetails::Ready)
+            .unwrap_or(TimelineDetails::Unavailable);
+
+        let content: Option<TimelineItemContent> = match TimelineAction::from_event(
+            any_sync_timeline_event,
+            &raw_any_sync_timeline_event,
+            &self.room,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Some(TimelineAction::AddItem { content }) => Some(content),
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                ..
+            }) => {
+                match TimelineAction::from_content(
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
+                        new_content.msgtype,
+                    )),
+                    None,
+                    None,
+                    None,
+                ) {
+                    TimelineAction::AddItem { content } => Some(content),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        Some(ThreadListItem {
+            root_event_id,
+            timestamp,
+            sender,
+            is_own,
+            sender_profile: profile,
+            content,
+        })
+    }
+}
+
+/// A structure wrapping a Thread List endpoint response i.e.
+/// [`ThreadListItem`]s and the current pagination token.
+#[derive(Clone, Debug)]
+struct ThreadList {
+    /// The thread-root events that belong to this page of results.
+    pub items: Vec<ThreadListItem>,
+
+    /// Opaque pagination token returned by the homeserver.
+    pub prev_batch_token: Option<String>,
 }
 
 #[cfg(test)]

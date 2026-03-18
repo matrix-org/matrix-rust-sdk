@@ -20,7 +20,6 @@ use matrix_sdk::{
     Result, Room, SendOutsideWasm,
     deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, thread::PaginableThread},
-    room::ListThreadsOptions,
 };
 use matrix_sdk_base::{RoomInfo, crypto::types::events::CryptoContextInfo};
 use ruma::{
@@ -36,10 +35,8 @@ use tracing::error;
 
 use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{
-    self, Timeline, TimelineReadReceiptTracking,
-    latest_event::LatestEventValue,
+    self, Timeline, TimelineReadReceiptTracking, latest_event::LatestEventValue,
     thread_list_service::ThreadListService,
-    threads::{ThreadList, load_thread_list},
 };
 
 pub trait RoomExt {
@@ -66,11 +63,6 @@ pub trait RoomExt {
     /// Return a [`LatestEventValue`] corresponding to this room's latest event.
     fn latest_event(&self) -> impl Future<Output = LatestEventValue>;
 
-    fn load_thread_list(
-        &self,
-        opts: ListThreadsOptions,
-    ) -> impl Future<Output = Result<ThreadList>> + SendOutsideWasm;
-
     /// Create a [`ThreadListService`] for this room.
     ///
     /// The returned service provides a paginated, observable list of thread
@@ -96,10 +88,6 @@ impl RoomExt for Room {
             &self.client(),
         )
         .await
-    }
-
-    async fn load_thread_list(&self, opts: ListThreadsOptions) -> Result<ThreadList> {
-        load_thread_list(self, opts).await
     }
 
     fn thread_list_service(&self) -> ThreadListService {

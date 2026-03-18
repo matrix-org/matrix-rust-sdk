@@ -22,11 +22,11 @@ use matrix_sdk::room::{
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::timeline::{
     thread_list_service::{
+        ThreadListItem as UIThreadListItem,
         ThreadListPaginationState as UIThreadListPaginationState,
         ThreadListService as UIThreadListService,
         ThreadListServiceError as UIThreadListServiceError,
     },
-    threads::{ThreadList as UIThreadList, ThreadListItem as UIThreadListItem},
     RoomExt,
 };
 use ruma::api::client::threads::get_threads::v1::IncludeThreads as SdkIncludeThreads;
@@ -112,26 +112,6 @@ impl From<IncludeThreads> for SdkIncludeThreads {
     }
 }
 
-/// A structure wrapping a Thread List endpoint response i.e.
-/// [`ThreadListItem`]s and the current pagination token.
-#[derive(uniffi::Record)]
-pub struct ThreadList {
-    /// The thread-root events that belong to this page of results.
-    pub items: Vec<ThreadListItem>,
-
-    /// Opaque pagination token returned by the homeserver.
-    pub prev_batch_token: Option<String>,
-}
-
-impl From<UIThreadList> for ThreadList {
-    fn from(list: UIThreadList) -> Self {
-        Self {
-            items: list.items.into_iter().map(Into::into).collect(),
-            prev_batch_token: list.prev_batch_token,
-        }
-    }
-}
-
 /// Each `ThreadListItem` represents one thread root event in the room. The
 /// fields are pre-resolved from the raw homeserver response: the sender's
 /// profile is fetched eagerly and the event content is parsed into a
@@ -190,35 +170,10 @@ impl From<UIThreadListItem> for ThreadListItem {
     }
 }
 
-/// The pagination state of a [`ThreadListService`].
-///
-/// This mirrors
-/// [`matrix_sdk_ui::timeline::thread_list_service::ThreadListPaginationState`]
-/// for use over the FFI boundary.
-#[derive(uniffi::Enum, Clone, Debug, Eq, PartialEq)]
-pub enum ThreadListPaginationState {
-    /// The service is idle and not currently loading.
-    Idle {
-        /// `true` when there are no more pages to load.
-        end_reached: bool,
-    },
-    /// The service is currently fetching the next page.
-    Loading,
-}
-
-impl From<UIThreadListPaginationState> for ThreadListPaginationState {
-    fn from(state: UIThreadListPaginationState) -> Self {
-        match state {
-            UIThreadListPaginationState::Idle { end_reached } => Self::Idle { end_reached },
-            UIThreadListPaginationState::Loading => Self::Loading,
-        }
-    }
-}
-
 /// Listener for changes to the [`ThreadListService`] pagination state.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ThreadListPaginationStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
-    fn on_update(&self, state: ThreadListPaginationState);
+    fn on_update(&self, state: UIThreadListPaginationState);
 }
 
 /// Listener for changes to the [`ThreadListService`] item list.
@@ -305,8 +260,8 @@ impl ThreadListService {
 #[matrix_sdk_ffi_macros::export]
 impl ThreadListService {
     /// Returns a snapshot of the current pagination state.
-    pub fn pagination_state(&self) -> ThreadListPaginationState {
-        self.inner.pagination_state().into()
+    pub fn pagination_state(&self) -> UIThreadListPaginationState {
+        self.inner.pagination_state()
     }
 
     /// Subscribes to changes in the pagination state.
@@ -321,7 +276,7 @@ impl ThreadListService {
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = subscriber.next().await {
-                listener.on_update(state.into());
+                listener.on_update(state);
             }
         })))
     }
