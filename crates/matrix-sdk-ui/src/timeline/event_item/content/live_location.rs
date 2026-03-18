@@ -21,6 +21,9 @@
 //! - `org.matrix.msc3672.beacon` (message-like event): periodic location
 //!   updates that are aggregated onto the parent [`LiveLocationState`] item.
 
+use std::sync::Arc;
+
+use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     events::{beacon_info::BeaconInfoEventContent, location::AssetType},
@@ -42,6 +45,13 @@ pub struct BeaconInfo {
 
     /// An optional human-readable description of the location.
     pub(in crate::timeline) description: Option<String>,
+
+    /// Encryption info of the beacon event that carried this location update.
+    ///
+    /// `Some` when the beacon event was encrypted and successfully decrypted,
+    /// `None` when it was sent in the clear (or when encryption info is
+    /// unavailable).
+    pub(in crate::timeline) encryption_info: Option<Arc<EncryptionInfo>>,
 }
 
 impl BeaconInfo {
@@ -58,6 +68,12 @@ impl BeaconInfo {
     /// An optional human-readable description of this location.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// The encryption info of the beacon event that carried this location
+    /// update, if it was encrypted and successfully decrypted.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.encryption_info.as_deref()
     }
 }
 
