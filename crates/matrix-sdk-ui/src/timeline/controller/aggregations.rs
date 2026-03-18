@@ -362,9 +362,8 @@ impl Aggregation {
             }
 
             AggregationKind::Redaction { is_local } => {
-                let is_local_redacted = event.unredacted_content.is_some();
                 if *is_local {
-                    if is_local_redacted {
+                    if event.unredacted_content.is_some() {
                         // Unapply local redaction.
                         *event = Cow::Owned(event.unredact());
                         ApplyAggregationResult::UpdatedItem
