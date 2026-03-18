@@ -503,6 +503,9 @@ impl EventTimelineItem {
         }
     }
 
+    /// Create a clone of the current item, with content restored from the
+    /// item's unredacted_content field (if it was previously set by a call to
+    /// the `redact(...)` method).
     pub(super) fn unredact(&self) -> Self {
         let Some(content) = &self.unredacted_content else { return self.clone() };
         let kind = match &self.kind {
