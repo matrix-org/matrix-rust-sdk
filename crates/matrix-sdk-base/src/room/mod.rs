@@ -155,6 +155,11 @@ impl Room {
         self.info.read().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
+    /// Whether this room's [`RoomType`] is `m.space`.
+    pub fn is_call(&self) -> bool {
+        self.info.read().room_type().is_some_and(|t| *t == RoomType::Call)
+    }
+
     /// Returns the room's type as defined in its creation event
     /// (`m.room.create`).
     pub fn room_type(&self) -> Option<RoomType> {
