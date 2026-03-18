@@ -40,7 +40,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
-    EventId,
+    EventId, event_id,
     events::{StateEventContentChange, room::message::MessageType},
     room_id, user_id,
 };
@@ -211,12 +211,11 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         .ok(RoomMessagesResponseTemplate::default().events({
             // Return 30 events in this pagination.
             let mut events = Vec::new();
-            for i in 0..30 {
-                // Invert indices, so that in the event cache they end ordered from $0 to $29.
-                let j = 29 - i;
+            // Invert indices, so that in the event cache they end ordered from $0 to $29.
+            for i in (0..30).rev() {
                 events.push(
-                    f.text_msg(format!("hello world {j}"))
-                        .event_id(&EventId::parse(format!("$ev{j}")).unwrap()),
+                    f.text_msg(format!("hello world {i}"))
+                        .event_id(&EventId::parse(format!("$ev{i}")).unwrap()),
                 );
             }
             events
@@ -233,17 +232,23 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     assert_eq!(timeline_updates.len(), 39);
 
     for i in 0..18 {
+        let expected_event_id = EventId::parse(format!("$ev{}", i + 11)).unwrap();
+
         // the item itself.
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2 * i]);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert!(text.body.starts_with("hello world"));
+        // check the event id as well.
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
 
-        // update for the read receipt.
-        assert_let!(
-            VectorDiff::Set { index: updated_index, value: _ } = &timeline_updates[2 * i + 1]
-        );
+        // update for the read receipt for the same event.
+        assert_let!(VectorDiff::Set { index: updated_index, value } = &timeline_updates[2 * i + 1]);
         assert_eq!(*updated_index, i);
+        let event_item = value.as_event().unwrap();
+        // check the event id as well.
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
     }
 
     // After the loop, the last index that's been peeked is 2*17+1 == 35.
@@ -251,19 +256,25 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     // maximum skip count value.
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[36]);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert!(text.body.starts_with("hello world"));
 
-        assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[37]);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
-        assert_let!(MessageType::Text(text) = msg.msgtype());
-        assert!(text.body.starts_with("hello world"));
+        // Last event in the above loop has event id 28.
+        assert_eq!(event_item.event_id().unwrap(), event_id!("$ev29"));
 
-        assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[38]);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
-        assert_let!(MessageType::Text(text) = msg.msgtype());
-        assert!(text.body.starts_with("hello world"));
+        for i in 0..1 {
+            assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[37 + i]);
+            let event_item = message.as_event().unwrap();
+            assert_let!(Some(msg) = event_item.content().as_message());
+            assert_let!(MessageType::Text(text) = msg.msgtype());
+            assert!(text.body.starts_with("hello world"));
+
+            // First event was $ev11.
+            let expected_event_id = EventId::parse(format!("$ev{}", 10 - i)).unwrap();
+            assert_eq!(event_item.event_id().unwrap(), expected_event_id);
+        }
     }
 
     assert_pending!(timeline_stream);
@@ -276,11 +287,15 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 11);
 
-    for item in timeline_updates.iter().take(9) {
+    for (i, item) in timeline_updates.iter().take(9).enumerate() {
         assert_let!(VectorDiff::PushFront { value: message } = item);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert!(text.body.starts_with("hello world"));
+
+        let expected_event_id = EventId::parse(format!("$ev{}", 8 - i)).unwrap();
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
     }
 
     {
