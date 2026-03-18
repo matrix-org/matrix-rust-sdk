@@ -41,6 +41,8 @@ All notable changes to this project will be documented in this file.
 - Add `RoomInfo::active_room_call_consensus_intent()` method to get the call intent for the current call,
   based on what members are advertising.
   ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
+- Add `Room::is_call` to check for Call rooms (MSC3417)
+  ([#6315](https://github.com/matrix-org/matrix-rust-sdk/pull/6315))
 
 ### Refactor
 

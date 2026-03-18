@@ -83,6 +83,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "dc36ccf119c065b75a9872ec5a
     "compat-lax-room-topic-deser",
     "unstable-msc3230",
     "unstable-msc3401",
+    "unstable-msc3417",
     "unstable-msc3488",
     "unstable-msc3489",
     "unstable-msc4075",
