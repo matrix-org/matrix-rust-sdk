@@ -245,6 +245,7 @@ fn select_best_receipt(
                     && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
                 {
                     // Add it to the pending receipts list.
+                    trace!(%event_id, "found new receipt (added to pending)");
                     pending_receipts.push(event_id.clone());
                 }
             }
@@ -270,6 +271,7 @@ fn select_best_receipt(
             // Try to see if the latest active receipt is still the most recent receipt.
             if latest_active == Some(&event_id) {
                 // The latest active receipt is still the most recent receipt, so keep it.
+                trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
                 found = Some(event_id.clone());
             }
             // Try to find an implicit read receipt (i.e. an event sent by the current
@@ -277,6 +279,7 @@ fn select_best_receipt(
             else if event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
                 == Some(user_id)
             {
+                trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 found = Some(event_id.clone());
             }
         }
@@ -285,6 +288,7 @@ fn select_best_receipt(
         // recent receipt, and there's no other pending receipts to match against known
         // events.
         if found.is_some() && pending_receipts.is_empty() {
+            trace!("exiting loop; found a better receipt, and no more pending receipt to match");
             break;
         }
 
@@ -294,8 +298,12 @@ fn select_best_receipt(
         pending_receipts.retain(|pending| {
             if *pending == event_id {
                 if found.is_none() {
+                    trace!(pending = %event_id, "found a pending receipt; stopping search");
                     found = Some(event_id.clone());
+                } else {
+                    trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }
+
                 // Don't keep the pending receipt in the pending list: we've already identified
                 // a better, more recent receipt at this point (found == Some).
                 false
@@ -306,7 +314,10 @@ fn select_best_receipt(
         });
     }
 
-    found.or_else(|| latest_active.map(ToOwned::to_owned))
+    found.or_else(|| latest_active.map(|event_id| {
+        trace!(%event_id, "reusing previous active receipt (but we didn't find it in the linked chunk)");
+        event_id.to_owned()
+    }))
 }
 
 /// Given a set of events coming from sync, for a room, update the
