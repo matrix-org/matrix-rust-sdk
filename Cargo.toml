@@ -122,7 +122,7 @@ uniffi_bindgen = { version = "0.31.0", default-features = false, features = ["ca
 url = { version = "2.5.7", default-features = false }
 uuid = { version = "1.18.1", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "f17e2bd4", default-features = false, features = ["libolm-compat", "insecure-pk-encryption"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "7de70ace", default-features = false, features = ["libolm-compat", "insecure-pk-encryption"] }
 wasm-bindgen = { version = "0.2.105", default-features = false }
 wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.82", default-features = false }
