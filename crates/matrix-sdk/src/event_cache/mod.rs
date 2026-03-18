@@ -379,6 +379,11 @@ pub struct EventCacheConfig {
 
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
+
+    /// Whether to automatically backpaginate a room under certain conditions.
+    ///
+    /// Off by default.
+    pub experimental_auto_backpagination: bool,
 }
 
 impl EventCacheConfig {
@@ -395,6 +400,7 @@ impl Default for EventCacheConfig {
         Self {
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
+            experimental_auto_backpagination: false,
         }
     }
 }
