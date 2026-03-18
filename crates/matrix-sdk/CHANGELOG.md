@@ -89,6 +89,11 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Room keys are now rotated whenever the client receives an `m.room.member` event not belonging
+  to the current user with `leave` membership in order to prevent
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) from leaking room keys
+  in an unintuitive manner.
+  ([#6292](https://github.com/matrix-org/matrix-rust-sdk/pull/6292))
 - Only share historic room keys on invite if the current room history is shared.
   ([#6275](https://github.com/matrix-org/matrix-rust-sdk/pull/6275))
 - The event cache's thread subscriptions background task won't enable if the server doesn't
