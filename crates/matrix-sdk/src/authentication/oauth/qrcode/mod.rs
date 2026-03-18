@@ -463,7 +463,33 @@ mod tests {
                 .await
                 .expect("We should be able to check if the rendezvous server is supported");
 
-            assert!(!supported, "The rendezvous server should not be supported");
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive a 404 response"
+            );
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(403))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive a 403 response"
+            );
         }
 
         {
