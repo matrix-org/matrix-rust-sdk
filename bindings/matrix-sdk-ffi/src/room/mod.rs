@@ -66,7 +66,7 @@ use crate::{
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
-        threads::{ListThreadsOptions, ThreadList, ThreadListService, ThreadSubscription},
+        threads::{ThreadListService, ThreadSubscription},
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
@@ -1239,21 +1239,6 @@ impl Room {
             .fetch_thread_subscription(thread_root)
             .await?
             .map(|sub| ThreadSubscription { automatic: sub.automatic }))
-    }
-
-    /// Retrieve a list of all the threads for the current room.
-    ///
-    /// Since this client-server API is paginated, the return type may include a
-    /// token used to resuming back-pagination into the list of results, in
-    /// [`ThreadList::prev_batch_token`]. This token can be passed to the next
-    /// call to this function, through the `from` field of
-    /// [`ListThreadsOptions`].
-    pub async fn load_thread_list(
-        &self,
-        opts: ListThreadsOptions,
-    ) -> Result<ThreadList, ClientError> {
-        let thread_list = self.inner.load_thread_list(opts.into()).await?;
-        Ok(thread_list.into())
     }
 
     /// Creates a new [`ThreadListService`] for this room.
