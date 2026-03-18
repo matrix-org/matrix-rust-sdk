@@ -258,7 +258,8 @@ impl EstablishedSecureChannel {
                             qr_code_data.public_key(),
                             LOGIN_INITIATE_MESSAGE.as_bytes(),
                             &aad,
-                        );
+                        )
+                        .map_err(DecryptionError::from)?;
                     (ChannelType::Hpke(channel), message.encode())
                 }
             };
