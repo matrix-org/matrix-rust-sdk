@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce a `ThreadListService` which offers reactive interfaces for rendering
+  and managing the list of threads from a particular room.
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
