@@ -135,7 +135,7 @@ where
                 }
             }
 
-            SharedPaginationStatus::Paginating { shared } => {
+            SharedPaginationStatus::Paginating { shared_task: shared } => {
                 // There was already a back-pagination request in progress; wait for it to
                 // finish and return its result.
                 let shared = shared.clone();
@@ -183,7 +183,7 @@ where
         ObservableWriteGuard::set(
             &mut status_guard,
             SharedPaginationStatus::Paginating {
-                shared: SharedPagination {
+                shared_task: SharedPaginationTask {
                     fut: shared_task.clone(),
                     _join_handle: Arc::new(AbortOnDrop::new(join_handle)),
                 },
@@ -317,7 +317,7 @@ impl<T: Future<Output = Result<Option<BackPaginationOutcome>>> + SendOutsideWasm
 /// for a manual caller to wait upon its completion, by awaiting the underlying
 /// shared future.
 #[derive(Clone)]
-pub(in super::super) struct SharedPagination {
+pub(in super::super) struct SharedPaginationTask {
     /// The shared future for a pagination request running in the background, so
     /// that multiple callers can await it.
     fut: Shared<Pin<Box<dyn SharedPaginationFuture>>>,
@@ -336,7 +336,7 @@ pub(in super::super) enum SharedPaginationStatus {
     },
 
     /// Pagination is already running in the background.
-    Paginating { shared: SharedPagination },
+    Paginating { shared_task: SharedPaginationTask },
 }
 
 pub(in super::super) trait PaginatedCache {
