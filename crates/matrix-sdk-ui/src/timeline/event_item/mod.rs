@@ -497,7 +497,7 @@ impl EventTimelineItem {
             forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
             content,
-            unredacted_content: is_local.then_some(self.content.clone()),
+            unredacted_content: is_local.then(|| self.content.clone()),
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
