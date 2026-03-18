@@ -130,6 +130,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Not,
     str::FromStr as _,
     sync::{
         Arc, RwLock,
@@ -910,21 +911,30 @@ impl RoomSendQueue {
                             // sends down the remote echo via the sync.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
+                                let content_field_redacts = room.version().is_some_and(|id| {
+                                    id.rules()
+                                        .is_some_and(|rules| rules.redaction.content_field_redacts)
+                                });
+                                let reason = reason
+                                    .map_or("".to_owned(), |r| format!("\"reason\": \"{r}\""));
+
                                 let timeline_event = match Raw::from_json_string(
                                     // Create a compact string: remove all useless spaces.
                                     format!(
                                         "{{\
+                                            {redacts}\
                                             \"event_id\":\"{event_id}\",\
                                             \"origin_server_ts\":{ts},\
                                             \"sender\":\"{sender}\",\
                                             \"type\":\"{type}\",\
-                                            \"content\":{{\"redacts\":\"{redacts}\"{reason}}}\
+                                            \"content\":{{{content}}}\
                                         }}",
+                                        redacts = if content_field_redacts.not() { format!("\"redacts\":\"{redacts}\",") } else { "".to_owned() },
                                         event_id = event_id,
                                         ts = MilliSecondsSinceUnixEpoch::now().get(),
                                         sender = room.client().user_id().expect("Client must be logged-in"),
                                         type = TimelineEventType::RoomRedaction,
-                                        reason = reason.map_or("".to_owned(), |r| format!(",\"reason\": \"{r}\""))
+                                        content = if content_field_redacts { format!("\"redacts\":\"{redacts}\",{reason}") } else { reason }
                                     ),
                                 ) {
                                     Ok(event) => Some(TimelineEvent::from_plaintext(event)),
