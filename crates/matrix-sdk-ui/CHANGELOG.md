@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Allow setting a custom Sliding Sync connection ID and timeline limit on `RoomListService`.
+  ([#6289](https://github.com/matrix-org/matrix-rust-sdk/pull/?))
 - Include secondary relations when re-initializing a threaded timeline after a lag.
   ([#6209](https://github.com/matrix-org/matrix-rust-sdk/pull/6209))
 - Ensure that the display name of a `Room` in a `NotificationStatus` coming 

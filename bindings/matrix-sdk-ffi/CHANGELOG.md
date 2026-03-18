@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Allow setting a custom Sliding Sync connection ID and timeline limit on `RoomListService`.
+  ([#6289](https://github.com/matrix-org/matrix-rust-sdk/pull/?))
 - [**breaking**] `OtherState` properly supports redacted events that still have fields in the
   content. The following fields are no longer optional:
   - `federate` in `OtherState::RoomCreate`.
