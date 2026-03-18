@@ -955,7 +955,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             forwarder_profile,
             timestamp,
             content,
-            None,
             kind,
             is_room_encrypted,
         );

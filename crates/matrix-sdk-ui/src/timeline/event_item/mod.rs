@@ -130,7 +130,6 @@ impl EventTimelineItem {
         forwarder_profile: Option<TimelineDetails<Profile>>,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
-        unredacted_content: Option<TimelineItemContent>,
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
     ) -> Self {
@@ -141,7 +140,7 @@ impl EventTimelineItem {
             forwarder_profile,
             timestamp,
             content,
-            unredacted_content,
+            unredacted_content: None,
             kind,
             is_room_encrypted,
         }
