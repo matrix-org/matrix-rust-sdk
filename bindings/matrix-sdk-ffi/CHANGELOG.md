@@ -41,6 +41,9 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
+- [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
+  so it has access to `MsgLikeContent` `reactions`.
+  ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
 - Add `HumanQrLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used to
   complete a login.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)
