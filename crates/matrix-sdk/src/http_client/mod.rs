@@ -31,7 +31,7 @@ use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
     OutgoingRequest, SupportedVersions,
-    auth_scheme::{AuthScheme, SendAccessToken},
+    auth_scheme::{self, AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
 };
@@ -109,7 +109,7 @@ impl HttpClient {
     ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
         R: OutgoingRequest + Debug,
-        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        R::Authentication: SupportedAuthScheme,
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
@@ -121,9 +121,14 @@ impl HttpClient {
             },
             None => SendAccessToken::None,
         };
+        let authentication_input = R::Authentication::authentication_input(send_access_token);
 
         let request = request
-            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, path_builder_input)?
+            .try_into_http_request::<BytesMut>(
+                &homeserver,
+                authentication_input,
+                path_builder_input,
+            )?
             .map(|body| body.freeze());
 
         Ok(request)
@@ -154,7 +159,7 @@ impl HttpClient {
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
-        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         let config = match config {
@@ -251,6 +256,49 @@ async fn response_to_http_response(
 }
 
 /// Marker trait to identify the authentication schemes that the
+/// [`Client`](crate::Client) supports.
+///
+/// This trait can also be implemented for custom
+/// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
+pub trait SupportedAuthScheme: AuthScheme {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_>;
+}
+
+impl SupportedAuthScheme for auth_scheme::NoAccessToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AccessToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AccessTokenOptional {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceTokenOptional {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::NoAuthentication {
+    fn authentication_input(_access_token: SendAccessToken<'_>) -> Self::Input<'_> {}
+}
+
+/// Marker trait to identify the path builders that the
 /// [`Client`](crate::Client) supports.
 ///
 /// This trait can also be implemented for custom
