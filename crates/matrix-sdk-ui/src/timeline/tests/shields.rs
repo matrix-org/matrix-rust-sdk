@@ -132,8 +132,11 @@ async fn test_local_sent_in_clear_shield() {
 
 #[async_test]
 /// A `beacon_info` state event cannot be encrypted (state events are always
-/// sent in the clear), so a live-location timeline item must not show a
-/// "sent in clear" shield in an encrypted room.
+/// sent in the clear), so a live-location timeline item with no aggregated
+/// beacons must not show a "sent in clear" shield in an encrypted room.
+///
+/// Once a beacon location update arrives without encryption info (i.e. it was
+/// sent in clear), the shield must switch to `SentInClear`.
 async fn test_live_location_no_sent_in_clear_shield() {
     let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
     let mut stream = timeline.subscribe_events().await;
@@ -147,6 +150,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
         .event_id(beacon_id);
     timeline.handle_live_event(event).await;
 
+    // No beacons yet → shield should be None.
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_live_location(), "timeline item should be a live location");
 
@@ -155,6 +159,20 @@ async fn test_live_location_no_sent_in_clear_shield() {
 
     let shield_strict = item.get_shield(true);
     assert_eq!(shield_strict, TimelineEventShieldState::None);
+
+    // Send a beacon location update (plain-text, no encryption info).
+    let ts = ruma::MilliSecondsSinceUnixEpoch(ruma::uint!(1_000_000));
+    let beacon_event =
+        timeline.factory.beacon(beacon_id.to_owned(), 51.5008, 0.1247, 35, Some(ts)).sender(&ALICE);
+    timeline.handle_live_event(beacon_event).await;
+
+    // A beacon arrived without encryption → shield should be SentInClear.
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let shield = item.get_shield(false);
+    assert_eq!(
+        shield,
+        TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
+    );
 }
 
 #[async_test]
