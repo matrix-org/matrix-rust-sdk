@@ -222,16 +222,18 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
 /// Return a new better (i.e. more recent) receipt based on a search of the
 /// linked chunk.
 ///
-/// A receipt is better if:
+/// A receipt is selected if:
 ///
 /// - it's an implicit read receipt (i.e. an event we've sent),
 /// - it's holding onto a new read receipt we've just received,
-/// - it was a pending receipt for which we found the event now.
+/// - it was a pending receipt for which we found the event now,
+/// - by default, it was the current active receipt.
 fn select_best_receipt(
     user_id: &UserId,
     linked_chunk: &EventLinkedChunk,
     pending_receipts: &mut RingBuffer<OwnedEventId>,
     new_receipt_event: Option<&ReceiptEventContent>,
+    latest_active: Option<&EventId>,
 ) -> Option<OwnedEventId> {
     // If we had a new receipt event, add the main/unthreaded receipts it contains
     // to the pending receipts list. We'll try to chase them later.
@@ -243,6 +245,7 @@ fn select_best_receipt(
                     && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
                 {
                     // Add it to the pending receipts list.
+                    trace!(%event_id, "found new receipt (added to pending)");
                     pending_receipts.push(event_id.clone());
                 }
             }
@@ -264,19 +267,28 @@ fn select_best_receipt(
     for (event, event_id) in
         linked_chunk.revents().filter_map(|(_pos, ev)| Some((ev, ev.event_id()?)))
     {
-        // Try to find an implicit read receipt (i.e. an event sent by the current
-        // user).
-        if found.is_none()
-            && event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
+        if found.is_none() {
+            // Try to see if the latest active receipt is still the most recent receipt.
+            if latest_active == Some(&event_id) {
+                // The latest active receipt is still the most recent receipt, so keep it.
+                trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
+                found = Some(event_id.clone());
+            }
+            // Try to find an implicit read receipt (i.e. an event sent by the current
+            // user).
+            else if event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
                 == Some(user_id)
-        {
-            found = Some(event_id.clone());
+            {
+                trace!(implicit = %event_id, "found an implicit receipt; stopping search");
+                found = Some(event_id.clone());
+            }
         }
 
         // Early exit condition (see the comment above): we've already found a most
         // recent receipt, and there's no other pending receipts to match against known
         // events.
         if found.is_some() && pending_receipts.is_empty() {
+            trace!("exiting loop; found a better receipt, and no more pending receipt to match");
             break;
         }
 
@@ -286,8 +298,12 @@ fn select_best_receipt(
         pending_receipts.retain(|pending| {
             if *pending == event_id {
                 if found.is_none() {
+                    trace!(pending = %event_id, "found a pending receipt; stopping search");
                     found = Some(event_id.clone());
+                } else {
+                    trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }
+
                 // Don't keep the pending receipt in the pending list: we've already identified
                 // a better, more recent receipt at this point (found == Some).
                 false
@@ -298,7 +314,13 @@ fn select_best_receipt(
         });
     }
 
-    found
+    found.or_else(|| latest_active.map(|event_id| {
+        // The only time when we can run into this is because we didn't find a more recent receipt,
+        // and the previously active one wasn't loaded in the linked chunk. In this case, every
+        // event currently loaded in the linked chunk will be processed in `process_event()`.
+        trace!(%event_id, "reusing previous active receipt (but we didn't find it in the linked chunk)");
+        event_id.to_owned()
+    }))
 }
 
 /// Given a set of events coming from sync, for a room, update the
@@ -317,10 +339,14 @@ pub(crate) fn compute_unread_counts(
 ) {
     debug!(?read_receipts, "Starting");
 
-    let new_receipt =
-        select_best_receipt(user_id, linked_chunk, &mut read_receipts.pending, receipt_event)
-            .map(|event_id| LatestReadReceipt { event_id })
-            .or_else(|| read_receipts.latest_active.clone());
+    let new_receipt = select_best_receipt(
+        user_id,
+        linked_chunk,
+        &mut read_receipts.pending,
+        receipt_event,
+        read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
+    )
+    .map(|event_id| LatestReadReceipt { event_id });
 
     if let Some(new_receipt) = new_receipt {
         // We've found the id of an event to which the receipt attaches. The associated
@@ -800,10 +826,17 @@ mod tests {
         let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
         // And no new receipt,
         let new_receipt_event = None;
+        // And no active receipt,
+        let active_receipt = None;
 
         // Then there's no best receipt.
-        let result =
-            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event,
+            active_receipt,
+        );
         assert!(result.is_none());
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
@@ -828,10 +861,52 @@ mod tests {
         let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
         // And no new receipt,
         let new_receipt_event = None;
+        // And no active receipt,
+        let active_receipt = None;
 
         // Then there's a new best receipt, which is the implicit one.
-        let result =
-            select_best_receipt(own_user_id, &lc, &mut pending_receipts, new_receipt_event);
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event,
+            active_receipt,
+        );
+        assert_eq!(result.unwrap(), event_id!("$2"));
+        // And there are no pending receipts.
+        assert!(pending_receipts.is_empty());
+    }
+
+    #[test]
+    fn test_select_best_receipt_active_receipt() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Create a non-empty linked chunk, with no messages sent by the current user.
+        let mut lc = EventLinkedChunk::new();
+        lc.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        // When there are no pending receipts,
+        let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+        // And no new receipt,
+        let new_receipt_event = None;
+        // And an active receipt pointing at $2,
+        let active_receipt = Some(event_id!("$2"));
+
+        // Then the best receipt is still $2.
+        let result = select_best_receipt(
+            own_user_id,
+            &lc,
+            &mut pending_receipts,
+            new_receipt_event,
+            active_receipt,
+        );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
@@ -853,6 +928,7 @@ mod tests {
 
         // When there are no pending receipts,
         let mut pending_receipts = RingBuffer::new(NonZeroUsize::new(16).unwrap());
+
         // And a new receipt event which points to $2,
         let new_receipt_event = Some(
             f.read_receipts()
@@ -860,12 +936,16 @@ mod tests {
                 .into_content(),
         );
 
+        // And no active receipt,
+        let active_receipt = None;
+
         // Then there's a new best receipt, which is the explicit one from the event
         let result = select_best_receipt(
             own_user_id,
             &lc,
             &mut pending_receipts,
             new_receipt_event.as_ref(),
+            active_receipt,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
@@ -896,13 +976,18 @@ mod tests {
                 .into_content(),
         );
 
+        // And no active receipt,
+        let active_receipt = None;
+
         // Then there's no new best receipts.
         let result = select_best_receipt(
             own_user_id,
             &lc,
             &mut pending_receipts,
             new_receipt_event.as_ref(),
+            active_receipt,
         );
+
         assert!(result.is_none());
         // And there's a new pending receipt for $4.
         assert_eq!(pending_receipts.len(), 1);
@@ -930,12 +1015,16 @@ mod tests {
         // And no new receipt event,
         let new_receipt_event = None;
 
+        // And no active receipt,
+        let active_receipt = None;
+
         // Then there's a new best receipt, which is the matched pending receipt.
         let result = select_best_receipt(
             own_user_id,
             &lc,
             &mut pending_receipts,
             new_receipt_event.as_ref(),
+            active_receipt,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no more pending receipts.
@@ -972,6 +1061,9 @@ mod tests {
                 .into_content(),
         );
 
+        // And an active receipt point at $1,
+        let active_receipt = Some(event_id!("$1"));
+
         // Then there's a new best receipt, which is the most advanced in the linked
         // chunk: $4.
         let result = select_best_receipt(
@@ -979,6 +1071,7 @@ mod tests {
             &lc,
             &mut pending_receipts,
             new_receipt_event.as_ref(),
+            active_receipt,
         );
         assert_eq!(result.unwrap(), event_id!("$4"));
 

@@ -19,6 +19,8 @@
 //!
 //! [`RoomEventCache`]: super::super::RoomEventCache
 
+use std::ops::{Deref, DerefMut};
+
 use matrix_sdk_base::event_cache::store::{
     EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState,
 };
@@ -184,6 +186,14 @@ pub struct StateLockReadGuard<'a, S> {
     pub store: EventCacheStoreLockGuard,
 }
 
+impl<'a, S> Deref for StateLockReadGuard<'a, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
 /// The write lock guard return by [`StateLock::write`].
 pub struct StateLockWriteGuard<'a, S> {
     /// The per-thread write lock guard over the state `S`.
@@ -191,6 +201,20 @@ pub struct StateLockWriteGuard<'a, S> {
 
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
+}
+
+impl<'a, S> Deref for StateLockWriteGuard<'a, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl<'a, S> DerefMut for StateLockWriteGuard<'a, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
 }
 
 impl<'a, S> StateLockWriteGuard<'a, S> {

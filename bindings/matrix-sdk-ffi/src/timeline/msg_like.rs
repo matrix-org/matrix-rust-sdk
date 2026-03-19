@@ -18,7 +18,7 @@ use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::events::{room::MediaSource as RumaMediaSource, MessageLikeEventContent};
 
 use super::{
-    content::Reaction,
+    content::{BeaconInfo, LiveLocationContent, Reaction},
     reply::{EmbeddedEventDetails, InReplyToDetails},
 };
 use crate::{
@@ -54,6 +54,12 @@ pub enum MsgLikeKind {
 
     /// A custom message like event.
     Other { event_type: MessageLikeEventType },
+
+    /// A live location sharing session (MSC3489).
+    ///
+    /// Represents a `org.matrix.msc3672.beacon_info` state event with all
+    /// aggregated location updates from `org.matrix.msc3672.beacon` events.
+    LiveLocation { content: LiveLocationContent },
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
@@ -195,6 +201,33 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                 thread_root,
                 thread_summary,
             },
+            Kind::LiveLocation(state) => {
+                let locations = state
+                    .locations()
+                    .iter()
+                    .map(|location| BeaconInfo {
+                        geo_uri: location.geo_uri().to_owned(),
+                        ts: location.ts().into(),
+                        description: location.description().map(ToOwned::to_owned),
+                    })
+                    .collect();
+
+                Self {
+                    kind: MsgLikeKind::LiveLocation {
+                        content: LiveLocationContent {
+                            is_live: state.is_live(),
+                            description: state.description().map(ToOwned::to_owned),
+                            timeout_ms: state.timeout().as_millis() as u64,
+                            asset_type: state.asset_type().into(),
+                            locations,
+                        },
+                    },
+                    reactions,
+                    in_reply_to,
+                    thread_root,
+                    thread_summary,
+                }
+            }
         })
     }
 }

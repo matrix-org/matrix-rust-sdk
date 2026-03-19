@@ -143,19 +143,20 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                     return None;
                 }
 
-                TimelineItemContent::LiveLocation(location) => {
-                    match (location.description(), location.latest_location()) {
-                        (Some(desc), Some(loc)) => {
-                            format!("{sender}: Live location share: {desc} ({})", loc.geo_uri())
-                        }
-                        (Some(desc), None) => format!("{sender}: Live location share: {desc}"),
-                        (None, Some(loc)) => {
-                            format!("{sender}: Live location share: {}", loc.geo_uri())
-                        }
-                        (None, None) => format!("{sender}: Live location share"),
+                TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::LiveLocation(location),
+                    ..
+                }) => match (location.description(), location.latest_location()) {
+                    (Some(desc), Some(loc)) => {
+                        format!("{sender}: Live location share: {desc} ({})", loc.geo_uri())
                     }
-                    .into()
+                    (Some(desc), None) => format!("{sender}: Live location share: {desc}"),
+                    (None, Some(loc)) => {
+                        format!("{sender}: Live location share: {}", loc.geo_uri())
+                    }
+                    (None, None) => format!("{sender}: Live location share"),
                 }
+                .into(),
             }
         }
 

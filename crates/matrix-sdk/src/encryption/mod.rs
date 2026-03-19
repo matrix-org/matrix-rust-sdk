@@ -65,7 +65,10 @@ use ruma::{
         uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
     },
     assign,
-    events::room::{MediaSource, ThumbnailInfo},
+    events::room::{
+        MediaSource, ThumbnailInfo,
+        member::{MembershipChange, OriginalSyncRoomMemberEvent},
+    },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -87,7 +90,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -1769,7 +1772,7 @@ impl Encryption {
                 .await
                 .map_err(|err| {
                     Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(
-                        Box::new(err),
+                        Arc::new(err),
                     )))
                 })?
                 .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;
@@ -1875,6 +1878,8 @@ impl Encryption {
         }));
 
         tasks.receive_historic_room_key_bundles = bundle_receiver_task;
+
+        self.setup_room_membership_session_discard_handler();
     }
 
     /// Waits for end-to-end encryption initialization tasks to finish, if any
@@ -1946,6 +1951,60 @@ impl Encryption {
                 self.client.inner.verification_state.set(VerificationState::Unknown);
             }
         }
+    }
+
+    /// Sets up a handler to rotate room keys when a user leaves a room.
+    ///
+    /// Previously, it was sufficient to check if we need to rotate the room key
+    /// prior to sending a message. However, the history sharing feature
+    /// ([MSC4268]) breaks this logic:
+    ///
+    /// 1. Alice sends a message M1 in room X;
+    /// 2. Bob invites Charlie, who joins and immediately leaves the room;
+    /// 3. Alice sends another message M2 in room X.
+    ///
+    /// Under the old logic, Alice would not rotate her key after Charlie
+    /// leaves, resulting in M2 being encrypted with the same session as M1.
+    /// This would allow Charlie to decrypt M2 if he ever gains access to
+    /// the event.
+    ///
+    /// This handler listens for changes to the room membership, and discards
+    /// the current room key if the event is a `leave` event.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    fn setup_room_membership_session_discard_handler(&self) {
+        let client = WeakClient::from_client(&self.client);
+        self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
+            let Some(client) = client.get() else {
+                // The main client has been dropped.
+                return;
+            };
+            let Some(user_id) = client.user_id() else {
+                // We aren't logged in, so this shouldn't ever happen.
+                return;
+            };
+            let olm = client.olm_machine().await;
+            let Some(olm) = olm.as_ref() else {
+                warn!("Cannot discard session - Olm machine is not available");
+                return;
+            };
+
+            if !matches!(ev.membership_change(), MembershipChange::Left) || ev.sender == user_id {
+                // We can ignore non-leave events and those that we sent.
+                return;
+            }
+
+            debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
+
+            // Attempt to discard the current room key. This won't do anything if we don't have one,
+            // but that's fine since we will create a new room key whenever we try to send a message.
+            if let Err(e) = olm.discard_room_key(room.room_id()).await {
+                warn!(
+                    room_id = ?room.room_id(),
+                    "Error discarding room key after member leave: {e:?}"
+                );
+            }
+        });
     }
 
     /// Encrypts then send the given content via the `/sendToDevice` end-point

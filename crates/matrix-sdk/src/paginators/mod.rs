@@ -17,6 +17,8 @@
 mod room;
 pub mod thread;
 
+use std::sync::Arc;
+
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 pub use room::*;
 use ruma::OwnedEventId;
@@ -77,7 +79,7 @@ pub struct PaginationResult {
 }
 
 /// An error that happened when using a [`Paginator`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum PaginatorError {
     /// The target event could not be found.
     #[error("target event with id {0} could not be found")]
@@ -94,5 +96,5 @@ pub enum PaginatorError {
 
     /// There was another SDK error while paginating.
     #[error("an error happened while paginating: {0}")]
-    SdkError(#[from] Box<crate::Error>),
+    SdkError(#[from] Arc<crate::Error>),
 }

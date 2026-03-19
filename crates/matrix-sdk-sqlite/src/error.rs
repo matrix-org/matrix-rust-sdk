@@ -13,6 +13,9 @@
 // limitations under the License.
 
 #[cfg(feature = "event-cache")]
+use std::sync::Arc;
+
+#[cfg(feature = "event-cache")]
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 #[cfg(feature = "event-cache")]
 use matrix_sdk_base::media::store::MediaStoreError;
@@ -166,7 +169,7 @@ impl From<Error> for StateStoreError {
 impl From<Error> for EventCacheStoreError {
     fn from(e: Error) -> Self {
         match e {
-            Error::Encryption(e) => EventCacheStoreError::Encryption(e),
+            Error::Encryption(e) => EventCacheStoreError::Encryption(Arc::new(e)),
             e => EventCacheStoreError::backend(e),
         }
     }

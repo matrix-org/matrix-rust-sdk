@@ -633,7 +633,7 @@ async fn test_room_attachment_send_is_animated() {
                 "mimetype": "image/jpeg",
                 "h": 600,
                 "w": 800,
-                "org.matrix.msc4230.is_animated": false,
+                "is_animated": false,
             }
         }))
         .ok(expected_event_id)

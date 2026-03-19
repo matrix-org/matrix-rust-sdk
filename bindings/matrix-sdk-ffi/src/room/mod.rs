@@ -19,8 +19,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     encryption::LocalTrust,
     room::{
-        edit::EditedContent, power_levels::RoomPowerLevelChanges,
-        ListThreadsOptions as SdkListThreadsOptions, Room as SdkRoom, RoomMemberRole,
+        edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
     },
     send_queue::RoomSendQueueUpdate as SdkRoomSendQueueUpdate,
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
@@ -35,7 +34,6 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use ruma::{
-    api::client::threads::get_threads::v1::IncludeThreads as SdkIncludeThreads,
     assign,
     events::{
         receipt::ReceiptThread,
@@ -68,6 +66,7 @@ use crate::{
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
+        threads::{ListThreadsOptions, ThreadList, ThreadSubscription},
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
@@ -1246,35 +1245,15 @@ impl Room {
     ///
     /// Since this client-server API is paginated, the return type may include a
     /// token used to resuming back-pagination into the list of results, in
-    /// [`ThreadRoots::prev_batch_token`]. This token can be passed to the next
+    /// [`ThreadList::prev_batch_token`]. This token can be passed to the next
     /// call to this function, through the `from` field of
     /// [`ListThreadsOptions`].
-    pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots, ClientError> {
-        let inner_opts = SdkListThreadsOptions {
-            include_threads: match opts.include_threads {
-                IncludeThreads::All => SdkIncludeThreads::All,
-                IncludeThreads::Participated => SdkIncludeThreads::Participated,
-            },
-            from: opts.from,
-            limit: opts.limit.and_then(ruma::UInt::new),
-        };
-
-        let roots = self.inner.list_threads(inner_opts).await?;
-
-        Ok(ThreadRoots {
-            chunk: roots
-                .chunk
-                .into_iter()
-                .filter_map(|timeline_event| {
-                    timeline_event
-                        .raw()
-                        .deserialize()
-                        .ok()
-                        .map(|any_timeline_event| TimelineEvent(Box::new(any_timeline_event)))
-                })
-                .collect(),
-            prev_batch_token: roots.prev_batch_token,
-        })
+    pub async fn load_thread_list(
+        &self,
+        opts: ListThreadsOptions,
+    ) -> Result<ThreadList, ClientError> {
+        let thread_list = self.inner.load_thread_list(opts.into()).await?;
+        Ok(thread_list.into())
     }
 
     /// Either loads the event associated with the `event_id` from the event
@@ -1292,68 +1271,6 @@ impl Room {
             .into_full_event(self.inner.room_id().to_owned())
             .into())
     }
-}
-
-/// A thread subscription (MSC4306).
-#[derive(uniffi::Record)]
-pub struct ThreadSubscription {
-    /// Whether the thread subscription happened automatically (e.g. after a
-    /// mention) or if it was manually requested by the user.
-    automatic: bool,
-}
-
-/// Options for [Room::list_threads].
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct ListThreadsOptions {
-    /// An extra filter to select which threads should be returned.
-    pub include_threads: IncludeThreads,
-
-    /// The token to start returning events from.
-    ///
-    /// This token can be obtained from a [`ThreadRoots::prev_batch_token`]
-    /// returned by a previous call to [`Room::list_threads()`].
-    ///
-    /// If `from` isn't provided the homeserver shall return a list of thread
-    /// roots from end of the timeline history.
-    pub from: Option<String>,
-
-    /// The maximum number of events to return.
-    ///
-    /// Default: 10.
-    pub limit: Option<u64>,
-}
-
-/// Which threads to include in the response.
-#[derive(Debug, Clone, uniffi::Enum)]
-pub enum IncludeThreads {
-    /// `all`
-    ///
-    /// Include all thread roots found in the room.
-    ///
-    /// This is the default.
-    All,
-
-    /// `participated`
-    ///
-    /// Only include thread roots for threads where
-    /// [`current_user_participated`] is `true`.
-    ///
-    /// [`current_user_participated`]: https://spec.matrix.org/latest/client-server-api/#server-side-aggregation-of-mthread-relationships
-    Participated,
-}
-
-/// The result of a [`Room::list_threads`] query.
-///
-/// This is a wrapper around the Ruma equivalent, with events decrypted if needs
-/// be.
-#[derive(uniffi::Object)]
-pub struct ThreadRoots {
-    /// The events that are thread roots in the current batch.
-    pub chunk: Vec<TimelineEvent>,
-
-    /// Token to paginate backwards in a subsequent query to
-    /// [`Room::list_threads`].
-    pub prev_batch_token: Option<String>,
 }
 
 /// A listener for receiving new live location shares in a room.

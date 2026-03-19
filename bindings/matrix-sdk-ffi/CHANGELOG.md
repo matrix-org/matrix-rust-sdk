@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Added `android_platform.rs` for fixing the `rustls` integration on Android, which was broken. 
+  ([#6306](https://github.com/matrix-org/matrix-rust-sdk/pull/6306)) 
 - [**breaking**] `OtherState` properly supports redacted events that still have fields in the
   content. The following fields are no longer optional:
   - `federate` in `OtherState::RoomCreate`.
@@ -36,6 +38,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
+  so it has access to `MsgLikeContent` `reactions`.
+  ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
 - Add `HumanQrLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used to
   complete a login.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)

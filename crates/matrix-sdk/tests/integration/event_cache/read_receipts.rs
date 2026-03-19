@@ -530,3 +530,68 @@ async fn test_mentions_increments_unread_mentions() {
     assert_eq!(room.num_unread_messages(), 1);
     assert_eq!(room.num_unread_mentions(), 1);
 }
+
+/// Test that the unread count computation doesn't skip a more-recent active
+/// receipt, when iterating over events.
+#[async_test]
+async fn test_compute_unread_counts_considers_active_receipt() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    // Starting with a room with 1 implicit receipt, then two messages from Bob, and
+    // a receipt on Bob's first message $2,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hello 1").sender(own_user_id).event_id(event_id!("$1")),
+                )
+                .add_timeline_event(f.text_msg("hello 2").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("hello 3").event_id(event_id!("$3")))
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    // (one vector diff update, one read receipt update)
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // The message counts are properly updated (one new message unread after $2).
+    assert_eq!(room.num_unread_messages(), 1);
+
+    // Provided a sync with one new message from Bob in the same room,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 4").event_id(event_id!("$4"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // The message counts are properly updated (two messages after $2).
+    assert_eq!(room.num_unread_messages(), 2);
+}
