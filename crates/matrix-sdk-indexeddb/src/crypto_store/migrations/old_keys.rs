@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(doc)]
-use crate::crypto_store::keys::{BACKUP_VERSION_V1, WITHHELD_SESSIONS};
+use crate::crypto_store::keys::{BACKUP_VERSION_V1, CORE, LEASE_LOCKS, WITHHELD_SESSIONS};
 
 /// Old format of the `inbound_group_sessions` store which lacked indexes or
 /// a sensible structure
@@ -30,3 +30,7 @@ pub const BACKUP_KEY_V1: &str = "backup_key_v1";
 /// Old format of the [`withheld_sessions`](WITHHELD_SESSIONS) store which
 /// lacked useful indexes.
 pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
+
+/// Old key used to manage cross-process lock generation in the [`CORE`]
+/// object store. This has been replaced by the [`LEASE_LOCKS`] table.
+pub const GENERATION_COUNTER_KEY: &str = "generation-counter";
