@@ -33,6 +33,8 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
+- Add support for MSC4385.
+  - Add new method `OlmMachine::push_secret_to_verified_devices`.
 
 ### Refactor
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
+#[cfg(feature = "experimental-push-secrets")]
+use std::collections::HashMap;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
     mem,
@@ -61,6 +63,8 @@ use crate::{
         requests::{OutgoingRequest, ToDeviceRequest},
     },
 };
+#[cfg(feature = "experimental-push-secrets")]
+use crate::error::SecretPushError;
 
 #[derive(Clone, Debug)]
 pub(crate) struct GossipMachine {
@@ -286,6 +290,60 @@ impl GossipMachine {
         for (key, event) in self.inner.wait_queue.remove(user_id, device_id) {
             incoming_key_requests.entry(key).or_insert(event);
         }
+    }
+
+    /// Push a secret to all of our other verified devices.
+    ///
+    /// This function assumes that we already have Olm sessions with the other
+    /// devices.  This can be done by calling
+    /// [`OlmMachine::get_missing_sessions()`].
+    ///
+    /// * `secret_name` - The name of the secret to push
+    #[cfg(feature = "experimental-push-secrets")]
+    pub async fn push_secret_to_verified_devices(
+        &self,
+        secret_name: SecretName,
+    ) -> Result<HashMap<OwnedDeviceId, OlmError>, SecretPushError> {
+        let content = if let Some(secret) = self.inner.store.export_secret(&secret_name).await? {
+            SecretPushContent::new(secret_name.clone(), secret)
+        } else {
+            info!(?secret_name, "Can't push a secret, secret isn't found");
+            return Err(SecretPushError::MissingSecret);
+        };
+
+        let devices = self.inner.store.get_user_devices(self.user_id()).await?;
+        let mut errors = HashMap::new();
+
+        for device in devices.devices() {
+            if !device.is_our_own_device() && device.is_verified() {
+                let event_type = content.event_type().to_owned();
+                match device.encrypt(&event_type, content.clone()).await {
+                    Ok((_used_session, content, _message_id)) => {
+                        let encrypted_event_type = content.event_type().to_owned();
+                        let request = ToDeviceRequest::new(
+                            device.user_id(),
+                            device.device_id().to_owned(),
+                            &encrypted_event_type,
+                            content.cast(),
+                        );
+                        let request = OutgoingRequest {
+                            request_id: request.txn_id.clone(),
+                            request: Arc::new(request.into()),
+                        };
+                        self.inner
+                            .outgoing_requests
+                            .write()
+                            .insert(request.request_id.clone(), request);
+                    }
+                    Err(err) => {
+                        info!(?secret_name, device_id = ?device.device_id(), ?err, "Can't push secret to device");
+                        errors.insert(device.device_id().to_owned(), err);
+                    }
+                }
+            }
+        }
+
+        Ok(errors)
     }
 
     async fn handle_secret_request(
@@ -2239,5 +2297,97 @@ mod tests {
             .unwrap();
 
         assert_eq!(session.session_id(), group_session.session_id())
+    }
+
+    /// Set up OlmMachines for the secret-pushing tests
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn set_up_secret_push() -> (
+        crate::machine::OlmMachine,
+        crate::identities::device::Device,
+        crate::machine::OlmMachine,
+        crate::identities::device::Device,
+        crate::store::types::BackupDecryptionKey,
+    ) {
+        use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
+
+        let alice_id = user_id!("@alice:localhost");
+
+        let (alice_machine, bob_machine) =
+            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
+
+        let bob_device = alice_machine
+            .get_device(alice_id, bob_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        let alice_device = bob_machine
+            .get_device(alice_id, alice_machine.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decryption_key = crate::store::types::BackupDecryptionKey::new().unwrap();
+        alice_machine
+            .backup_machine()
+            .save_decryption_key(Some(decryption_key.clone()), None)
+            .await
+            .unwrap();
+
+        (alice_machine, alice_device, bob_machine, bob_device, decryption_key)
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_secret_pushing() {
+        let (alice_machine, _alice_device, _bob_machine, bob_device, _decryption_key) =
+            set_up_secret_push().await;
+
+        // try to push a secret, but the other device isn't verified, so nothing
+        // should happen
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 0);
+
+        // Now the device is trusted, so the secret should be pushed
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
+
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::RecoveryKey)
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+
+        assert_eq!(requests.len(), 1);
     }
 }
