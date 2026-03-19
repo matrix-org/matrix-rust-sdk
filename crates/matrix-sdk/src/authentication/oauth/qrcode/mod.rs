@@ -412,6 +412,7 @@ pub enum CheckCodeSenderError {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
+    use serde_json::json;
     use wiremock::{
         Mock, ResponseTemplate,
         matchers::{method, path},
@@ -432,7 +433,9 @@ mod tests {
                 .register_as_scoped(
                     Mock::given(method("GET"))
                         .and(path(URL))
-                        .respond_with(ResponseTemplate::new(200))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": true,
+                        })))
                         .expect(1),
                 )
                 .await;
@@ -444,6 +447,31 @@ mod tests {
                 .expect("We should be able to check if the rendezvous server is supported");
 
             assert!(supported, "The rendezvous server should be supported");
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": false,
+                        })))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported, because create_available is false"
+            );
         }
 
         {

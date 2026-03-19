@@ -589,7 +589,9 @@ pub(super) mod test {
                 .register_as_scoped(
                     Mock::given(method("GET"))
                         .and(path("/_matrix/client/unstable/io.element.msc4388/rendezvous"))
-                        .respond_with(ResponseTemplate::new(200)),
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": true,
+                        }))),
                 )
                 .await;
 
