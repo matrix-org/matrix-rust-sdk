@@ -34,6 +34,7 @@ macro_rules! cryptostore_integration_tests {
     () => {
         mod cryptostore_integration_tests {
             use std::collections::{BTreeMap, HashMap, HashSet};
+            use std::ops::Deref;
             use std::time::Duration;
 
             use assert_matches::assert_matches;
@@ -1104,15 +1105,17 @@ macro_rules! cryptostore_integration_tests {
                 );
 
                 let mut changes = Changes::default();
-                changes.secrets.push(value);
+                changes.secrets.push(value.into());
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
                 let first_secret = restored.first().expect("We should have restored a secret now");
-                assert_eq!(first_secret.event.content.secret, secret);
+                assert_eq!(first_secret.deref(), secret);
                 assert_eq!(restored.len(), 1, "We should only have one secret stored for now");
 
+                let secret2 = "It is another secret to everybody";
                 event.content.request_id = TransactionId::new();
+                event.content.secret = secret2.to_string();
                 let another_secret = GossippedSecret {
                     secret_name: SecretName::RecoveryKey,
                     gossip_request,
@@ -1120,7 +1123,7 @@ macro_rules! cryptostore_integration_tests {
                 };
 
                 let mut changes = Changes::default();
-                changes.secrets.push(another_secret);
+                changes.secrets.push(another_secret.into());
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();

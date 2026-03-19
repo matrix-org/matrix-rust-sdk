@@ -49,6 +49,10 @@ All notable changes to this project will be documented in this file.
   been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
 
+- [**breaking**] `CryptoStore::get_secrets_from_inbox` now returns a `Vec` of
+  the secrets as strings, rather than a `Vec` of `GossippedSecret` structs.
+  ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

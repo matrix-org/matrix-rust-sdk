@@ -917,7 +917,7 @@ impl GossipMachine {
             // So we put the secret into our inbox. Later users can inspect the contents of
             // the inbox and decide if they want to activate the backup.
             info!("Received a backup decryption key, storing it into the secret inbox.");
-            changes.secrets.push(secret);
+            changes.secrets.push(secret.into());
         }
 
         Ok(())

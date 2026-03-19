@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,13 +19,17 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ops::Deref,
     time::Duration,
 };
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId};
-use serde::{Deserialize, Serialize};
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId,
+    events::secret::request::SecretName,
+};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, base64_encode};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{DehydrationError, GossipRequest};
 use crate::{
@@ -80,7 +84,7 @@ pub struct Changes {
     /// Stores when a `m.room_key.withheld` is received
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
-    pub secrets: Vec<GossippedSecret>,
+    pub secrets: Vec<SecretsInboxItem>,
     pub next_batch_token: Option<String>,
 
     /// Historical room key history bundles that we have received and should
@@ -94,6 +98,47 @@ pub struct Changes {
     /// Updates to the list of rooms where we have recently accepted invites
     /// (and should now accept a key bundle, if one arrives soon).
     pub rooms_pending_key_bundle: HashMap<OwnedRoomId, Option<RoomPendingKeyBundleDetails>>,
+}
+
+/// A secret that was received via an `m.secret.send`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SecretsInboxItem {
+    /// The name of the secret.
+    pub secret_name: SecretName,
+    /// The contents of the secret.
+    #[serde(
+        serialize_with = "zeroizing_string_serializer",
+        deserialize_with = "zeroizing_string_deserializer"
+    )]
+    pub secret: Zeroizing<String>,
+}
+
+fn zeroizing_string_serializer<S>(x: &Zeroizing<String>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_some(x.deref())
+}
+
+fn zeroizing_string_deserializer<'de, D>(deserializer: D) -> Result<Zeroizing<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(value.into())
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for SecretsInboxItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SecretsInboxItem").field(&self.secret_name).finish()
+    }
+}
+
+impl From<GossippedSecret> for SecretsInboxItem {
+    fn from(secret: GossippedSecret) -> Self {
+        Self { secret_name: secret.secret_name, secret: secret.event.content.secret.clone().into() }
+    }
 }
 
 /// Information about an [MSC4268] room key bundle.
