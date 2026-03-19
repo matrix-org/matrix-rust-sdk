@@ -315,6 +315,9 @@ fn select_best_receipt(
     }
 
     found.or_else(|| latest_active.map(|event_id| {
+        // The only time when we can run into this is because we didn't find a more recent receipt,
+        // and the previously active one wasn't loaded in the linked chunk. In this case, every
+        // event currently loaded in the linked chunk will be processed in `process_event()`.
         trace!(%event_id, "reusing previous active receipt (but we didn't find it in the linked chunk)");
         event_id.to_owned()
     }))
@@ -341,11 +344,7 @@ pub(crate) fn compute_unread_counts(
         linked_chunk,
         &mut read_receipts.pending,
         receipt_event,
-        read_receipts
-            .latest_active
-            .as_ref()
-            .map(|latest_active| &latest_active.event_id)
-            .map(|v| &**v),
+        read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
     )
     .map(|event_id| LatestReadReceipt { event_id });
 
