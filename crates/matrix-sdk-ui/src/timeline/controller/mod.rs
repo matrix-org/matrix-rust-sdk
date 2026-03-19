@@ -1583,7 +1583,7 @@ impl TimelineController {
         let state = self.state.read().await;
         let filter_out_thread_events = match self.focus() {
             TimelineFocusKind::Thread { .. } => false,
-            TimelineFocusKind::Live { hide_threaded_events } => hide_threaded_events.to_owned(),
+            TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
             TimelineFocusKind::Event { .. } => {
                 // For event-focused timelines, filtering is handled in the event cache layer.
                 false
