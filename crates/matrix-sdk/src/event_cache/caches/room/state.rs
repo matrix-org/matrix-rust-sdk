@@ -1094,6 +1094,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let RoomEventCacheState {
             room_id,
             weak_room,
+            own_user_id,
             store,
             linked_chunk_update_sender,
             threads,
@@ -1105,6 +1106,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
                 let thread_event_cache = ThreadEventCache::new(
                     room_id.clone(),
                     root_event_id,
+                    own_user_id.clone(),
                     weak_room.clone(),
                     store.clone(),
                     linked_chunk_update_sender.clone(),
