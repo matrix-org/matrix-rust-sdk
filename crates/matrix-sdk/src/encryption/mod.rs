@@ -306,44 +306,44 @@ impl CrossSigningResetHandle {
         // Give up after two minutes of polling.
         const TIMEOUT: Duration = Duration::from_mins(2);
 
-        let mut time = Duration::ZERO;
-        let mut upload_request = self.upload_request.clone();
-        upload_request.auth = auth;
-
-        debug!(
-            "Repeatedly PUTting to keys/device_signing/upload until it works \
-            or we hit a permanent failure."
-        );
-        while let Err(e) = self.client.send(upload_request.clone()).await {
-            if *self.is_cancelled.lock().await {
-                return Ok(());
-            }
-
-            match e.as_uiaa_response() {
-                Some(uiaa_info) => {
-                    if uiaa_info.auth_error.is_some() {
-                        return Err(e.into());
-                    }
-                }
-                None => return Err(e.into()),
-            }
-
-            time += RETRY_EVERY;
-            if time > TIMEOUT {
-                debug!("Timed out waiting for keys/device_signing/upload to succeed.");
-                return Err(Error::Timeout);
-            }
+        tokio::time::timeout(TIMEOUT, async {
+            let mut upload_request = self.upload_request.clone();
+            upload_request.auth = auth;
 
             debug!(
-                "PUT to keys/device_signing/upload failed with 401. Retrying after \
-                a short delay."
+                "Repeatedly PUTting to keys/device_signing/upload until it works \
+                or we hit a permanent failure."
             );
-            sleep(Duration::from_millis(500)).await;
-        }
+            while let Err(e) = self.client.send(upload_request.clone()).await {
+                if *self.is_cancelled.lock().await {
+                    return Ok(());
+                }
 
-        self.client.send(self.signatures_request.clone()).await?;
+                match e.as_uiaa_response() {
+                    Some(uiaa_info) => {
+                        if uiaa_info.auth_error.is_some() {
+                            return Err(e.into());
+                        }
+                    }
+                    None => return Err(e.into()),
+                }
 
-        Ok(())
+                debug!(
+                    "PUT to keys/device_signing/upload failed with 401. Retrying after \
+                    a short delay."
+                );
+                sleep(RETRY_EVERY).await;
+            }
+
+            self.client.send(self.signatures_request.clone()).await?;
+
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|_| {
+            warn!("Timed out waiting for keys/device_signing/upload to succeed.");
+            return Err(Error::Timeout);
+        })
     }
 
     /// Cancel the ongoing identity reset process
