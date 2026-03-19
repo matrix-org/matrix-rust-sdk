@@ -40,7 +40,10 @@ use crate::{
     Client,
     authentication::oauth::{
         ClientRegistrationData, OAuth, OAuthError,
-        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress},
+        qrcode::{
+            CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress,
+            messages::LoginProtocolsMessage,
+        },
     },
 };
 
@@ -399,7 +402,10 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
             // Verify that the device authorization grant is supported and
             // extract the homeserver URL.
             let homeserver = match message {
-                QrAuthMessage::LoginProtocols { protocols, homeserver } => {
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                    protocols,
+                    homeserver,
+                }) => {
                     if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
                         channel
                             .send_json(QrAuthMessage::LoginFailure {
@@ -715,10 +721,10 @@ mod test {
             .expect("Alice should be able to send the check code to Bob");
 
         // Alice sends m.login.protocols message
-        let message = QrAuthMessage::LoginProtocols {
+        let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
             protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
             homeserver: alice.homeserver(),
-        };
+        });
         channel
             .send_json(message)
             .await
