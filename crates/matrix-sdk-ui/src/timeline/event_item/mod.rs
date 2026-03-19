@@ -360,8 +360,9 @@ impl EventTimelineItem {
         }
 
         // A live-location item originates from a `beacon_info` *state* event,
-        // which cannot be encrypted per the Matrix spec.  The actual location
-        // updates (`beacon` message-like events) *are* encrypted.
+        // which cannot be encrypted (except with `experimental-encrypted-state-events`
+        // flag). The actual location updates (`beacon` message-like events)
+        // *are* encrypted.
         //
         // When there are no beacons yet we return `None` (the state event
         // itself is inherently unencrypted, so no warning is warranted).
