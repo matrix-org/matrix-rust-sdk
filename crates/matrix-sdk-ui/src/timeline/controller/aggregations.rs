@@ -718,6 +718,12 @@ impl Aggregations {
         self.inverted_map.insert(to, target);
         true
     }
+
+    /// Returns the id of the event this aggregation relates to, if it's a known
+    /// aggregation.
+    pub fn is_aggregation_of(&self, item: &TimelineEventItemId) -> Option<&TimelineEventItemId> {
+        self.inverted_map.get(item)
+    }
 }
 
 /// Look at all the edits of a given event, and apply the most recent one, if
