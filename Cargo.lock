@@ -3210,6 +3210,7 @@ dependencies = [
  "ring",
  "ruma",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_html_form",
@@ -3233,6 +3234,7 @@ dependencies = [
  "uuid",
  "vodozemac",
  "wasm-bindgen-test",
+ "webpki-roots 1.0.6",
  "wiremock",
  "zeroize",
 ]
@@ -4780,7 +4782,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots 1.0.2",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -6777,7 +6779,7 @@ dependencies = [
  "ureq-proto",
  "utf-8",
  "webpki-root-certs",
- "webpki-roots 1.0.2",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -7148,9 +7150,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.2"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8983c3ab33d6fb807cfcdad2491c4ea8cbc8ed839181c7dfd9c67c83e261b2"
+checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
 dependencies = [
  "rustls-pki-types",
 ]
