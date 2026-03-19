@@ -278,6 +278,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
     pub async fn handle_sync(&mut self, events: Vec<Event>) -> Result<Vec<VectorDiff<Event>>> {
         let DeduplicationOutcome {
             all_events: events,
