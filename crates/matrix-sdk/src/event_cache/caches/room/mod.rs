@@ -523,7 +523,6 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        // Add all the events to the backend.
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
