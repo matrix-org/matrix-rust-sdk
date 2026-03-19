@@ -18,15 +18,18 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::ChunkContent,
+    linked_chunk::{ChunkContent, LinkedChunkId},
 };
 use ruma::api::Direction;
 use tracing::trace;
 
 use super::{
-    super::super::{
-        EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
-        caches::pagination::{
+    super::{
+        super::{
+            EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        },
+        pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
     },
@@ -230,21 +233,31 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let topo_ordered_events = events.iter().cloned().rev().collect::<Vec<_>>();
         let new_gap = new_token.map(|token| Gap { token });
 
-        let deduplication = state.filter_duplicate_events(topo_ordered_events);
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = filter_duplicate_events(
+            &state.state.own_user_id,
+            &state.store,
+            LinkedChunkId::Thread(&state.state.room_id, &state.state.thread_id),
+            state.thread_linked_chunk(),
+            topo_ordered_events,
+        )
+        .await?;
 
-        let (events, new_gap) = if deduplication.non_empty_all_duplicates {
+        let (events, new_gap) = if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events and the new gap.
             (Vec::new(), None)
         } else {
-            assert!(
-                deduplication.in_store_duplicated_event_ids.is_empty(),
-                "persistent storage for threads is not implemented yet"
-            );
-            state.remove_events(deduplication.in_memory_duplicated_event_ids, vec![]).await?;
+            state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
 
             // Keep events and the gap.
-            (deduplication.all_events, new_gap)
+            (events, new_gap)
         };
 
         // Add the paginated events to the thread chunk.
