@@ -20,7 +20,7 @@ mod state;
 use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
-use ruma::{EventId, OwnedEventId, OwnedRoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 pub(super) use state::LockedThreadEventCacheState;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
@@ -59,6 +59,7 @@ impl ThreadEventCache {
     pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
+        own_user_id: OwnedUserId,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
@@ -70,6 +71,7 @@ impl ThreadEventCache {
                 state: LockedThreadEventCacheState::new(
                     room_id,
                     thread_id,
+                    own_user_id,
                     store,
                     linked_chunk_update_sender,
                 )
