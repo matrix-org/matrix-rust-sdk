@@ -32,6 +32,8 @@ use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{DehydrationError, GossipRequest};
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
     olm::{
@@ -100,7 +102,8 @@ pub struct Changes {
     pub rooms_pending_key_bundle: HashMap<OwnedRoomId, Option<RoomPendingKeyBundleDetails>>,
 }
 
-/// A secret that was received via an `m.secret.send`.
+/// A secret that was received via an `m.secret.send` or
+/// `io.element.msc4385.secret.push` event.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretsInboxItem {
     /// The name of the secret.
@@ -138,6 +141,13 @@ impl std::fmt::Debug for SecretsInboxItem {
 impl From<GossippedSecret> for SecretsInboxItem {
     fn from(secret: GossippedSecret) -> Self {
         Self { secret_name: secret.secret_name, secret: secret.event.content.secret.clone().into() }
+    }
+}
+
+#[cfg(feature = "experimental-push-secrets")]
+impl From<SecretPushContent> for SecretsInboxItem {
+    fn from(secret: SecretPushContent) -> Self {
+        Self { secret_name: secret.name.clone(), secret: secret.secret.clone().into() }
     }
 }
 

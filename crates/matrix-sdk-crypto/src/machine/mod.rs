@@ -1411,6 +1411,13 @@ impl OlmMachine {
                 debug!("Received a room key bundle event {:?}", e);
                 self.receive_room_key_bundle_data(decrypted.result.sender_key, e, changes).await?;
             }
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => {
+                self.inner
+                    .key_request_machine
+                    .receive_secret_push_event(&decrypted.result.sender_key, e, changes)
+                    .await?;
+            }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
             }
