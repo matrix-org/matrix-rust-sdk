@@ -342,7 +342,7 @@ impl CrossSigningResetHandle {
         .await
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
-            return Err(Error::Timeout);
+            Err(Error::Timeout)
         })
     }
 
