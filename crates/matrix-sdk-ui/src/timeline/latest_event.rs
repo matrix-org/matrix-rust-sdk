@@ -135,7 +135,13 @@ impl LatestEventValue {
                 let profile =
                     TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
 
-                match TimelineAction::from_content(message_like_event_content, None, None, None) {
+                match TimelineAction::from_content(
+                    message_like_event_content,
+                    None,
+                    None,
+                    None,
+                    None,
+                ) {
                     TimelineAction::AddItem { content } => Self::Local {
                         timestamp: *timestamp,
                         sender,
