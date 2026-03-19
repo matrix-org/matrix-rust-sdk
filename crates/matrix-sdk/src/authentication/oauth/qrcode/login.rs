@@ -40,7 +40,10 @@ use crate::{
     Client,
     authentication::oauth::{
         ClientRegistrationData, OAuth, OAuthError,
-        qrcode::{CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress},
+        qrcode::{
+            CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress,
+            messages::LoginProtocolsMessage,
+        },
     },
 };
 
@@ -401,7 +404,10 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
             // Verify that the device authorization grant is supported and extract
             // the homeserver URL.
             let homeserver = match message {
-                QrAuthMessage::LoginProtocols { protocols, homeserver } => {
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                    protocols,
+                    homeserver,
+                }) if !channel.is_using_msc_4388() => {
                     if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
                         channel
                             .send_json(QrAuthMessage::LoginFailure {
@@ -418,6 +424,27 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
                     homeserver
                 }
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols,
+                    base_url,
+                }) if channel.is_using_msc_4388() => {
+                    if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
+                        channel
+                            .send_json(QrAuthMessage::LoginFailure {
+                                reason: LoginFailureReason::UnsupportedProtocol,
+                                homeserver: None,
+                            })
+                            .await?;
+
+                        return Err(QRCodeLoginError::LoginFailure {
+                            reason: LoginFailureReason::UnsupportedProtocol,
+                            homeserver: None,
+                        });
+                    }
+
+                    base_url
+                }
+
                 _ => {
                     send_unexpected_message_error(&mut channel).await?;
 
@@ -520,7 +547,7 @@ mod test {
     use super::*;
     use crate::{
         authentication::oauth::qrcode::{
-            messages::LoginProtocolType,
+            messages::{LoginProtocolType, LoginProtocolsMessage},
             secure_channel::{SecureChannel, test::MockedRendezvousServer},
         },
         config::RequestConfig,
@@ -740,9 +767,16 @@ mod test {
             .expect("Alice should be able to send the check code to Bob");
 
         // Alice sends m.login.protocols message
-        let message = QrAuthMessage::LoginProtocols {
-            protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
-            homeserver: alice.homeserver(),
+        let message = if channel.is_using_msc_4388() {
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                base_url: alice.homeserver(),
+            })
+        } else {
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                homeserver: alice.homeserver(),
+            })
         };
         channel
             .send_json(message)

@@ -319,6 +319,13 @@ impl EstablishedSecureChannel {
         }
     }
 
+    pub(super) fn is_using_msc_4388(&self) -> bool {
+        match &self.channel {
+            RendezvousChannel::Msc4108(_) => false,
+            RendezvousChannel::Msc4388(_) => true,
+        }
+    }
+
     /// Get the [`CheckCode`] which can be used to, out of band, verify that
     /// both sides of the channel are indeed communicating with each other and
     /// not with a 3rd party.

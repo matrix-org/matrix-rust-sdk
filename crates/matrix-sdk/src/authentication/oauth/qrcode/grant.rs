@@ -37,7 +37,7 @@ use crate::{
     Client,
     authentication::oauth::qrcode::{
         CheckCodeSender, GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError,
-        QrProgress, SecureChannelError,
+        QrProgress, SecureChannelError, messages::LoginProtocolsMessage,
     },
 };
 
@@ -280,9 +280,16 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             // Inform the other device about the available login protocols and the
             // homeserver to use.
             // -- MSC4108 OAuth 2.0 login step 1
-            let message = QrAuthMessage::LoginProtocols {
-                protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
-                homeserver: self.client.homeserver(),
+            let message = if channel.is_using_msc_4388() {
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                    base_url: self.client.homeserver(),
+                })
+            } else {
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                    protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                    homeserver: self.client.homeserver(),
+                })
             };
             channel.send_json(message).await?;
 
@@ -424,7 +431,7 @@ mod test {
 
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
-    use matrix_sdk_base::crypto::types::SecretsBundle;
+    use matrix_sdk_base::crypto::types::{SecretsBundle, qr_login::QrCodeIntentData};
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
@@ -636,6 +643,11 @@ mod test {
         device_authorization_grant: Option<AuthorizationGrant>,
         secrets_bundle: Option<SecretsBundle>,
     ) {
+        let is_using_msc_4388 = match channel.qr_code_data().intent_data() {
+            QrCodeIntentData::Msc4108 { .. } => false,
+            QrCodeIntentData::Msc4388 { .. } => true,
+        };
+
         // Wait for Alice to scan the qr code and connect the secure channel.
         let channel =
             channel.connect().await.expect("Bob should be able to connect the secure channel");
@@ -651,9 +663,27 @@ mod test {
             .receive_json()
             .await
             .expect("Bob should receive the LoginProtocolAccepted message from Alice");
-        assert_let!(
-            QrAuthMessage::LoginProtocols { protocols, homeserver: alice_homeserver } = message
-        );
+
+        let (protocols, alice_homeserver) = if is_using_msc_4388 {
+            assert_let!(
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols,
+                    base_url,
+                }) = message
+            );
+
+            (protocols, base_url)
+        } else {
+            assert_let!(
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                    protocols,
+                    homeserver,
+                }) = message
+            );
+
+            (protocols, homeserver)
+        };
+
         assert_eq!(protocols, vec![LoginProtocolType::DeviceAuthorizationGrant]);
         assert_eq!(alice_homeserver, homeserver);
 
