@@ -84,7 +84,6 @@ regex.workspace = true
 ruma = { workspace = true, features = [
     "unstable-msc2867",
     "unstable-msc3381",
-    "unstable-msc3417",
     "unstable-msc4186",
     "rand",
 ] }

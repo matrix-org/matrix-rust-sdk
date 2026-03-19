@@ -155,7 +155,9 @@ impl Room {
         self.info.read().room_type().is_some_and(|t| *t == RoomType::Space)
     }
 
-    /// Whether this room's [`RoomType`] is `m.space`.
+    /// Whether this room is a Call room as defined by [MSC3417].
+    ///
+    /// [MSC3417]: <https://github.com/matrix-org/matrix-spec-proposals/pull/3417>
     pub fn is_call(&self) -> bool {
         self.info.read().room_type().is_some_and(|t| *t == RoomType::Call)
     }
