@@ -36,7 +36,6 @@ pub enum RtcCallIntentConsensus {
         agreeing_count: u64,
         total_count: u64,
     },
-    /// No consensus. No one advertises or advertisers disagree.
     None,
 }
 
