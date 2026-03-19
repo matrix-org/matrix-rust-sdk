@@ -196,9 +196,6 @@ impl HttpSettings {
         // Remove when https://github.com/rustls/rustls-platform-verifier/issues/221 is fixed.
         #[cfg(target_os = "android")]
         {
-            let provider = rustls::crypto::CryptoProvider::get_default()
-                .expect("CryptoProvider not available")
-                .clone();
             let mut root_store = RootCertStore::empty();
             // This seems to fix the 'revoked certificate' false positives issue
             root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -207,10 +204,9 @@ impl HttpSettings {
             let native_certs = rustls_native_certs::load_native_certs().certs;
             root_store.add_parsable_certificates(native_certs);
 
-            let verifier =
-                WebPkiServerVerifier::builder_with_provider(Arc::new(root_store), provider)
-                    .build()
-                    .expect("Could not create WebPkiServerVerifier from its builder");
+            let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
+                .build()
+                .map_err(HttpError::VerifierBuilder)?;
             let config = rustls::ClientConfig::builder()
                 .with_webpki_verifier(verifier)
                 .with_no_client_auth();
