@@ -382,7 +382,7 @@ impl OAuth {
         use ruma::api::client::rendezvous::discover_rendezvous;
 
         match self.client.send(discover_rendezvous::unstable::Request::new()).await {
-            Ok(_) => Ok(true),
+            Ok(response) => Ok(response.create_available),
             Err(e) => {
                 if e.as_client_api_error().is_some_and(|err| {
                     matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
