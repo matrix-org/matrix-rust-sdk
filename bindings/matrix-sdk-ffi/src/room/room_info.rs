@@ -31,11 +31,7 @@ use crate::{
 #[derive(Clone, uniffi::Enum)]
 pub enum RtcCallIntentConsensus {
     Full(RtcCallIntent),
-    Partial {
-        intent: RtcCallIntent,
-        agreeing_count: u64,
-        total_count: u64,
-    },
+    Partial { intent: RtcCallIntent, agreeing_count: u64, total_count: u64 },
     None,
 }
 

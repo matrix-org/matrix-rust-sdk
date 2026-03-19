@@ -40,27 +40,6 @@ pub enum CallIntentConsensus {
     None,
 }
 
-impl CallIntentConsensus {
-    /// Get the agreed intent if any consensus exists (full or partial)
-    pub fn intent(&self) -> Option<CallIntent> {
-        match self {
-            Self::Full(intent) => Some(intent.clone()),
-            Self::Partial { intent, .. } => Some(intent.clone()),
-            Self::None => None,
-        }
-    }
-
-    /// Returns true if there is full consensus
-    pub fn is_full(&self) -> bool {
-        matches!(self, Self::Full(_))
-    }
-
-    /// Returns true if there is partial consensus
-    pub fn is_partial(&self) -> bool {
-        matches!(self, Self::Partial { .. })
-    }
-}
-
 impl Room {
     /// Is there a non expired membership with application `m.call` and scope
     /// `m.room` in this room.
@@ -465,29 +444,5 @@ mod tests {
             let consensus_intent = room.active_room_call_consensus_intent();
             assert_eq!(expected, consensus_intent, "Failed case: {}", description);
         }
-    }
-
-    #[test]
-    fn test_consensus_intent_helpers() {
-        let consensus = CallIntentConsensus::Partial {
-            intent: CallIntent::Audio,
-            agreeing_count: 1,
-            total_count: 3,
-        };
-        assert!(consensus.is_partial());
-        assert!(!consensus.is_full());
-        assert!(consensus.intent().is_some());
-        assert_eq!(consensus.intent(), Some(CallIntent::Audio));
-
-        let consensus = CallIntentConsensus::Full(CallIntent::Video);
-        assert!(!consensus.is_partial());
-        assert!(consensus.is_full());
-        assert!(consensus.intent().is_some());
-        assert_eq!(consensus.intent(), Some(CallIntent::Video));
-
-        let consensus = CallIntentConsensus::None;
-        assert!(!consensus.is_partial());
-        assert!(!consensus.is_full());
-        assert!(consensus.intent().is_none());
     }
 }
