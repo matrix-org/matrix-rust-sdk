@@ -57,6 +57,42 @@ async fn test_beacon_info_creates_timeline_item() {
     assert_pending!(stream);
 }
 
+/// A `beacon_info` event whose timeout has expired still creates a timeline
+/// item (we check `live`, not `is_live()` which would return `false`).
+#[async_test]
+async fn test_beacon_info_with_expired_timeout_still_creates_item() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+    let beacon_id = event_id!("$beacon_info:example.org");
+
+    // Use a timestamp in the past with a very short duration so that
+    // is_live() would return false (expired), but `live` field is true.
+    let past_ts = MilliSecondsSinceUnixEpoch(uint!(1_000)); // Very early timestamp
+    let short_duration = Duration::from_millis(1); // Effectively expired immediately
+
+    timeline
+        .send_beacon_info_with_ts(
+            &ALICE,
+            beacon_id,
+            None,
+            short_duration,
+            true,
+            Some(past_ts),
+        )
+        .await;
+
+    // The item should still be created even though the timeout has expired.
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let state = item.content().as_live_location_state().expect("should be a live location item");
+
+    // The `live` field is true, but is_live() returns false because the
+    // timeout has expired.
+    assert!(!state.is_live(), "is_live() should return false because the timeout has expired");
+    assert!(state.beacon_info.live, "live should be true");
+
+    assert_pending!(stream);
+}
+
 /// A `beacon_info` event with `live: false` arriving without a prior live
 /// `beacon_info` produces no timeline item (there is nothing to stop).
 #[async_test]
@@ -562,9 +598,22 @@ impl TestTimeline {
         duration: Duration,
         live: bool,
     ) {
+        self.send_beacon_info_with_ts(sender, event_id, description, duration, live, None).await;
+    }
+
+    /// Convenience: send a `beacon_info` state event with a custom timestamp.
+    async fn send_beacon_info_with_ts(
+        &self,
+        sender: &ruma::UserId,
+        event_id: &EventId,
+        description: Option<String>,
+        duration: Duration,
+        live: bool,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) {
         let event = self
             .factory
-            .beacon_info(description, duration, live, None)
+            .beacon_info(description, duration, live, ts)
             .sender(sender)
             .state_key(sender)
             .event_id(event_id);

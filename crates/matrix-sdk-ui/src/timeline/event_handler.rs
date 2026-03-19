@@ -321,7 +321,11 @@ impl TimelineAction {
                 },
                 AnySyncStateEvent::BeaconInfo(ev) => match ev {
                     SyncStateEvent::Original(ev) => {
-                        if ev.content.is_live() {
+                        // Check the `live` field directly, not `is_live()` which
+                        // considers timeout. We want to create a timeline item for any
+                        // beacon_info that was started as live, regardless of whether
+                        // the timeout has since expired.
+                        if ev.content.live {
                             Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
                                 kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
                                 reactions: Default::default(),
@@ -334,8 +338,6 @@ impl TimelineAction {
                             // existing live item from the same sender rather than creating a
                             // new timeline item.
                             Self::HandleAggregation {
-                                // There is no explicit relates_to on a beacon_info state event;
-                                // the target is identified by sender in handle_beacon_stop.
                                 related_event: ev.event_id,
                                 kind: HandleAggregationKind::BeaconStop { content: ev.content },
                             }
