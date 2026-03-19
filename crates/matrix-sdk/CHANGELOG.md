@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
+  a cross-signing reset does not succeed after some period of time.
+  ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
 - The `beacon_info` start event ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
   is now included when computing the latest event for a room, so live location sharing
   sessions can be surfaced as a room's most recent activity.

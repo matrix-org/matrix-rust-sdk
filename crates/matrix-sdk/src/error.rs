@@ -410,6 +410,10 @@ pub enum Error {
     /// An error happened while attempting to change power levels.
     #[error("power levels error: {0}")]
     PowerLevels(#[from] PowerLevelsError),
+
+    /// We timed out attempting to complete an operation.
+    #[error("timed out")]
+    Timeout,
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

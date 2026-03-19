@@ -25,6 +25,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -48,6 +49,7 @@ use matrix_sdk_base::{
             },
         },
     },
+    sleep::sleep,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
@@ -298,9 +300,20 @@ impl CrossSigningResetHandle {
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
     pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
+        // Poll to see whether the reset has been authorized twice per second.
+        const RETRY_EVERY: Duration = Duration::from_millis(500);
+
+        // Give up after two minutes of polling.
+        const TIMEOUT: Duration = Duration::from_mins(2);
+
+        let mut time = Duration::ZERO;
         let mut upload_request = self.upload_request.clone();
         upload_request.auth = auth;
 
+        debug!(
+            "Repeatedly PUTting to keys/device_signing/upload until it works \
+            or we hit a permanent failure."
+        );
         while let Err(e) = self.client.send(upload_request.clone()).await {
             if *self.is_cancelled.lock().await {
                 return Ok(());
@@ -314,6 +327,18 @@ impl CrossSigningResetHandle {
                 }
                 None => return Err(e.into()),
             }
+
+            time += RETRY_EVERY;
+            if time > TIMEOUT {
+                debug!("Timed out waiting for keys/device_signing/upload to succeed.");
+                return Err(Error::Timeout);
+            }
+
+            debug!(
+                "PUT to keys/device_signing/upload failed with 401. Retrying after \
+                a short delay."
+            );
+            sleep(Duration::from_millis(500)).await;
         }
 
         self.client.send(self.signatures_request.clone()).await?;
