@@ -59,8 +59,8 @@ pub use matrix_sdk_crypto as crypto;
 pub use room::{
     EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
     RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
-    RoomMembersUpdate, RoomMemberships, RoomRecencyStamp, RoomState, RoomStateFilter,
-    SuccessorRoom, apply_redaction,
+    RoomMembersUpdate, RoomMembersUpdateKind, RoomMemberships, RoomRecencyStamp, RoomState,
+    RoomStateFilter, SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,

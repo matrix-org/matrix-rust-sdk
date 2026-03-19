@@ -785,8 +785,9 @@ impl BaseClient {
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
-                let _ =
-                    room.room_member_updates_sender.send(RoomMembersUpdate::Partial(member_ids));
+                let _ = room
+                    .room_member_updates_sender
+                    .send(RoomMembersUpdate::partial(room_id, member_ids));
             }
         }
 
@@ -918,7 +919,9 @@ impl BaseClient {
             .await?;
         }
 
-        let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
+        let _ = room
+            .room_member_updates_sender
+            .send(RoomMembersUpdate::full_reload(room.room_id().to_owned()));
 
         Ok(())
     }
@@ -1091,6 +1094,13 @@ impl BaseClient {
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.state_store.room_info_notable_update_sender.subscribe()
+    }
+
+    /// Returns a new receiver that gets future room member updates.
+    ///
+    /// Learn more by reading the [`RoomMembersUpdate`] type.
+    pub fn room_member_updates_receiver(&self) -> broadcast::Receiver<RoomMembersUpdate> {
+        self.state_store.room_member_updates_sender.subscribe()
     }
 
     /// Checks whether the provided `user_id` belongs to an ignored user.

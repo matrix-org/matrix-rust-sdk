@@ -32,8 +32,9 @@ use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
 };
 use matrix_sdk_base::{
-    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
+    BaseClient, RoomInfoNotableUpdate, RoomMembersUpdate, RoomState, RoomStateFilter,
+    SendOutsideWasm, SessionMeta, StateStoreDataKey, StateStoreDataValue, StoreError,
+    SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{
@@ -695,6 +696,12 @@ impl Client {
     /// for new events, use `receiver.resubscribe()`.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.base_client().room_info_notable_update_receiver()
+    }
+
+    /// Returns a receiver that gets events for each room member update. To
+    /// watch for new events, use `receiver.resubscribe()`.
+    pub fn room_member_updates_receiver(&self) -> broadcast::Receiver<RoomMembersUpdate> {
+        self.base_client().room_member_updates_receiver()
     }
 
     /// Performs a search for users.

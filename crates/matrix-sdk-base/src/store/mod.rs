@@ -69,7 +69,8 @@ use tracing::warn;
 pub use traits::compare_thread_subscription_bump_stamps;
 
 use crate::{
-    MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
+    MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomMembersUpdate,
+    RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     media::store as media_store,
@@ -184,6 +185,9 @@ pub(crate) struct BaseStateStore {
     /// tick contains the room ID and the reasons that have generated this tick.
     pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
 
+    /// A sender that will notify receivers when room member updates happen.
+    pub(crate) room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
+
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
 
@@ -214,11 +218,17 @@ impl BaseStateStore {
         let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
             broadcast::channel(500);
 
+        // Following from the above logic, a sync will only send one update per
+        // room.
+        let (room_members_update_sender, _room_info_notable_update_receiver) =
+            broadcast::channel(100);
+
         Self {
             inner,
             session_meta: Default::default(),
             room_load_settings: Default::default(),
             room_info_notable_update_sender,
+            room_member_updates_sender: room_members_update_sender,
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             lock: Default::default(),
@@ -259,6 +269,7 @@ impl BaseStateStore {
                 self.inner.clone(),
                 room_info,
                 self.room_info_notable_update_sender.clone(),
+                self.room_member_updates_sender.clone(),
             );
             let new_room_id = new_room.room_id().to_owned();
 
@@ -382,6 +393,7 @@ impl BaseStateStore {
                     room_id,
                     room_state,
                     self.room_info_notable_update_sender.clone(),
+                    self.room_member_updates_sender.clone(),
                 )
             })
             .clone()
