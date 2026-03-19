@@ -23,7 +23,7 @@ use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 pub(super) use state::LockedThreadEventCacheState;
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::error;
+use tracing::{error, trace};
 
 use self::pagination::ThreadPagination;
 use super::{
@@ -120,6 +120,8 @@ impl ThreadEventCache {
         if events.is_empty() {
             return Ok(());
         }
+
+        trace!("adding new events");
 
         let mut state = self.inner.state.write().await?;
         let timeline_event_diffs = state.handle_sync(events).await?;
