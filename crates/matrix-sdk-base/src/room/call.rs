@@ -16,6 +16,51 @@ use ruma::{OwnedUserId, events::rtc::notification::CallIntent};
 
 use super::Room;
 
+/// Represents the consensus state of call intent among room members.
+/// Call members can advertise their intent to use audio or video, clients can
+/// use this in the UI and also to decide to start camera or not when joining.
+///
+/// This enum distinguishes between full consensus (all members advertise and
+/// agree), partial consensus (only some members advertise, but those who do
+/// agree), and no consensus (either no one advertises or advertisers disagree).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallIntentConsensus {
+    /// All members advertise and agree
+    Full(CallIntent),
+    /// Some members advertise and agree
+    Partial {
+        /// The call intent that advertising members agree on.
+        intent: CallIntent,
+        /// Number of members advertising and agreeing on this intent.
+        agreeing_count: u64,
+        /// Total number of members in the call.
+        total_count: u64,
+    },
+    /// No consensus. No one advertises or advertisers disagree.
+    None,
+}
+
+impl CallIntentConsensus {
+    /// Get the agreed intent if any consensus exists (full or partial)
+    pub fn intent(&self) -> Option<CallIntent> {
+        match self {
+            Self::Full(intent) => Some(intent.clone()),
+            Self::Partial { intent, .. } => Some(intent.clone()),
+            Self::None => None,
+        }
+    }
+
+    /// Returns true if there is full consensus
+    pub fn is_full(&self) -> bool {
+        matches!(self, Self::Full(_))
+    }
+
+    /// Returns true if there is partial consensus
+    pub fn is_partial(&self) -> bool {
+        matches!(self, Self::Partial { .. })
+    }
+}
+
 impl Room {
     /// Is there a non expired membership with application `m.call` and scope
     /// `m.room` in this room.
@@ -35,14 +80,9 @@ impl Room {
         self.info.read().active_room_call_participants()
     }
 
-    /// Get the call intent for the current call, based on what members are
-    /// advertising. If one or more members disagree on the current call
-    /// intent, or nobody specifies one then `undefined` is returned.
-    ///
-    /// If all members that specify call intent agree, that value is returned.
-    ///
-    /// A call intent, or `None` if no consensus or not given.
-    pub fn active_room_call_consensus_intent(&self) -> Option<CallIntent> {
+    /// Get the consensus call intent for the current call, based on what
+    /// members are advertising.
+    pub fn active_room_call_consensus_intent(&self) -> CallIntentConsensus {
         self.info.read().active_room_call_consensus_intent()
     }
 }
@@ -71,7 +111,10 @@ mod tests {
     };
     use similar_asserts::assert_eq;
 
-    use super::super::{Room, RoomState};
+    use super::{
+        super::{Room, RoomState},
+        CallIntentConsensus,
+    };
     use crate::{store::MemoryStore, utils::RawStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -337,31 +380,81 @@ mod tests {
     fn test_consensus_intent() {
         let test_cases = vec![
             // (alice_intent, bob_intent, carl_intent, expected_consensus, description)
-            (None, None, None, None, "no intents"),
-            (Some(CallIntent::Audio), None, None, Some(CallIntent::Audio), "one intent 1"),
-            (None, Some(CallIntent::Audio), None, Some(CallIntent::Audio), "one intent 2"),
-            (None, None, Some(CallIntent::Audio), Some(CallIntent::Audio), "one intent 3"),
-            (None, None, Some(CallIntent::Video), Some(CallIntent::Video), "one intent 4"),
+            (None, None, None, CallIntentConsensus::None, "no intents"),
+            (
+                Some(CallIntent::Audio),
+                None,
+                None,
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 1",
+            ),
+            (
+                None,
+                Some(CallIntent::Audio),
+                None,
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 2",
+            ),
+            (
+                None,
+                None,
+                Some(CallIntent::Audio),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 3",
+            ),
+            (
+                None,
+                None,
+                Some(CallIntent::Video),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Video,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 4",
+            ),
             (
                 None,
                 Some(CallIntent::Video),
                 Some(CallIntent::Video),
-                Some(CallIntent::Video),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Video,
+                    agreeing_count: 2,
+                    total_count: 3,
+                },
                 "two matching intents",
             ),
             (
                 Some(CallIntent::Video),
                 Some(CallIntent::Video),
                 Some(CallIntent::Video),
-                Some(CallIntent::Video),
+                CallIntentConsensus::Full(CallIntent::Video),
                 "all agree",
             ),
-            (Some(CallIntent::Video), None, Some(CallIntent::Audio), None, "disagreement"),
+            (
+                Some(CallIntent::Video),
+                None,
+                Some(CallIntent::Audio),
+                CallIntentConsensus::None,
+                "disagreement",
+            ),
             (
                 Some(CallIntent::Video),
                 Some(CallIntent::Video),
                 Some(CallIntent::Audio),
-                None,
+                CallIntentConsensus::None,
                 "disagreement 2",
             ),
         ];
@@ -372,5 +465,29 @@ mod tests {
             let consensus_intent = room.active_room_call_consensus_intent();
             assert_eq!(expected, consensus_intent, "Failed case: {}", description);
         }
+    }
+
+    #[test]
+    fn test_consensus_intent_helpers() {
+        let consensus = CallIntentConsensus::Partial {
+            intent: CallIntent::Audio,
+            agreeing_count: 1,
+            total_count: 3,
+        };
+        assert!(consensus.is_partial());
+        assert!(!consensus.is_full());
+        assert!(consensus.intent().is_some());
+        assert_eq!(consensus.intent(), Some(CallIntent::Audio));
+
+        let consensus = CallIntentConsensus::Full(CallIntent::Video);
+        assert!(!consensus.is_partial());
+        assert!(consensus.is_full());
+        assert!(consensus.intent().is_some());
+        assert_eq!(consensus.intent(), Some(CallIntent::Video));
+
+        let consensus = CallIntentConsensus::None;
+        assert!(!consensus.is_partial());
+        assert!(!consensus.is_full());
+        assert!(consensus.intent().is_none());
     }
 }
