@@ -31,6 +31,7 @@ use vodozemac::ecies::CheckCode;
 
 use super::{
     LoginProtocolType, QrAuthMessage,
+    messages::LoginProtocolsMessage,
     secure_channel::{EstablishedSecureChannel, SecureChannel},
 };
 use crate::{
@@ -326,10 +327,10 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             // the homeserver to use.
             //
             // -- MSC4108 OAuth 2.0 login step 1
-            let message = QrAuthMessage::LoginProtocols {
+            let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
                 protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
                 homeserver: self.client.homeserver(),
-            };
+            });
             channel.send_json(message).await?;
 
             // Proceed with granting the login.
@@ -730,7 +731,10 @@ mod test {
             .await
             .expect("Bob should receive the LoginProtocolAccepted message from Alice");
         assert_let!(
-            QrAuthMessage::LoginProtocols { protocols, homeserver: alice_homeserver } = message
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                protocols,
+                homeserver: alice_homeserver
+            }) = message
         );
         assert_eq!(protocols, vec![LoginProtocolType::DeviceAuthorizationGrant]);
         assert_eq!(alice_homeserver, homeserver);
