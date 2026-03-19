@@ -64,6 +64,8 @@ unstable-msc4274 = []
 
 experimental-element-recent-emojis = []
 
+unstable-msc3814 = ["matrix-sdk-crypto?/unstable-msc3814"]
+
 [dependencies]
 as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }

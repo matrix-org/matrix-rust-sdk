@@ -40,6 +40,8 @@ test-send-sync = []
 # Testing helpers for implementations based upon this
 testing = ["matrix-sdk-test"]
 
+unstable-msc3814 = []
+
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
 aquamarine.workspace = true

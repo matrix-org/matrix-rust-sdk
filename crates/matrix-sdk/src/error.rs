@@ -410,6 +410,11 @@ pub enum Error {
     /// An error happened while attempting to change power levels.
     #[error("power levels error: {0}")]
     PowerLevels(#[from] PowerLevelsError),
+
+    /// An error happened while performing a dehydration operation.
+    #[cfg(feature = "unstable-msc3814")]
+    #[error(transparent)]
+    Dehydration(#[from] matrix_sdk_base::crypto::dehydrated_devices::DehydrationError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

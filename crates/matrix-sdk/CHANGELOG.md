@@ -86,6 +86,7 @@ All notable changes to this project will be documented in this file.
   to true will now trigger a download of all historical keys for the room in
   question from the client's key backup.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+- Add a high-level API for Device Dehydration (MSC3814) behind the `unstable-msc3814` feature flag. This allows clients to create a virtual device to receive E2EE keys while offline using `client.encryption().dehydrated_devices().upload(...)` and later retrieve them using `rehydrate_and_absorb(...)`. ([#6273](https://github.com/matrix-org/matrix-rust-sdk/pull/6273))
 
 ### Bugfix
 

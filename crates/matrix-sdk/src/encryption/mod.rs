@@ -98,6 +98,8 @@ use crate::{
 };
 
 pub mod backups;
+#[cfg(feature = "unstable-msc3814")]
+pub mod dehydrated_devices;
 pub mod futures;
 pub mod identities;
 pub mod recovery;
@@ -2083,6 +2085,15 @@ impl Encryption {
         }
 
         Ok(failures)
+    }
+
+    /// Get a high-level manager to interact with dehydrated devices.
+    ///
+    /// This allows creating, uploading, and fetching a virtual device which
+    /// stores End-to-End Encryption keys while the user is offline.
+    #[cfg(feature = "unstable-msc3814")]
+    pub fn dehydrated_devices(&self) -> dehydrated_devices::DehydratedDevices {
+        dehydrated_devices::DehydratedDevices { client: self.client.clone() }
     }
 }
 
