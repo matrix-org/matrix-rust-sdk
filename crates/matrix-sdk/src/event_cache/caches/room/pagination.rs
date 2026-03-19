@@ -361,18 +361,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
             non_empty_all_duplicates: all_duplicates,
-        } = {
-            let room_linked_chunk = state.room_linked_chunk();
-
-            filter_duplicate_events(
-                &state.state.own_user_id,
-                &state.store,
-                LinkedChunkId::Room(&state.state.room_id),
-                room_linked_chunk,
-                events,
-            )
-            .await?
-        };
+        } = filter_duplicate_events(
+            &state.state.own_user_id,
+            &state.store,
+            LinkedChunkId::Room(&state.state.room_id),
+            state.room_linked_chunk(),
+            events,
+        )
+        .await?;
 
         // If not all the events have been back-paginated, we need to remove the
         // previous ones, otherwise we can end up with misordered events.
