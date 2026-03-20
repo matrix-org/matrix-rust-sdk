@@ -915,10 +915,20 @@ impl RoomSendQueue {
                                     id.rules()
                                         .is_some_and(|rules| rules.redaction.content_field_redacts)
                                 });
+                                let redacts = if content_field_redacts.not() {
+                                    format!("\"redacts\":\"{redacts}\",")
+                                } else {
+                                    "".to_owned()
+                                };
                                 let reason = reason.map_or_else(
                                     || "".to_owned(),
                                     |r| format!("\"reason\": \"{r}\""),
                                 );
+                                let content = if content_field_redacts {
+                                    format!("\"redacts\":\"{redacts}\",{reason}")
+                                } else {
+                                    reason
+                                };
 
                                 let timeline_event = match Raw::from_json_string(
                                     // Create a compact string: remove all useless spaces.
@@ -931,12 +941,12 @@ impl RoomSendQueue {
                                             \"type\":\"{type}\",\
                                             \"content\":{{{content}}}\
                                         }}",
-                                        redacts = if content_field_redacts.not() { format!("\"redacts\":\"{redacts}\",") } else { "".to_owned() },
+                                        redacts = redacts,
                                         event_id = event_id,
                                         ts = MilliSecondsSinceUnixEpoch::now().get(),
                                         sender = room.client().user_id().expect("Client must be logged-in"),
                                         type = TimelineEventType::RoomRedaction,
-                                        content = if content_field_redacts { format!("\"redacts\":\"{redacts}\",{reason}") } else { reason }
+                                        content = content
                                     ),
                                 ) {
                                     Ok(event) => Some(TimelineEvent::from_plaintext(event)),
