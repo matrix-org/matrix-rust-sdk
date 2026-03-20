@@ -14,10 +14,13 @@
 
 //! An SQLite-based backend for the [`EventCacheStore`].
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::cell::RefMut;
 use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_base::{
+    SendOutsideWasm,
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::{
@@ -37,10 +40,11 @@ use ruma::{
 use rusqlite::{
     OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
 };
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::fs;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
@@ -123,7 +127,17 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let cfg = OpfsSAHPoolCfgBuilder::new()
+                .vfs_name("opfs-sahpool")
+                .directory(config.path.to_string_lossy().as_ref())
+                .build();
+            install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
+        }
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
@@ -508,7 +522,8 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     Ok(())
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
@@ -1553,38 +1568,66 @@ fn find_event_relations_transaction(
 /// of the kind SQLITE_BUSY from happening, for transactions that may involve
 /// both reads and writes, and start with a write.
 async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
+    T: SendOutsideWasm + 'static,
+    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + SendOutsideWasm + 'static,
 >(
     this: &SqliteEventCacheStore,
     f: F,
 ) -> Result<T, Error> {
-    this.write()
-        .await?
-        .interact(move |conn| -> Result<T, Error> {
-            // Start the transaction in IMMEDIATE mode since all updates may cause writes,
-            // to avoid read transactions upgrading to write mode and causing
-            // SQLITE_BUSY errors. See also: https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
-            conn.set_transaction_behavior(TransactionBehavior::Immediate);
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    {
+        this.write()
+            .await?
+            .interact(move |conn| -> Result<T, Error> {
+                // Start the transaction in IMMEDIATE mode since all updates may cause writes,
+                // to avoid read transactions upgrading to write mode and causing
+                // SQLITE_BUSY errors. See also: https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
+                conn.set_transaction_behavior(TransactionBehavior::Immediate);
 
-            let code = || -> Result<T, Error> {
-                let txn = conn.transaction()?;
-                let res = f(&txn)?;
-                txn.commit()?;
-                Ok(res)
-            };
+                let code = || -> Result<T, Error> {
+                    let txn = conn.transaction()?;
+                    let res = f(&txn)?;
+                    txn.commit()?;
+                    Ok(res)
+                };
 
-            let res = code();
+                let res = code();
 
-            // Reset the transaction behavior to use Deferred, after this transaction has
-            // been run, whether it was successful or not.
-            conn.set_transaction_behavior(TransactionBehavior::Deferred);
+                // Reset the transaction behavior to use Deferred, after this transaction has
+                // been run, whether it was successful or not.
+                conn.set_transaction_behavior(TransactionBehavior::Deferred);
 
-            res
-        })
-        .await
-        // SAFETY: same logic as in [`deadpool::managed::Object::with_transaction`].`
-        .unwrap()
+                res
+            })
+            .await
+            // SAFETY: same logic as in [`deadpool::managed::Object::with_transaction`].`
+            .unwrap()
+    }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let this = this.write().await?;
+        let mut conn: RefMut<'_, rusqlite::Connection> = this.borrow_mut();
+
+        // Start the transaction in IMMEDIATE mode since all updates may cause writes,
+        // to avoid read transactions upgrading to write mode and causing
+        // SQLITE_BUSY errors. See also: https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
+        conn.set_transaction_behavior(TransactionBehavior::Immediate);
+
+        let code = || -> Result<T, Error> {
+            let txn = conn.transaction()?;
+            let res = f(&txn)?;
+            txn.commit()?;
+            Ok(res)
+        };
+
+        let res = code();
+
+        // Reset the transaction behavior to use Deferred, after this transaction has
+        // been run, whether it was successful or not.
+        conn.set_transaction_behavior(TransactionBehavior::Deferred);
+
+        res
+    }
 }
 
 fn insert_chunk(
