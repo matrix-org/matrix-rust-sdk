@@ -141,6 +141,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// already exist in the store.
     async fn test_linked_chunk_exists_before_referenced(&self);
 
+    /// Test that the same event can exist in a room's linked chunk and a
+    /// thread's linked chunk simultaneously.
+    async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self);
+
     /// Test loading the last chunk in a linked chunk from the store.
     async fn test_load_last_chunk(&self);
 
@@ -202,8 +206,16 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that an event can be found or not.
     async fn test_find_event(&self);
 
+    /// Test that an event can be found when it exists in both a room and a
+    /// thread in that room.
+    async fn test_find_event_when_event_in_room_and_thread(&self);
+
     /// Test that finding event relations works as expected.
     async fn test_find_event_relations(&self);
+
+    /// Test that find event relations works as expected when an event is both a
+    /// room and a thread in that room.
+    async fn test_find_event_relations_when_event_in_room_and_thread(&self);
 
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
@@ -211,8 +223,16 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that getting events in a room of a certain type works as expected.
     async fn test_get_room_events_filtered(&self);
 
+    /// Test that getting all events in a room works as expected when the event
+    /// is in both a room and thread in that room.
+    async fn test_get_room_events_with_event_in_room_and_thread(&self);
+
     /// Test that saving an event works as expected.
     async fn test_save_event(&self);
+
+    /// Test that saving an existing event updates it's contents in both room
+    /// and thread linked chunks.
+    async fn test_save_event_updates_event_in_room_and_thread(&self);
 
     /// Test multiple things related to distinguishing a thread linked chunk
     /// from a room linked chunk.
@@ -353,6 +373,62 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         )
         .await
         .unwrap_err();
+    }
+
+    async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self) {
+        // This test verifies that the same event can appear in both a room's linked
+        // chunk and a thread's linked chunk. This is the real-world use case:
+        // a thread reply appears in both the main room timeline and the thread.
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let event_id = event_id!("$thread_reply");
+        let event = make_test_event_with_event_id(room_id, "thread reply", Some(event_id));
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the event into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event.clone()] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the same event into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Verify both entries exist by loading chunks from both linked chunk IDs.
+        let room_chunks = self.load_all_chunks(room_linked_chunk_id).await.unwrap();
+        let thread_chunks = self.load_all_chunks(thread_linked_chunk_id).await.unwrap();
+
+        assert_eq!(room_chunks.len(), 1);
+        assert_eq!(thread_chunks.len(), 1);
+
+        // Verify the event is in both.
+        assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id));
+        });
+        assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id));
+        });
     }
 
     async fn test_load_all_chunks_metadata(&self) {
@@ -1460,6 +1536,75 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
+    async fn test_find_event_when_event_in_room_and_thread(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be only be inserted into the room
+        let room_event_id = event_id!("$room_event");
+        let room_event = make_test_event_with_event_id(room_id, "room event", Some(room_event_id));
+
+        // Create an event that will only be inserted into the thread
+        let thread_event_id = event_id!("$thread_event");
+        let thread_event =
+            make_test_event_with_event_id(room_id, "thread event", Some(thread_event_id));
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let room_and_thread_event_id = event_id!("$room_and_thread");
+        let room_and_thread_event = make_test_event_with_event_id(
+            room_id,
+            "room and thread",
+            Some(room_and_thread_event_id),
+        );
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the relevant events into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![room_event, room_and_thread_event.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the relevant events into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![thread_event, room_and_thread_event],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Verify that event that is only in the room can be retrieved
+        assert_matches!(self.find_event(room_id, room_event_id).await, Ok(Some(event)) => {
+            assert_eq!(event.event_id().unwrap(), room_event_id)
+        });
+
+        // Verify that the event that is only in the thread can be retrieved
+        assert_matches!(self.find_event(room_id, thread_event_id).await, Ok(Some(event)) => {
+            assert_eq!(event.event_id().unwrap(), thread_event_id)
+        });
+
+        // Verify that event that is in both room and thread can be retrieved
+        assert_matches!(self.find_event(room_id, room_and_thread_event_id).await, Ok(Some(event)) => {
+            assert_eq!(event.event_id().unwrap(), room_and_thread_event_id);
+        });
+    }
+
     async fn test_find_event_relations(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -1572,6 +1717,121 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 .iter()
                 .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none())
         );
+    }
+
+    async fn test_find_event_relations_when_event_in_room_and_thread(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will inserted into both the room and thread linked
+        // chunks.
+        let event_id = event_id!("$event");
+        let event = make_test_event_with_event_id(room_id, "event", Some(event_id));
+
+        // Create an event that will only be inserted into the thread in order to help
+        // distinguish between the room and thread linked chunks.
+        let extra_thread_event_id = event_id!("$extra_thread_event");
+        let extra_thread_event = make_test_event_with_event_id(
+            room_id,
+            "extra thread event",
+            Some(extra_thread_event_id),
+        );
+
+        // Create a reaction that will only be inserted into the room
+        let room_reaction_id = event_id!("$room_reaction");
+        let room_reaction = EventFactory::new()
+            .room(room_id)
+            .sender(*ALICE)
+            .reaction(event_id, "room")
+            .event_id(room_reaction_id)
+            .into_event();
+
+        // Create a reaction that will only be inserted into the thread
+        let thread_reaction_id = event_id!("$thread_reaction");
+        let thread_reaction = EventFactory::new()
+            .room(room_id)
+            .sender(*ALICE)
+            .reaction(event_id, "thread")
+            .event_id(thread_reaction_id)
+            .into_event();
+
+        // Create a reaction that will be inserted into both the room and thread linked
+        // chunks.
+        let room_and_thread_reaction_id = event_id!("$room_and_thread_reaction");
+        let room_and_thread_reaction = EventFactory::new()
+            .room(room_id)
+            .sender(*ALICE)
+            .reaction(event_id, "room and thread")
+            .event_id(room_and_thread_reaction_id)
+            .into_event();
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the relevant events into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![event.clone(), room_reaction, room_and_thread_reaction.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the relevant events into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![
+                        event.clone(),
+                        extra_thread_event,
+                        thread_reaction,
+                        room_and_thread_reaction,
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Verify that only related events from the room are returned
+        assert_matches!(self.find_event_relations(room_id, event_id, None).await, Ok(relations) => {
+            assert_eq!(relations.len(), 3);
+            // Verify that room reaction is in the list and associated with its
+            // position in the room linked chunk.
+            let room_relation = relations
+                .iter()
+                .find(|relation| relation.0.event_id().unwrap() == room_reaction_id)
+                .unwrap();
+            assert_matches!(room_relation, (_, Some(position)) => {
+                assert_eq!(*position, Position::new(CId::new(1), 1));
+            });
+
+            // Verify that thread reaction is in the list and not associated with a
+            // position, as all positions are provided for the room linked chunk.
+            let thread_relation = relations
+                .iter()
+                .find(|relation| relation.0.event_id().unwrap() == thread_reaction_id)
+                .unwrap();
+            assert_matches!(thread_relation, (_, None));
+
+            // Verify that room and thread reaction is in the list and associated
+            // with its position in the room linked chunk, not the thread linked chunk.
+            let room_and_thread_relation = relations
+                .iter()
+                .find(|relation| relation.0.event_id().unwrap() == room_and_thread_reaction_id)
+                .unwrap();
+            assert_matches!(room_and_thread_relation, (_, Some(position)) => {
+                assert_eq!(*position, Position::new(CId::new(1), 2));
+            });
+        });
     }
 
     async fn test_get_room_events(&self) {
@@ -1702,6 +1962,73 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_expected_events!(events, [first_event]);
     }
 
+    async fn test_get_room_events_with_event_in_room_and_thread(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be only be inserted into the room
+        let room_event_id = event_id!("$room_event");
+        let room_event = make_test_event_with_event_id(room_id, "room event", Some(room_event_id));
+
+        // Create an event that will only be inserted into the thread. This may not be a
+        // sensible operation in practice, as threads seem to always exist in a
+        // room, but let's test it anyway.
+        let thread_event_id = event_id!("$thread_event");
+        let thread_event =
+            make_test_event_with_event_id(room_id, "thread event", Some(thread_event_id));
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let room_and_thread_event_id = event_id!("$room_and_thread");
+        let room_and_thread_event = make_test_event_with_event_id(
+            room_id,
+            "room and thread",
+            Some(room_and_thread_event_id),
+        );
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the relevant events into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![room_event, room_and_thread_event.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the relevant events into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![thread_event, room_and_thread_event],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Verify that all events can be retrieved and none are duplicated in the
+        // returned list.
+        let expected_event_ids =
+            BTreeSet::from([room_event_id, thread_event_id, room_and_thread_event_id]);
+        assert_matches!(self.get_room_events(room_id, None, None).await, Ok(events) => {
+            assert_eq!(events.len(), 3);
+            assert!(events.iter().all(|event| {
+                expected_event_ids.contains(&event.event_id().unwrap().as_ref())
+            }));
+        });
+    }
+
     async fn test_save_event(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -1744,6 +2071,66 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 .expect("failed to query for finding an event")
                 .is_none()
         );
+    }
+
+    async fn test_save_event_updates_event_in_room_and_thread(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let thread_root = event_id!("$thread_root");
+
+        // Create an event that will be inserted into both the room and thread linked
+        // chunks.
+        let event_id = event_id!("$event");
+        let event = make_test_event_with_event_id(room_id, "event", Some(event_id));
+
+        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
+
+        // Insert the relevant events into the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            room_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event.clone()] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert the relevant events into the thread's linked chunk.
+        self.handle_linked_chunk_updates(
+            thread_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec![event.clone()] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Save updated version of original event, which should replace the content of
+        // the existing event
+        let updated_content = "updated content";
+        let updated = make_test_event_with_event_id(room_id, updated_content, Some(event_id));
+        self.save_event(room_id, updated).await.unwrap();
+
+        // Load all chunks from both room and thread
+        let room_chunks = self.load_all_chunks(room_linked_chunk_id).await.unwrap();
+        let thread_chunks = self.load_all_chunks(thread_linked_chunk_id).await.unwrap();
+
+        assert_eq!(room_chunks.len(), 1);
+        assert_eq!(thread_chunks.len(), 1);
+
+        // Verify the event has been updated in both room and thread
+        assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id));
+            check_test_event(&events[0], updated_content);
+        });
+        assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id));
+            check_test_event(&events[0], updated_content);
+        });
     }
 
     async fn test_thread_vs_room_linked_chunk(&self) {
@@ -1931,6 +2318,13 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
+            async fn test_linked_chunk_allow_same_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_allows_same_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
             async fn test_load_last_chunk() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
@@ -2064,10 +2458,24 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
+            async fn test_find_event_when_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_event_when_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
             async fn test_find_event_relations() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event_relations().await;
+            }
+
+            #[async_test]
+            async fn test_find_event_relations_when_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_event_relations_when_event_in_room_and_thread().await;
             }
 
             #[async_test]
@@ -2085,10 +2493,24 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
+            async fn test_get_room_events_with_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_get_room_events_with_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
             async fn test_save_event() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_save_event().await;
+            }
+
+            #[async_test]
+            async fn test_save_event_updates_event_in_room_and_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_save_event_updates_event_in_room_and_thread().await;
             }
 
             #[async_test]

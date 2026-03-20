@@ -330,7 +330,7 @@ where
     Ok(Some(linked_chunk))
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum LazyLoaderError {
     #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
     ChunkIsNotLast { id: ChunkIdentifier },

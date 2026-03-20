@@ -40,7 +40,7 @@ use matrix_sdk::{
             room::{
                 encryption::RoomEncryptionEventContent,
                 message::{
-                    ReplyWithinThread, RoomMessageEventContent,
+                    AddMentions, ReplyWithinThread, RoomMessageEventContent,
                     RoomMessageEventContentWithoutRelation,
                 },
             },
@@ -963,6 +963,7 @@ async fn test_thread_focused_timeline() -> TestResult {
             Reply {
                 event_id: thread_root.clone(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await?;
@@ -1520,6 +1521,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
             Reply {
                 event_id: thread_root_event_id.clone(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await?;

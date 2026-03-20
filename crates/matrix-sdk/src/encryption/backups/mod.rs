@@ -783,7 +783,7 @@ impl Backups {
     pub(crate) async fn maybe_enable_backups(
         &self,
         maybe_recovery_key: &str,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, EnableBackupError> {
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
         // Create a future here which allows us to catch any failure that might happen
@@ -879,7 +879,7 @@ impl Backups {
                      this backup version"
                 );
 
-                Ok(false)
+                Err(EnableBackupError::InconsistentBackupDecryptionKey)
             }
         };
 
@@ -932,8 +932,17 @@ impl Backups {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
         for secret in secrets {
-            if self.maybe_enable_backups(&secret.event.content.secret).await? {
-                break;
+            match self.maybe_enable_backups(&secret.event.content.secret).await {
+                Ok(enabled) => {
+                    if enabled {
+                        break;
+                    }
+                }
+                Err(EnableBackupError::InconsistentBackupDecryptionKey) => {
+                    // Ignore a bad backup decryption key here. We already
+                    // logged the details inside maybe_enable_backups().
+                }
+                Err(EnableBackupError::Error(e)) => return Err(e),
             }
         }
 
@@ -1043,12 +1052,41 @@ impl Backups {
     }
 }
 
+/// An error that happened while we were attempting to enable key backups.
+#[derive(Debug, thiserror::Error)]
+pub enum EnableBackupError {
+    /// The private decryption key we found does not match the public key for
+    /// the enabled backup.
+    #[error("The backup decryption key does not match the latest backup version")]
+    InconsistentBackupDecryptionKey,
+
+    /// A general error occurred while enabling key backup.
+    #[error(transparent)]
+    Error(Error),
+}
+
+impl<T: Into<Error>> From<T> for EnableBackupError {
+    fn from(value: T) -> Self {
+        Self::Error(value.into())
+    }
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use std::time::Duration;
 
+    use assert_matches2::assert_matches;
+    use matrix_sdk_base::crypto::{
+        GossipRequest, GossippedSecret, SecretInfo,
+        store::types::Changes,
+        types::events::{
+            olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
+            secret_send::SecretSendContent,
+        },
+    };
     use matrix_sdk_test::async_test;
     use serde_json::json;
+    use vodozemac::Curve25519PublicKey;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{header, method, path},
@@ -1117,6 +1155,93 @@ mod test {
             .expect_err("Backups should be disabled");
 
         assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
+    }
+
+    #[async_test]
+    async fn test_resuming_backups_when_keys_are_consistent_makes_backups_enabled() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let backups = client.encryption().backups();
+        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+
+        let matching_public_key = derive_public_key_from(&backup_decryption_key);
+
+        server
+            .mock_room_keys_version()
+            .exists_with_key(&matching_public_key.to_base64())
+            .expect(1)
+            .mount()
+            .await;
+
+        // Given there is a backup decryption key waiting in the secrets inbox, which is
+        // consistent with the public key
+        queue_backup_decryption_key_secret(client, &backup_decryption_key.to_base64()).await;
+
+        // When we resume backups
+        let res = backups.maybe_resume_backups().await;
+
+        // Then no error is returned
+        assert_matches!(res, Ok(_));
+
+        // And the backup state is now enabled
+        assert_eq!(backups.state(), BackupState::Enabled);
+    }
+
+    #[async_test]
+    async fn test_resuming_backups_when_keys_are_inconsistent_has_no_effect() {
+        // Note: this was written when we added new error-surfacing logic to
+        // matrix_sdk::encryption::backups::Backups::maybe_enable_backups, and
+        // this test checks that the previous behaviour is preserved: we ignore
+        // inconsistent backup keys when resuming backups. This may not turn out
+        // to be the correct behaviour, so this test may need updating if we
+        // decide this condition should be handled differently.
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let backups = client.encryption().backups();
+        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+
+        let non_matching_public_key = derive_public_key_from(&BackupDecryptionKey::new().unwrap());
+
+        server
+            .mock_room_keys_version()
+            .exists_with_key(&non_matching_public_key.to_base64())
+            .expect(1)
+            .mount()
+            .await;
+
+        // Given there is a backup decryption key waiting in the secrets inbox, but it
+        // doesn't match the public backup key
+        queue_backup_decryption_key_secret(client, &backup_decryption_key.to_base64()).await;
+
+        // When we attempt to resume backups
+        let res = backups.maybe_resume_backups().await;
+
+        // Then no error is returned ...
+        assert_matches!(res, Ok(_));
+
+        // ... even though the backup setup failed because the decryption keys were
+        // inconsistent
+        assert_eq!(backups.state(), BackupState::Unknown);
+    }
+
+    #[async_test]
+    async fn test_errors_when_resuming_backups_are_propagated() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let backups = client.encryption().backups();
+
+        // Given an invalid backup decryption key is waiting in the secrets inbox
+        queue_backup_decryption_key_secret(client, "not valid base64").await;
+
+        // When we attempt to resume backups
+        let res = backups.maybe_resume_backups().await;
+
+        // Then an error is returned
+        assert_matches!(res, Err(Error::SerdeJson(_)));
+
+        // And the backup state is unknown
+        assert_eq!(backups.state(), BackupState::Unknown);
     }
 
     #[async_test]
@@ -1433,5 +1558,62 @@ mod test {
             { client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned() };
 
         assert_eq!(old_duration, current_duration);
+    }
+
+    /// Given a private backup decryption key, return the matching public key
+    /// for that backup
+    fn derive_public_key_from(backup_decryption_key: &BackupDecryptionKey) -> Curve25519PublicKey {
+        let backup_info = backup_decryption_key.to_backup_info();
+        match backup_info {
+            RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(megolm_v1_auth_data) => {
+                megolm_v1_auth_data.public_key
+            }
+            RoomKeyBackupInfo::Other { .. } => {
+                panic!("Unexpected backup info type")
+            }
+        }
+    }
+
+    /// Add a new secret to the secrets inbox of this client's OlmMachine
+    /// containing the supplied backup decyption key.
+    async fn queue_backup_decryption_key_secret(
+        client: Client,
+        secret_backup_decryption_key: &str,
+    ) {
+        let _guard = client.olm_machine().await;
+        let machine = _guard.as_ref().unwrap();
+        let transaction_id = TransactionId::new();
+        let secret_info = SecretInfo::SecretRequest(SecretName::RecoveryKey);
+        let user_id = machine.user_id().to_owned();
+
+        let gossip_request = GossipRequest {
+            request_recipient: machine.user_id().to_owned(),
+            request_id: transaction_id.clone(),
+            info: secret_info.clone(),
+            sent_out: true,
+        };
+
+        let event = DecryptedSecretSendEvent {
+            sender: user_id.clone(),
+            recipient: user_id.clone(),
+            keys: OlmV1Keys { ed25519: machine.identity_keys().ed25519 },
+            recipient_keys: OlmV1Keys { ed25519: machine.identity_keys().ed25519 },
+            sender_device_keys: None,
+            content: SecretSendContent::new(
+                transaction_id.to_owned(),
+                secret_backup_decryption_key.to_owned(),
+            ),
+        };
+
+        let gossipped_secret =
+            GossippedSecret { secret_name: SecretName::RecoveryKey, gossip_request, event };
+
+        let changes = Changes { secrets: vec![gossipped_secret], ..Default::default() };
+
+        machine
+            .store()
+            .save_changes(changes)
+            .await
+            .expect("We should be able to import a room key");
     }
 }

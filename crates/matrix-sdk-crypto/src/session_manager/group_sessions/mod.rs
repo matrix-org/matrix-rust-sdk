@@ -123,6 +123,7 @@ impl GroupSessionCache {
     ///
     /// * `room_id` - The id of the room for which we should get the outbound
     ///   group session.
+    #[cfg(test)]
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         self.sessions.read().get(room_id).cloned()
     }
@@ -159,7 +160,7 @@ impl GroupSessionManager {
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
-        if let Some(s) = self.sessions.get(room_id) {
+        if let Some(s) = self.sessions.get_or_load(room_id).await {
             s.invalidate_session();
 
             let mut changes = Changes::default();

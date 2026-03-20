@@ -37,6 +37,7 @@ use ruma::{
 };
 use tokio::{spawn, sync::broadcast, time::sleep};
 
+mod read_receipts;
 mod threads;
 
 macro_rules! assert_event_id {
@@ -2736,4 +2737,174 @@ async fn test_relations_ordering() {
     assert_eq!(relations[1].event_id().unwrap(), edit2);
     assert_eq!(relations[2].event_id().unwrap(), edit3);
     assert_eq!(relations[3].event_id().unwrap(), edit4);
+}
+
+#[async_test]
+async fn test_concurrent_backpagination() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Immediately subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!concurrent:test.com");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Limited sync with a room that has a prev_batch token.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("latest").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut room_stream).await;
+
+    // Mock a single back-pagination response with a delay to allow testing
+    // concurrency.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                f.text_msg("older2").event_id(event_id!("$2")),
+                f.text_msg("older1").event_id(event_id!("$3")),
+            ])
+            .with_delay(Duration::from_millis(200)))
+        .mock_once() // Important: only mock once to ensure both calls share the same request
+        .mount()
+        .await;
+
+    // Start two concurrent back-pagination requests.
+    let room_pagination = room_event_cache.pagination();
+
+    let (outcome1, outcome2) = tokio::join!(
+        room_pagination.run_backwards_once(10),
+        room_pagination.run_backwards_once(10),
+    );
+
+    // Both should succeed,
+    let outcome1 = outcome1.unwrap();
+    let outcome2 = outcome2.unwrap();
+
+    // And with the same results.
+    assert_eq!(outcome1.events.len(), 2);
+    assert_eq!(outcome2.events.len(), 2);
+
+    assert_eq!(outcome1.events[0].event_id().unwrap(), event_id!("$2"));
+    assert_eq!(outcome2.events[0].event_id().unwrap(), event_id!("$2"));
+    assert_eq!(outcome1.events[1].event_id().unwrap(), event_id!("$3"));
+    assert_eq!(outcome2.events[1].event_id().unwrap(), event_id!("$3"));
+
+    // Both should report we've reached the start of the timeline.
+    assert!(outcome1.reached_start);
+    assert!(outcome2.reached_start);
+
+    // Wait for the timeline updates to propagate.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+
+    // Verify the events are only inserted once, though.
+    assert_eq!(diffs.len(), 2);
+    assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
+        assert_eq!(*index, 0);
+        assert_event_matches_msg(event, "older1");
+    });
+    assert_matches!(&diffs[1], VectorDiff::Insert { index, value: event } => {
+        assert_eq!(*index, 1);
+        assert_event_matches_msg(event, "older2");
+    });
+
+    // Verify that the linked chunk now has all events in correct order.
+    let (final_events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(final_events.len(), 3);
+    assert_event_matches_msg(&final_events[0], "older1");
+    assert_event_matches_msg(&final_events[1], "older2");
+    assert_event_matches_msg(&final_events[2], "latest");
+}
+
+#[async_test]
+async fn test_sequential_backpagination_after_concurrent() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!sequential:test.com");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("latest").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("first_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut room_stream).await;
+
+    // Mock the first back-pagination (concurrent)
+    server
+        .mock_room_messages()
+        .match_from("first_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("batch1").event_id(event_id!("$2"))])
+            .end_token("second_batch")
+            .with_delay(Duration::from_millis(100)))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Run concurrent back-pagination
+    let pagination = room_event_cache.pagination();
+    let (outcome1, outcome2) =
+        tokio::join!(pagination.run_backwards_once(10), pagination.run_backwards_once(10),);
+
+    // Both should succeed
+    outcome1.unwrap();
+    outcome2.unwrap();
+
+    // Wait for the first batch update
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = room_stream.recv());
+
+    // Mock the second back-pagination (sequential)
+    server
+        .mock_room_messages()
+        .match_from("second_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("batch2").event_id(event_id!("$3"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Now run a sequential back-pagination - this should start a new pagination
+    let outcome3 = pagination.run_backwards_once(10).await.unwrap();
+
+    // This should have actual events since it's a new pagination
+    assert_eq!(outcome3.events.len(), 1);
+    assert_event_matches_msg(&outcome3.events[0], "batch2");
+
+    // Wait for the second batch update
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = room_stream.recv());
+
+    // Verify final timeline state
+    let (final_events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(final_events.len(), 3);
+    assert_event_matches_msg(&final_events[0], "batch2");
+    assert_event_matches_msg(&final_events[1], "batch1");
+    assert_event_matches_msg(&final_events[2], "latest");
 }

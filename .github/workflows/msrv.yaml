@@ -7,10 +7,14 @@ on:
   pull_request:
     branches: [main]
 
+permissions: {}
+
 jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
-    - uses: taiki-e/install-action@cargo-hack
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      with:
+        persist-credentials: false
+    - uses: taiki-e/install-action@4146cc238a18f9b3f3427572fd4585d2d2d78c88 # cargo-hack
     - run: cargo hack check --rust-version --workspace --all-targets

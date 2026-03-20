@@ -11,7 +11,10 @@ use matrix_sdk_test::{
 };
 use ruma::{
     OwnedEventId, RoomVersionId, device_id, event_id,
-    events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
+    events::{
+        AnySyncTimelineEvent,
+        room::{history_visibility::HistoryVisibility, message::RoomMessageEventContent},
+    },
     mxc_uri, room_id,
     serde::Raw,
     user_id,
@@ -94,7 +97,10 @@ async fn setup_shared_history(
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
                     .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
-                    .add_state_event(event_factory.room_encryption()),
+                    .add_state_event(event_factory.room_encryption())
+                    .add_state_event(
+                        event_factory.room_history_visibility(HistoryVisibility::Shared),
+                    ),
             );
         })
         .await;
@@ -146,7 +152,10 @@ async fn setup_shared_history(
             builder.add_invited_room(
                 InvitedRoomBuilder::new(room_id)
                     .add_state_event(alice_member_event.cast())
-                    .add_state_event(bob_member_event),
+                    .add_state_event(bob_member_event)
+                    .add_state_event(
+                        event_factory.room_history_visibility(HistoryVisibility::Shared),
+                    ),
             );
         })
         .await;

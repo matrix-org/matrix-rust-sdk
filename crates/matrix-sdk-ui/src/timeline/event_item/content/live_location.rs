@@ -122,6 +122,17 @@ impl LiveLocationState {
         self.beacon_info.is_live()
     }
 
+    /// The timestamp when this live location sharing session started
+    /// (from the `org.matrix.msc3488.ts` field of the originating
+    /// `beacon_info` state event).
+    ///
+    /// This marks the *beginning* of the session. The session expires at
+    /// `ts + timeout` — see [`LiveLocationState::is_live`] and
+    /// [`LiveLocationState::timeout`].
+    pub fn ts(&self) -> MilliSecondsSinceUnixEpoch {
+        self.beacon_info.ts
+    }
+
     /// An optional human-readable description for this sharing session
     /// (from the originating `beacon_info` event).
     pub fn description(&self) -> Option<&str> {

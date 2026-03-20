@@ -554,7 +554,8 @@ impl EventTimelineItem {
                 | MsgLikeKind::Poll(_)
                 | MsgLikeKind::Redacted
                 | MsgLikeKind::UnableToDecrypt(_)
-                | MsgLikeKind::Other(_) => None,
+                | MsgLikeKind::Other(_)
+                | MsgLikeKind::LiveLocation(_) => None,
             },
             TimelineItemContent::MembershipChange(_)
             | TimelineItemContent::ProfileChange(_)
@@ -562,8 +563,7 @@ impl EventTimelineItem {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification
-            | TimelineItemContent::LiveLocation(_) => None,
+            | TimelineItemContent::RtcNotification => None,
         };
 
         if let Some(body) = body {

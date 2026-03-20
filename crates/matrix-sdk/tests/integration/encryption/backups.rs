@@ -24,7 +24,7 @@ use matrix_sdk::{
     encryption::{
         BackupDownloadStrategy, EncryptionSettings,
         backups::{BackupState, UploadState, futures::SteadyStateError},
-        secret_storage::SecretStore,
+        secret_storage::{SecretStorageError, SecretStore},
     },
     test_utils::{
         client::mock_session_tokens, no_retry_test_client_with_server,
@@ -1098,6 +1098,8 @@ async fn test_enable_from_secret_storage_mismatched_key() -> TestResult {
 
     let store = init_secret_store(&client, &server).await;
 
+    // Given the public key of the backup does not match the private backup
+    // decryption key
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
         .and(header("authorization", "Bearer 1234"))
@@ -1111,13 +1113,66 @@ async fn test_enable_from_secret_storage_mismatched_key() -> TestResult {
             "etag": "1",
             "version": "6"
 
-
         })))
         .expect(1)
         .mount(&server)
         .await;
 
-    store.import_secrets().await?;
+    // When we attempt to load the secrets from secret storage
+    let import_error = store.import_secrets().await.unwrap_err();
+
+    // Then we receive an error about the mismatched keys
+    assert_matches!(import_error, SecretStorageError::InconsistentBackupDecryptionKey);
+
+    // And the backup state changes to Unknown
+    assert_eq!(
+        client.encryption().backups().state(),
+        BackupState::Unknown,
+        "The backup should go into the disabled state if we the current backup isn't using the \
+         backup recovery key we received from secret storage"
+    );
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_enable_from_secret_storage_missing_key() -> TestResult {
+    let session = matrix_session_example2();
+    let (builder, server) = test_client_builder_with_server().await;
+    let encryption_settings = EncryptionSettings {
+        backup_download_strategy: BackupDownloadStrategy::OneShot,
+        ..Default::default()
+    };
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .with_encryption_settings(encryption_settings)
+        .build()
+        .await?;
+
+    client.restore_session(session).await?;
+
+    // Given we return nothing when asked for the backup decryption key
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "_matrix/client/r0/user/{}/account_data/m.megolm_backup.v1",
+            client.user_id().unwrap()
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+
+    let store = init_secret_store(&client, &server).await;
+
+    mock_query_key_backup(&server).await;
+
+    // When we attempt to load the secrets from secret storage
+    let import_error = store.import_secrets().await.unwrap_err();
+
+    // Then we receive an error about the missing key
+    assert_matches!(import_error, SecretStorageError::MissingOrInvalidBackupDecryptionKey);
+
+    // And the backup state changes to Unknown
     assert_eq!(
         client.encryption().backups().state(),
         BackupState::Unknown,

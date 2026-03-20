@@ -412,8 +412,26 @@ impl Encryption {
         Ok(None)
     }
 
+    /// Download identity and key backup information from Recovery
     pub async fn recover(&self, mut recovery_key: String) -> Result<()> {
         let result = self.inner.recovery().recover(&recovery_key).await;
+
+        recovery_key.zeroize();
+
+        Ok(result?)
+    }
+
+    /// Download identity and key backup information from Recovery, and, if the
+    /// key backup information is inconsistent, create a new key backup.
+    ///
+    /// This will create a new key backup if:
+    ///
+    /// * Key backup is enabled and the backup decryption key is missing from
+    ///   Recovery, or
+    /// * Key backup is enabled and the backup decryption key does not match the
+    ///   public key
+    pub async fn recover_and_fix_backup(&self, mut recovery_key: String) -> Result<()> {
+        let result = self.inner.recovery().recover_and_fix_backup(&recovery_key).await;
 
         recovery_key.zeroize();
 
@@ -577,11 +595,7 @@ impl IdentityResetHandle {
     /// 3. Go through the cross-signing key reset flow
     /// 4. Finally, re-enable key backups only if they were enabled before
     pub async fn reset(&self, auth: Option<AuthData>) -> Result<(), ClientError> {
-        if let Some(auth) = auth {
-            self.inner.reset(Some(auth.into())).await.map_err(ClientError::from_err)
-        } else {
-            self.inner.reset(None).await.map_err(ClientError::from_err)
-        }
+        self.inner.reset(auth.map(Into::into)).await.map_err(ClientError::from_err)
     }
 
     pub async fn cancel(&self) {

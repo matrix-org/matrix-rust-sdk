@@ -21,7 +21,7 @@ use matrix_sdk::authentication::oauth::{
     },
     OAuth,
 };
-use matrix_sdk_base::crypto::types::qr_login;
+use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 
 use crate::{
@@ -273,6 +273,26 @@ impl QrCodeData {
             qr_login::QrCodeIntentData::Msc4388 { .. } => None,
         }
     }
+
+    /// The base URL of the homeserver contained within the scanned QR code
+    /// data.
+    ///
+    /// Note: This value is only present when scanning a QR code conforming to
+    /// MSC4388.
+    pub fn base_url(&self) -> Option<String> {
+        match self.inner.intent_data() {
+            qrcode::QrCodeIntentData::Msc4108 { .. } => None,
+            qrcode::QrCodeIntentData::Msc4388 { base_url, .. } => Some(base_url.to_string()),
+        }
+    }
+
+    /// Get the [`QrCodeIntent`] of this [`QrCodeData`] object.
+    ///
+    /// This tells us if the creator of the QR code wants to log in or if they
+    /// want to log another device in.
+    pub fn intent(&self) -> QrCodeIntent {
+        self.inner.intent()
+    }
 }
 
 /// Error type for the decoding of the [`QrCodeData`].
@@ -312,6 +332,8 @@ pub enum HumanQrLoginError {
     CheckCodeCannotBeSent,
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
@@ -342,8 +364,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_)
-                | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
+                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::UnsupportedQrCodeType => {
+                    HumanQrLoginError::UnsupportedQrCodeType
+                }
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode
@@ -422,6 +446,10 @@ pub enum HumanQrGrantLoginError {
     /// devices.
     #[error("A secure connection could not have been established between the two devices.")]
     ConnectionInsecure,
+
+    /// The QR code specifies an unsupported protocol version.
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
@@ -443,8 +471,8 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_)
-                | SecureChannelError::UnsupportedQrCodeType => Self::Unknown(e.to_string()),
+                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode

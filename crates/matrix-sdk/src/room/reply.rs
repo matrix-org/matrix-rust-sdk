@@ -40,6 +40,9 @@ pub struct Reply {
     pub event_id: OwnedEventId,
     /// Whether to enforce a thread relation.
     pub enforce_thread: EnforceThread,
+    /// Whether to add intentional Mentions. Might be ignored if the reply is
+    /// sent by the same user as the event that it replies to.
+    pub add_mentions: AddMentions,
 }
 
 /// Errors specific to unsupported replies.
@@ -125,7 +128,7 @@ async fn make_reply_event<S: EventSource>(
     // If the replied to event has been written by the current user, let's toggle to
     // `AddMentions::No`.
     let mention_the_sender =
-        if own_user_id == event.sender() { AddMentions::No } else { AddMentions::Yes };
+        if own_user_id == event.sender() { AddMentions::No } else { reply.add_mentions };
 
     let content = match reply.enforce_thread {
         EnforceThread::Threaded(is_reply) => {
@@ -153,7 +156,9 @@ mod tests {
         EventId, OwnedEventId, event_id,
         events::{
             AnySyncTimelineEvent,
-            room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                AddMentions, Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation,
+            },
         },
         serde::Raw,
         user_id,
@@ -198,7 +203,8 @@ mod tests {
                 content,
                 Reply {
                     event_id: event_id!("$2").into(),
-                    enforce_thread: EnforceThread::Unthreaded
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
                 },
             )
             .await,
@@ -239,7 +245,11 @@ mod tests {
                 cache,
                 own_user_id,
                 content,
-                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+                Reply {
+                    event_id: event_id.into(),
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
+                },
             )
             .await,
             Err(ReplyError::Deserialization)
@@ -265,7 +275,11 @@ mod tests {
                 cache,
                 own_user_id,
                 content,
-                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+                Reply {
+                    event_id: event_id.into(),
+                    enforce_thread: EnforceThread::Unthreaded,
+                    add_mentions: AddMentions::Yes,
+                },
             )
             .await,
             Err(ReplyError::StateEvent)
@@ -290,7 +304,11 @@ mod tests {
             cache,
             own_user_id,
             content,
-            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::Yes,
+            },
         )
         .await
         .unwrap();
@@ -321,6 +339,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -363,6 +382,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -405,6 +425,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -444,7 +465,11 @@ mod tests {
             cache,
             own_user_id,
             content,
-            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::MaybeThreaded },
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+                add_mentions: AddMentions::Yes,
+            },
         )
         .await
         .unwrap();
@@ -487,6 +512,7 @@ mod tests {
             Reply {
                 event_id: event_id.into(),
                 enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                add_mentions: AddMentions::Yes,
             },
         )
         .await
@@ -497,5 +523,68 @@ mod tests {
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
         assert!(thread.is_falling_back);
+    }
+
+    #[async_test]
+    async fn test_reply_without_add_mentions() {
+        let event_id = event_id!("$1");
+        let other_user_id = user_id!("@you:saucisse.bzh");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(other_user_id).into(),
+        );
+
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            own_user_id,
+            content,
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::No,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(reply_event.mentions.is_none());
+    }
+
+    #[async_test]
+    async fn test_reply_with_add_mentions() {
+        let event_id = event_id!("$1");
+        let other_user_id = user_id!("@you:saucisse.bzh");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(other_user_id).into(),
+        );
+
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            own_user_id,
+            content,
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Unthreaded,
+                add_mentions: AddMentions::Yes,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(reply_event.mentions.is_some());
+        assert!(reply_event.mentions.unwrap().user_ids.contains(user_id!("@you:saucisse.bzh")));
     }
 }

@@ -1908,6 +1908,8 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let (room_event_cache, _drop_guards) = room.event_cache().await.unwrap();
     let outcome = room_event_cache
         .thread_pagination(thread_root.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();

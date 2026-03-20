@@ -37,7 +37,7 @@ use ruma::{
         room::{
             MediaSource,
             message::{
-                ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
+                AddMentions, ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
                 RoomMessageEventContent, TextMessageEventContent,
             },
         },
@@ -1942,6 +1942,7 @@ async fn test_media_uploads() {
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),
             enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
+            add_mentions: AddMentions::Yes,
         }))
         .info(attachment_info);
 
@@ -2269,6 +2270,7 @@ async fn test_gallery_uploads() {
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),
             enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
+            add_mentions: AddMentions::Yes,
         }));
 
     // ----------------------

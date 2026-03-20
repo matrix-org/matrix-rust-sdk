@@ -54,9 +54,11 @@ mod tests {
 
         for is_marked_as_unread in [true, false] {
             let read_receipts_and_unread = |_: &RoomListItem| {
-                let mut read_receipts = RoomReadReceipts::default();
-                read_receipts.num_unread = 42;
-                read_receipts.num_notifications = 42;
+                let read_receipts = RoomReadReceipts {
+                    num_unread: 42,
+                    num_notifications: 42,
+                    ..Default::default()
+                };
 
                 (read_receipts, is_marked_as_unread)
             };
@@ -71,9 +73,8 @@ mod tests {
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let read_receipts_and_unread = |_: &RoomListItem| {
-            let mut read_receipts = RoomReadReceipts::default();
-            read_receipts.num_unread = 42;
-            read_receipts.num_notifications = 0;
+            let read_receipts =
+                RoomReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
 
             (read_receipts, false)
         };
@@ -87,9 +88,8 @@ mod tests {
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let read_receipts_and_unread = |_: &RoomListItem| {
-            let mut read_receipts = RoomReadReceipts::default();
-            read_receipts.num_unread = 42;
-            read_receipts.num_notifications = 0;
+            let read_receipts =
+                RoomReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
 
             (read_receipts, true)
         };

@@ -366,7 +366,7 @@ impl UpdateObserver {
         // Wait for the room info updates to stabilize.
         let mut update = None;
 
-        while let Ok(Some(up)) = timeout(Duration::from_secs(2), self.subscriber.next()).await {
+        while let Ok(Some(up)) = timeout(Duration::from_secs(4), self.subscriber.next()).await {
             update = Some(up);
         }
         let update = update.expect("there should have been an update");

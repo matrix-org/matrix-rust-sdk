@@ -7,6 +7,8 @@ on:
   pull_request:
     branches: [main]
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -35,7 +37,7 @@ jobs:
           - no-encryption-and-sqlite
           - sqlite-cryptostore
           - experimental-encrypted-state-events
-          - rustls-tls
+          - native-tls
           - markdown
           - socks
           - sso-login
@@ -43,10 +45,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Install libsqlite
         run: |
@@ -54,7 +58,7 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           # use a separate cache for each job to work around
           # https://github.com/Swatinem/rust-cache/issues/124
@@ -65,10 +69,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Get xtask
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -85,21 +89,23 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Get xtask
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -116,7 +122,9 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install libsqlite
         run: |
@@ -124,20 +132,20 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           components: clippy
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Get xtask
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -169,10 +177,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@64c5c20c872907b6f7cd50994ac189e7274160f2 # v2
         with:
           tool: protoc@3.20.3
 
@@ -183,17 +193,17 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # master
         with:
           toolchain: ${{ matrix.rust }}
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Test
         run: |
@@ -241,22 +251,24 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           targets: wasm32-unknown-unknown
           components: clippy
 
       - name: Install wasm-pack
-        uses: qmaru/wasm-pack-action@v0.5.3
+        uses: qmaru/wasm-pack-action@785fe709cd17eb6a97607eda9b6f5dbebed2b89c # v0.5.3
         if: '!matrix.check_only'
         with:
           version: v0.13.1
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           # use a separate cache for each job to work around
           # https://github.com/Swatinem/rust-cache/issues/124
@@ -267,10 +279,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Get xtask
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -291,10 +303,12 @@ jobs:
 
     steps:
       - name: Checkout Actions Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@v1.44.0
+        uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # v1.44.0
 
   lint:
     name: Lint
@@ -303,26 +317,28 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@64c5c20c872907b6f7cd50994ac189e7274160f2 # v2
         with:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # master
         with:
           toolchain: nightly-2026-02-26
           components: clippy, rustfmt
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -362,7 +378,9 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Install libsqlite
         run: |
@@ -370,15 +388,15 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e28ca663369ecd0d4acc114be0b55092dcd84136 # nextest
 
       - name: Test
         env:
@@ -390,7 +408,7 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3
         with:
           files: ./target/nextest/ci/junit.xml
           token: ${{ secrets.CODECOV_TOKEN }}

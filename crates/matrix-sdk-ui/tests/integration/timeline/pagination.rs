@@ -40,7 +40,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
-    EventId,
+    EventId, event_id,
     events::{StateEventContentChange, room::message::MessageType},
     room_id, user_id,
 };
@@ -176,8 +176,21 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
+    client.event_cache().subscribe().unwrap();
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let room = server.sync_joined_room(&client, room_id).await;
+
+    // Provide the room with a previous-batch token, to speed up the first
+    // pagination (so we don't have to wait for such a token from sync, when
+    // paginating).
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("previous-batch"),
+        )
+        .await;
 
     server.mock_room_state_encryption().plain().mount().await;
 
@@ -198,7 +211,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         .ok(RoomMessagesResponseTemplate::default().events({
             // Return 30 events in this pagination.
             let mut events = Vec::new();
-            for i in 0..30 {
+            // Invert indices, so that in the event cache they end ordered from $0 to $29.
+            for i in (0..30).rev() {
                 events.push(
                     f.text_msg(format!("hello world {i}"))
                         .event_id(&EventId::parse(format!("$ev{i}")).unwrap()),
@@ -213,45 +227,90 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     let hit_start = timeline.paginate_backwards(30).await.unwrap();
     assert!(hit_start);
 
-    {
-        // Before the event cache returns the items, it will report that we've hit the
-        // timeline start.
-        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 1);
-        assert_let!(VectorDiff::PushFront { value: start } = &timeline_updates[0]);
-        assert!(start.is_timeline_start());
+    // We get updates for the events, and the timeline start.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 39);
+
+    for i in 0..18 {
+        let expected_event_id = EventId::parse(format!("$ev{}", i + 11)).unwrap();
+
+        // the item itself.
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2 * i]);
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
+        assert_let!(MessageType::Text(text) = msg.msgtype());
+        assert!(text.body.starts_with("hello world"));
+        // check the event id as well.
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
+
+        // update for the read receipt for the same event.
+        assert_let!(VectorDiff::Set { index: updated_index, value } = &timeline_updates[2 * i + 1]);
+        assert_eq!(*updated_index, i);
+        let event_item = value.as_event().unwrap();
+        // check the event id as well.
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
     }
 
-    // Then we get the events from the event cache.
-    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 60);
-
-    for i in 0..30 {
-        // the item itself
-        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2 * i]);
-        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
+    // After the loop, the last index that's been peeked is 2*17+1 == 35.
+    // These three happen differently, because we're getting closer to the initial
+    // maximum skip count value.
+    {
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[36]);
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert!(text.body.starts_with("hello world"));
 
-        if i != 29 {
-            // update for the read receipt.
-            assert_let!(
-                VectorDiff::Set { index: updated_index, value: _ } = &timeline_updates[2 * i + 1]
-            );
-            // off by one, because of the timeline start.
-            assert_eq!(*updated_index, i + 1);
-        } else {
-            // The date divider is finally inserted after the timeline start.
-            assert_let!(
-                VectorDiff::Insert { index: 1, value: date_divider } = &timeline_updates[2 * i + 1]
-            );
-            assert!(date_divider.is_date_divider());
+        // Last event in the above loop has event id 28.
+        assert_eq!(event_item.event_id().unwrap(), event_id!("$ev29"));
+
+        for i in 0..1 {
+            assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[37 + i]);
+            let event_item = message.as_event().unwrap();
+            assert_let!(Some(msg) = event_item.content().as_message());
+            assert_let!(MessageType::Text(text) = msg.msgtype());
+            assert!(text.body.starts_with("hello world"));
+
+            // First event was $ev11.
+            let expected_event_id = EventId::parse(format!("$ev{}", 10 - i)).unwrap();
+            assert_eq!(event_item.event_id().unwrap(), expected_event_id);
         }
     }
 
     assert_pending!(timeline_stream);
+    assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: false });
 
-    assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: true });
+    // If we back-paginate again, we'd get all the previous items, by adjusting the
+    // skip count, but not hitting network.
+    timeline.paginate_backwards(30).await.unwrap();
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 11);
+
+    for (i, item) in timeline_updates.iter().take(9).enumerate() {
+        assert_let!(VectorDiff::PushFront { value: message } = item);
+        let event_item = message.as_event().unwrap();
+        assert_let!(Some(msg) = event_item.content().as_message());
+        assert_let!(MessageType::Text(text) = msg.msgtype());
+        assert!(text.body.starts_with("hello world"));
+
+        let expected_event_id = EventId::parse(format!("$ev{}", 8 - i)).unwrap();
+        assert_eq!(event_item.event_id().unwrap(), expected_event_id);
+    }
+
+    {
+        // Then the date divider is pushed at the front,
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[9]);
+        assert!(value.is_date_divider());
+    }
+
+    {
+        // Then the timeline start is pushed at the front,
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[10]);
+        assert!(value.is_timeline_start());
+    }
+
+    assert_pending!(timeline_stream);
 
     // Another timeline is opened, with the first one still open.
     let timeline2 = room.timeline().await.unwrap();
@@ -966,40 +1025,40 @@ async fn test_until_num_items_with_empty_chunk() {
     assert!(reached_start);
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
-    assert!(value.is_timeline_start());
+    assert_eq!(timeline_updates.len(), 2);
 
     // `m.room.name`: “hello room then”
     {
-        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 1);
-
-        assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[0]);
+        assert_let!(VectorDiff::Insert { index: 1, value: message } = &timeline_updates[0]);
         assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello room then");
     }
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_timeline_start());
 
     assert_pending!(timeline_stream);
 }
 
 #[async_test]
 async fn test_back_pagination_aborted() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    client.event_cache().subscribe().unwrap();
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch"),
+        )
+        .await;
 
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
@@ -1010,9 +1069,9 @@ async fn test_back_pagination_aborted() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(&*ROOM_MESSAGES_BATCH_1)
-                .set_delay(Duration::from_secs(5)),
+                .set_delay(Duration::from_secs(1)),
         )
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let paginate = spawn({
@@ -1022,16 +1081,21 @@ async fn test_back_pagination_aborted() {
         }
     });
 
-    assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+    assert_let_timeout!(Some(PaginationStatus::Paginating) = back_pagination_status.next());
 
-    // Abort the pagination!
+    // Abort the pagination task.
     paginate.abort();
 
-    // The task should finish with a cancellation.
+    // The spawned task should finish with a cancellation.
     assert!(paginate.await.unwrap_err().is_cancelled());
 
-    // The timeline should automatically reset to idle.
-    assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: false });
+    // But since the pagination task is owned by the event cache, it continues in
+    // the background.
+    assert_let_timeout!(
+        Duration::from_secs(2),
+        Some(PaginationStatus::Idle { hit_timeline_start }) = back_pagination_status.next()
+    );
+    assert!(hit_timeline_start.not());
 
     // And there should be no other pending pagination status updates.
     assert!(back_pagination_status.next().now_or_never().is_none());
@@ -1262,17 +1326,9 @@ async fn test_lazy_back_pagination() {
         // The start of the timeline is inserted as its own timeline update.
         assert_timeline_stream! {
             [timeline_stream]
+            insert[1] "$ev201";
+            insert[2] "$ev200";
             prepend --- timeline start ---;
-        };
-
-        // Receive 3 new items.
-        //
-        // They are inserted after the date divider and start of timeline, hence the
-        // indices 2 and 3.
-        assert_timeline_stream! {
-            [timeline_stream]
-            insert[2] "$ev201";
-            insert[3] "$ev200";
         };
 
         // So cool.

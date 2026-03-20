@@ -80,14 +80,11 @@ mod tests {
         events::{
             StateEventContentChange,
             room::pinned_events::{
-                PossiblyRedactedRoomPinnedEventsEventContent, RedactedRoomPinnedEventsEventContent,
-                RoomPinnedEventsEventContent,
+                RedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
             },
         },
         owned_event_id,
-        serde::Raw,
     };
-    use serde_json::json;
 
     use crate::timeline::event_item::content::pinned_events::RoomPinnedEventsChange;
 
@@ -111,11 +108,9 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_added_ids_returns_added() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(Vec::new());
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
-            prev_content,
+            prev_content: Some(RoomPinnedEventsEventContent::new(Vec::new()).into()),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Added);
@@ -123,11 +118,11 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_removed_ids_returns_removed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1"]);
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(Vec::new()),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Removed);
@@ -135,11 +130,11 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_added_and_removed_ids_returns_changed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1"]);
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$2")]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -147,14 +142,18 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_changed_order_returns_changed() {
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1", "$2"]);
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$2"),
                 owned_event_id!("$1"),
             ]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![
+                    owned_event_id!("$1"),
+                    owned_event_id!("$2"),
+                ])
+                .into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -165,29 +164,20 @@ mod tests {
         // Returning Changed is counter-intuitive, but it makes no sense to display in
         // the timeline 'UserFoo didn't change anything in the pinned events'
 
-        // This is the only way I found to create the PossiblyRedacted content
-        let prev_content = possibly_redacted_content(vec!["$1", "$2"]);
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$1"),
                 owned_event_id!("$2"),
             ]),
-            prev_content,
+            prev_content: Some(
+                RoomPinnedEventsEventContent::new(vec![
+                    owned_event_id!("$1"),
+                    owned_event_id!("$2"),
+                ])
+                .into(),
+            ),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
-    }
-
-    fn possibly_redacted_content(
-        ids: Vec<&str>,
-    ) -> Option<PossiblyRedactedRoomPinnedEventsEventContent> {
-        // This is the only way I found to create the PossiblyRedacted content
-        Raw::new(&json!({
-            "pinned": ids,
-        }))
-        .unwrap()
-        .cast_unchecked::<PossiblyRedactedRoomPinnedEventsEventContent>()
-        .deserialize()
-        .ok()
     }
 }

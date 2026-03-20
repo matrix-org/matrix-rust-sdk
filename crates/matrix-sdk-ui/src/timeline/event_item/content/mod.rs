@@ -116,13 +116,6 @@ pub enum TimelineItemContent {
 
     /// An `m.rtc.notification` event
     RtcNotification,
-
-    /// A live location sharing session (MSC3489).
-    ///
-    /// Created from an `org.matrix.msc3672.beacon_info` state event.
-    /// Subsequent `org.matrix.msc3672.beacon` message-like events are
-    /// aggregated onto this item.
-    LiveLocation(LiveLocationState),
 }
 
 impl TimelineItemContent {
@@ -130,24 +123,32 @@ impl TimelineItemContent {
         as_variant!(self, TimelineItemContent::MsgLike)
     }
 
-    /// If `self` is of the [`LiveLocation`][Self::LiveLocation] variant, return
-    /// the inner [`LiveLocationState`].
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant with a
+    /// [`LiveLocation`][MsgLikeKind::LiveLocation] kind, return the inner
+    /// [`LiveLocationState`].
     pub fn as_live_location_state(&self) -> Option<&LiveLocationState> {
-        as_variant!(self, Self::LiveLocation)
+        as_variant!(self, Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::LiveLocation(state),
+            ..
+        }) => state)
     }
 
-    /// If `self` is of the [`LiveLocation`][Self::LiveLocation] variant, return
-    /// the inner [`LiveLocationState`] mutably.
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant with a
+    /// [`LiveLocation`][MsgLikeKind::LiveLocation] kind, return the inner
+    /// [`LiveLocationState`] mutably.
     pub(in crate::timeline) fn as_live_location_state_mut(
         &mut self,
     ) -> Option<&mut LiveLocationState> {
-        as_variant!(self, Self::LiveLocation)
+        as_variant!(self, Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::LiveLocation(state),
+            ..
+        }) => state)
     }
 
-    /// Check whether this item's content is a live location
-    /// [`LiveLocation`][Self::LiveLocation].
+    /// Check whether this item's content is a
+    /// [`LiveLocation`][MsgLikeKind::LiveLocation].
     pub fn is_live_location(&self) -> bool {
-        matches!(self, Self::LiveLocation(_))
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
     }
 
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
@@ -256,7 +257,6 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
             TimelineItemContent::RtcNotification => "a call notification",
-            TimelineItemContent::LiveLocation(_) => "a live location share",
         }
     }
 
@@ -327,7 +327,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification | Self::LiveLocation(_) => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -359,8 +359,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification
-            | TimelineItemContent::LiveLocation(..) => {
+            | TimelineItemContent::RtcNotification => {
                 // No reactions for these kind of items.
                 None
             }
@@ -385,8 +384,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification
-            | TimelineItemContent::LiveLocation(..) => {
+            | TimelineItemContent::RtcNotification => {
                 // No reactions for these kind of items.
                 None
             }

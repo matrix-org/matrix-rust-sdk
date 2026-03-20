@@ -27,7 +27,6 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
-    linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -35,7 +34,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(in super::super) use state::RoomEventCacheStateLock;
+pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
 pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
@@ -45,17 +44,17 @@ pub use updates::{
 };
 
 use super::{
-    super::{
-        AutoShrinkChannelPayload, EventCacheError, EventsOrigin, PaginationStatus, Result,
-        RoomPagination,
-    },
+    super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     thread::pagination::ThreadPagination,
 };
 use crate::{
     client::WeakClient,
-    event_cache::{EventFocusThreadMode, caches::event_focused::EventFocusedCache},
+    event_cache::{
+        EventFocusThreadMode,
+        caches::{event_focused::EventFocusedCache, pagination::SharedPaginationStatus},
+    },
     room::WeakRoom,
 };
 
@@ -75,20 +74,20 @@ impl fmt::Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    pub(in super::super) fn new(
-        client: WeakClient,
-        state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<PaginationStatus>,
+    pub(super) fn new(
         room_id: OwnedRoomId,
+        weak_room: WeakRoom,
+        state: LockedRoomEventCacheState,
+        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
-                client,
-                state,
-                pagination_status,
                 room_id,
+                weak_room,
+                state,
+                shared_pagination_status,
                 auto_shrink_sender,
                 update_sender,
             )),
@@ -142,7 +141,8 @@ impl RoomEventCache {
         thread_root: OwnedEventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let mut state = self.inner.state.write().await?;
-        Ok(state.subscribe_to_thread(thread_root))
+
+        state.subscribe_to_thread(thread_root).await
     }
 
     /// Subscribe to the pinned event cache for this room.
@@ -239,16 +239,16 @@ impl RoomEventCache {
         Ok(self.inner.state.read().await?.get_event_focused_cache(event_id, thread_mode))
     }
 
-    /// Return a [`RoomPagination`] API object useful for running
-    /// back-pagination queries in the current room.
+    /// Return a [`RoomPagination`] type useful for running back-pagination
+    /// queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination::new(self.inner.clone())
     }
 
-    /// Return a `ThreadPagination` API object useful for running
-    /// back-pagination queries in the `thread_id` thread.
-    pub fn thread_pagination(&self, thread_id: OwnedEventId) -> ThreadPagination {
-        ThreadPagination::new(self.inner.clone(), thread_id)
+    /// Return a [`ThreadPagination`] type useful for running back-pagination
+    /// queries in the `thread_id` thread.
+    pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
+        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).pagination())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -351,16 +351,13 @@ impl RoomEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &RoomEventCacheStateLock {
+    pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
         &self.inner.state
     }
 
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(in super::super) async fn handle_joined_room_update(
-        &self,
-        updates: JoinedRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.inner
             .handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.ambiguity_changes)
             .await?;
@@ -371,10 +368,7 @@ impl RoomEventCache {
 
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(in super::super) async fn handle_left_room_update(
-        &self,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
@@ -427,19 +421,19 @@ impl RoomEventCache {
 }
 
 /// The (non-cloneable) details of the `RoomEventCache`.
-pub(in super::super) struct RoomEventCacheInner {
+pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
     pub weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: RoomEventCacheStateLock,
+    pub state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
-    pub pagination_status: SharedObservable<PaginationStatus>,
+    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -455,23 +449,21 @@ impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
     fn new(
-        client: WeakClient,
-        state: RoomEventCacheStateLock,
-        pagination_status: SharedObservable<PaginationStatus>,
         room_id: OwnedRoomId,
+        weak_room: WeakRoom,
+        state: LockedRoomEventCacheState,
+        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
-        let weak_room = WeakRoom::new(client, room_id);
-
         Self {
-            room_id: weak_room.room_id().to_owned(),
+            room_id,
             weak_room,
             state,
             update_sender,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
-            pagination_status,
+            shared_pagination_status,
         }
     }
 
@@ -535,7 +527,7 @@ impl RoomEventCacheInner {
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            self.state.write().await?.handle_sync(timeline).await?;
+            self.state.write().await?.handle_sync(timeline, &ephemeral_events).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -577,18 +569,9 @@ pub(in super::super) enum PostProcessingOrigin {
     Redecryption,
 }
 
-/// An enum representing where an event has been found.
-pub(in super::super) enum EventLocation {
-    /// Event lives in memory (and likely in the store!).
-    Memory(Position),
-
-    /// Event lives in the store only, it has not been loaded in memory yet.
-    Store,
-}
-
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_base::event_cache::Event;
+    use matrix_sdk_base::{RoomState, event_cache::Event};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         RoomId, event_id,
@@ -710,7 +693,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -777,7 +760,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -820,7 +803,7 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -866,6 +849,7 @@ mod timed_tests {
     use eyeball_im::VectorDiff;
     use futures_util::FutureExt;
     use matrix_sdk_base::{
+        RoomState,
         event_cache::{
             Gap,
             store::{EventCacheStore as _, MemoryStore},
@@ -882,17 +866,21 @@ mod timed_tests {
     use ruma::{
         EventId, OwnedUserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-        room_id, user_id,
+        room_id,
+        serde::Raw,
+        user_id,
     };
+    use serde_json::json;
     use tokio::task::yield_now;
 
     use super::{
-        super::{lock::Reload as _, pagination::LoadMoreEventsBackwardsOutcome},
+        super::{
+            super::TimelineVectorDiffs, lock::Reload as _,
+            pagination::LoadMoreEventsBackwardsOutcome,
+        },
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
-    use crate::{
-        assert_let_timeout, event_cache::TimelineVectorDiffs, test_utils::client::MockClientBuilder,
-    };
+    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -916,7 +904,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -993,7 +981,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1135,7 +1123,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1296,7 +1284,7 @@ mod timed_tests {
         // Let's check whether the generic updates are received for the initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1419,7 +1407,7 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1446,7 +1434,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1477,7 +1465,7 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         {
-            let mut state = room_event_cache.inner.state.write().await.unwrap();
+            let state = room_event_cache.inner.state.read().await.unwrap();
 
             let mut num_gaps = 0;
             let mut num_events = 0;
@@ -1493,15 +1481,20 @@ mod timed_tests {
             // the events.
             assert_eq!(num_gaps, 0);
             assert_eq!(num_events, 1);
+        }
 
-            // But if I manually reload more of the chunk, the gap will be present.
-            assert_matches!(
-                state.load_more_events_backwards().await.unwrap(),
-                LoadMoreEventsBackwardsOutcome::Gap { .. }
-            );
+        // But if I manually reload more of the chunk, the gap will be present.
+        assert_matches!(
+            room_event_cache.pagination().load_more_events_backwards().await.unwrap(),
+            LoadMoreEventsBackwardsOutcome::Gap { .. }
+        );
 
-            num_gaps = 0;
-            num_events = 0;
+        {
+            let state = room_event_cache.inner.state.read().await.unwrap();
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
             for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
@@ -1612,7 +1605,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -1746,7 +1739,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -1901,7 +1894,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -2033,7 +2026,7 @@ mod timed_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
@@ -2161,8 +2154,8 @@ mod timed_tests {
             let event_cache_p1 = client_p1.event_cache();
             event_cache_p1.subscribe().unwrap();
 
-            client_p0.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-            client_p1.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let (room_event_cache_p0, _drop_handles) =
                 client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
@@ -2620,19 +2613,11 @@ mod timed_tests {
             let event_cache_p1 = client_p1.event_cache();
             event_cache_p1.subscribe().unwrap();
 
-            client_p0
-                .base_client()
-                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
-            client_p0
-                .base_client()
-                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+            client_p0.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-            client_p1
-                .base_client()
-                .get_or_create_room(room_id_0, matrix_sdk_base::RoomState::Joined);
-            client_p1
-                .base_client()
-                .get_or_create_room(room_id_1, matrix_sdk_base::RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
             let (room_event_cache_0_p0, _drop_handles) =
                 client_p0.get_room(room_id_0).unwrap().event_cache().await.unwrap();
@@ -2662,6 +2647,53 @@ mod timed_tests {
 
         // The only way to test this behaviour is to see that the dirty block in
         // `RoomEventCacheStateLock` is covered by this test.
+    }
+
+    #[async_test]
+    async fn test_uniq_read_marker() {
+        let client = MockClientBuilder::new(None).build().await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+
+        event_cache.subscribe().unwrap();
+
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+        assert!(events.is_empty());
+
+        // When sending multiple times the same read marker event,…
+        let read_marker_event = Raw::from_json_string(
+            json!({
+                "content": {
+                    "event_id": "$crepe:saucisse.bzh"
+                },
+                "room_id": "!galette:saucisse.bzh",
+                "type": "m.fully_read"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let account_data = vec![read_marker_event; 100];
+
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
+            .await
+            .unwrap();
+
+        // … there's only one read marker update.
+        assert_matches!(
+            stream.recv().await.unwrap(),
+            RoomEventCacheUpdate::MoveReadMarkerTo { .. }
+        );
+
+        assert!(stream.recv().now_or_never().is_none());
+
+        // None, because an account data doesn't trigger a generic update.
+        assert!(generic_stream.recv().now_or_never().is_none());
     }
 
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {

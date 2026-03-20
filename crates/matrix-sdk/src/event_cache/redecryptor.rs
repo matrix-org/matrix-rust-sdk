@@ -286,9 +286,9 @@ impl EventCache {
     async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
-        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
-            let room_utds: Vec<_> = room_cache
-                .events()
+        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = caches
+                .all_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -324,9 +324,9 @@ impl EventCache {
     ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
-        for (room_id, room_cache) in self.inner.by_room.read().await.iter() {
-            let room_utds: Vec<_> = room_cache
-                .events()
+        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+            let room_utds: Vec<_> = caches
+                .all_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -403,7 +403,17 @@ impl EventCache {
             }
         }
 
-        state.post_process_new_events(new_events, PostProcessingOrigin::Redecryption).await?;
+        // Read receipt events aren't encrypted, so we can't have decrypted a new one
+        // here. As a result, we don't have any new receipt events to
+        // post-process, so we can just pass `None` here.
+        //
+        // Note: read receipts may be updated anyhow in the post-processing step, as the
+        // redecryption may have decrypted some events that don't count as unreads.
+        let receipt_event = None;
+
+        state
+            .post_process_new_events(new_events, PostProcessingOrigin::Redecryption, receipt_event)
+            .await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have
         // been queued up. We need to send them out to our subscribers now.

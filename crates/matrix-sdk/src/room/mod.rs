@@ -99,7 +99,10 @@ use ruma::{
         state::{get_state_event_for_key, send_state_event},
         tag::{create_tag, delete_tag},
         threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
-        typing::create_typing_event::{self, v3::Typing},
+        typing::create_typing_event::{
+            self,
+            v3::{Typing, TypingInfo},
+        },
     },
     assign,
     events::{
@@ -430,7 +433,7 @@ impl Room {
                 match error {
                     // The user is trying to leave a room but doesn't have permissions to do so.
                     // Let's consider the user has left the room.
-                    ErrorKind::Forbidden { .. } => true,
+                    ErrorKind::Forbidden => true,
                     _ => false,
                 }
             } else {
@@ -2114,7 +2117,7 @@ impl Room {
                 .write()
                 .unwrap()
                 .insert(self.room_id().to_owned(), Instant::now());
-            Typing::Yes(TYPING_NOTICE_TIMEOUT)
+            Typing::Yes(TypingInfo::new(TYPING_NOTICE_TIMEOUT))
         } else {
             self.client.inner.typing_notice_times.write().unwrap().remove(self.room_id());
             Typing::No
@@ -3841,7 +3844,6 @@ impl Room {
     pub async fn report_content(
         &self,
         event_id: OwnedEventId,
-        score: Option<ReportedContentScore>,
         reason: Option<String>,
     ) -> Result<report_content::v3::Response> {
         let state = self.state();
@@ -3849,11 +3851,13 @@ impl Room {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Joined", state))));
         }
 
-        let request = report_content::v3::Request::new(
-            self.inner.room_id().to_owned(),
-            event_id,
-            score.map(Into::into),
-            reason,
+        let request = assign!(
+            report_content::v3::Request::new(
+                self.inner.room_id().to_owned(),
+                event_id,
+            ), {
+                reason: reason
+            }
         );
         Ok(self.client.send(request).await?)
     }
@@ -4733,134 +4737,6 @@ pub enum ParentSpace {
     Unverifiable(OwnedRoomId),
 }
 
-/// The score to rate an inappropriate content.
-///
-/// Must be a value between `0`, inoffensive, and `-100`, very offensive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ReportedContentScore(i8);
-
-impl ReportedContentScore {
-    /// The smallest value that can be represented by this type.
-    ///
-    /// This is for very offensive content.
-    pub const MIN: Self = Self(-100);
-
-    /// The largest value that can be represented by this type.
-    ///
-    /// This is for inoffensive content.
-    pub const MAX: Self = Self(0);
-
-    /// Try to create a `ReportedContentScore` from the provided `i8`.
-    ///
-    /// Returns `None` if it is smaller than [`ReportedContentScore::MIN`] or
-    /// larger than [`ReportedContentScore::MAX`] .
-    ///
-    /// This is the same as the `TryFrom<i8>` implementation for
-    /// `ReportedContentScore`, except that it returns an `Option` instead
-    /// of a `Result`.
-    pub fn new(value: i8) -> Option<Self> {
-        value.try_into().ok()
-    }
-
-    /// Create a `ReportedContentScore` from the provided `i8` clamped to the
-    /// acceptable interval.
-    ///
-    /// The given value gets clamped into the closed interval between
-    /// [`ReportedContentScore::MIN`] and [`ReportedContentScore::MAX`].
-    pub fn new_saturating(value: i8) -> Self {
-        if value > Self::MAX {
-            Self::MAX
-        } else if value < Self::MIN {
-            Self::MIN
-        } else {
-            Self(value)
-        }
-    }
-
-    /// The value of this score.
-    pub fn value(&self) -> i8 {
-        self.0
-    }
-}
-
-impl PartialEq<i8> for ReportedContentScore {
-    fn eq(&self, other: &i8) -> bool {
-        self.0.eq(other)
-    }
-}
-
-impl PartialEq<ReportedContentScore> for i8 {
-    fn eq(&self, other: &ReportedContentScore) -> bool {
-        self.eq(&other.0)
-    }
-}
-
-impl PartialOrd<i8> for ReportedContentScore {
-    fn partial_cmp(&self, other: &i8) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
-    }
-}
-
-impl PartialOrd<ReportedContentScore> for i8 {
-    fn partial_cmp(&self, other: &ReportedContentScore) -> Option<std::cmp::Ordering> {
-        self.partial_cmp(&other.0)
-    }
-}
-
-impl From<ReportedContentScore> for Int {
-    fn from(value: ReportedContentScore) -> Self {
-        value.0.into()
-    }
-}
-
-impl TryFrom<i8> for ReportedContentScore {
-    type Error = TryFromReportedContentScoreError;
-
-    fn try_from(value: i8) -> std::prelude::v1::Result<Self, Self::Error> {
-        if value > Self::MAX || value < Self::MIN {
-            Err(TryFromReportedContentScoreError(()))
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
-impl TryFrom<i16> for ReportedContentScore {
-    type Error = TryFromReportedContentScoreError;
-
-    fn try_from(value: i16) -> std::prelude::v1::Result<Self, Self::Error> {
-        let value = i8::try_from(value).map_err(|_| TryFromReportedContentScoreError(()))?;
-        value.try_into()
-    }
-}
-
-impl TryFrom<i32> for ReportedContentScore {
-    type Error = TryFromReportedContentScoreError;
-
-    fn try_from(value: i32) -> std::prelude::v1::Result<Self, Self::Error> {
-        let value = i8::try_from(value).map_err(|_| TryFromReportedContentScoreError(()))?;
-        value.try_into()
-    }
-}
-
-impl TryFrom<i64> for ReportedContentScore {
-    type Error = TryFromReportedContentScoreError;
-
-    fn try_from(value: i64) -> std::prelude::v1::Result<Self, Self::Error> {
-        let value = i8::try_from(value).map_err(|_| TryFromReportedContentScoreError(()))?;
-        value.try_into()
-    }
-}
-
-impl TryFrom<Int> for ReportedContentScore {
-    type Error = TryFromReportedContentScoreError;
-
-    fn try_from(value: Int) -> std::prelude::v1::Result<Self, Self::Error> {
-        let value = i8::try_from(value).map_err(|_| TryFromReportedContentScoreError(()))?;
-        value.try_into()
-    }
-}
-
 trait EventSource {
     fn get_event(
         &self,
@@ -4873,12 +4749,6 @@ impl EventSource for &Room {
         self.load_or_fetch_event(event_id, None).await
     }
 }
-
-/// The error type returned when a checked `ReportedContentScore` conversion
-/// fails.
-#[derive(Debug, Clone, Error)]
-#[error("out of range conversion attempted")]
-pub struct TryFromReportedContentScoreError(());
 
 /// Contains the current user's room member info and the optional room member
 /// info of the sender of the `m.room.member` event that this info represents.
@@ -4902,14 +4772,13 @@ mod tests {
     use ruma::{
         RoomVersionId, event_id,
         events::{relation::RelationType, room::member::MembershipState},
-        int, owned_event_id, room_id, user_id,
+        owned_event_id, room_id, user_id,
     };
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{header, method, path_regex},
     };
 
-    use super::ReportedContentScore;
     use crate::{
         Client,
         config::RequestConfig,
@@ -5015,62 +4884,6 @@ mod tests {
             .encrypt_room_event_raw(room.room_id(), "test-event", &message_like_event_content!({}))
             .await
             .unwrap();
-    }
-
-    #[test]
-    fn reported_content_score() {
-        // i8
-        let score = ReportedContentScore::new(0).unwrap();
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::new(-50).unwrap();
-        assert_eq!(score.value(), -50);
-        let score = ReportedContentScore::new(-100).unwrap();
-        assert_eq!(score.value(), -100);
-        assert_eq!(ReportedContentScore::new(10), None);
-        assert_eq!(ReportedContentScore::new(-110), None);
-
-        let score = ReportedContentScore::new_saturating(0);
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::new_saturating(-50);
-        assert_eq!(score.value(), -50);
-        let score = ReportedContentScore::new_saturating(-100);
-        assert_eq!(score.value(), -100);
-        let score = ReportedContentScore::new_saturating(10);
-        assert_eq!(score, ReportedContentScore::MAX);
-        let score = ReportedContentScore::new_saturating(-110);
-        assert_eq!(score, ReportedContentScore::MIN);
-
-        // i16
-        let score = ReportedContentScore::try_from(0i16).unwrap();
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::try_from(-100i16).unwrap();
-        assert_eq!(score.value(), -100);
-        ReportedContentScore::try_from(10i16).unwrap_err();
-        ReportedContentScore::try_from(-110i16).unwrap_err();
-
-        // i32
-        let score = ReportedContentScore::try_from(0i32).unwrap();
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::try_from(-100i32).unwrap();
-        assert_eq!(score.value(), -100);
-        ReportedContentScore::try_from(10i32).unwrap_err();
-        ReportedContentScore::try_from(-110i32).unwrap_err();
-
-        // i64
-        let score = ReportedContentScore::try_from(0i64).unwrap();
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::try_from(-100i64).unwrap();
-        assert_eq!(score.value(), -100);
-        ReportedContentScore::try_from(10i64).unwrap_err();
-        ReportedContentScore::try_from(-110i64).unwrap_err();
-
-        // Int
-        let score = ReportedContentScore::try_from(int!(0)).unwrap();
-        assert_eq!(score.value(), 0);
-        let score = ReportedContentScore::try_from(int!(-100)).unwrap();
-        assert_eq!(score.value(), -100);
-        ReportedContentScore::try_from(int!(10)).unwrap_err();
-        ReportedContentScore::try_from(int!(-110)).unwrap_err();
     }
 
     #[async_test]

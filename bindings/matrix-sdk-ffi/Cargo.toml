@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "native-tls"]
+default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "rustls-tls"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -124,6 +124,14 @@ uniffi = { workspace = true, features = ["tokio"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = { version = "0.2.2", default-features = false }
+# Needed for `rustls-platform-verifier`. Newer versions aren't compatible with it.
+jni = "0.21.1"
+# Used to access the credential storage on Android
+rustls-platform-verifier = "0.6.2"
+# Used to avoid having to call an exposed JNI call from the Android client to initialize `rustls-platform-verifier`
+libloading = "0.9.0"
+# Needed for intializing and keeping the JavaVM reference around
+once_cell = "1.21.4"
 
 [dev-dependencies]
 similar-asserts.workspace = true

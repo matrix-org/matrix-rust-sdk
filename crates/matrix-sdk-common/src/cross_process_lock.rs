@@ -572,7 +572,7 @@ impl<G> MappedCrossProcessLockState<G> {
 
 /// Represent an unsuccessful result of a lock attempt, either by
 /// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum CrossProcessLockUnobtained {
     /// The lock couldn't be obtained immediately because it is busy, i.e. it is
     /// held by another holder.
@@ -588,18 +588,18 @@ pub enum CrossProcessLockUnobtained {
 }
 
 /// Union of [`CrossProcessLockUnobtained`] and [`TryLock::LockError`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum CrossProcessLockError {
     #[error(transparent)]
     Unobtained(#[from] CrossProcessLockUnobtained),
 
     #[error(transparent)]
     #[cfg(not(target_family = "wasm"))]
-    TryLock(#[from] Box<dyn Error + Send + Sync>),
+    TryLock(#[from] Arc<dyn Error + Send + Sync>),
 
     #[error(transparent)]
     #[cfg(target_family = "wasm")]
-    TryLock(#[from] Box<dyn Error>),
+    TryLock(#[from] Arc<dyn Error>),
 }
 
 /// The cross-process lock config to use for the various stores.
@@ -673,7 +673,7 @@ mod tests {
 
     impl From<DummyError> for CrossProcessLockError {
         fn from(value: DummyError) -> Self {
-            Self::TryLock(Box::new(value))
+            Self::TryLock(Arc::new(value))
         }
     }
 

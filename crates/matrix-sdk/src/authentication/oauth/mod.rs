@@ -183,6 +183,7 @@ use oauth2::{
     basic::BasicClient as OAuthClient,
 };
 pub use oauth2::{ClientId, CsrfToken};
+use oauth2_reqwest::ReqwestClient;
 use ruma::{
     DeviceId, OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::{
@@ -223,7 +224,10 @@ use self::{
     registration::{ClientMetadata, ClientRegistrationResponse, register_client},
 };
 use super::{AuthData, SessionTokens};
-use crate::{Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn};
+use crate::{
+    Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn,
+    utils::UrlOrQuery,
+};
 
 pub(crate) struct OAuthCtx {
     /// Lock and state when multiple processes may refresh an OAuth 2.0 session.
@@ -279,7 +283,7 @@ pub struct OAuth {
 impl OAuth {
     pub(crate) fn new(client: Client) -> Self {
         let http_client = OAuthHttpClient {
-            inner: client.inner.http_client.inner.clone(),
+            inner: ReqwestClient::from(client.inner.http_client.inner.clone()),
             #[cfg(test)]
             insecure_rewrite_https_to_http: false,
         };
@@ -755,10 +759,9 @@ impl OAuth {
         additional_scopes: Option<Vec<Scope>>,
     ) -> (Vec<Scope>, OwnedDeviceId) {
         /// Scope to grand full access to the client-server API.
-        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
-            "urn:matrix:org.matrix.msc2967.client:api:*";
+        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str = "urn:matrix:client:api:*";
         /// Prefix of the scope to bind a device ID to an access token.
-        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:org.matrix.msc2967.client:device:";
+        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:client:device:";
 
         // Generate the device ID if it is not provided.
         let device_id = device_id.unwrap_or_else(DeviceId::new);
@@ -1795,33 +1798,5 @@ impl ClientRegistrationData {
 impl From<Raw<ClientMetadata>> for ClientRegistrationData {
     fn from(value: Raw<ClientMetadata>) -> Self {
         Self::new(value)
-    }
-}
-
-/// A full URL or just the query part of a URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UrlOrQuery {
-    /// A full URL.
-    Url(Url),
-
-    /// The query part of a URL.
-    Query(String),
-}
-
-impl UrlOrQuery {
-    /// Get the query part of this [`UrlOrQuery`].
-    ///
-    /// If this is a [`Url`], this extracts the query.
-    pub fn query(&self) -> Option<&str> {
-        match self {
-            Self::Url(url) => url.query(),
-            Self::Query(query) => Some(query),
-        }
-    }
-}
-
-impl From<Url> for UrlOrQuery {
-    fn from(value: Url) -> Self {
-        Self::Url(value)
     }
 }
