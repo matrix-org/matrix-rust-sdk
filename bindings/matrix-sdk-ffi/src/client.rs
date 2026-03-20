@@ -487,13 +487,17 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
         }
+
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+
         builder.send().await?;
+
         Ok(())
     }
 
@@ -519,6 +523,7 @@ impl Client {
         }
 
         builder.send().await?;
+
         Ok(())
     }
 
