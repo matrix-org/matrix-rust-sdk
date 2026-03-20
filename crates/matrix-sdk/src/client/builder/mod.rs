@@ -32,6 +32,8 @@ use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
+#[cfg(not(target_family = "wasm"))]
+use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
@@ -377,8 +379,18 @@ impl ClientBuilder {
     /// Internally this will call the
     /// [`reqwest::ClientBuilder::add_root_certificate()`] method.
     #[cfg(not(target_family = "wasm"))]
-    pub fn add_root_certificates(mut self, certificates: Vec<reqwest::Certificate>) -> Self {
+    pub fn add_root_certificates(mut self, certificates: Vec<Certificate>) -> Self {
         self.http_settings().additional_root_certificates = certificates;
+        self
+    }
+
+    /// Add the given list of certificates in a raw byte format to the
+    /// certificate store of the HTTP client.
+    ///
+    /// Not this will only be used in Android for the webkpi workaround.
+    #[cfg(target_os = "android")]
+    pub fn add_raw_root_certificates(mut self, raw_certificates: Vec<Vec<u8>>) -> Self {
+        self.http_settings().additional_raw_root_certificates = raw_certificates;
         self
     }
 
