@@ -850,9 +850,8 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but not stop the Send
-                                // Queue. This feature is not
-                                // crucial.
+                                // In case of an error, just log the error but don't stop the Send
+                                // Queue. This feature is not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
@@ -959,9 +958,8 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but not stop the Send
-                                // Queue. This feature is not
-                                // crucial.
+                                // In case of an error, just log the error but don't stop the Send
+                                // Queue. This feature is not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
