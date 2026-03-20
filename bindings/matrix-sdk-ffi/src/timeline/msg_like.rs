@@ -216,6 +216,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     kind: MsgLikeKind::LiveLocation {
                         content: LiveLocationContent {
                             is_live: state.is_live(),
+                            ts: state.ts().into(),
                             description: state.description().map(ToOwned::to_owned),
                             timeout_ms: state.timeout().as_millis() as u64,
                             asset_type: state.asset_type().into(),
