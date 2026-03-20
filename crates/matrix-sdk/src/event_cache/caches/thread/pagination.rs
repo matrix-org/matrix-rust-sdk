@@ -276,9 +276,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         if !updates.is_empty() {
             // Send the updates to the listeners.
-            let _ = state
-                .state
-                .sender
+            let _ = self
+                .cache
+                .update_sender
                 .send(TimelineVectorDiffs { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
