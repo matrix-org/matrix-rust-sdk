@@ -915,8 +915,10 @@ impl RoomSendQueue {
                                     id.rules()
                                         .is_some_and(|rules| rules.redaction.content_field_redacts)
                                 });
-                                let reason = reason
-                                    .map_or("".to_owned(), |r| format!("\"reason\": \"{r}\""));
+                                let reason = reason.map_or_else(
+                                    || "".to_owned(),
+                                    |r| format!("\"reason\": \"{r}\""),
+                                );
 
                                 let timeline_event = match Raw::from_json_string(
                                     // Create a compact string: remove all useless spaces.
