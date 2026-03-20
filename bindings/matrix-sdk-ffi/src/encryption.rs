@@ -320,6 +320,15 @@ impl SecretsBundleWithUserId {
 
         ret
     }
+
+    /// Does the bundle contain a backup key.
+    ///
+    /// Since enabling a backup is optional, the backup key might be missing
+    /// from the bundle. Returns `false` if the backup key is missing,
+    /// otherwise `true`.
+    pub fn contains_backup_key(&self) -> bool {
+        self.inner.backup.is_some()
+    }
 }
 
 /// Check if a crypto store contains a valid [`SecretsBundle`].
