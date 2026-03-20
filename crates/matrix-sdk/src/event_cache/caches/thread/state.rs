@@ -235,6 +235,11 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     }
 
     /// Get the `waited_for_initial_prev_token` value.
+    pub fn waited_for_initial_prev_token(&self) -> bool {
+        self.state.waited_for_initial_prev_token
+    }
+
+    /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
     }
