@@ -106,10 +106,11 @@ impl managed::Manager for Manager {
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type Type = SyncWrapper<rusqlite::Connection>;
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    // Since `SyncWrapper` provide interior-mutability, we will need a similar API without `Send`
-    // constraint
+    // Since `SyncWrapper` provide interior-mutability, we will need a similar API
+    // without `Send` constraint
     //
-    // As WASM is mostly single-threaded, current implementation of using `RefCell` should suffice
+    // As WASM is mostly single-threaded, current implementation of using `RefCell`
+    // should suffice
     type Type = RefCell<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
