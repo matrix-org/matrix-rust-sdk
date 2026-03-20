@@ -34,15 +34,17 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
-pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
-pub use updates::{
-    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-    RoomEventCacheUpdateSender,
-};
 
+pub(super) use self::state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
+pub use self::{
+    subscriber::RoomEventCacheSubscriber,
+    updates::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+        RoomEventCacheUpdateSender,
+    },
+};
 use super::{
     super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
