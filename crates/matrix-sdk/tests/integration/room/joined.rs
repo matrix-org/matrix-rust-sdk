@@ -13,7 +13,7 @@ use matrix_sdk::{
     room::{Receipts, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
+use matrix_sdk_base::{EncryptionState, RoomMembersUpdateKind, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -1379,8 +1379,10 @@ async fn test_room_member_updates_sender_on_full_member_reload() {
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut receiver = room.room_member_updates_sender.subscribe();
-    assert!(receiver.is_empty());
+    let mut global_receiver = client.room_member_updates_receiver();
+    assert!(global_receiver.is_empty());
+    let mut room_receiver = room.room_member_updates_sender.subscribe();
+    assert!(room_receiver.is_empty());
 
     // When loading the full room member list
     let user_id = user_id!("@alice:b.c");
@@ -1392,9 +1394,13 @@ async fn test_room_member_updates_sender_on_full_member_reload() {
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
     room.sync_members().await.expect("could not reload room members");
 
-    // The member updates sender emits a full reload
-    let next = assert_recv_with_timeout!(receiver, 100);
-    assert_matches!(next, RoomMembersUpdate::FullReload);
+    // The member updates sender emits a full reload ...
+    let next = assert_recv_with_timeout!(room_receiver, 100);
+    assert_matches!(next.kind, RoomMembersUpdateKind::FullReload);
+
+    // ... which is replicated to the global handle.
+    let next = assert_recv_with_timeout!(global_receiver, 100);
+    assert_matches!(next.kind, RoomMembersUpdateKind::FullReload);
 }
 
 #[async_test]
@@ -1419,7 +1425,7 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
     // The member updates sender emits a partial update with the user ids of the
     // members
     let next = assert_recv_with_timeout!(receiver, 100);
-    assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
+    assert_let!(RoomMembersUpdateKind::Partial(user_ids) = next.kind);
     assert_eq!(user_ids, BTreeSet::from_iter(vec![owned_user_id!("@alice:b.c")]));
 }
 

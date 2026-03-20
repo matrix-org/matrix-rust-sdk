@@ -4121,7 +4121,10 @@ impl Room {
             let this = self.clone();
             async move {
                 let mut member_updates_stream = this.room_member_updates_sender.subscribe();
-                while member_updates_stream.recv().await.is_ok() {
+                while let Ok(update) = member_updates_stream.recv().await {
+                    if update.room_id != this.room_id() {
+                        continue;
+                    }
                     // If room members were updated, try to remove outdated seen knock request ids
                     if let Err(err) = this.remove_outdated_seen_knock_requests_ids().await {
                         warn!("Failed to remove seen knock requests: {err}")

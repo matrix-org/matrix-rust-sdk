@@ -37,7 +37,7 @@ pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
-pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
+pub use members::{RoomMember, RoomMembersUpdate, RoomMembersUpdateKind, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomRecencyStamp,
@@ -101,7 +101,7 @@ pub struct Room {
     pub seen_knock_request_ids_map:
         SharedObservable<Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
 
-    /// A sender that will notify receivers when room member updates happen.
+    /// A clone of the underlying `BaseStateStore::room_member_updates_sender`.
     pub room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
 }
 
@@ -112,9 +112,16 @@ impl Room {
         room_id: &RoomId,
         room_state: RoomState,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+        room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, room_info_notable_update_sender)
+        Self::restore(
+            own_user_id,
+            store,
+            room_info,
+            room_info_notable_update_sender,
+            room_member_updates_sender,
+        )
     }
 
     pub(crate) fn restore(
@@ -122,8 +129,8 @@ impl Room {
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+        room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
     ) -> Self {
-        let (room_member_updates_sender, _) = broadcast::channel(10);
         Self {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),

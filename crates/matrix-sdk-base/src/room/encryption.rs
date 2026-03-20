@@ -102,9 +102,20 @@ mod tests {
         let store = Arc::new(MemoryStore::new());
         let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
-        let (sender, _receiver) = tokio::sync::broadcast::channel(1);
+        let (notable_info_sender, _) = tokio::sync::broadcast::channel(1);
+        let (members_update_sender, _) = tokio::sync::broadcast::channel(1);
 
-        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
+        (
+            store.clone(),
+            Room::new(
+                user_id,
+                store,
+                room_id,
+                room_type,
+                notable_info_sender,
+                members_update_sender,
+            ),
+        )
     }
 
     fn timestamp(minutes_ago: u32) -> MilliSecondsSinceUnixEpoch {

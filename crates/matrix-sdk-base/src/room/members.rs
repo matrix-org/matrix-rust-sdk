@@ -21,7 +21,7 @@ use std::{
 use bitflags::bitflags;
 use futures_util::future;
 use ruma::{
-    Int, MxcUri, OwnedUserId, UserId,
+    Int, MxcUri, OwnedRoomId, OwnedUserId, UserId,
     events::{
         MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -409,7 +409,29 @@ pub(crate) struct MemberRoomInfo<'a> {
 
 /// The kind of room member updates that just happened.
 #[derive(Debug, Clone)]
-pub enum RoomMembersUpdate {
+pub struct RoomMembersUpdate {
+    /// The ID of the room in question.
+    pub room_id: OwnedRoomId,
+    /// The kind of room member updates that just happened.
+    pub kind: RoomMembersUpdateKind,
+}
+
+impl RoomMembersUpdate {
+    /// Create a new [`RoomMembersUpdate`] with kind `FullReload`.
+    pub fn full_reload(room_id: OwnedRoomId) -> Self {
+        Self { room_id, kind: RoomMembersUpdateKind::FullReload }
+    }
+
+    /// Create a new [`RoomMembersUpdate`] with kind `Partial` and a set of
+    /// updated user IDs.
+    pub fn partial(room_id: OwnedRoomId, partial: BTreeSet<OwnedUserId>) -> Self {
+        Self { room_id, kind: RoomMembersUpdateKind::Partial(partial) }
+    }
+}
+
+/// The kind of room member updates that just happened.
+#[derive(Debug, Clone)]
+pub enum RoomMembersUpdateKind {
     /// The whole list room members was reloaded.
     FullReload,
     /// A few members were updated, their user ids are included.
