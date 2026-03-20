@@ -92,6 +92,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
+  the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
+  ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
 - Room keys are now rotated whenever the client receives an `m.room.member` event not belonging
   to the current user with `leave` membership in order to prevent
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) from leaking room keys
