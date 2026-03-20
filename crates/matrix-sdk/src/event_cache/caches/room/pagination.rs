@@ -400,7 +400,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // the inverted order; reorder them.
         let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-        let new_gap = new_token.map(|prev_token| Gap { token: prev_token });
+        let new_gap = new_token.as_ref().map(|prev_token| Gap { token: prev_token.clone() });
         let reached_start = state.room_linked_chunk_mut().push_backwards_pagination_events(
             prev_gap_id,
             new_gap,
@@ -420,6 +420,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         state
             .post_process_new_events(
                 topo_ordered_events,
+                new_token,
                 PostProcessingOrigin::Backpagination,
                 receipt_event,
             )

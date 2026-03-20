@@ -122,7 +122,11 @@ impl ThreadEventCache {
 
     /// Push some live events to this thread, and propagate the updates to
     /// the listeners.
-    pub async fn add_live_events(&mut self, events: Vec<Event>) -> Result<()> {
+    pub async fn add_live_events(
+        &mut self,
+        events: Vec<Event>,
+        prev_batch_token: &Option<String>,
+    ) -> Result<()> {
         if events.is_empty() {
             return Ok(());
         }
@@ -130,7 +134,7 @@ impl ThreadEventCache {
         trace!("adding new events");
 
         let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.handle_sync(events).await?;
+        let timeline_event_diffs = state.handle_sync(events, prev_batch_token).await?;
 
         if !timeline_event_diffs.is_empty() {
             let _ = self.inner.update_sender.send(TimelineVectorDiffs {
