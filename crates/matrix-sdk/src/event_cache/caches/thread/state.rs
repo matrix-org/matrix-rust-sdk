@@ -27,16 +27,19 @@ use ruma::{OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument};
 
-use super::super::{
+use super::{
     super::{
-        EventCacheError, EventsOrigin, Result,
-        deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-        persistence::{load_linked_chunk_metadata, send_updates_to_store},
+        super::{
+            EventCacheError, EventsOrigin, Result,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+            persistence::{load_linked_chunk_metadata, send_updates_to_store},
+        },
+        TimelineVectorDiffs,
+        event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        lock,
+        room::RoomEventCacheLinkedChunkUpdate,
     },
-    TimelineVectorDiffs,
-    event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-    lock,
-    room::RoomEventCacheLinkedChunkUpdate,
+    ThreadEventCacheUpdateSender,
 };
 
 pub struct ThreadEventCacheState {
@@ -56,8 +59,11 @@ pub struct ThreadEventCacheState {
     /// The linked chunk for this thread.
     thread_linked_chunk: EventLinkedChunk,
 
-    /// A sender for live events updates in this thread.
-    pub sender: Sender<TimelineVectorDiffs>,
+    /// A clone of [`super::ThreadEventCacheInner::update_sender`].
+    ///
+    /// This is used only by the [`ThreadEventCacheStateLock::read`] and
+    /// [`ThreadEventCacheStateLock::write`] when the state must be reset.
+    update_sender: ThreadEventCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -100,6 +106,7 @@ impl LockedThreadEventCacheState {
         thread_id: OwnedEventId,
         own_user_id: OwnedUserId,
         store: EventCacheStoreLock,
+        update_sender: ThreadEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
         let store_guard = match store.lock().await? {
@@ -167,7 +174,7 @@ impl LockedThreadEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
-            sender: Sender::new(32),
+            update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
         }))
@@ -194,8 +201,10 @@ impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            let _ = self
+                .state
+                .update_sender
+                .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
         }
 
         Ok(())
