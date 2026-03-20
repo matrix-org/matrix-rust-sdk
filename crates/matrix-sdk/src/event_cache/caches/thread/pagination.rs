@@ -40,8 +40,10 @@ use crate::{
     room::{IncludeRelations, RelationsOptions},
 };
 
-/// Intermediate type because the `ThreadEventCache` state is currently owned by
-/// `RoomEventCache`.
+/// Intermediate type because the `ThreadEventCache` state doesn't provide all
+/// the feature for the moment.
+///
+/// TODO: Remove this intermediate type.
 #[derive(Clone)]
 struct ThreadEventCacheWrapper {
     cache: Arc<ThreadEventCacheInner>,
