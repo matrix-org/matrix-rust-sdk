@@ -410,6 +410,7 @@ impl EventCache {
             state
                 .post_process_new_events(
                     new_events,
+                    None,
                     PostProcessingOrigin::Redecryption,
                     receipt_event,
                 )
