@@ -801,7 +801,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         mut timeline: Timeline,
         ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
-        let mut prev_batch = timeline.prev_batch.take();
+        let timeline_prev_batch = timeline.prev_batch.take();
+        let mut prev_batch = timeline_prev_batch.clone();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -910,7 +911,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             }
         }
 
-        self.post_process_new_events(events, PostProcessingOrigin::Sync, receipt_event).await?;
+        self.post_process_new_events(
+            events,
+            timeline_prev_batch,
+            PostProcessingOrigin::Sync,
+            receipt_event,
+        )
+        .await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -947,6 +954,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn post_process_new_events(
         &mut self,
         events: Vec<Event>,
+        prev_batch_token: Option<String>,
         post_processing_origin: PostProcessingOrigin,
         receipt_event: Option<ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
@@ -1015,7 +1023,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         }
 
         if self.state.enabled_thread_support {
-            self.update_threads(new_events_by_thread, post_processing_origin).await?;
+            self.update_threads(new_events_by_thread, prev_batch_token, post_processing_origin)
+                .await?;
         }
 
         self.update_read_receipts(receipt_event.as_ref()).await?;
@@ -1136,12 +1145,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     async fn update_threads(
         &mut self,
         new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
+        prev_batch_token: Option<String>,
         post_processing_origin: PostProcessingOrigin,
     ) -> Result<(), EventCacheError> {
         for (thread_root, new_events) in new_events_by_thread {
             let thread_cache = self.get_or_reload_thread(thread_root.clone()).await?;
 
-            thread_cache.add_live_events(new_events).await?;
+            thread_cache.add_live_events(new_events, &prev_batch_token).await?;
 
             let mut latest_event_id = thread_cache.latest_event_id().await?;
 
