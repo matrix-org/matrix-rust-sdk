@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,6 +66,8 @@ use tracing::{
 };
 use vodozemac::{Curve25519PublicKey, Ed25519Signature, megolm::DecryptionError};
 
+#[cfg(feature = "experimental-push-secrets")]
+use crate::error::SecretPushError;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
@@ -1409,6 +1411,13 @@ impl OlmMachine {
                 debug!("Received a room key bundle event {:?}", e);
                 self.receive_room_key_bundle_data(decrypted.result.sender_key, e, changes).await?;
             }
+            #[cfg(feature = "experimental-push-secrets")]
+            AnyDecryptedOlmEvent::SecretPush(e) => {
+                self.inner
+                    .key_request_machine
+                    .receive_secret_push_event(&decrypted.result.sender_key, e, changes)
+                    .await?;
+            }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
             }
@@ -2011,6 +2020,20 @@ impl OlmMachine {
             self.store().save_changes(changes).await?;
             Ok(true)
         }
+    }
+
+    /// Push a secret to all of our other verified devices.
+    ///
+    /// This function assumes that we already have Olm sessions with the other
+    /// devices.  This can be done by calling [`get_missing_sessions()`].
+    ///
+    /// * `secret_name` - The name of the secret to push
+    #[cfg(feature = "experimental-push-secrets")]
+    pub async fn push_secret_to_verified_devices(
+        &self,
+        secret_name: SecretName,
+    ) -> Result<HashMap<OwnedDeviceId, OlmError>, SecretPushError> {
+        self.inner.key_request_machine.push_secret_to_verified_devices(secret_name).await
     }
 
     /// Get some metadata pertaining to a given group session.
