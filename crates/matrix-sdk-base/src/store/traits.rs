@@ -238,6 +238,30 @@ pub trait StateStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `event_type` - The event type of the account data event.
+    async fn get_active_users_with_display_name(
+        &self,
+        room_id: &RoomId,
+        display_name: &DisplayName,
+    ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
+
+    /// Get all the active users that use the given display names in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to fetch the display names for.
+    ///
+    /// * `display_names` - The display names that the users use.
+    async fn get_active_users_with_display_names<'a>(
+        &self,
+        room_id: &RoomId,
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error>;
+
+    /// Get an event out of the account data store.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The event type of the account data event.
     async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
