@@ -26,10 +26,14 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
-use reqwest::{Certificate, tls};
+#[cfg(not(target_family = "wasm"))]
+use reqwest::Certificate;
+use reqwest::tls;
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 #[cfg(target_os = "android")]
 use rustls::{RootCertStore, client::WebPkiServerVerifier};
+#[cfg(target_os = "android")]
+use rustls_pki_types::CertificateDer;
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -152,7 +156,7 @@ pub(crate) struct HttpSettings {
     pub(crate) user_agent: Option<String>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) read_timeout: Option<Duration>,
-    pub(crate) additional_root_certificates: Vec<Certificate>,
+    pub(crate) additional_root_certificates: Vec<Vec<u8>>,
     pub(crate) disable_built_in_root_certificates: bool,
 }
 
@@ -204,6 +208,18 @@ impl HttpSettings {
             let native_certs = rustls_native_certs::load_native_certs().certs;
             root_store.add_parsable_certificates(native_certs);
 
+            if !self.additional_root_certificates.is_empty() {
+                let mut additional_certs = Vec::new();
+
+                warn!("Adding {} extra user certificates", self.additional_root_certificates.len());
+
+                for certificate in self.additional_root_certificates.iter() {
+                    additional_certs.push(CertificateDer::from_slice(certificate));
+                }
+
+                root_store.add_parsable_certificates(additional_certs);
+            }
+
             let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
                 .build()
                 .map_err(HttpError::VerifierBuilder)?;
@@ -218,11 +234,31 @@ impl HttpSettings {
             http_client = http_client.danger_accept_invalid_certs(true)
         }
 
+        let mut certificates = Vec::new();
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            for certificate in self.additional_root_certificates.iter() {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(_) => {
+                        let cert =
+                            Certificate::from_pem(certificate).map_err(HttpError::Reqwest)?;
+                        certificates.push(cert);
+                    }
+                }
+            }
+        }
+
         if self.disable_built_in_root_certificates {
             info!("Built-in root certificates disabled in the HTTP client.");
-            http_client = http_client.tls_certs_only(self.additional_root_certificates.clone());
+            http_client = http_client.tls_certs_only(certificates);
         } else {
-            http_client = http_client.tls_certs_merge(self.additional_root_certificates.clone());
+            http_client = http_client.tls_certs_merge(certificates);
         }
 
         if let Some(p) = &self.proxy {

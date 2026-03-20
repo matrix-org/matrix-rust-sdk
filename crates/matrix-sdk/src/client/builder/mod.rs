@@ -377,7 +377,7 @@ impl ClientBuilder {
     /// Internally this will call the
     /// [`reqwest::ClientBuilder::add_root_certificate()`] method.
     #[cfg(not(target_family = "wasm"))]
-    pub fn add_root_certificates(mut self, certificates: Vec<reqwest::Certificate>) -> Self {
+    pub fn add_root_certificates(mut self, certificates: Vec<Vec<u8>>) -> Self {
         self.http_settings().additional_root_certificates = certificates;
         self
     }
