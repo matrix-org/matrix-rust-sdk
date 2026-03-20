@@ -300,7 +300,10 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             return Ok(Vec::new());
         }
 
-        // Remove the duplicated events from the thread chunk.
+        // Remove the old duplicated events.
+        //
+        // We don't have to worry about the removals can change the position of the
+        // existing events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
         self.state.thread_linked_chunk.push_live_events(None, &events);
