@@ -51,7 +51,6 @@ use ruma::{
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
-        auth_scheme::{AuthScheme, SendAccessToken},
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -108,7 +107,7 @@ use crate::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
-    http_client::{HttpClient, SupportedPathBuilder},
+    http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
     media::MediaError,
     notification_settings::NotificationSettings,
@@ -1923,7 +1922,7 @@ impl Client {
     pub fn send<Request>(&self, request: Request) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
-        for<'a> Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        Request::Authentication: SupportedAuthScheme,
         Request::PathBuilder: SupportedPathBuilder,
         for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1944,7 +1943,7 @@ impl Client {
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
-        for<'a> Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        Request::Authentication: SupportedAuthScheme,
         Request::PathBuilder: SupportedPathBuilder,
         for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,

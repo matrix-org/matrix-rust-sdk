@@ -38,7 +38,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         MessageLikeEventType,
@@ -55,7 +55,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use super::{
     super::{
         super::{
-            EventCacheError, PaginationStatus,
+            EventCacheError,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::send_updates_to_store,
         },
@@ -71,7 +71,7 @@ use super::{
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{Room, room::WeakRoom};
+use crate::{Room, event_cache::caches::pagination::SharedPaginationStatus, room::WeakRoom};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -117,7 +117,7 @@ pub struct RoomEventCacheState {
     /// Cache for pinned events in this room, initialized on-demand.
     pinned_event_cache: OnceLock<PinnedEventCache>,
 
-    pagination_status: SharedObservable<PaginationStatus>,
+    pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// A clone of [`super::RoomEventCacheInner::update_sender`].
     ///
@@ -141,6 +141,130 @@ pub struct RoomEventCacheState {
     /// An atomic count of the current number of subscriber of the
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
+}
+
+impl RoomEventCacheState {
+    /// Return a read-only reference to the underlying room linked chunk.
+    pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
+        &self.room_linked_chunk
+    }
+
+    /// Implementation of [`RoomEventCacheStateLockReadGuard::find_event`] and
+    /// [`RoomEventCacheStateLockWriteGuard::find_event`].
+    async fn find_event(
+        &self,
+        event_id: &EventId,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
+        // There are supposedly fewer events loaded in memory than in the store. Let's
+        // start by looking up in the `EventLinkedChunk`.
+        for (position, event) in self.room_linked_chunk.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Ok(Some((EventLocation::Memory(position), event.clone())));
+            }
+        }
+
+        Ok(store
+            .find_event(&self.room_id, event_id)
+            .await?
+            .map(|event| (EventLocation::Store, event)))
+    }
+
+    /// Implementation of
+    /// [`RoomEventCacheStateLockReadGuard::find_event_with_relations`] and
+    /// [`RoomEventCacheStateLockWriteGuard::find_event_with_relations`].
+    async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
+        // First, hit storage to get the target event and its related events.
+        let found = store.find_event(&self.room_id, event_id).await?;
+
+        let Some(target) = found else {
+            // We haven't found the event: return early.
+            return Ok(None);
+        };
+
+        // Then, find the transitive closure of all the related events.
+        let related = self.find_event_relations(event_id, filters, store).await?;
+
+        Ok(Some((target, related)))
+    }
+
+    /// Implementation of
+    /// [`RoomEventCacheStateLockReadGuard::find_event_relations`].
+    async fn find_event_relations(
+        &self,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<Vec<Event>, EventCacheError> {
+        // Initialize the stack with all the related events, to find the
+        // transitive closure of all the related events.
+        let mut related =
+            store.find_event_relations(&self.room_id, event_id, filters.as_deref()).await?;
+        let mut stack =
+            related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
+
+        // Also keep track of already seen events, in case there's a loop in the
+        // relation graph.
+        let mut already_seen = HashSet::new();
+        already_seen.insert(event_id.to_owned());
+
+        let mut num_iters = 1;
+
+        // Find the related event for each previously-related event.
+        while let Some(event_id) = stack.pop() {
+            if !already_seen.insert(event_id.clone()) {
+                // Skip events we've already seen.
+                continue;
+            }
+
+            let other_related =
+                store.find_event_relations(&self.room_id, &event_id, filters.as_deref()).await?;
+
+            stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
+            related.extend(other_related);
+
+            num_iters += 1;
+        }
+
+        trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+        // Sort the results by their positions in the linked chunk, if available.
+        //
+        // If an event doesn't have a known position, it goes to the start of the array.
+        related.sort_by(|(_, lhs), (_, rhs)| {
+            use std::cmp::Ordering;
+
+            match (lhs, rhs) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(lhs), Some(rhs)) => {
+                    let lhs = self.room_linked_chunk.event_order(*lhs);
+                    let rhs = self.room_linked_chunk.event_order(*rhs);
+
+                    // The events should have a definite position, but in the case they don't,
+                    // still consider that not having a position means you'll end at the start
+                    // of the array.
+                    match (lhs, rhs) {
+                        (None, None) => Ordering::Equal,
+                        (None, Some(_)) => Ordering::Less,
+                        (Some(_), None) => Ordering::Greater,
+                        (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+                    }
+                }
+            }
+        });
+
+        // Keep only the events, not their positions.
+        let related = related.into_iter().map(|(event, _pos)| event).collect();
+
+        Ok(related)
+    }
 }
 
 impl lock::Store for RoomEventCacheState {
@@ -176,7 +300,7 @@ impl LockedRoomEventCacheState {
         update_sender: RoomEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
-        pagination_status: SharedObservable<PaginationStatus>,
+        pagination_status: SharedObservable<SharedPaginationStatus>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -294,11 +418,6 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
 }
 
 impl<'a> RoomEventCacheStateLockReadGuard<'a> {
-    /// Return a read-only reference to the underlying room linked chunk.
-    pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
-        &self.state.room_linked_chunk
-    }
-
     /// Return the subscriber count.
     pub fn subscriber_count(&self) -> &Arc<AtomicUsize> {
         &self.state.subscriber_count
@@ -312,7 +431,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-        find_event(event_id, &self.state.room_id, &self.state.room_linked_chunk, &self.store).await
+        self.state.find_event(event_id, &self.store).await
     }
 
     /// Find an event and all its relations in the persisted storage.
@@ -332,14 +451,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        find_event_with_relations(
-            event_id,
-            &self.state.room_id,
-            filters,
-            &self.state.room_linked_chunk,
-            &self.store,
-        )
-        .await
+        self.state.find_event_with_relations(event_id, filters, &self.store).await
     }
 
     /// Find all relations for an event in the persisted storage.
@@ -359,14 +471,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Vec<Event>, EventCacheError> {
-        find_event_relations(
-            event_id,
-            &self.state.room_id,
-            filters,
-            &self.state.room_linked_chunk,
-            &self.store,
-        )
-        .await
+        self.state.find_event_relations(event_id, filters, &self.store).await
     }
 
     //// Find a single event in this room, starting from the most recent event.
@@ -428,11 +533,6 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
 }
 
 impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
-    /// Return an immutable reference to the underlying room linked chunk.
-    pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
-        &self.state.room_linked_chunk
-    }
-
     /// Return a mutable reference to the underlying room linked chunk.
     pub fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
@@ -469,7 +569,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-        find_event(event_id, &self.state.room_id, &self.state.room_linked_chunk, &self.store).await
+        self.state.find_event(event_id, &self.store).await
     }
 
     /// Find an event and all its relations in the persisted storage.
@@ -489,14 +589,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        find_event_with_relations(
-            event_id,
-            &self.state.room_id,
-            filters,
-            &self.state.room_linked_chunk,
-            &self.store,
-        )
-        .await
+        self.state.find_event_with_relations(event_id, filters, &self.store).await
     }
 
     /// If storage is enabled, unload all the chunks, then reloads only the
@@ -540,9 +633,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         }
 
         // Let pagination observers know that we may have not reached the start of the
-        // timeline.
-        // TODO: likely need to cancel any ongoing pagination.
-        self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
+        // timeline. This may cancel an ongoing pagination.
+        self.state
+            .pagination_status
+            .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
         // Don't propagate those updates to the store; this is only for the in-memory
         // representation that we're doing this. Let's drain those store updates.
@@ -685,8 +779,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // timeline, since we don't know about that anymore.
         self.state.waited_for_initial_prev_token = false;
 
-        // TODO: likely must cancel any ongoing back-paginations too
-        self.state.pagination_status.set(PaginationStatus::Idle { hit_timeline_start: false });
+        // Note: this may cancel an ongoing pagination.
+        self.state
+            .pagination_status
+            .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
         Ok(())
     }
@@ -1427,120 +1523,4 @@ async fn load_linked_chunk_metadata(
     }
 
     Ok(Some(all_chunks))
-}
-
-/// Implementation of [`RoomEventCacheStateLockReadGuard::find_event`] and
-/// [`RoomEventCacheStateLockWriteGuard::find_event`].
-async fn find_event(
-    event_id: &EventId,
-    room_id: &RoomId,
-    room_linked_chunk: &EventLinkedChunk,
-    store: &EventCacheStoreLockGuard,
-) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-    // There are supposedly fewer events loaded in memory than in the store. Let's
-    // start by looking up in the `EventLinkedChunk`.
-    for (position, event) in room_linked_chunk.revents() {
-        if event.event_id().as_deref() == Some(event_id) {
-            return Ok(Some((EventLocation::Memory(position), event.clone())));
-        }
-    }
-
-    Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
-}
-
-/// Implementation of
-/// [`RoomEventCacheStateLockReadGuard::find_event_with_relations`] and
-/// [`RoomEventCacheStateLockWriteGuard::find_event_with_relations`].
-async fn find_event_with_relations(
-    event_id: &EventId,
-    room_id: &RoomId,
-    filters: Option<Vec<RelationType>>,
-    room_linked_chunk: &EventLinkedChunk,
-    store: &EventCacheStoreLockGuard,
-) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-    // First, hit storage to get the target event and its related events.
-    let found = store.find_event(room_id, event_id).await?;
-
-    let Some(target) = found else {
-        // We haven't found the event: return early.
-        return Ok(None);
-    };
-
-    // Then, find the transitive closure of all the related events.
-    let related =
-        find_event_relations(event_id, room_id, filters, room_linked_chunk, store).await?;
-
-    Ok(Some((target, related)))
-}
-
-/// Implementation of
-/// [`RoomEventCacheStateLockReadGuard::find_event_relations`].
-async fn find_event_relations(
-    event_id: &EventId,
-    room_id: &RoomId,
-    filters: Option<Vec<RelationType>>,
-    room_linked_chunk: &EventLinkedChunk,
-    store: &EventCacheStoreLockGuard,
-) -> Result<Vec<Event>, EventCacheError> {
-    // Initialize the stack with all the related events, to find the
-    // transitive closure of all the related events.
-    let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
-    let mut stack = related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
-
-    // Also keep track of already seen events, in case there's a loop in the
-    // relation graph.
-    let mut already_seen = HashSet::new();
-    already_seen.insert(event_id.to_owned());
-
-    let mut num_iters = 1;
-
-    // Find the related event for each previously-related event.
-    while let Some(event_id) = stack.pop() {
-        if !already_seen.insert(event_id.clone()) {
-            // Skip events we've already seen.
-            continue;
-        }
-
-        let other_related =
-            store.find_event_relations(room_id, &event_id, filters.as_deref()).await?;
-
-        stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
-        related.extend(other_related);
-
-        num_iters += 1;
-    }
-
-    trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
-
-    // Sort the results by their positions in the linked chunk, if available.
-    //
-    // If an event doesn't have a known position, it goes to the start of the array.
-    related.sort_by(|(_, lhs), (_, rhs)| {
-        use std::cmp::Ordering;
-
-        match (lhs, rhs) {
-            (None, None) => Ordering::Equal,
-            (None, Some(_)) => Ordering::Less,
-            (Some(_), None) => Ordering::Greater,
-            (Some(lhs), Some(rhs)) => {
-                let lhs = room_linked_chunk.event_order(*lhs);
-                let rhs = room_linked_chunk.event_order(*rhs);
-
-                // The events should have a definite position, but in the case they don't,
-                // still consider that not having a position means you'll end at the start
-                // of the array.
-                match (lhs, rhs) {
-                    (None, None) => Ordering::Equal,
-                    (None, Some(_)) => Ordering::Less,
-                    (Some(_), None) => Ordering::Greater,
-                    (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
-                }
-            }
-        }
-    });
-
-    // Keep only the events, not their positions.
-    let related = related.into_iter().map(|(event, _pos)| event).collect();
-
-    Ok(related)
 }

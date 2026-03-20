@@ -17,14 +17,20 @@
 //!
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
-use std::sync::Arc;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
+use futures_core::{Stream, ready};
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, LinkedChunkId, Update},
 };
+use pin_project_lite::pin_project;
 use ruma::api::Direction;
 use tracing::{error, trace};
 
@@ -42,7 +48,56 @@ use super::{
     },
     PostProcessingOrigin, RoomEventCacheInner, RoomEventCacheUpdate,
 };
-use crate::room::MessagesOptions;
+use crate::{event_cache::caches::pagination::SharedPaginationStatus, room::MessagesOptions};
+
+pin_project! {
+    /// A subscriber to a [`PaginationStatus`].
+    ///
+    /// This is a manual implementation of a map function on top of an internal type
+    /// representing a [`PaginationStatus`].
+    pub struct PaginationStatusSubscriber {
+        #[pin]
+        subscriber: Subscriber<SharedPaginationStatus>,
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for PaginationStatusSubscriber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PaginationStatusSubscriber").finish_non_exhaustive()
+    }
+}
+
+impl PaginationStatusSubscriber {
+    fn map(from: SharedPaginationStatus) -> PaginationStatus {
+        match from {
+            SharedPaginationStatus::Idle { hit_timeline_start } => {
+                PaginationStatus::Idle { hit_timeline_start }
+            }
+            SharedPaginationStatus::Paginating { .. } => PaginationStatus::Paginating,
+        }
+    }
+
+    pub fn get(&self) -> PaginationStatus {
+        Self::map(self.subscriber.get())
+    }
+
+    pub async fn next(&mut self) -> Option<PaginationStatus> {
+        self.subscriber.next().await.map(Self::map)
+    }
+
+    pub fn next_now(&mut self) -> PaginationStatus {
+        Self::map(self.subscriber.next_now())
+    }
+}
+
+impl Stream for PaginationStatusSubscriber {
+    type Item = PaginationStatus;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(ready!(self.project().subscriber.as_mut().poll_next(cx)).map(Self::map))
+    }
+}
 
 /// An API object to run pagination queries on a [`RoomEventCache`].
 ///
@@ -86,8 +141,8 @@ impl RoomPagination {
     }
 
     /// Returns a subscriber to the pagination status.
-    pub fn status(&self) -> Subscriber<PaginationStatus> {
-        self.0.cache.status().subscribe()
+    pub fn status(&self) -> PaginationStatusSubscriber {
+        PaginationStatusSubscriber { subscriber: self.0.cache.status().subscribe() }
     }
 
     #[cfg(test)]
@@ -99,8 +154,8 @@ impl RoomPagination {
 }
 
 impl PaginatedCache for Arc<RoomEventCacheInner> {
-    fn status(&self) -> &SharedObservable<PaginationStatus> {
-        &self.pagination_status
+    fn status(&self) -> &SharedObservable<SharedPaginationStatus> {
+        &self.shared_pagination_status
     }
 
     async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {

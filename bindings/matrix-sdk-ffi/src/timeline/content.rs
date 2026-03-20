@@ -333,6 +333,14 @@ pub struct LiveLocationContent {
     /// Whether this sharing session is currently active.
     pub is_live: bool,
 
+    /// The timestamp when this live location sharing session started
+    /// (from the `org.matrix.msc3488.ts` field of the originating
+    /// `beacon_info` state event).
+    ///
+    /// This marks the *beginning* of the session. The session expires at
+    /// `ts + timeout_ms`.
+    pub ts: Timestamp,
+
     /// An optional human-readable label for this sharing session.
     pub description: Option<String>,
 

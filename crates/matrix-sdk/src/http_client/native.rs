@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(target_os = "android")]
+use std::sync::Arc;
 use std::{
     fmt::Debug,
     mem,
@@ -26,6 +28,8 @@ use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 use reqwest::{Certificate, tls};
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
+#[cfg(target_os = "android")]
+use rustls::{RootCertStore, client::WebPkiServerVerifier};
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -184,6 +188,29 @@ impl HttpSettings {
 
         if let Some(read_timeout) = self.read_timeout {
             http_client = http_client.read_timeout(read_timeout);
+        }
+
+        // On Android there is a problem that causes some certificates to be incorrectly
+        // marked as revoked, so we build our own rustls instance with the right
+        // configuration.
+        // Remove when https://github.com/rustls/rustls-platform-verifier/issues/221 is fixed.
+        #[cfg(target_os = "android")]
+        {
+            let mut root_store = RootCertStore::empty();
+            // This seems to fix the 'revoked certificate' false positives issue
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+            // Also load the native certs
+            let native_certs = rustls_native_certs::load_native_certs().certs;
+            root_store.add_parsable_certificates(native_certs);
+
+            let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
+                .build()
+                .map_err(HttpError::VerifierBuilder)?;
+            let config = rustls::ClientConfig::builder()
+                .with_webpki_verifier(verifier)
+                .with_no_client_auth();
+            http_client = http_client.tls_backend_preconfigured(config);
         }
 
         if self.disable_ssl_verification {

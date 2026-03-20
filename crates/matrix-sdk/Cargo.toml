@@ -136,7 +136,6 @@ ruma = { workspace = true, features = [
     "unstable-msc2448",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
-    "unstable-msc4230",
     "unstable-msc4108",
     "unstable-msc4278",
 ] }
@@ -197,6 +196,10 @@ wiremock.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+rustls-native-certs = "0.8.3"
+webpki-roots = "1.0.6"
 
 [[test]]
 name = "integration"
